@@ -1,7 +1,6 @@
 """Antinuke (audit-log driven, threshold based) and Antiraid (join filters)."""
 from __future__ import annotations
 
-import os
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
@@ -9,7 +8,8 @@ from datetime import timedelta
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, antinuke_admin, chunk_embeds, has_perms, is_dangerous
+from core.config import settings
+from core.utils import Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
 
 A = discord.AuditLogAction
 MODULES = {
@@ -180,7 +180,6 @@ class Antinuke(commands.Cog):
         outcome = {"ban": "Ban", "kick": "Kick", "strip": "Strip"}.get(punishment, punishment.title())
         if actor is None:
             outcome = "Ban (not in server)"
-        failed = any(d.startswith("⚠️") for d in done)
         reverted = [d for d in done if not d.endswith("attacker") and not d.startswith("⚠️")
                     and "staff roles" not in d]
         info = dict(guild=guild, user=user, actor_id=actor_id, module=module, threshold=threshold,
@@ -198,7 +197,7 @@ class Antinuke(commands.Cog):
                 except discord.HTTPException:
                     pass
         # global copy: every bot developer
-        if os.getenv("ANTINUKE_DEV_ALERTS", "true").lower() != "false":
+        if settings.antinuke_dev_alerts:
             from cogs.authorization import developers
             for uid in await developers(self.bot):
                 if guild.owner_id == uid:

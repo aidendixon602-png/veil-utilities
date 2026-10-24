@@ -10,7 +10,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, Duration, UserError, chunk_embeds, has_perms, now, shorten, ts
+from core.utils import Colors, Context, Duration, UserError, chunk_embeds, now, shorten, ts
 
 A = discord.AuditLogAction
 
@@ -148,7 +148,7 @@ class DevTools(commands.Cog):
             e = discord.Embed(color=Colors.warn,
                               description=f"No revertible actions for {user.mention} "
                                           f"({skipped} already reverted or irreversible).")
-        e.set_footer(text=f"Found {found} entries in window • scanned {scanned} total")
+        e.description += f"\nFound **{found}** entries in window {window} (scanned **{scanned}** total)."
         e.timestamp = discord.utils.utcnow()
         await ctx.send(embed=e)
 

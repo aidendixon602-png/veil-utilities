@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from core.bot import Veil
+    from core.bot import Veil  # noqa: F401  (used in a string type hint)
 
 # ---------------------------------------------------------------- style
 class Colors:

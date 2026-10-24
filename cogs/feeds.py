@@ -12,6 +12,7 @@ import discord
 import feedparser
 from discord.ext import commands, tasks
 
+from core.config import settings
 from core.utils import Colors, Context, UserError, build_vars, chunk_embeds, has_perms, send_script, shorten
 
 PLATFORMS = {
@@ -35,9 +36,9 @@ class Feeds(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.rsshub = os.getenv("RSSHUB_URL", "https://rsshub.app").rstrip("/")
-        self.twitch_id = os.getenv("TWITCH_CLIENT_ID")
-        self.twitch_secret = os.getenv("TWITCH_CLIENT_SECRET")
+        self.rsshub = settings.rsshub_url
+        self.twitch_id = settings.twitch_client_id
+        self.twitch_secret = settings.twitch_client_secret
         self._twitch_token: tuple[str, float] | None = None
 
     async def cog_load(self):

@@ -7,7 +7,7 @@ import time
 import discord
 from discord.ext import commands, tasks
 
-from core.utils import Colors, Context, UserError, build_vars, check_role, chunk_embeds, has_perms, send_script
+from core.utils import Colors, Context, build_vars, check_role, chunk_embeds, has_perms, send_script
 
 
 def xp_for(level: int) -> int:

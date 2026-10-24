@@ -1,0 +1,18 @@
+[project]
+name = "veil-utilities"
+version = "1.0.0"
+description = "All-in-one Discord bot: antinuke, moderation, VoiceMaster, leveling, AI and more"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["lavalink"]
+
+[tool.ruff.lint]
+# pyflakes (real bugs: undefined names, unused imports/variables) + syntax errors
+select = ["F", "E9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "smoke_test.py"]

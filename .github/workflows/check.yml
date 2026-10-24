@@ -6,7 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - name: Ruff
+        run: ruff check .
+
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -18,8 +29,14 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Compile every file
-        run: python -m compileall -q main.py core cogs tests
-      - name: Load all modules offline
-        run: python tests/smoke_test.py
+        run: pip install -r requirements-dev.txt
+      - name: Validate .env.example
+        run: |
+          python - <<'EOF'
+          from dotenv import dotenv_values
+          from core.config import Settings
+          Settings.from_env({k: v for k, v in dotenv_values(".env.example").items() if v is not None})
+          print(".env.example is valid")
+          EOF
+      - name: Tests
+        run: python -m pytest -q

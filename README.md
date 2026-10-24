@@ -126,7 +126,7 @@ python main.py
 
 ## ⚙️ Configuration
 
-Everything lives in `.env` (copy `.env.example`). Only the first two are required.
+Everything lives in `.env` (copy `.env.example`). Only the first two are required. All settings are typed and validated in [`core/config.py`](core/config.py) — if a value is missing or malformed, the bot refuses to start and lists every problem at once.
 
 | Variable | Purpose |
 |---|---|
@@ -158,6 +158,16 @@ Hidden from everyone else and listed under the red **Secret** help button:
 | `lookupserver` · `mutuals` · `guilds` | Investigate servers and users |
 | `blacklist` · `dm` · `reload` · `restart` | Everything else you need to run it |
 
+## 🧪 Development
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .          # lint
+python -m pytest -q   # unit tests + offline smoke test (loads every module)
+```
+
+CI runs the same checks on every push, plus a validation of `.env.example`.
+
 ## 🧱 Project structure
 
 ```
@@ -165,6 +175,7 @@ veil-utilities/
 ├── main.py              entry point
 ├── core/
 │   ├── bot.py           prefixes, aliases, global checks, error tracking
+│   ├── config.py        typed, validated settings loaded from .env
 │   ├── db.py            SQLite + cached per-server JSON config
 │   ├── help.py          button help menu
 │   ├── modlog.py        case system
@@ -172,7 +183,7 @@ veil-utilities/
 ├── cogs/                one file per module (20 total)
 ├── assets/              banner + social preview
 ├── fonts/               bundled caption font (DejaVu)
-├── tests/smoke_test.py  loads every module offline; runs on every push
+├── tests/              config unit tests + offline smoke test; run on every push
 └── lavalink/            optional music server config
 ```
 

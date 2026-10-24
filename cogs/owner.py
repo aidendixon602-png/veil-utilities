@@ -14,6 +14,7 @@ import time
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, fmt_duration, shorten, ts
 
 
@@ -94,7 +95,7 @@ class Owner(commands.Cog):
         elif state.lower() in ("off", "disable", "false"):
             self.bot.maintenance = None
             await self.bot.change_presence(status=discord.Status.online, activity=discord.Activity(
-                type=discord.ActivityType.watching, name=os.getenv("STATUS", "veil utilities | ,help")))
+                type=discord.ActivityType.watching, name=settings.status))
             msg = "Maintenance mode **off**"
         else:
             raise UserError("Use `maintenance on [reason]` or `maintenance off`")
@@ -149,7 +150,7 @@ class Owner(commands.Cog):
     @commands.command(name="botlogs", hidden=True, aliases=["logfile", "console"])
     async def botlogs(self, ctx: Context, lines: int = 60):
         """The last N lines of the bot's log file"""
-        path = os.getenv("LOG_FILE", "veil.log")
+        path = settings.log_file
         if not os.path.exists(path):
             raise UserError(f"No log file at `{path}`")
         with open(path, "rb") as f:

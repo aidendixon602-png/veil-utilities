@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 from collections import deque
 import logging
-import os
 import time
 import traceback
 
@@ -12,6 +11,7 @@ import aiohttp
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.db import Database
 from core.help import Help
 from core.utils import Colors, Context, Ignored, UserError
@@ -29,7 +29,7 @@ EXTENSIONS = [
 
 class Veil(commands.AutoShardedBot):
     def __init__(self):
-        owners = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split(",") if x}
+        owners = set(settings.owner_ids)
         super().__init__(
             command_prefix=self._get_prefix,
             intents=discord.Intents.all(),
@@ -38,17 +38,17 @@ class Veil(commands.AutoShardedBot):
             strip_after_prefix=True,
             owner_ids=owners or None,
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, replied_user=False),
-            activity=discord.Activity(type=discord.ActivityType.watching, name=os.getenv("STATUS", "veil utilities | ,help")),
+            activity=discord.Activity(type=discord.ActivityType.watching, name=settings.status),
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
-            max_messages=1000 if os.getenv("LOW_MEMORY", "false").lower() == "true" else 5000,
+            max_messages=1000 if settings.low_memory else 5000,
         )
-        self.default_prefix = os.getenv("PREFIX", ",")
-        self.db = Database(os.getenv("DB_PATH", "veil.db"))
+        self.default_prefix = settings.prefix
+        self.db = Database(settings.db_path)
         self.session: aiohttp.ClientSession | None = None
         self.started_at = time.time()
         self.blacklist: set[int] = set()
         self.authorized: set[int] = set()
-        self.auth_required = os.getenv("AUTH_REQUIRED", "true").lower() != "false"
+        self.auth_required = settings.auth_required
         # developer controls (persisted in config under guild 0, module "global")
         self.maintenance: str | None = None
         self.killswitch: set[str] = set()
@@ -135,7 +135,7 @@ class Veil(commands.AutoShardedBot):
         if await self.is_owner(ctx.author):
             return True
         if self.maintenance is not None:
-            raise UserError(f"🛠️ The bot is under maintenance right now"
+            raise UserError("🛠️ The bot is under maintenance right now"
                             + (f": **{self.maintenance}**" if self.maintenance else "") + ". Try again soon.")
         root_name = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in self.killswitch or root_name in self.killswitch:
@@ -205,7 +205,7 @@ class Veil(commands.AutoShardedBot):
         await ctx.send(embed=discord.Embed(color=Colors.error,
                                            description=f"❌ Something went wrong: `{type(error).__name__}: {error}`"[:3900]
                                            + f"\nError ID: `{record['id']}`"))
-        channel = self.get_channel(int(os.getenv("ERROR_LOG_CHANNEL") or 0))
+        channel = self.get_channel(settings.error_log_channel or 0)
         if channel:
             e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",
                               description=f"```py\n{tb[-3900:]}```", timestamp=discord.utils.utcnow())

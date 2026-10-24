@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import base64
-import os
 import time
 
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.utils import Context, UserError, shorten
 
 API = "https://api.spotify.com/v1"
@@ -25,8 +25,8 @@ class SpotifyCog(commands.Cog, name="Spotify"):
 
     def __init__(self, bot):
         self.bot = bot
-        self.cid = os.getenv("SPOTIFY_CLIENT_ID")
-        self.secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+        self.cid = settings.spotify_client_id
+        self.secret = settings.spotify_client_secret
         self.token: str | None = None
         self.expires = 0.0
 

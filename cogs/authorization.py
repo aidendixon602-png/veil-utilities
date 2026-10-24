@@ -9,11 +9,11 @@ Flow
 from __future__ import annotations
 
 import logging
-import os
 
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, now, ts
 
 log = logging.getLogger("veil.auth")
@@ -60,8 +60,8 @@ class Authorization(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.swept = False
-        self.support = os.getenv("SUPPORT_URL")
-        self.log_channel = int(os.getenv("AUTH_LOG_CHANNEL") or 0)
+        self.support = settings.support_url
+        self.log_channel = settings.auth_log_channel or 0
 
     async def cog_load(self):
         self.bot.add_dynamic_items(AuthorizeButton)
@@ -168,7 +168,7 @@ class Authorization(commands.Cog):
         devs = await developers(self.bot)
         # First run: grandfather every server the bot is already in, so turning this on doesn't wipe you out.
         first_run = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM authorized"))["c"] == 0
-        if first_run and os.getenv("AUTH_GRANDFATHER", "true").lower() != "false":
+        if first_run and settings.auth_grandfather:
             for g in self.bot.guilds:
                 await self.authorize(g.id, 0, "grandfathered on first run")
             log.info("Authorization: grandfathered %d existing servers", len(self.bot.guilds))

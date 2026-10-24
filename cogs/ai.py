@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import random
 import urllib.parse
 from collections import defaultdict, deque
@@ -12,6 +11,7 @@ import aiohttp
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.utils import Colors, Context, UserError, shorten
 
 SYSTEM = ("You are veil utilities, a friendly, concise assistant inside a Discord server. "
@@ -25,10 +25,10 @@ class AI(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.key = os.getenv("AI_API_KEY")
-        self.base = os.getenv("AI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        self.model = os.getenv("AI_MODEL", "gpt-4o-mini")
-        self.ocr_key = os.getenv("OCR_SPACE_API_KEY")
+        self.key = settings.ai_api_key
+        self.base = settings.ai_base_url
+        self.model = settings.ai_model
+        self.ocr_key = settings.ocr_space_api_key
         self.history: dict[tuple[int, int], deque] = defaultdict(lambda: deque(maxlen=12))
 
     # ------------------------------------------------------------ chat

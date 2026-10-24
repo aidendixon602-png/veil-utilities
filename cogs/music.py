@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import cast
 
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, shorten
 
 try:
@@ -33,11 +33,11 @@ class Music(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        uri = os.getenv("LAVALINK_URI")
+        uri = settings.lavalink_uri
         if not uri or wavelink is None:
             log.info("Music disabled (no LAVALINK_URI)")
             return
-        node = wavelink.Node(uri=uri, password=os.getenv("LAVALINK_PASSWORD", "youshallnotpass"),
+        node = wavelink.Node(uri=uri, password=settings.lavalink_password,
                              inactive_player_timeout=300)
         self.bot.loop.create_task(self._connect(node))
 
@@ -49,7 +49,7 @@ class Music(commands.Cog):
             log.exception("Could not connect to Lavalink")
 
     async def cog_check(self, ctx: Context) -> bool:
-        if wavelink is None or not os.getenv("LAVALINK_URI"):
+        if wavelink is None or not settings.lavalink_uri:
             raise UserError("Music isn't configured on this bot (no Lavalink server)")
         if not ctx.guild:
             raise commands.NoPrivateMessage()

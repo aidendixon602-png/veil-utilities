@@ -1,7 +1,6 @@
 """Moderation: bans, timeouts, warns, purge, locks, roles, jail, cases."""
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import timedelta
 from typing import Optional

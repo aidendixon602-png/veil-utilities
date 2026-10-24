@@ -1,12 +1,12 @@
 """Integrations: Last.fm, Urban Dictionary, weather, GitHub, crypto, Minecraft, Roblox, translate, Wikipedia."""
 from __future__ import annotations
 
-import os
 import urllib.parse
 
 import discord
 from discord.ext import commands
 
+from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, shorten, ts
 
 LASTFM = "https://ws.audioscrobbler.com/2.0/"
@@ -18,7 +18,7 @@ class Integrations(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.lastfm_key = os.getenv("LASTFM_API_KEY")
+        self.lastfm_key = settings.lastfm_api_key
 
     async def get_json(self, url: str, **params):
         async with self.bot.session.get(url, params=params or None) as r:

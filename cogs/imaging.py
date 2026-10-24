@@ -13,10 +13,11 @@ import discord
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageSequence
 
+from core.config import settings
 from core.utils import Context, UserError
 
 MAX_BYTES = 8 * 1024 * 1024
-LOW_MEMORY = os.getenv("LOW_MEMORY", "false").lower() == "true"
+LOW_MEMORY = settings.low_memory
 MAX_FRAMES = 40 if LOW_MEMORY else 80
 MAX_SIDE = 768 if LOW_MEMORY else 1024
 BUNDLED_FONT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts", "caption.ttf")

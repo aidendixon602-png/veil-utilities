@@ -22,3 +22,7 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+
+# tooling
+.pytest_cache/
+.ruff_cache/
