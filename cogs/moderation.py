@@ -10,8 +10,8 @@ import discord
 from discord.ext import commands
 
 from core.modlog import case_line, create_case, dm_target
-from core.utils import (Colors, Context, Duration, UserError, check_hierarchy, check_role, chunk_embeds,
-                        fmt_duration, has_perms, is_dangerous, now, parse_duration, ts)
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, check_hierarchy, check_role,
+                        chunk_embeds, fmt_duration, has_perms, is_dangerous, now, parse_duration, shorten, ts)
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -150,15 +150,32 @@ class Moderation(commands.Cog):
         num = await create_case(self.bot, ctx.guild, f"timeout ({human})", member, ctx.author, reason)
         await ctx.approve(f"Timed out **{member}** for **{human}** • case `#{num}`")
 
-    @commands.command(aliases=["unmute", "untime", "uto"])
+    @commands.group(aliases=["unmute", "untime", "uto"], invoke_without_command=True)
     @has_perms(moderate_members=True)
     async def untimeout(self, ctx: Context, member: discord.Member, *, reason: str = None):
-        """Remove a timeout"""
+        """Remove a timeout (use `untimeout all` for everyone)"""
         if not member.is_timed_out():
             raise UserError(f"{member.mention} isn't timed out")
         await member.timeout(None, reason=f"{ctx.author}: {reason}")
         await create_case(self.bot, ctx.guild, "untimeout", member, ctx.author, reason)
-        await ctx.approve(f"Removed timeout from **{member}**")
+        await ctx.approve(f"{member.mention}'s timeout has been removed.")
+
+    @untimeout.command(name="all")
+    @has_perms(moderate_members=True)
+    @commands.bot_has_permissions(moderate_members=True)
+    async def untimeout_all(self, ctx: Context, *, reason: str = None):
+        """Remove timeouts from every timed-out member"""
+        timed = [m for m in ctx.guild.members if m.is_timed_out()]
+        if not timed:
+            raise UserError("Nobody is timed out")
+        done = 0
+        for m in timed:
+            try:
+                await m.timeout(None, reason=f"unmute all by {ctx.author}: {reason}")
+                done += 1
+            except discord.HTTPException:
+                pass
+        await ctx.approve(f"Removed timeouts from **{done}** member(s).")
 
     # ================================================================ warns
     @commands.command()
@@ -465,8 +482,14 @@ class Moderation(commands.Cog):
             await member.remove_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Removed {role.mention} from {member.mention}")
         else:
+            if await self._blacklisted(ctx.guild.id, role.id):
+                raise UserError(f"{role.mention} is blacklisted and can't be assigned")
             await member.add_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Added {role.mention} to {member.mention}")
+
+    async def _blacklisted(self, guild_id: int, role_id: int) -> bool:
+        cfg = await self.bot.db.get_config(guild_id, "roleblacklist")
+        return role_id in cfg.get("roles", [])
 
     @role.command(name="create")
     @has_perms(manage_roles=True)
@@ -509,6 +532,8 @@ class Moderation(commands.Cog):
 
     async def _mass_role(self, ctx: Context, role: discord.Role, add: bool, which):
         check_role(ctx, role)
+        if add and await self._blacklisted(ctx.guild.id, role.id):
+            raise UserError(f"{role.mention} is blacklisted and can't be assigned")
         targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))]
         if not targets:
             raise UserError("Nobody to update")
@@ -556,6 +581,126 @@ class Moderation(commands.Cog):
         await member.remove_roles(*roles, reason=f"stripstaff by {ctx.author}")
         await create_case(self.bot, ctx.guild, "stripstaff", member, ctx.author, f"removed {len(roles)} roles")
         await ctx.approve(f"Stripped **{len(roles)}** staff roles from {member.mention}")
+
+    @commands.command(aliases=["rolelist"])
+    @commands.guild_only()
+    async def roles(self, ctx: Context):
+        """List every role in the server, highest first"""
+        rs = sorted([r for r in ctx.guild.roles if not r.is_default()], key=lambda r: r.position, reverse=True)
+        lines = [f"{r.mention} — `{r.id}` · {len(r.members)} member(s)" for r in rs]
+        await ctx.paginate(chunk_embeds(f"Server Roles ({len(rs)})", lines))
+
+    # ================================================================ role blacklist
+    @commands.group(aliases=["rbl", "rolebl"], invoke_without_command=True)
+    @has_perms(manage_roles=True)
+    async def roleblacklist(self, ctx: Context):
+        """Blacklist roles so the bot refuses to assign them"""
+        await ctx.send_help(ctx.command)
+
+    @roleblacklist.command(name="add")
+    @has_perms(manage_roles=True)
+    async def rbl_add(self, ctx: Context, *, role: discord.Role):
+        """Blacklist a role"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        roles = cfg.setdefault("roles", [])
+        if role.id in roles:
+            raise UserError(f"{role.mention} is already blacklisted")
+        roles.append(role.id)
+        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+        await ctx.approve("Blacklisted **1** role(s).")
+
+    @roleblacklist.command(name="remove", aliases=["rem", "delete"])
+    @has_perms(manage_roles=True)
+    async def rbl_remove(self, ctx: Context, *, role: str):
+        """Unblacklist a role, or `remove deleted` to purge deleted roles"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        roles = cfg.setdefault("roles", [])
+        if role.lower() == "deleted":
+            gone = [rid for rid in roles if ctx.guild.get_role(rid) is None]
+            if not gone:
+                return await ctx.warn("No deleted roles in the blacklist.")
+            cfg["roles"] = [rid for rid in roles if rid not in gone]
+            await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+            return await ctx.approve(f"Removed **{len(gone)}** deleted role(s) from the blacklist.")
+        resolved = await commands.RoleConverter().convert(ctx, role)
+        if resolved.id not in roles:
+            raise UserError(f"{resolved.mention} isn't blacklisted")
+        roles.remove(resolved.id)
+        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+        await ctx.approve(f"Unblacklisted {resolved.mention}.")
+
+    @roleblacklist.command(name="list")
+    @has_perms(manage_roles=True)
+    async def rbl_list(self, ctx: Context):
+        """View blacklisted roles"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        lines = [f"<@&{rid}> (`{rid}`)" for rid in cfg.get("roles", [])]
+        await ctx.paginate(chunk_embeds("Blacklisted roles", lines, numbered=False))
+
+    # ================================================================ permissions across all roles
+    def _eligible_roles(self, ctx: Context):
+        owner = ctx.author.id == ctx.guild.owner_id
+        return [r for r in ctx.guild.roles if not r.is_default() and not r.managed
+                and r < ctx.guild.me.top_role and (owner or r < ctx.author.top_role)]
+
+    @commands.command(aliases=["rpa"])
+    @has_perms(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    @commands.max_concurrency(1, commands.BucketType.guild)
+    async def removepermall(self, ctx: Context, *, permission: str):
+        """Remove a permission from every role below me (e.g. `rpa administrator` after a raid)"""
+        from cogs.settings import VALID_PERMS
+        perm = permission.lower().replace(" ", "_")
+        if perm not in VALID_PERMS:
+            raise UserError(f"`{perm}` isn't a valid permission")
+        changed = []
+        for r in self._eligible_roles(ctx):
+            if getattr(r.permissions, perm):
+                new = discord.Permissions(**{**dict(r.permissions), perm: False})
+                try:
+                    await r.edit(permissions=new, reason=f"removepermall by {ctx.author}")
+                    changed.append(r.name)
+                except discord.HTTPException:
+                    pass
+        if not changed:
+            raise UserError(f"No roles below me had `{perm}`.")
+        e = discord.Embed(color=Colors.success, description=f"Removed `{perm}` from **{len(changed)}** role(s).")
+        e.add_field(name=f"Updated ({len(changed)})", value=shorten(", ".join(changed), 1024))
+        e.set_author(name=ctx.guild.me.display_name, icon_url=ctx.guild.me.display_avatar.url)
+        e.set_footer(text=f"{ctx.clean_prefix}removepermall")
+        e.timestamp = discord.utils.utcnow()
+        await ctx.send(embed=e)
+
+    @commands.command(aliases=["apa"])
+    @has_perms(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    @commands.max_concurrency(1, commands.BucketType.guild)
+    async def addpermall(self, ctx: Context, *, permission: str):
+        """Add a (non-dangerous) permission to every role below me"""
+        from cogs.settings import VALID_PERMS
+        perm = permission.lower().replace(" ", "_")
+        if perm not in VALID_PERMS:
+            raise UserError(f"`{perm}` isn't a valid permission")
+        if perm in DANGEROUS_PERMS:
+            raise UserError(f"`{perm}` is too dangerous to grant to every role at once — that's indistinguishable "
+                            f"from a nuke. Grant it per role, or use fake permissions (`fp grant`) instead.")
+        changed = []
+        for r in self._eligible_roles(ctx):
+            if not getattr(r.permissions, perm):
+                new = discord.Permissions(**{**dict(r.permissions), perm: True})
+                try:
+                    await r.edit(permissions=new, reason=f"addpermall by {ctx.author}")
+                    changed.append(r.name)
+                except discord.HTTPException:
+                    pass
+        if not changed:
+            raise UserError(f"Every role below me already had `{perm}`.")
+        e = discord.Embed(color=Colors.success, description=f"Added `{perm}` to **{len(changed)}** role(s).")
+        e.add_field(name=f"Updated ({len(changed)})", value=shorten(", ".join(changed), 1024))
+        e.set_author(name=ctx.guild.me.display_name, icon_url=ctx.guild.me.display_avatar.url)
+        e.set_footer(text=f"{ctx.clean_prefix}addpermall")
+        e.timestamp = discord.utils.utcnow()
+        await ctx.send(embed=e)
 
     # ================================================================ nicknames
     @commands.command(aliases=["nick"])

@@ -7,8 +7,8 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)
 ![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)
-![commands](https://img.shields.io/badge/commands-353-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-20-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-371-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-21-b10f2e?style=flat-square&labelColor=1a1118)
 ![storage](https://img.shields.io/badge/storage-sqlite-b10f2e?style=flat-square&logo=sqlite&logoColor=white&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
@@ -38,7 +38,7 @@ The bot only works in servers a developer has **authorized**. It leaves anywhere
 <td width="33%" valign="top">
 
 ### 🎭 Fake permissions
-Give mods `ban members` **only through the bot**, so nobody on staff needs dangerous real Discord permissions.
+Give mods `ban members` **only through the bot** — per role, or per member with named **permission levels** (`uperm add @user moderator`). Nobody on staff needs dangerous real Discord permissions.
 
 </td>
 </tr>
@@ -73,6 +73,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |
 | 🎙️ | **VoiceMaster** | Join-to-create channels with a button panel: lock, hide, rename, limit, claim, transfer. Remembers each user's settings |
+| 🔑 | **Permissions** | Named per-member levels (Helper → Supreme Leader), role blacklist, `removepermall` to strip a permission from every role after a raid |
 | 🧩 | **Server** | Welcome / goodbye / boost, autoroles, reaction & button roles, autoresponders, sticky messages, starboard, counters, bump reminders, vanity rewards |
 | 📈 | **Levels** | Message **and** voice XP, role rewards, XP multipliers, leaderboard |
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |

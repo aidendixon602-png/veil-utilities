@@ -1,6 +1,6 @@
 # Command reference
 
-353 commands. Default prefix `,`. `<required>` `[optional]`.
+371 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -252,6 +252,7 @@ _Keep your server in line_
 
 | Command | Description | Permission |
 |---|---|---|
+| `addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
@@ -280,6 +281,7 @@ _Keep your server in line_
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
 | `reason <case> <reason>` | Update the reason on a case | moderate members |
+| `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `role <member> <role>` (r) | Toggle a role on a member | manage roles |
 | `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator |
 | `role bots <action> <role>` | Add/remove a role for all bots | administrator |
@@ -289,6 +291,11 @@ _Keep your server in line_
 | `role hoist <role>` | Toggle showing a role separately | manage roles |
 | `role humans <action> <role>` | Add/remove a role for all humans | administrator |
 | `role rename <role> <name>` | Rename a role | manage roles |
+| `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles |
+| `roleblacklist add <role>` | Blacklist a role | manage roles |
+| `roleblacklist list` | View blacklisted roles | manage roles |
+| `roleblacklist remove <role>` (rem, delete) | Unblacklist a role, or `remove deleted` to purge deleted roles | manage roles |
+| `roles` (rolelist) | List every role in the server, highest first |  |
 | `slowmode [delay=0] [channel]` (sm) | Set slowmode (e.g. `10s`, `5m`, `0` to disable) | manage channels |
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members |
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator |
@@ -299,7 +306,8 @@ _Keep your server in line_
 | `unjail <member> [reason]` | Release a member and give back their roles | moderate members |
 | `unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels |
 | `unlockdown` | Unlock every text channel | administrator |
-| `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout | moderate members |
+| `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout (use `untimeout all` for everyone) | moderate members |
+| `untimeout all [reason]` | Remove timeouts from every timed-out member | moderate members |
 | `warn <member> [reason=No reason provided]` | Warn a member. Auto-punishments can be set with `warnpunish` | moderate members |
 | `warnings <member>` (warns) | List a member's warnings | moderate members |
 | `warnpunish <warnings> <action> [duration]` | Auto-punish at N warnings: `warnpunish 3 timeout 1h`, `warnpunish 5 ban`, `warnpunish 3 none` | administrator |
@@ -324,6 +332,22 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `song` (playing, current) | What's playing |  |
 | `stop` (dc, disconnect) | Stop and leave |  |
 | `volume <volume>` (vol, v) | Set volume (0–150) |  |
+
+## 🔑 Permissions
+_Assign named permission levels to members_
+
+| Command | Description | Permission |
+|---|---|---|
+| `permlevels` (plevels, plvl) | View the permission levels available in this server |  |
+| `permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) |  |
+| `permlevels rank <key> <rank>` | Change a level's rank (server owner) |  |
+| `permlevels rename <key> <name>` | Rename a level (server owner) |  |
+| `userperm` (uperm, ups) | Manage members' permission levels |  |
+| `userperm add <member> <level>` (set, give) | Assign a permission level to a member | administrator |
+| `userperm check [member]` (view, info) | Check a member's permission level and what it grants |  |
+| `userperm list` (all) | List members with a permission level | administrator |
+| `userperm remove <member>` (rem, delete, unset) | Remove a member's permission level | administrator |
+| `userperm remove deleted` | Purge permission levels for members who left the server | administrator |
 
 ## ⚙️ Settings
 _Configure how the bot behaves in your server_

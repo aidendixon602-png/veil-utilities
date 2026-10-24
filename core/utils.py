@@ -38,21 +38,42 @@ class Ignored(commands.CheckFailure):
 
 # ---------------------------------------------------------------- context
 class Context(commands.Context["Veil"]):
-    async def _reply(self, emoji: str, color: int, text: str, **kw):
-        embed = discord.Embed(description=f"{emoji} {self.author.mention}: {text}", color=color)
+    async def _footer(self) -> str | None:
+        if self.guild is None:
+            return None
+        from core import perms
+        cmd = self.command.qualified_name if self.command else ""
+        seg = f"{self.clean_prefix}{cmd}".rstrip()
+        try:
+            cfg = await self.bot.db.get_config(self.guild.id, "permlevels")
+            is_dev = await self.bot.is_owner(self.author)
+            is_owner = self.author.id == self.guild.owner_id
+            lab = perms.label(cfg, self.author, is_owner=is_owner, is_dev=is_dev)
+        except Exception:
+            lab = None
+        return f"{seg} · {lab}" if lab else (seg or None)
+
+    async def _styled(self, color: int, text: str, **kw):
+        embed = discord.Embed(description=text, color=color)
+        if self.bot.user:
+            embed.set_author(name=self.bot.user.display_name, icon_url=self.bot.user.display_avatar.url)
+        footer = await self._footer()
+        if footer:
+            embed.set_footer(text=footer)
+            embed.timestamp = discord.utils.utcnow()
         return await self.send(embed=embed, **kw)
 
     async def approve(self, text: str, **kw):
-        return await self._reply(E.ok, Colors.success, text, **kw)
+        return await self._styled(Colors.success, text, **kw)
 
     async def warn(self, text: str, **kw):
-        return await self._reply(E.warn, Colors.warn, text, **kw)
+        return await self._styled(Colors.warn, text, **kw)
 
     async def deny(self, text: str, **kw):
-        return await self._reply(E.no, Colors.error, text, **kw)
+        return await self._styled(Colors.error, text, **kw)
 
     async def neutral(self, text: str, **kw):
-        return await self.send(embed=discord.Embed(description=text, color=Colors.neutral), **kw)
+        return await self._styled(Colors.neutral, text, **kw)
 
     async def paginate(self, embeds: list[discord.Embed]):
         if not embeds:
@@ -360,6 +381,8 @@ def has_perms(**perms: bool):
         granted: set[str] = set()
         for role in ctx.author.roles:
             granted.update(fake.get(str(role.id), []))
+        from core import perms as _perms
+        granted.update(_perms.level_perms(await ctx.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author.id))
         if "administrator" in granted:
             return True
         still = [m for m in missing if m not in granted]
