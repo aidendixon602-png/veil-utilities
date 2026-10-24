@@ -8,8 +8,8 @@ import re
 import discord
 from discord.ext import commands, tasks
 
-from core.utils import (Colors, Context, UserError, build_message, build_vars, check_role, chunk_embeds,
-                        has_perms, is_dangerous, now, send_script, shorten)
+from core.utils import (Colors, Context, UserError, antinuke_guard, build_message, build_vars, check_role,
+                        chunk_embeds, has_perms, is_dangerous, now, send_script, shorten)
 
 
 def self_assignable(role: discord.Role) -> bool:
@@ -174,6 +174,8 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "boost")
         if role:
             check_role(ctx, role)
+            if is_dangerous(role.permissions):
+                await antinuke_guard(ctx, "permissions")
         cfg["role"] = role.id if role else None
         await self.put(ctx.guild.id, "boost", cfg)
         await ctx.approve(f"Booster reward role: {role.mention if role else 'none'}")
@@ -236,6 +238,8 @@ class Config(commands.Cog):
         if role.id in lst:
             lst.remove(role.id); msg = f"Removed {role.mention} from **{bucket}** autoroles"
         else:
+            if is_dangerous(role.permissions):  # every new member would get staff powers
+                await antinuke_guard(ctx, "permissions")
             lst.append(role.id); msg = f"Added {role.mention} to **{bucket}** autoroles"
         await self.put(ctx.guild.id, "autorole", ar)
         await ctx.approve(msg)
@@ -728,6 +732,8 @@ class Config(commands.Cog):
         if not role or not text:
             return await ctx.send_help(ctx.command)
         check_role(ctx, role)
+        if is_dangerous(role.permissions):  # anyone could claim it by editing their status
+            await antinuke_guard(ctx, "permissions")
         await self.put(ctx.guild.id, "vanity", {"role": role.id, "text": text.lower()})
         await ctx.approve(f"Members with `{text}` in their status get {role.mention}")
 

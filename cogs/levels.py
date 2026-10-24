@@ -8,7 +8,8 @@ import time
 import discord
 from discord.ext import commands, tasks
 
-from core.utils import Colors, Context, build_vars, check_role, chunk_embeds, has_perms, send_script
+from core.utils import (Colors, Context, antinuke_guard, build_vars, check_role, chunk_embeds, has_perms, is_dangerous,
+                        send_script)
 
 
 def xp_for(level: int) -> int:
@@ -216,6 +217,8 @@ class Levels(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         if role:
             check_role(ctx, role)
+            if is_dangerous(role.permissions):  # anyone could earn staff powers by chatting
+                await antinuke_guard(ctx, "permissions")
             cfg["roles"][str(level)] = role.id
         else:
             cfg["roles"].pop(str(level), None)

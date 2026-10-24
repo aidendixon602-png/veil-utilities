@@ -9,8 +9,9 @@ import discord
 from discord.ext import commands
 
 from core.modlog import case_line, create_case, dm_target
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, check_hierarchy, check_role,
-                        chunk_embeds, fmt_duration, has_perms, is_dangerous, now, parse_duration, shorten, ts)
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy,
+                        check_role, chunk_embeds, fmt_duration, has_perms, is_dangerous, now, parse_duration, shorten,
+                        ts)
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -37,6 +38,8 @@ class Moderation(commands.Cog):
             delete, reason = 604800, reason.replace("--purge", "").strip() or None
         if isinstance(user, discord.Member):
             check_hierarchy(ctx, user, "ban")
+        await antinuke_guard(ctx, "ban")
+        if isinstance(user, discord.Member):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
         await ctx.guild.ban(user, reason=f"{ctx.author} ({ctx.author.id}): {reason}", delete_message_seconds=delete)
         num = await create_case(self.bot, ctx.guild, "ban", user, ctx.author, reason)
@@ -63,6 +66,7 @@ class Moderation(commands.Cog):
     async def softban(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Ban and immediately unban to wipe a member's recent messages"""
         check_hierarchy(ctx, member, "softban")
+        await antinuke_guard(ctx, "ban")
         await member.ban(reason=f"softban by {ctx.author}: {reason}", delete_message_seconds=604800)
         await ctx.guild.unban(member, reason="softban")
         num = await create_case(self.bot, ctx.guild, "softban", member, ctx.author, reason)
@@ -85,6 +89,7 @@ class Moderation(commands.Cog):
             raise UserError("Nobody joined in that window")
         if not await ctx.confirm(f"Ban **{len(targets)}** members who joined in the last {minutes} minutes?"):
             return await ctx.neutral("Cancelled")
+        await antinuke_guard(ctx, "ban", len(targets))
         result = await ctx.guild.bulk_ban(targets, reason=f"massban by {ctx.author}: {reason}")
         await create_case(self.bot, ctx.guild, "massban", ctx.author, ctx.author, f"{len(result.banned)} users: {reason}")
         await ctx.approve(f"Banned **{len(result.banned)}** members ({len(result.failed)} failed)")
@@ -96,6 +101,7 @@ class Moderation(commands.Cog):
     async def kick(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Kick a member"""
         check_hierarchy(ctx, member, "kick")
+        await antinuke_guard(ctx, "kick")
         await dm_target(member, ctx.guild, "kicked", ctx.author, reason)
         await member.kick(reason=f"{ctx.author}: {reason}")
         num = await create_case(self.bot, ctx.guild, "kick", member, ctx.author, reason)
@@ -161,6 +167,8 @@ class Moderation(commands.Cog):
         rules = await self._cfg(ctx.guild.id, "warnpunish")
         action = rules.get(str(count))
         if action:
+            if action in ("kick", "ban"):  # the warning stands even if antinuke blocks the escalation
+                await antinuke_guard(ctx, action)
             try:
                 if action == "kick":
                     await member.kick(reason=f"Reached {count} warnings")
@@ -433,6 +441,7 @@ class Moderation(commands.Cog):
         """Clone this channel and delete the original (wipes all messages)"""
         if not await ctx.confirm(f"Nuke {ctx.channel.mention}? This deletes every message."):
             return await ctx.neutral("Cancelled")
+        await antinuke_guard(ctx, "channeldelete")
         new = await ctx.channel.clone(reason=f"nuked by {ctx.author}")
         await new.edit(position=ctx.channel.position)
         await ctx.channel.delete(reason=f"nuked by {ctx.author}")
@@ -451,6 +460,8 @@ class Moderation(commands.Cog):
         else:
             if await self._blacklisted(ctx.guild.id, role.id):
                 raise UserError(f"{role.mention} is blacklisted and can't be assigned")
+            if is_dangerous(role.permissions):
+                await antinuke_guard(ctx, "permissions")
             await member.add_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Added {role.mention} to {member.mention}")
 
@@ -462,6 +473,7 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     async def role_create(self, ctx: Context, *, name: str):
         """Create a role"""
+        await antinuke_guard(ctx, "rolecreate")
         r = await ctx.guild.create_role(name=name, reason=f"by {ctx.author}")
         await ctx.approve(f"Created {r.mention}")
 
@@ -470,6 +482,7 @@ class Moderation(commands.Cog):
     async def role_delete(self, ctx: Context, *, role: discord.Role):
         """Delete a role"""
         check_role(ctx, role)
+        await antinuke_guard(ctx, "roledelete")
         await role.delete(reason=f"by {ctx.author}")
         await ctx.approve(f"Deleted **{role.name}**")
 

@@ -11,6 +11,10 @@ from discord.ext import commands
 from core.config import settings
 from core.utils import Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
 
+# verbs for the "that would … at once" message
+VERBS = {"ban": "ban", "kick": "kick", "channeldelete": "delete channels for", "roledelete": "delete roles for",
+         "rolecreate": "create roles for", "permissions": "grant staff permissions to"}
+
 A = discord.AuditLogAction
 MODULES = {
     "ban": "Mass banning members", "kick": "Mass kicking members",
@@ -39,7 +43,7 @@ LABELS = {
 
 
 def alert_embed(*, guild, user, actor_id, module, threshold, window, punishment, highest, roles,
-                reverted, failed, footer) -> discord.Embed:
+                reverted, failed, footer, via=None) -> discord.Embed:
     """The alert card sent to the log channel, server owner and developers."""
     e = discord.Embed(title="Antinuke Triggered", color=Colors.error, timestamp=discord.utils.utcnow())
     if user:
@@ -47,14 +51,14 @@ def alert_embed(*, guild, user, actor_id, module, threshold, window, punishment,
     e.add_field(name="Guild", value=f"**{guild.name}**\n`{guild.id}`")
     e.add_field(name="User", value=f"{user.name if user else 'Unknown'}\n(`{actor_id}`)")
     e.add_field(name="Bot", value="Yes" if user and user.bot else "No")
-    e.add_field(name="Triggered Action", value=LABELS.get(module, module))
+    e.add_field(name="Triggered Action", value=LABELS.get(module, module) + (f"\nvia bot command `{via}`" if via else ""))
     e.add_field(name="Threshold", value=f"{threshold} in {window}s")
     e.add_field(name="Punishment", value=punishment + (" (failed)" if failed else ""))
     e.add_field(name="Highest Role", value=highest or "None", inline=False)
     held = ", ".join(roles)
     e.add_field(name="Roles Held", value=(held[:1020] + "…") if len(held) > 1024 else (held or "None"), inline=False)
     if reverted:
-        e.add_field(name="Reverted", value="\n".join(reverted)[:1024], inline=False)
+        e.add_field(name="Response", value="\n".join(reverted)[:1024], inline=False)
     if failed:
         e.add_field(name="Problems", value="\n".join(failed)[:1024], inline=False)
     e.set_footer(text=footer)
@@ -125,7 +129,68 @@ class Antinuke(commands.Cog):
         del self.hits[key]  # don't keep an empty deque per (guild, user, module) forever
         await self.respond(guild, cfg, actor_id, module, entry, threshold)
 
-    async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1):
+    # ================================================================ bot-command guard
+    async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
+        return (user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", [])
+                or user_id in cfg.get("admins", []) or await self.bot.is_owner(discord.Object(user_id)))
+
+    async def guard(self, ctx: Context, module: str, amount: int = 1) -> None:
+        """Count a destructive action done *through the bot* against the member who ran the command.
+
+        Discord's audit log credits those actions to the bot, which the audit-log listener ignores, so without
+        this anyone with bot permissions (a permission level or fake perms) could ban/delete freely while
+        antinuke watched nothing. Uses the same modules, thresholds, window and counter as direct actions,
+        but *blocks* the action that would hit the threshold instead of reacting after it happened.
+        """
+        guild = ctx.guild
+        cfg = await self.cfg(guild.id)
+        mod = cfg["modules"].get(module)
+        if not cfg.get("enabled") or not mod or not mod.get("on"):
+            return
+        if await self._trusted(guild, cfg, ctx.author.id):
+            return
+        threshold = 1 if module in INSTANT else max(1, int(mod.get("threshold", 3)))
+        window = cfg.get("window", 60)
+        key = (guild.id, ctx.author.id, module)
+        q = self.hits[key]
+        t = time.monotonic()
+        while q and t - q[0] > window:
+            q.popleft()
+        if amount > 1 and amount >= threshold:
+            # one bulk request (e.g. massban) over the limit: refuse, but don't treat it as an attack
+            if not q:
+                self.hits.pop(key, None)
+            raise UserError(f"🛡️ That would {VERBS.get(module, module)} **{amount}** at once — over this server's "
+                            f"antinuke limit ({threshold} per {window}s). The server owner or an antinuke admin "
+                            f"has to do this.")
+        if len(q) + amount >= threshold:
+            del self.hits[key]
+            await self.respond(guild, cfg, ctx.author.id, module, None, threshold, via=ctx.command.qualified_name)
+            raise UserError(f"🛡️ Antinuke blocked this: **{LABELS.get(module, module)}** limit reached "
+                            f"({threshold} per {window}s). The server owner has been alerted.")
+        q.extend([t] * amount)
+
+    async def _revoke_bot_perms(self, guild: discord.Guild, user_id: int) -> list[str]:
+        """Take away powers granted *through the bot*: a permission level and roles carrying fake perms."""
+        done = []
+        levels = await self.bot.db.get_config(guild.id, "permlevels")
+        if (levels.get("users") or {}).pop(str(user_id), None) is not None:
+            await self.bot.db.set_config(guild.id, "permlevels", levels)
+            done.append("revoked their bot permission level")
+        member = guild.get_member(user_id)
+        if member:
+            fake = await self.bot.db.get_config(guild.id, "fakeperms")
+            roles = [r for r in member.roles if fake.get(str(r.id)) and not r.managed and r < guild.me.top_role]
+            if roles:
+                try:
+                    await member.remove_roles(*roles, reason="Antinuke: revoke fake permissions")
+                    done.append(f"removed {len(roles)} fake-permission role(s)")
+                except discord.HTTPException:
+                    done.append("⚠️ couldn't remove their fake-permission roles")
+        return done
+
+    async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1,
+                      via: str | None = None):
         actor = guild.get_member(actor_id)
         # snapshot before punishment strips/removes anything
         user = actor or self.bot.get_user(actor_id)
@@ -138,10 +203,14 @@ class Antinuke(commands.Cog):
         highest = actor.top_role.name if actor and len(actor.roles) > 1 else None
         punishment = cfg.get("punishment", "ban")
         reason = f"Antinuke: {MODULES[module]}"
-        done = []
-        # revert what we safely can
+        done = [f"blocked `{via}`"] if via else []
+        # strip bot-granted powers first, so a kick (or a failed punishment) doesn't leave them armed
+        done += await self._revoke_bot_perms(guild, actor_id)
+        # revert what we safely can (nothing to revert when the guard blocked the action up front)
         try:
-            if module == "botadd" and isinstance(entry.target, (discord.Member, discord.User, discord.Object)):
+            if entry is None:
+                pass
+            elif module == "botadd" and isinstance(entry.target, (discord.Member, discord.User, discord.Object)):
                 await guild.ban(entry.target, reason="Antinuke: unauthorized bot")
                 done.append("banned the added bot")
             elif module == "permissions" and entry.action == A.role_update and isinstance(entry.target, discord.Role):
@@ -182,7 +251,7 @@ class Antinuke(commands.Cog):
             outcome = "Ban (not in server)"
         reverted = [d for d in done if not d.endswith("attacker") and not d.startswith("⚠️")
                     and "staff roles" not in d]
-        info = dict(guild=guild, user=user, actor_id=actor_id, module=module, threshold=threshold,
+        info = dict(guild=guild, user=user, actor_id=actor_id, module=module, via=via, threshold=threshold,
                     window=cfg.get("window", 60), punishment=outcome, highest=highest, roles=roles_held,
                     reverted=reverted, failed=[d for d in done if d.startswith("⚠️")])
 

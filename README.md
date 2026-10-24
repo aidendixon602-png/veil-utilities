@@ -68,7 +68,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 
 | | Module | Highlights |
 |:-:|---|---|
-| 🛡️ | **Antinuke** | 12 attack types (mass ban/kick, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants…), sliding-window thresholds, auto-revert, ban / kick / strip, global alerts to developers |
+| 🛡️ | **Antinuke** | 12 attack types (mass ban/kick, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants…), sliding-window thresholds, auto-revert, ban / kick / strip, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
 | 🚨 | **Antiraid** | Mass-join raid mode, minimum account age, no-avatar filter, per-user bypass |
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |

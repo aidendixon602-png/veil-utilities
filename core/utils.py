@@ -449,6 +449,13 @@ async def antinuke_admin(ctx: Context) -> bool:
     raise UserError("Only the **server owner** or an **antinuke admin** can use this")
 
 
+async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
+    """Call right before a destructive action done through the bot (see Antinuke.guard). Raises UserError to block."""
+    cog = ctx.bot.get_cog("Antinuke")
+    if cog is not None and ctx.guild is not None:
+        await cog.guard(ctx, module, amount)
+
+
 def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
     if target == ctx.author:
         raise UserError(f"You can't {action} yourself")
