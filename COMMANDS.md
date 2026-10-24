@@ -1,6 +1,6 @@
 # Command reference
 
-423 commands. Default prefix `,`. `<required>` `[optional]`.
+425 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -284,7 +284,9 @@ _Log server events to channels_
 
 | Command | Description | Permission |
 |---|---|---|
+| `cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | Clean up duplicate logging channels created by the bot | manage guild |
 | `log` (logs) | View logging channels | manage guild |
+| `log cleanup` (clean, purgeduplicates, cleanupchannels) | Clean up duplicate logging channels created by the bot | manage guild |
 | `log set <kind> [channel]` | Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = auto/off) | manage guild |
 | `log setup` (init, default, defaults) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |
 | `setuplogs` (setupchannels, autologs) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |

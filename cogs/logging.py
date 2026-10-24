@@ -106,11 +106,21 @@ class Logging(commands.Cog):
         if not me or not getattr(me.guild_permissions, "manage_channels", False):
             return []
 
-        existing = {c.name.lower(): c for c in getattr(guild, "text_channels", [])}
+        text_channels = list(getattr(guild, "text_channels", []))
+        categories = list(getattr(guild, "categories", []))
+        if not text_channels and hasattr(guild, "fetch_channels"):
+            try:
+                fetched = await guild.fetch_channels()
+                text_channels = [c for c in fetched if isinstance(c, discord.TextChannel)]
+                categories = [c for c in fetched if isinstance(c, discord.CategoryChannel)]
+            except (discord.HTTPException, AttributeError):
+                pass
+
+        existing = {c.name.lower(): c for c in text_channels}
         created = []
 
         # Find or create category "VEIL LOGS"
-        category = discord.utils.get(getattr(guild, "categories", []), name="VEIL LOGS")
+        category = discord.utils.get(categories, name="VEIL LOGS")
         missing_names = [name for name, _, _ in DEFAULT_LOG_CHANNELS if name not in existing]
         if not category and missing_names:
             try:
@@ -154,18 +164,6 @@ class Logging(commands.Cog):
 
         return created
 
-    @commands.Cog.listener()
-    async def on_guild_join(self, guild: discord.Guild):
-        await self.ensure_default_channels(guild)
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        for guild in getattr(self.bot, "guilds", []):
-            try:
-                await self.ensure_default_channels(guild)
-            except Exception:
-                pass
-
     async def channel_for(self, guild: discord.Guild, kind: str) -> discord.TextChannel | None:
         if guild is None:
             return None
@@ -185,15 +183,6 @@ class Logging(commands.Cog):
         if kind not in ("commands", "bans", "joinleave"):
             for ch_obj in getattr(guild, "text_channels", []):
                 if ch_obj.name.lower() in AUTO_CHANNELS["server"]:
-                    return ch_obj
-
-        # If default channels have not been created yet, try to create them now
-        created = await self.ensure_default_channels(guild)
-        if created:
-            for ch_obj in getattr(guild, "text_channels", []):
-                if ch_obj.name.lower() in patterns:
-                    return ch_obj
-                if kind not in ("commands", "bans", "joinleave") and ch_obj.name.lower() in AUTO_CHANNELS["server"]:
                     return ch_obj
 
         return None
@@ -267,6 +256,51 @@ class Logging(commands.Cog):
     async def cmd_setuplogs(self, ctx: Context):
         """Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging"""
         await self.log_setup(ctx)
+
+    @log.command(name="cleanup", aliases=["clean", "purgeduplicates", "cleanupchannels"])
+    @has_perms(manage_guild=True)
+    async def log_cleanup(self, ctx: Context):
+        """Clean up duplicate logging channels created by the bot"""
+        if not ctx.guild.me.guild_permissions.manage_channels:
+            raise UserError("I need the `Manage Channels` permission to delete duplicate channels.")
+
+        target_names = {name.lower() for name, _, _ in DEFAULT_LOG_CHANNELS}
+        seen_names = set()
+        deleted_channels = 0
+
+        # Scan text channels for duplicates
+        for ch in list(ctx.guild.text_channels):
+            name_lower = ch.name.lower()
+            if name_lower in target_names:
+                if name_lower in seen_names:
+                    try:
+                        await ch.delete(reason="Veil Utilities: cleanup duplicate log channels")
+                        deleted_channels += 1
+                    except discord.HTTPException:
+                        pass
+                else:
+                    seen_names.add(name_lower)
+
+        # Scan for empty duplicate categories
+        deleted_categories = 0
+        for cat in list(ctx.guild.categories):
+            if cat.name.upper() == "VEIL LOGS" and not cat.channels:
+                try:
+                    await cat.delete(reason="Veil Utilities: cleanup empty VEIL LOGS category")
+                    deleted_categories += 1
+                except discord.HTTPException:
+                    pass
+
+        msg = f"Deleted **{deleted_channels}** duplicate log channel(s)"
+        if deleted_categories:
+            msg += f" and **{deleted_categories}** empty category/categories"
+        await ctx.approve(f"{msg}. Logging is now clean!")
+
+    @commands.command(name="cleanuplogs", aliases=["cleanuplogchannels", "purgeduplicatelogs"])
+    @has_perms(manage_guild=True)
+    async def cmd_cleanuplogs(self, ctx: Context):
+        """Clean up duplicate logging channels created by the bot"""
+        await self.log_cleanup(ctx)
 
     # ------------------------------------------------------------ command-logs
     @commands.Cog.listener()
