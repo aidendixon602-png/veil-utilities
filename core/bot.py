@@ -22,8 +22,9 @@ EXTENSIONS = [
     "cogs.settings", "cogs.moderation", "cogs.antinuke", "cogs.automod", "cogs.logging",
     "cogs.voicemaster", "cogs.config", "cogs.levels", "cogs.giveaways", "cogs.tickets",
     "cogs.utility", "cogs.integrations", "cogs.fun", "cogs.music", "cogs.owner", "cogs.authorization",
-    "cogs.imaging", "cogs.ai", "cogs.spotify", "cogs.feeds", "cogs.permissions", "cogs.devtools",
+    "cogs.imaging", "cogs.ai", "cogs.spotify", "cogs.permissions", "cogs.devtools",
 ]
+# "cogs.feeds" (social feeds) is turned off for now — add it back to EXTENSIONS to re-enable
 
 
 class Veil(commands.AutoShardedBot):

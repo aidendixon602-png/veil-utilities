@@ -1,6 +1,6 @@
 # Command reference
 
-384 commands. Default prefix `,`. `<required>` `[optional]`.
+377 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -115,19 +115,6 @@ _Developer-only tools_
 | `antinukepreset list` | List antinuke presets |  |
 | `antinukepreset load <name>` (apply) | Apply a saved preset to this server |  |
 | `antinukepreset save <name>` | Save this server's antinuke config as a preset |  |
-
-## 📡 Feeds
-_Auto-post new content from social platforms_
-
-| Command | Description | Permission |
-|---|---|---|
-| `feeds` (socials, notify, alerts) | Post new content from YouTube, Twitch, SoundCloud, Reddit, Instagram, TikTok, X or any RSS feed | manage guild |
-| `feeds add <platform> <account> [channel]` | `feeds add youtube MrBeast #videos` — platforms: youtube, twitch, soundcloud, reddit, instagram, tiktok, x, rss | manage guild |
-| `feeds list` | List feeds | manage guild |
-| `feeds message <feed_id> [message]` | Custom post message (embed scripts + {feed.title} {feed.link} {feed.author} {feed.image} {feed.account}); `none` resets | manage guild |
-| `feeds ping <feed_id> [role]` (role) | Ping a role when a feed posts (omit to stop) | manage guild |
-| `feeds remove <feed_id>` (delete) | Remove a feed by its ID (see `feeds list`) | manage guild |
-| `feeds test <feed_id>` | Post the latest item from a feed right now | manage guild |
 
 ## 🎲 Fun
 _Games and silly commands_

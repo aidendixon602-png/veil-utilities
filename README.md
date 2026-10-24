@@ -7,8 +7,8 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)
 ![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)
-![commands](https://img.shields.io/badge/commands-384-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-22-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-377-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-21-b10f2e?style=flat-square&labelColor=1a1118)
 ![storage](https://img.shields.io/badge/storage-sqlite-b10f2e?style=flat-square&logo=sqlite&logoColor=white&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
@@ -77,7 +77,6 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 🧩 | **Server** | Welcome / goodbye / boost, autoroles, reaction & button roles, autoresponders, sticky messages, starboard, counters, bump reminders, vanity rewards |
 | 📈 | **Levels** | Message **and** voice XP, role rewards, XP multipliers, leaderboard |
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |
-| 📡 | **Feeds** | YouTube · Twitch · SoundCloud · Reddit · Instagram · TikTok · X · any RSS |
 | 🤖 | **AI** | `ask` (chat with memory), `summarize`, `imagine` (free image generation), `tts`, `ocr` |
 | 🖼️ | **Images** | 21 effects (deepfry, caption, meme, blur, pixelate, warp, chaos…). GIFs stay animated |
 | 🎵 | **Music** | Lavalink player, queue, loop, seek, autoplay, nightcore / bassboost / 8D presets |
@@ -121,7 +120,6 @@ python main.py
 ,antinuke enable            ,antiraid massjoin 10 10
 ,log set all #logs          ,modlog #mod-logs
 ,vm setup                   ,leveling on
-,feeds add youtube MrBeast #videos
 ,fp grant @Mods ban_members, kick_members, moderate_members
 ```
 
@@ -142,8 +140,6 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | `LASTFM_API_KEY` | Last.fm commands |
 | `SPOTIFY_CLIENT_ID` / `_SECRET` | Spotify search |
 | `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` | AI chat. Any OpenAI-compatible provider, including local Ollama |
-| `TWITCH_CLIENT_ID` / `_SECRET` | Twitch live alerts |
-| `RSSHUB_URL` | Your RSSHub instance, for Instagram, TikTok and X feeds |
 | `LAVALINK_URI` / `_PASSWORD` | Music server |
 
 ## 👑 Developer tools
