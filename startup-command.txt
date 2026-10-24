@@ -3,23 +3,25 @@
 # ================================================================
 # Copy and paste ONE of the single-line commands below into your
 # Wispbyte panel under the "Startup" tab -> "Startup Command" field.
-#
-# These commands include `cd` and use `cmp -s` to compare requirements.txt
-# against a local hash so pip install is SKIPPED on every reboot (takes ~2ms),
-# booting the container in under 3 seconds instead of 2 minutes!
 
 # ----------------------------------------------------------------
-# OPTION 1: Standard layout (files directly in /home/container)
+# OPTION 1: Auto-Pull Latest Code from GitHub + Boot (Recommended)
+# Pulls latest updates on every restart so your server stays current:
+# ----------------------------------------------------------------
+cd /home/container && git pull origin main 2>/dev/null; if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+
+# ----------------------------------------------------------------
+# OPTION 2: Standard layout (files directly in /home/container)
+# Fast boot without git pull:
 # ----------------------------------------------------------------
 cd /home/container && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
 
 # ----------------------------------------------------------------
-# OPTION 2: Subfolder layout (files in /home/container/veil-utilities)
+# OPTION 3: Subfolder layout (files in /home/container/veil-utilities)
 # ----------------------------------------------------------------
-cd /home/container/veil-utilities && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+cd /home/container/veil-utilities && git pull origin main 2>/dev/null; if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
 
 # ----------------------------------------------------------------
-# OPTION 3: Instant Zero-Delay Boot (Fastest: ~1 second flat)
-# Use this once packages are installed:
+# OPTION 4: Instant Zero-Delay Boot (Fastest: ~1 second flat)
 # ----------------------------------------------------------------
 cd /home/container && python main.py
