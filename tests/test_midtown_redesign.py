@@ -306,3 +306,16 @@ def test_code_defined_permissions():
         perms.CODE_ROLES.pop("Admin Role", None)
 
 
+def test_bot_developer_builtin_logging():
+    from core import perms
+    perms.BOT_DEVELOPERS.append(55555)
+    try:
+        u = SimpleNamespace(id=55555, roles=[])
+        name, source, rank = perms.member_level_info({}, u)
+        assert name == "Bot Developer"
+        assert source == "Built-in"
+        assert rank == perms.DEV_RANK
+    finally:
+        perms.BOT_DEVELOPERS.remove(55555)
+
+

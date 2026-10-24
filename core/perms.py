@@ -17,6 +17,57 @@ OWNER_RANK = 1_000
 ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 
 # =====================================================================
+# BOT DEVELOPERS (Editable directly in this file)
+# =====================================================================
+# User IDs listed here receive the Bot Developer permission level and
+# are logged with "Permission: Bot Developer" and "Granted By: Built-in".
+BOT_DEVELOPERS: list[int] = []
+
+# =====================================================================
+# ALL BOT PERMISSIONS
+# =====================================================================
+# Comprehensive list of every bot permission recognized by Discord and the bot:
+ALL_BOT_PERMS: list[str] = [
+    "administrator",
+    "view_audit_log",
+    "view_channel",
+    "manage_guild",
+    "manage_roles",
+    "manage_channels",
+    "manage_messages",
+    "manage_nicknames",
+    "manage_expressions",
+    "manage_webhooks",
+    "manage_events",
+    "manage_threads",
+    "kick_members",
+    "ban_members",
+    "moderate_members",
+    "mention_everyone",
+    "create_instant_invite",
+    "change_nickname",
+    "send_messages",
+    "send_messages_in_threads",
+    "create_public_threads",
+    "create_private_threads",
+    "embed_links",
+    "attach_files",
+    "read_message_history",
+    "add_reactions",
+    "use_external_emojis",
+    "use_external_stickers",
+    "connect",
+    "speak",
+    "stream",
+    "mute_members",
+    "deafen_members",
+    "move_members",
+    "use_voice_activation",
+    "priority_speaker",
+    "request_to_speak",
+]
+
+# =====================================================================
 # CODE-DEFINED PERMISSIONS (Editable directly in this file)
 # =====================================================================
 # You can assign permission levels directly here in the bot code!
@@ -47,9 +98,9 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                         "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
                                         "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "botmanager":    ("Bot Manager", 5, ["administrator"]),
-    "overseer":      ("Overseer", 6, ["administrator"]),
-    "supremeleader": ("Supreme Leader", 7, ["administrator"]),
+    "botmanager":    ("Bot Manager", 5, ["administrator"] + ALL_BOT_PERMS),
+    "overseer":      ("Overseer", 6, ["administrator"] + ALL_BOT_PERMS),
+    "supremeleader": ("Supreme Leader", 7, ["administrator"] + ALL_BOT_PERMS),
 }
 
 # shown in the level list but handed out automatically, never via `perm add`
@@ -109,16 +160,17 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
         e.g. ("Supreme Leader", "Permissions attached to user", 7)
              ("Admin", "@HR | Branch Management", 3)
              ("Bot Developer", "Built-in", 10000)
+             ("Server Owner", "Built-in", 1000)
     """
-    if is_dev:
+    mid = getattr(member, "id", 0)
+    if is_dev or mid in BOT_DEVELOPERS:
         return "Bot Developer", "Built-in", DEV_RANK
     if is_owner:
-        return "Server Owner", "Server Owner", OWNER_RANK
+        return "Server Owner", "Built-in", OWNER_RANK
 
     levels = all_levels(cfg)
 
     # 1. User-specific assignment: Check CODE_USERS first, then cfg["users"]
-    mid = getattr(member, "id", 0)
     ukey = CODE_USERS.get(mid) or CODE_USERS.get(str(mid)) or user_key(cfg, mid)
     if ukey and ukey in levels:
         info = levels[ukey]
@@ -152,7 +204,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
     # 3. Real Discord administrator fallback
     if getattr(member, "guild_permissions", None) and member.guild_permissions.administrator:
         admin_roles = [r for r in getattr(member, "roles", []) if r.permissions.administrator and not r.is_default()]
-        source = admin_roles[-1].mention if admin_roles else "Administrator permission"
+        source = admin_roles[-1].mention if admin_roles else "Built-in"
         return "Admin", source, ADMIN_RANK
 
     return None, None, 0

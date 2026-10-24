@@ -279,21 +279,27 @@ class Logging(commands.Cog):
 
         cfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
         from core import perms as _perms
-        is_dev = await self.bot.is_owner(ctx.author)
+        is_dev = await self.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS
         is_owner = ctx.author.id == ctx.guild.owner_id
         pl_name, pl_granted_by, _ = _perms.member_level_info(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
 
-        if pl_name and pl_granted_by:
+        if is_dev:
+            perm_str = "Bot Developer"
+            granted_by = "Built-in"
+        elif is_owner:
+            perm_str = "Server Owner"
+            granted_by = "Built-in"
+        elif pl_name and pl_granted_by:
             perm_str = pl_name
             granted_by = pl_granted_by
         elif ctx.author.guild_permissions.administrator:
             perm_str = "Admin"
             admin_roles = [r for r in ctx.author.roles if r.permissions.administrator and not r.is_default()]
-            granted_by = admin_roles[-1].mention if admin_roles else "Administrator permission"
+            granted_by = admin_roles[-1].mention if admin_roles else "Built-in"
         elif ctx.author.guild_permissions.manage_guild or ctx.author.guild_permissions.manage_messages:
             perm_str = "Staff"
             staff_roles = [r for r in ctx.author.roles if (r.permissions.manage_guild or r.permissions.manage_messages) and not r.is_default()]
-            granted_by = staff_roles[-1].mention if staff_roles else "Staff role"
+            granted_by = staff_roles[-1].mention if staff_roles else "Built-in"
         else:
             perm_str = "None"
             granted_by = "-"

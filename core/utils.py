@@ -406,7 +406,8 @@ async def send_script(dest: discord.abc.Messageable, script: str, variables: dic
 # ---------------------------------------------------------------- checks
 async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     """Permissions the author lacks, after counting owner, admin, fake permissions and perm levels."""
-    if await ctx.bot.is_owner(ctx.author):
+    from core import perms as _perms
+    if await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS:
         return []
     p = ctx.channel.permissions_for(ctx.author)
     if p.administrator:
@@ -418,7 +419,6 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     granted: set[str] = set()
     for role in ctx.author.roles:
         granted.update(fake.get(str(role.id), []))
-    from core import perms as _perms
     granted.update(_perms.level_perms(await ctx.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author))
     if "administrator" in granted:
         return []
@@ -450,7 +450,8 @@ def has_perms(**perms: bool):
 
 def is_developer():
     async def predicate(ctx: Context):
-        if await ctx.bot.is_owner(ctx.author):
+        from core import perms as _perms
+        if await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS:
             return True
         raise UserError("This command is restricted to the bot's developers")
     return commands.check(predicate)
@@ -458,7 +459,8 @@ def is_developer():
 
 def is_server_owner():
     async def predicate(ctx: Context):
-        if ctx.guild and (ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author)):
+        from core import perms as _perms
+        if ctx.guild and (ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS):
             return True
         raise UserError("Only the **server owner** can use this command")
     return commands.check(predicate)
@@ -467,7 +469,8 @@ def is_server_owner():
 async def antinuke_admin(ctx: Context) -> bool:
     if ctx.guild is None:  # subcommands don't inherit the group's guild_only() when invoke_without_command=True
         raise commands.NoPrivateMessage()
-    if ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author):
+    from core import perms as _perms
+    if ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS:
         return True
     cfg = await ctx.bot.db.get_config(ctx.guild.id, "antinuke")
     if ctx.author.id in cfg.get("admins", []):
