@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import colorsys
 import io
 import math
 import os
@@ -12,7 +13,7 @@ from functools import partial
 import aiohttp
 import discord
 from discord.ext import commands
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageSequence
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageSequence
 
 from core.config import settings
 from core.net import TooLarge, read_capped
@@ -160,6 +161,63 @@ def fx_swirlish(im):  # cheap "wave" warp
         shift = int(10 * math.sin(y / 12))
         out.paste(im.crop((0, y, w, y + 1)), (shift, y))
     return out
+
+
+def fx_solarize(im):
+    r, g, b, a = im.split()
+    return Image.merge("RGBA", (*ImageOps.solarize(Image.merge("RGB", (r, g, b)), 128).split(), a))
+
+
+def fx_glitch(im):
+    r, g, b, a = im.split()
+    w, h = im.size
+    n = max(4, w // 40)
+    out = Image.merge("RGBA", (ImageChops.offset(r, n, 0), g, ImageChops.offset(b, -n, 0), a))
+    for _ in range(6):  # slide random slivers sideways
+        y = random.randint(0, max(0, h - 6))
+        sh = random.randint(2, 6)
+        out.paste(out.crop((0, y, w, min(h, y + sh))), (random.randint(-w // 10, w // 10), y))
+    return out
+
+
+def fx_sketch(im):  # pencil sketch: edges on paper
+    g = ImageOps.grayscale(im)
+    lines = ImageOps.invert(g.filter(ImageFilter.FIND_EDGES))
+    return ImageOps.autocontrast(lines, cutoff=2).convert("RGBA")
+
+
+def fx_rainbow(im):
+    w, h = im.size
+    grad = Image.new("RGB", (256, 1))
+    grad.putdata([tuple(int(c * 255) for c in colorsys.hsv_to_rgb(i / 256, 1, 1)) for i in range(256)])
+    return Image.blend(im.convert("RGB"), grad.resize((w, h)), 0.45).convert("RGBA")
+
+
+def fx_vignette(im):
+    w, h = im.size
+    mask = Image.new("L", (128, 128), 0)
+    ImageDraw.Draw(mask).ellipse((-42, -42, 170, 170), fill=255)
+    mask = ImageOps.invert(mask.filter(ImageFilter.GaussianBlur(20))).resize((w, h))
+    return Image.composite(Image.new("RGBA", im.size, (0, 0, 0, 255)), im, mask)
+
+
+def fx_duotone(im):  # brand pink on dark
+    g = ImageOps.grayscale(im)
+    return ImageOps.colorize(g, "#14060d", "#ff4d6d").convert("RGBA")
+
+
+def fx_censor(im):  # heavy mosaic over the center band
+    w, h = im.size
+    top = h // 3
+    band = im.crop((0, top, w, min(h, top + max(8, h // 5))))
+    bw, bh = band.size
+    im.paste(band.resize((max(1, bw // 14), max(1, bh // 14)), Image.NEAREST).resize((bw, bh), Image.NEAREST),
+             (0, top))
+    return im
+
+
+def fx_oilify(im):
+    return im.convert("RGB").filter(ImageFilter.ModeFilter(7)).convert("RGBA")
 
 
 def fx_caption(im, text: str):
@@ -328,6 +386,14 @@ class Imaging(commands.Cog):
     brighten = _simple("brighten", fx_bright, "Brighten")
     saturate = _simple("saturate", fx_saturate, "Crank the saturation")
     warp = _simple("warp", fx_swirlish, "Wavy distortion")
+    solarize = _simple("solarize", fx_solarize, "Solarize (negative highlights)")
+    glitch = _simple("glitch", fx_glitch, "Corrupted glitch effect")
+    sketch = _simple("sketch", fx_sketch, "Pencil sketch")
+    rainbow = _simple("rainbow", fx_rainbow, "Rainbow gradient overlay")
+    vignette = _simple("vignette", fx_vignette, "Dark vignette border")
+    duotone = _simple("duotone", fx_duotone, "veil-brand duotone (pink on dark)")
+    censor = _simple("censor", fx_censor, "Mosaic-censor the center band")
+    oilify = _simple("oilify", fx_oilify, "Oil painting effect")
     del _simple
 
     # ------------------------------------------------------------ text effects
@@ -347,7 +413,8 @@ class Imaging(commands.Cog):
     @commands.cooldown(1, 4, commands.BucketType.user)
     async def chaos(self, ctx: Context, *, image: str = None):
         """Stack 3 random effects"""
-        pool = [fx_deepfry, fx_invert, fx_pixelate, fx_jpeg, fx_posterize, fx_mirror, fx_saturate, fx_swirlish, fx_emboss]
+        pool = [fx_deepfry, fx_invert, fx_pixelate, fx_jpeg, fx_posterize, fx_mirror, fx_saturate, fx_swirlish,
+                fx_emboss, fx_glitch, fx_duotone, fx_solarize]
         chosen = random.sample(pool, 3)
 
         def stack(im):

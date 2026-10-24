@@ -1,6 +1,6 @@
 # Command reference
 
-386 commands. Default prefix `,`. `<required>` `[optional]`.
+394 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -184,23 +184,31 @@ _Edit images, GIFs, avatars and emojis_
 | `blur <ctx> [image]` | Blur an image — attach, reply to, or mention an image/user/emoji |  |
 | `brighten <ctx> [image]` | Brighten — attach, reply to, or mention an image/user/emoji |  |
 | `caption <text>` (cap) | Add a white caption bar above an image (attach or reply to one) |  |
+| `censor <ctx> [image]` | Mosaic-censor the center band — attach, reply to, or mention an image/user/emoji |  |
 | `chaos [image]` (randomfx) | Stack 3 random effects |  |
 | `circle <ctx> [image]` | Crop into a circle — attach, reply to, or mention an image/user/emoji |  |
 | `deepfry <ctx> [image]` | Deep-fry an image — attach, reply to, or mention an image/user/emoji |  |
+| `duotone <ctx> [image]` | veil-brand duotone (pink on dark) — attach, reply to, or mention an image/user/emoji |  |
 | `edges <ctx> [image]` | Edge detection — attach, reply to, or mention an image/user/emoji |  |
 | `emboss <ctx> [image]` | Emboss effect — attach, reply to, or mention an image/user/emoji |  |
+| `glitch <ctx> [image]` | Corrupted glitch effect — attach, reply to, or mention an image/user/emoji |  |
 | `grayscale <ctx> [image]` | Black and white — attach, reply to, or mention an image/user/emoji |  |
 | `invert <ctx> [image]` | Invert colors — attach, reply to, or mention an image/user/emoji |  |
 | `jpeg <ctx> [image]` | Destroy it with JPEG compression — attach, reply to, or mention an image/user/emoji |  |
 | `meme <text>` | Impact-style meme text: `meme top text \| bottom text` (attach or reply to an image) |  |
 | `mirror <ctx> [image]` | Mirror horizontally — attach, reply to, or mention an image/user/emoji |  |
+| `oilify <ctx> [image]` | Oil painting effect — attach, reply to, or mention an image/user/emoji |  |
 | `pixelate <ctx> [image]` | Pixelate an image — attach, reply to, or mention an image/user/emoji |  |
 | `posterize <ctx> [image]` | Posterize colors — attach, reply to, or mention an image/user/emoji |  |
+| `rainbow <ctx> [image]` | Rainbow gradient overlay — attach, reply to, or mention an image/user/emoji |  |
 | `rotate <ctx> [image]` | Rotate 90° — attach, reply to, or mention an image/user/emoji |  |
 | `saturate <ctx> [image]` | Crank the saturation — attach, reply to, or mention an image/user/emoji |  |
 | `sepia <ctx> [image]` | Old-photo sepia tone — attach, reply to, or mention an image/user/emoji |  |
 | `sharpen <ctx> [image]` | Over-sharpen — attach, reply to, or mention an image/user/emoji |  |
+| `sketch <ctx> [image]` | Pencil sketch — attach, reply to, or mention an image/user/emoji |  |
+| `solarize <ctx> [image]` | Solarize (negative highlights) — attach, reply to, or mention an image/user/emoji |  |
 | `upsidedown <ctx> [image]` | Flip upside down — attach, reply to, or mention an image/user/emoji |  |
+| `vignette <ctx> [image]` | Dark vignette border — attach, reply to, or mention an image/user/emoji |  |
 | `warp <ctx> [image]` | Wavy distortion — attach, reply to, or mention an image/user/emoji |  |
 
 ## 🌐 Integrations

@@ -29,7 +29,7 @@
 [![release](https://img.shields.io/github/v/release/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)](https://github.com/aidendixon602-png/veil-utilities/releases/latest)
 [![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
-![commands](https://img.shields.io/badge/commands-386-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-394-b10f2e?style=flat-square&labelColor=1a1118)
 ![modules](https://img.shields.io/badge/modules-22-b10f2e?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
@@ -120,7 +120,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 📈 | **Levels** | Message **and** voice XP, role rewards, XP multipliers, leaderboard |
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |
 | 🤖 | **AI** | `ask` (chat with memory), `summarize`, `imagine` (free image generation), `tts`, `ocr` |
-| 🖼️ | **Images** | 21 effects (deepfry, caption, meme, blur, pixelate, warp, chaos…). GIFs stay animated |
+| 🖼️ | **Images** | 29 effects (deepfry, caption, meme, glitch, sketch, duotone, pixelate, warp, chaos…). GIFs stay animated |
 | 🎵 | **Music** | Lavalink player, queue, loop, seek, autoplay, nightcore / bassboost / 8D presets, optional DJ role with vote-skip, auto-leaves empty channels |
 | 🌐 | **Lookups** | Last.fm (np, whoknows, top charts), weather, GitHub, crypto, Roblox, Minecraft, translate, Wikipedia, Urban Dictionary |
 | 🛠️ | **Utility** | Snipe / editsnipe, AFK, reminders, user & server info, emoji steal, message stats, polls, custom aliases, self prefix |
@@ -258,7 +258,7 @@ veil-utilities/
 ├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
 ├── tests/                   129 tests + docs check; all run on every push
 ├── lavalink/                optional music server config
-├── COMMANDS.md              auto-generated reference of all 386 commands
+├── COMMANDS.md              auto-generated reference of all 394 commands
 ├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
 ├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE
 └── .github/                 CI, dependabot, issue and PR templates

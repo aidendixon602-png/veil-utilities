@@ -16,6 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **8 new image filters**: `glitch`, `sketch`, `solarize`, `rainbow`, `vignette`, `censor`,
+  `oilify`, plus `duotone` (veil-brand pink-on-dark). `chaos` can now stack the new ones.
+  GIFs stay animated through all of them.
+- **AI model failover**: every provider now prefers a ranked list of up-to-3 models (13 models
+  across Groq, Gemini, OpenRouter and OpenAI) and a request silently walks to the next model
+  when one is retired, rate-limited or slow. `ask provider` still shows the live pick.
+- `tests/test_filters_ai.py` — render checks for the new filters (incl. animated GIFs) and
+  model-rotation behavior against a fake provider.
+
+### Fixed (continued)
+
+- `giveaway reroll` now confirms with a link to the giveaway channel and warns when no valid
+  entries remain, instead of silently doing nothing.
+
+### Added (lockdown suite)
+
 - `tests/test_lockdown.py` — 12 tests covering the hidden-command gate, help-menu lookups
   (commands and groups), proof that no permission level can unlock developer tools, static
   checks that dev cogs always require bot-owner, a full sweep proving all 36 hidden commands

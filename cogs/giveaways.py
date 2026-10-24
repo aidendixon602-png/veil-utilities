@@ -166,7 +166,10 @@ class Giveaways(commands.Cog):
             raise UserError("No ended giveaway with that message ID")
         gw = dict(gw)
         gw["winners"] = max(1, min(winners, 50))
-        await self.finish(gw, reroll=True)
+        new = await self.finish(gw, reroll=True)
+        if not new:
+            raise UserError("No valid entries left to reroll")
+        await ctx.approve(f"Rerolled **{gw['prize']}** — new winner(s) announced in <#{gw['channel_id']}>")
 
     @giveaway.command(name="list")
     async def gw_list(self, ctx: Context):
