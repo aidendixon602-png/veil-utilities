@@ -1,12 +1,12 @@
-"""Per-user permission levels.
+"""Per-user and per-role permission levels for Veil Utilities.
 
 A level has a display name, a numeric rank (higher = more power) and a set of bot-permissions it grants.
-Assigning a user a level lets them pass the bot's permission checks for those permissions — without needing
-the real (dangerous) Discord permissions. Config lives per-guild under the "permlevels" module:
+Assigning a user or role a level lets them pass the bot's permission checks for those permissions — without
+needing dangerous native Discord permissions. Config lives per-guild under the "permlevels" module:
 
-    {"users": {"<user id>": "<level key>"}, "overrides": {"<key>": {"name", "rank", "perms"}}}
+    {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-Server Owner and Bot Dev are not assignable — they come from being the guild owner / a bot developer.
+Server Owner and Bot Developer are automatic built-in ranks that cannot be manually assigned.
 """
 from __future__ import annotations
 
@@ -24,9 +24,27 @@ ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 BOT_DEVELOPERS: list[int] = []
 
 # =====================================================================
-# ALL BOT PERMISSIONS
+# VEIL CUSTOM BOT PERMISSION NODES
 # =====================================================================
-# Comprehensive list of every bot permission recognized by Discord and the bot:
+# In addition to native Discord permissions, Veil supports custom bot
+# permission nodes for granular command and module access:
+VEIL_PERMISSION_NODES: dict[str, str] = {
+    "veil.all":        "Full master bypass over every Veil command and guard",
+    "veil.antinuke":   "Manage antinuke configuration, rules, and whitelist",
+    "veil.automod":    "Manage automod rules, filters, and anti-spam",
+    "veil.moderation": "Execute moderation actions (ban, kick, mute, warn, jail, purge)",
+    "veil.roles":      "Assign roles, reaction roles, and manage role blacklists",
+    "veil.channels":   "Manage channel locks, slowmode, and modifications",
+    "veil.music":      "DJ control, force skip, volume, and playback management",
+    "veil.tickets":    "Create, manage, and close ticket panels and channels",
+    "veil.logging":    "Configure log routing and audit channels",
+    "veil.utility":    "Embed building, custom tags, and utility tools",
+}
+
+# =====================================================================
+# ALL NATIVE BOT PERMISSIONS
+# =====================================================================
+# Complete list of every Discord permission recognized by the bot:
 ALL_BOT_PERMS: list[str] = [
     "administrator",
     "view_audit_log",
@@ -73,24 +91,93 @@ ALL_BOT_PERMS: list[str] = [
 # You can assign permission levels directly here in the bot code!
 # The bot merges these with any levels assigned via Discord commands.
 #
-# CODE_USERS: Map user IDs (int or str) to level keys (e.g. "supremeleader", "admin", "mod", "helper")
+# CODE_USERS: Map user IDs (int or str) to level keys (e.g. "sovereign", "archon", "enforcer")
 # Example:
 #   CODE_USERS = {
-#       123456789012345678: "supremeleader",
+#       123456789012345678: "sovereign",
 #   }
 CODE_USERS: dict[int | str, str] = {}
 
 # CODE_ROLES: Map role IDs (int or str) or exact role names (str) to level keys
 # Example:
 #   CODE_ROLES = {
-#       "Admin Role": "admin",
-#       "Moderator": "mod",
-#       123456789012345678: "helper",
+#       "Server Administrator": "archon",
+#       "Senior Moderator": "warden",
+#       "Moderator": "enforcer",
+#       "Helper": "vanguard",
 #   }
 CODE_ROLES: dict[int | str, str] = {}
 
-# key -> (display name, rank, granted bot-permissions). Assignable with `perm add`.
+# =====================================================================
+# VEIL SIGNATURE PERMISSION HIERARCHY
+# =====================================================================
+# Veil's unique, original permission tiers (Ranks 1 to 7).
+VEIL_PRESET: dict[str, tuple[str, int, list[str]]] = {
+    "vanguard":   ("Vanguard", 1, ["manage_messages", "veil.utility"]),
+    "sentinel":   ("Sentinel", 2, ["manage_messages", "moderate_members", "manage_nicknames", "veil.utility"]),
+    "enforcer":   ("Enforcer", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                   "manage_nicknames", "veil.moderation"]),
+    "warden":     ("Warden", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                 "manage_nicknames", "manage_roles", "manage_channels", "veil.moderation",
+                                 "veil.channels", "veil.utility"]),
+    "director":   ("Director", 5, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                   "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+                                   "manage_webhooks", "manage_expressions", "mention_everyone",
+                                   "veil.moderation", "veil.roles", "veil.channels", "veil.music",
+                                   "veil.tickets", "veil.logging", "veil.utility"]),
+    "archon":     ("Archon", 6, ["administrator"] + ALL_BOT_PERMS + list(VEIL_PERMISSION_NODES)),
+    "sovereign":  ("Sovereign", 7, ["administrator"] + ALL_BOT_PERMS + list(VEIL_PERMISSION_NODES)),
+}
+
+# Professional Corporate Staff Preset (Alternative)
+STAFF_PRESET: dict[str, tuple[str, int, list[str]]] = {
+    "helper":      ("Helper", 1, ["manage_messages"]),
+    "moderator":   ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "leadmod":     ("Lead Mod", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                    "manage_nicknames", "manage_roles"]),
+    "admin":       ("Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                 "manage_nicknames", "manage_roles", "manage_channels", "manage_guild"]),
+    "senioradmin": ("Senior Admin", 5, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+                                        "manage_webhooks", "manage_expressions", "mention_everyone"]),
+    "manager":     ("Manager", 6, ["administrator"] + ALL_BOT_PERMS),
+    "executive":   ("Executive", 7, ["administrator"] + ALL_BOT_PERMS),
+}
+
+# Security Clearance Preset (Alternative)
+SECURITY_PRESET: dict[str, tuple[str, int, list[str]]] = {
+    "clearance1": ("Clearance 1 (Support)", 1, ["manage_messages"]),
+    "clearance2": ("Clearance 2 (Field)", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "clearance3": ("Clearance 3 (Enforcer)", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                                "manage_nicknames", "manage_roles"]),
+    "clearance4": ("Clearance 4 (Tactical)", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                                "manage_nicknames", "manage_roles", "manage_channels", "manage_guild"]),
+    "clearance5": ("Clearance 5 (Command)", 5, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                                "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+                                                "manage_webhooks", "manage_expressions", "mention_everyone"]),
+    "clearance6": ("Clearance 6 (Directorate)", 6, ["administrator"] + ALL_BOT_PERMS),
+    "clearance7": ("Clearance 7 (Apex)", 7, ["administrator"] + ALL_BOT_PERMS),
+}
+
+# Available preset templates for quick server-wide switching:
+PRESET_TEMPLATES: dict[str, dict[str, tuple[str, int, list[str]]]] = {
+    "veil": VEIL_PRESET,
+    "staff": STAFF_PRESET,
+    "security": SECURITY_PRESET,
+}
+
+# Primary PRESETS dictionary (Combines Veil Signature ranks with standard compatibility aliases)
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
+    # --- Veil Signature Tiers (Default) ---
+    "vanguard":      VEIL_PRESET["vanguard"],
+    "sentinel":      VEIL_PRESET["sentinel"],
+    "enforcer":      VEIL_PRESET["enforcer"],
+    "warden":        VEIL_PRESET["warden"],
+    "director":      VEIL_PRESET["director"],
+    "archon":        VEIL_PRESET["archon"],
+    "sovereign":     VEIL_PRESET["sovereign"],
+
+    # --- Standard Aliases (Backwards Compatibility) ---
     "helper":        ("Helper", 1, ["manage_messages"]),
     "mod":           ("Mod", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
     "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
@@ -103,7 +190,7 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "supremeleader": ("Supreme Leader", 7, ["administrator"] + ALL_BOT_PERMS),
 }
 
-# shown in the level list but handed out automatically, never via `perm add`
+# Shown in the level list but handed out automatically, never via `perm add`
 RESERVED: dict[str, tuple[str, int]] = {
     "serverowner": ("Server Owner", OWNER_RANK),
     "botdev":      ("Bot Developer", DEV_RANK),
@@ -157,8 +244,8 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 
     Returns:
         (level_name, granted_by, rank)
-        e.g. ("Supreme Leader", "Permissions attached to user", 7)
-             ("Admin", "@HR | Branch Management", 3)
+        e.g. ("Sovereign", "Permissions attached to user", 7)
+             ("Warden", "@Moderator", 4)
              ("Bot Developer", "Built-in", 10000)
              ("Server Owner", "Built-in", 1000)
     """

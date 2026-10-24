@@ -420,7 +420,7 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     for role in ctx.author.roles:
         granted.update(fake.get(str(role.id), []))
     granted.update(_perms.level_perms(await ctx.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author))
-    if "administrator" in granted:
+    if "administrator" in granted or "veil.all" in granted:
         return []
     return [m for m in missing if m not in granted]
 
