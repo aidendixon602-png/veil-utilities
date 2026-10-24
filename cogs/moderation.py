@@ -614,7 +614,7 @@ class Moderation(commands.Cog):
             raise UserError(f"{role.mention} is already blacklisted")
         roles.append(role.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve("Blacklisted **1** role(s).")
+        await ctx.approve(f"{role.mention} has been blacklisted.")
 
     @roleblacklist.command(name="remove", aliases=["rem", "delete"])
     @has_perms(manage_roles=True)
@@ -634,7 +634,7 @@ class Moderation(commands.Cog):
             raise UserError(f"{resolved.mention} isn't blacklisted")
         roles.remove(resolved.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"Unblacklisted {resolved.mention}.")
+        await ctx.approve(f"{resolved.mention} has been unblacklisted.")
 
     @roleblacklist.command(name="list")
     @has_perms(manage_roles=True)

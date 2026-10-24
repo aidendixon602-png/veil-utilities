@@ -298,13 +298,23 @@ class Logging(commands.Cog):
             perm_str = "None"
             granted_by = "-"
 
+        cmd_content = ctx.message.content.strip()
+        if "\n" in cmd_content or len(cmd_content) > 100:
+            cmd_val = f"```{cmd_content[:500]}```"
+        else:
+            cmd_val = f"`{cmd_content[:500]}`"
+
+        now = discord.utils.utcnow()
+        time_str = now.strftime("%I:%M %p").lstrip("0")
+        footer_text = f"User ID: {ctx.author.id} • Today at {time_str}"
+
         e = discord.Embed(color=Colors.blurple)
         e.set_author(name=ctx.author.name, icon_url=ctx.author.display_avatar.url)
-        e.add_field(name="Command", value=f"```{ctx.message.content[:500]}```", inline=False)
+        e.add_field(name="Command", value=cmd_val, inline=False)
         e.add_field(name="Channel", value=ctx.channel.mention, inline=True)
         e.add_field(name="Permission", value=perm_str, inline=True)
         e.add_field(name="Granted By", value=granted_by, inline=True)
-        e.set_footer(text=f"User ID: {ctx.author.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.set_footer(text=footer_text)
         try:
             await ch.send(embed=e)
         except discord.HTTPException:

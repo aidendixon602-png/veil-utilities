@@ -25,22 +25,18 @@ ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 # CODE_USERS: Map user IDs (int or str) to level keys (e.g. "supremeleader", "admin", "mod", "helper")
 # Example:
 #   CODE_USERS = {
-#       1277709272041394187: "supremeleader",
+#       123456789012345678: "supremeleader",
 #   }
-CODE_USERS: dict[int | str, str] = {
-    1277709272041394187: "supremeleader",
-}
+CODE_USERS: dict[int | str, str] = {}
 
 # CODE_ROLES: Map role IDs (int or str) or exact role names (str) to level keys
 # Example:
 #   CODE_ROLES = {
-#       "HR | Branch Management": "admin",
-#       "Office of Lilz": "helper",
+#       "Admin Role": "admin",
+#       "Moderator": "mod",
+#       123456789012345678: "helper",
 #   }
-CODE_ROLES: dict[int | str, str] = {
-    "HR | Branch Management": "admin",
-    "Office of Lilz": "helper",
-}
+CODE_ROLES: dict[int | str, str] = {}
 
 # key -> (display name, rank, granted bot-permissions). Assignable with `perm add`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {

@@ -286,19 +286,23 @@ def test_botperms_command_registered():
 
 def test_code_defined_permissions():
     from core import perms
-    # Test user in CODE_USERS
-    u = SimpleNamespace(id=1277709272041394187, roles=[])
-    name, source, rank = perms.member_level_info({}, u)
-    assert name == "Supreme Leader"
-    assert source == "Permissions attached to user"
-    assert rank == 7
+    perms.CODE_USERS[12345] = "supremeleader"
+    perms.CODE_ROLES["Admin Role"] = "admin"
+    try:
+        u = SimpleNamespace(id=12345, roles=[])
+        name, source, rank = perms.member_level_info({}, u)
+        assert name == "Supreme Leader"
+        assert source == "Permissions attached to user"
+        assert rank == 7
 
-    # Test role in CODE_ROLES by name
-    r = SimpleNamespace(id=9999, name="HR | Branch Management", mention="<@&9999>")
-    u2 = SimpleNamespace(id=8888, roles=[r])
-    name2, source2, rank2 = perms.member_level_info({}, u2)
-    assert name2 == "Admin"
-    assert source2 == "<@&9999>"
-    assert rank2 == 3
+        r = SimpleNamespace(id=9999, name="Admin Role", mention="<@&9999>")
+        u2 = SimpleNamespace(id=8888, roles=[r])
+        name2, source2, rank2 = perms.member_level_info({}, u2)
+        assert name2 == "Admin"
+        assert source2 == "<@&9999>"
+        assert rank2 == 3
+    finally:
+        perms.CODE_USERS.pop(12345, None)
+        perms.CODE_ROLES.pop("Admin Role", None)
 
 
