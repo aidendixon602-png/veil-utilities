@@ -16,10 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `tests/test_lockdown.py` — 10 tests covering the hidden-command gate, help-menu lookups
+- `tests/test_lockdown.py` — 12 tests covering the hidden-command gate, help-menu lookups
   (commands and groups), proof that no permission level can unlock developer tools, static
-  checks that dev cogs always require bot-owner, and that crash replies never echo exception
-  messages.
+  checks that dev cogs always require bot-owner, a full sweep proving all 36 hidden commands
+  are refused for strangers, and that crash replies never echo exception messages.
 
 ### Security (follow-up)
 

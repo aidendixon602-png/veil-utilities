@@ -65,6 +65,21 @@ def _results() -> dict:
                     for c in bot.cogs[cname].get_commands()
                     if not c.hidden
                 )
+                # sweep: every hidden command (incl. subs of hidden groups) vs a stranger
+                hidden = [c for c in bot.walk_commands()
+                          if c.hidden or any(p.hidden for p in c.parents)]
+                out["hidden_count"] = len(hidden)
+                out["hidden_cogs"] = sorted({c.cog_name for c in hidden})
+                out["sweep"] = {}
+                for c in hidden:
+                    ctx = SimpleNamespace(guild=None, cog=None, command=c,
+                                          author=SimpleNamespace(id=RANDOM_USER))
+                    try:
+                        out["sweep"][c.qualified_name] = "passed" if await bot._global_check(ctx) else "blocked"
+                    except commands.CommandNotFound:
+                        out["sweep"][c.qualified_name] = "notfound"
+                    except Exception as e:  # noqa: BLE001
+                        out["sweep"][c.qualified_name] = f"raised {type(e).__name__}"
                 return out
             finally:
                 await bot.close()
@@ -238,3 +253,17 @@ def test_unhandled_error_never_echoes_the_exception_message():
                     os.environ[k] = v
 
     assert asyncio.run(go()) is False
+
+
+# ------------------------------------------------------------------ full sweep
+def test_every_hidden_command_is_refused_for_strangers():
+    r = _results()
+    assert r["hidden_count"] >= 25, "sweep covered too few commands to be meaningful"
+    leaks = [name for name, result in r["sweep"].items() if result != "notfound"]
+    assert not leaks, f"developer commands reachable by strangers: {leaks}"
+
+
+def test_hidden_commands_live_only_in_developer_cogs():
+    """A hidden command anywhere else would be dev-only anyway (the gate), but it must be
+    intentional — a new dev cog must be wired into the locked-down set, not just sneaked in."""
+    assert set(_results()["hidden_cogs"]) <= {"Owner", "DevTools", "Authorization"}
