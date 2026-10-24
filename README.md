@@ -134,8 +134,9 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 <img src="assets/help-preview.svg" alt="The ,help menu with category buttons" width="720"/>
 </div>
 
-15 category buttons, one owner-locked menu: only the person who ran `,help` can click, the active
-category lights up, and the red **Secret** button lists the developer tools — it only opens for developers.
+15 category buttons plus **Home** for the overview, one owner-locked menu: only the person who ran
+`,help` can click, the active category lights up, and the red **Secret** button lists the developer
+tools — it only opens for developers. Every bot response also replies to your message (without pinging).
 The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Home button on the help menu** — one tap back to the category overview instead of
+  re-clicking the active category.
+- **Replies**: every bot response now threads the invoking message as a Discord reply
+  (without pinging), with a plain-message fallback if the original was deleted.
+- `tests/test_menu_reply.py` — Home-button and reply-threading coverage.
+
 ## [1.1.0] - 2026-10-24
 
 ### Changed

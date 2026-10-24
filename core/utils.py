@@ -38,6 +38,17 @@ class Ignored(commands.CheckFailure):
 
 # ---------------------------------------------------------------- context
 class Context(commands.Context["Veil"]):
+    async def send(self, *args, **kwargs):
+        """Everything the bot sends replies to the invoking message (without pinging), so busy
+        channels stay readable. Never pings: the bot's allowed_mentions has replied_user off.
+        If the original message was deleted, Discord sends a plain message instead."""
+        kwargs.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
+        try:
+            return await self.channel.send(*args, **kwargs)
+        except discord.HTTPException:
+            kwargs.pop("reference", None)
+            return await self.channel.send(*args, **kwargs)
+
     async def _footer(self) -> str | None:
         if self.guild is None:
             return None

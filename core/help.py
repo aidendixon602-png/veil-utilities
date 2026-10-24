@@ -91,6 +91,14 @@ class CategoryButton(discord.ui.Button["HelpView"]):
         await view.show(it, target)
 
 
+class HomeButton(discord.ui.Button["HelpView"]):
+    def __init__(self):
+        super().__init__(label="Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=3)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show(it, None)  # back to the overview
+
+
 class HelpView(OwnedView):
     def __init__(self, help_cmd: "Help", categories: dict[str, list[commands.Command]], start: str | None = None):
         super().__init__(help_cmd.context.author.id, timeout=180)
@@ -100,6 +108,7 @@ class HelpView(OwnedView):
         for i, label in enumerate(labels[:25]):
             style = discord.ButtonStyle.danger if label == SECRET_LABEL else discord.ButtonStyle.secondary
             self.add_item(CategoryButton(label, style, row=i // 5))
+        self.add_item(HomeButton())
         self._highlight()
 
     def _highlight(self):
@@ -201,7 +210,7 @@ class Help(commands.HelpCommand):
     async def open_menu(self, start: str | None = None):
         categories = category_commands(self.context.bot)
         view = HelpView(self, categories, start)
-        view.message = await self.get_destination().send(embed=await self.embed_for(start, categories), view=view)
+        view.message = await self.context.send(embed=await self.embed_for(start, categories), view=view)
 
     async def command_callback(self, ctx, /, *, command: str | None = None):
         # `,help moderation` / `,help images & ai` opens the menu on that category
@@ -241,7 +250,7 @@ class Help(commands.HelpCommand):
         if (cmd.hidden or any(p.hidden for p in cmd.parents)) \
                 and not await self.context.bot.is_owner(self.context.author):
             return await self.send_error_message(f'No command called "{cmd.name}" found.')
-        await self.get_destination().send(embed=self.command_embed(cmd))
+        await self.context.send(embed=self.command_embed(cmd))
 
     async def send_group_help(self, group: commands.Group):
         if (group.hidden or any(p.hidden for p in group.parents)) \
@@ -261,7 +270,7 @@ class Help(commands.HelpCommand):
             chunks.append(cur)
             for i, c in enumerate(chunks[:5]):
                 embed.add_field(name="Subcommands" if i == 0 else "​", value=c, inline=False)
-        await self.get_destination().send(embed=embed)
+        await self.context.send(embed=embed)
 
     async def send_error_message(self, error):
-        await self.get_destination().send(embed=discord.Embed(color=Colors.warn, description=f"⚠️ {error}"))
+        await self.context.send(embed=discord.Embed(color=Colors.warn, description=f"⚠️ {error}"))

@@ -121,7 +121,7 @@ def _help_ctx(is_dev: bool):
     from unittest.mock import AsyncMock
     return SimpleNamespace(
         guild=SimpleNamespace(),  # any truthy guild -> help replies in the channel
-        channel=SimpleNamespace(send=AsyncMock()),
+        send=AsyncMock(), channel=SimpleNamespace(send=AsyncMock()),
         author=SimpleNamespace(id=RANDOM_USER), clean_prefix=",",
         bot=SimpleNamespace(user=None, is_owner=AsyncMock(return_value=is_dev)),
     )
@@ -150,7 +150,7 @@ def _browse(is_dev: bool) -> dict:
                               aliases=[], checks=[], callback=SimpleNamespace(), clean_params={})
         await h.send_command_help(cmd)
         await h.send_group_help(_fake_group(hidden=True))
-        return {"errors": sent, "sent": h.context.channel.send.call_count}
+        return {"errors": sent, "sent": (h.context.send.call_count + h.context.channel.send.call_count)}
 
     return asyncio.run(go())
 

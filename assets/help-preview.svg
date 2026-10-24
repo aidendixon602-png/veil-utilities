@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="680" viewBox="0 0 960 680">
 <defs>
  <linearGradient id="av" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4d6d"/><stop offset="1" stop-color="#6d1640"/></linearGradient>
  <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b10f2e" stop-opacity=".18"/><stop offset="1" stop-color="#b10f2e" stop-opacity="0"/></linearGradient>
  <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity=".45"/></filter>
 </defs>
-<rect width="960" height="620" rx="18" fill="#1a1118"/>
+<rect width="960" height="680" rx="18" fill="#1a1118"/>
 <rect width="960" height="260" rx="18" fill="url(#fade)"/>
-<g filter="url(#sh)"><rect x="24" y="24" width="912" height="572" rx="12" fill="#313338"/></g>
+<g filter="url(#sh)"><rect x="24" y="24" width="912" height="632" rx="12" fill="#313338"/></g>
 <rect x="24" y="24" width="912" height="40" rx="12" fill="#2b2d31"/><rect x="24" y="52" width="912" height="12" fill="#2b2d31"/>
 <circle cx="48" cy="44" r="6" fill="#ff5f57"/><circle cx="68" cy="44" r="6" fill="#febc2e"/><circle cx="88" cy="44" r="6" fill="#28c840"/>
 <text x="480" y="49" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#949ba4"># commands</text>
@@ -97,4 +97,6 @@
 <text x="802" y="429" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f2f3f5">Always in sync</text>
 <text x="786" y="450" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">built from the live</text>
 <text x="786" y="466" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">command list</text>
+<rect x="104" y="584" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="163" y="606" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">&#9664; Home</text>
 </svg>
