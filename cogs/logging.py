@@ -83,12 +83,88 @@ class BanLogView(discord.ui.View):
                 await it.response.send_message(f"Failed to reban: {err}", ephemeral=True)
 
 
+DEFAULT_LOG_CHANNELS = [
+    ("join-logs", "joinleave", "Member join and leave notifications"),
+    ("bans", "bans", "Ban, unban, and moderation punishment logs"),
+    ("command-logs", "commands", "Command usage and staff activity logs"),
+    ("veil-utilities-logging", "server", "Server events and bot updates"),
+]
+
+
 class Logging(commands.Cog):
     """Log server events to channels"""
     emoji = "📜"
 
     def __init__(self, bot):
         self.bot = bot
+
+    async def ensure_default_channels(self, guild: discord.Guild) -> list[discord.TextChannel]:
+        """Automatically create the default logging channels if they do not exist."""
+        if not guild:
+            return []
+        me = getattr(guild, "me", None)
+        if not me or not getattr(me.guild_permissions, "manage_channels", False):
+            return []
+
+        existing = {c.name.lower(): c for c in getattr(guild, "text_channels", [])}
+        created = []
+
+        # Find or create category "VEIL LOGS"
+        category = discord.utils.get(getattr(guild, "categories", []), name="VEIL LOGS")
+        missing_names = [name for name, _, _ in DEFAULT_LOG_CHANNELS if name not in existing]
+        if not category and missing_names:
+            try:
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
+                    me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, attach_files=True),
+                }
+                category = await guild.create_category("VEIL LOGS", overwrites=overwrites, reason="Veil Utilities: default logging category")
+            except discord.HTTPException:
+                category = None
+
+        cfg = await self.bot.db.get_config(guild.id, "logs")
+        changed = False
+
+        for name, kind, topic in DEFAULT_LOG_CHANNELS:
+            ch = existing.get(name)
+            if not ch:
+                try:
+                    overwrites = {
+                        guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
+                        me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, attach_files=True),
+                    }
+                    ch = await guild.create_text_channel(
+                        name,
+                        category=category,
+                        topic=f"Veil Utilities - {topic}",
+                        overwrites=overwrites,
+                        reason="Veil Utilities: default logging channel",
+                    )
+                    created.append(ch)
+                    existing[name] = ch
+                except discord.HTTPException:
+                    continue
+
+            if ch and not cfg.get(kind):
+                cfg[kind] = ch.id
+                changed = True
+
+        if changed:
+            await self.bot.db.set_config(guild.id, "logs", cfg)
+
+        return created
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild):
+        await self.ensure_default_channels(guild)
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        for guild in getattr(self.bot, "guilds", []):
+            try:
+                await self.ensure_default_channels(guild)
+            except Exception:
+                pass
 
     async def channel_for(self, guild: discord.Guild, kind: str) -> discord.TextChannel | None:
         if guild is None:
@@ -101,14 +177,23 @@ class Logging(commands.Cog):
 
         # Auto-detect channel by common channel names if not explicitly set
         patterns = AUTO_CHANNELS.get(kind, [])
-        for ch_obj in guild.text_channels:
+        for ch_obj in getattr(guild, "text_channels", []):
             if ch_obj.name.lower() in patterns:
                 return ch_obj
 
         # General server logging fallback
         if kind not in ("commands", "bans", "joinleave"):
-            for ch_obj in guild.text_channels:
+            for ch_obj in getattr(guild, "text_channels", []):
                 if ch_obj.name.lower() in AUTO_CHANNELS["server"]:
+                    return ch_obj
+
+        # If default channels have not been created yet, try to create them now
+        created = await self.ensure_default_channels(guild)
+        if created:
+            for ch_obj in getattr(guild, "text_channels", []):
+                if ch_obj.name.lower() in patterns:
+                    return ch_obj
+                if kind not in ("commands", "bans", "joinleave") and ch_obj.name.lower() in AUTO_CHANNELS["server"]:
                     return ch_obj
 
         return None
@@ -151,6 +236,37 @@ class Logging(commands.Cog):
             cfg[k] = channel.id if channel else None
         await self.bot.db.set_config(ctx.guild.id, "logs", cfg)
         await ctx.approve(f"**{kind}** logs → {channel.mention}" if channel else f"Reset **{kind}** logs to auto")
+
+    @log.command(name="setup", aliases=["init", "default", "defaults"])
+    @has_perms(manage_guild=True)
+    async def log_setup(self, ctx: Context):
+        """Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging"""
+        if not ctx.guild.me.guild_permissions.manage_channels:
+            raise UserError("I need the `Manage Channels` permission to create the default log channels.")
+        created = await self.ensure_default_channels(ctx.guild)
+        channels = [
+            await self.channel_for(ctx.guild, "joinleave"),
+            await self.channel_for(ctx.guild, "bans"),
+            await self.channel_for(ctx.guild, "commands"),
+            await self.channel_for(ctx.guild, "server"),
+        ]
+        embed = discord.Embed(
+            title="Default Log Channels",
+            color=Colors.mint,
+            description="The default logging channels are configured and ready:\n\n"
+                        f"• **Join Logs**: {getattr(channels[0], 'mention', '`#join-logs`')}\n"
+                        f"• **Bans & Punishments**: {getattr(channels[1], 'mention', '`#bans`')}\n"
+                        f"• **Command Logs**: {getattr(channels[2], 'mention', '`#command-logs`')}\n"
+                        f"• **Server Logging**: {getattr(channels[3], 'mention', '`#veil-utilities-logging`')}\n\n"
+                        + (f"*(Created {len(created)} new channel(s))*" if created else "*(All default channels were already present)*")
+        )
+        await ctx.send(embed=embed)
+
+    @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
+    @has_perms(manage_guild=True)
+    async def cmd_setuplogs(self, ctx: Context):
+        """Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging"""
+        await self.log_setup(ctx)
 
     # ------------------------------------------------------------ command-logs
     @commands.Cog.listener()

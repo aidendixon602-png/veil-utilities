@@ -189,3 +189,66 @@ def test_ban_log_view_toggle():
     view._sync()
     assert view.toggle_btn.label == "Reban"
     assert view.toggle_btn.style == discord.ButtonStyle.danger
+
+
+def test_help_home_view_shows_secret_and_dev_for_owner():
+    view = HelpView(_help(), {"Utility": [], "Music": [], "Moderation": []}, is_owner=True)
+    labels = [b.label for b in view.children if isinstance(b, CategoryButton)]
+    assert "Secret" in labels
+    assert "Developer" in labels
+
+
+def test_default_log_channels_auto_creation():
+    from cogs.logging import Logging
+    bot = Veil()
+    cog = Logging(bot)
+    bot.db = SimpleNamespace(
+        get_config=AsyncMock(return_value={}),
+        set_config=AsyncMock(),
+    )
+    created_channels = []
+
+    class MockObj:
+        def __init__(self, id, **kwargs):
+            self.id = id
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+        def __hash__(self):
+            return self.id
+
+        def __eq__(self, other):
+            return getattr(other, "id", None) == self.id
+
+    async def fake_create_channel(name, **kwargs):
+        ch = SimpleNamespace(id=len(created_channels) + 1, name=name, __class__=discord.TextChannel)
+        created_channels.append(ch)
+        return ch
+
+    async def fake_create_category(name, **kwargs):
+        return SimpleNamespace(id=99, name=name)
+
+    default_role = MockObj(1)
+    me = MockObj(
+        2,
+        guild_permissions=SimpleNamespace(manage_channels=True),
+    )
+    guild = SimpleNamespace(
+        id=10,
+        me=me,
+        default_role=default_role,
+        text_channels=[],
+        categories=[],
+        create_category=fake_create_category,
+        create_text_channel=fake_create_channel,
+        get_channel=lambda cid: None,
+    )
+
+    created = asyncio.run(cog.ensure_default_channels(guild))
+    assert len(created) == 4
+    created_names = [c.name for c in created]
+    assert "join-logs" in created_names
+    assert "bans" in created_names
+    assert "command-logs" in created_names
+    assert "veil-utilities-logging" in created_names
+

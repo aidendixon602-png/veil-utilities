@@ -77,8 +77,8 @@ def secret_commands(bot: commands.Bot) -> list[commands.Command]:
 
 
 class CategoryButton(discord.ui.Button["HelpView"]):
-    def __init__(self, label: str, row: int):
-        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=row)
+    def __init__(self, label: str, row: int, style: discord.ButtonStyle = discord.ButtonStyle.secondary):
+        super().__init__(label=label, style=style, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.show_category(it, self.label)
@@ -109,10 +109,11 @@ class NextButton(discord.ui.Button["HelpView"]):
 
 
 class HelpView(OwnedView):
-    def __init__(self, help_cmd: "Help", categories: dict[str, list[commands.Command]], start: str | None = None):
+    def __init__(self, help_cmd: "Help", categories: dict[str, list[commands.Command]], start: str | None = None, is_owner: bool = False):
         super().__init__(help_cmd.context.author.id, timeout=180)
         self.help_cmd, self.categories = help_cmd, categories
         self.current = start
+        self.is_owner = is_owner
         self.page = 0
         self.message: discord.Message | None = None
         self._build_items()
@@ -124,18 +125,22 @@ class HelpView(OwnedView):
             labels = [c[0] for c in CATEGORIES if c[0] in self.categories]
             for i, label in enumerate(labels[:10]):
                 self.add_item(CategoryButton(label, row=i // 5))
+            if self.is_owner:
+                self.add_item(CategoryButton("Developer", row=2, style=discord.ButtonStyle.secondary))
+                self.add_item(CategoryButton("Secret", row=2, style=discord.ButtonStyle.danger))
         else:
             # Category view: Back button + pagination if needed
-            cmds = self.categories.get(self.current, [])
-            total_pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
             self.add_item(BackButton(row=0))
-            if total_pages > 1:
-                prev_btn = PrevButton(row=0)
-                next_btn = NextButton(row=0)
-                prev_btn.disabled = self.page <= 0
-                next_btn.disabled = self.page >= total_pages - 1
-                self.add_item(prev_btn)
-                self.add_item(next_btn)
+            if self.current not in ("Developer", "Secret"):
+                cmds = self.categories.get(self.current, [])
+                total_pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
+                if total_pages > 1:
+                    prev_btn = PrevButton(row=0)
+                    next_btn = NextButton(row=0)
+                    prev_btn.disabled = self.page <= 0
+                    next_btn.disabled = self.page >= total_pages - 1
+                    self.add_item(prev_btn)
+                    self.add_item(next_btn)
 
     async def show_home(self, it: discord.Interaction):
         self.current = None
@@ -148,7 +153,12 @@ class HelpView(OwnedView):
         self.current = label
         self.page = 0
         self._build_items()
-        embed = self.help_cmd.category_embed(label, self.categories.get(label, []), self.page)
+        if label.lower() in ("dev", "developer"):
+            embed = await self.help_cmd.developer_embed()
+        elif label.lower() == "secret":
+            embed = self.help_cmd.secret_embed()
+        else:
+            embed = self.help_cmd.category_embed(label, self.categories.get(label, []), self.page)
         await it.response.edit_message(embed=embed, view=self)
 
     async def change_page(self, it: discord.Interaction, delta: int):
@@ -254,16 +264,17 @@ class Help(commands.HelpCommand):
     # ------------------------------------------------------------ entry points
     async def open_menu(self, start: str | None = None):
         categories = category_commands(self.context.bot)
-        view = HelpView(self, categories, start)
+        is_owner = await self.context.bot.is_owner(self.context.author)
+        view = HelpView(self, categories, start, is_owner=is_owner)
         if start is None:
             embed = self.home_embed()
         elif start in categories:
             embed = self.category_embed(start, categories[start], 0)
-        elif start.lower() in ("dev", "developer") and await self.context.bot.is_owner(self.context.author):
+        elif start.lower() in ("dev", "developer") and is_owner:
             embed = await self.developer_embed()
             view.clear_items()
             view.add_item(BackButton(row=0))
-        elif start.lower() == "secret" and await self.context.bot.is_owner(self.context.author):
+        elif start.lower() == "secret" and is_owner:
             embed = self.secret_embed()
             view.clear_items()
             view.add_item(BackButton(row=0))

@@ -1,16 +1,25 @@
 # ================================================================
-# Wispbyte / Pterodactyl Fast Startup Command
+# Full Wispbyte / Pterodactyl Startup Commands
 # ================================================================
-# Paste this into your Wispbyte panel under the "Startup" tab
-# in the "Startup Command" field.
+# Copy and paste ONE of the single-line commands below into your
+# Wispbyte panel under the "Startup" tab -> "Startup Command" field.
 #
-# Why container boots used to take 2 minutes:
-# The default panel command ran `pip install -U --prefix .local -r requirements.txt`
-# on EVERY boot, forcing pip to query PyPI over the internet for upgrade checks on 20+ packages.
-#
-# How this command fixes it to boot in ~2-3 seconds:
-# Uses `cmp -s` to compare requirements.txt with a local hash file.
-# If requirements haven't changed, pip install is SKIPPED completely (takes 2ms).
-# If requirements.txt is ever modified, it runs pip install and updates the hash.
+# These commands include `cd` and use `cmp -s` to compare requirements.txt
+# against a local hash so pip install is SKIPPED on every reboot (takes ~2ms),
+# booting the container in under 3 seconds instead of 2 minutes!
 
-if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+# ----------------------------------------------------------------
+# OPTION 1: Standard layout (files directly in /home/container)
+# ----------------------------------------------------------------
+cd /home/container && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+
+# ----------------------------------------------------------------
+# OPTION 2: Subfolder layout (files in /home/container/veil-utilities)
+# ----------------------------------------------------------------
+cd /home/container/veil-utilities && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+
+# ----------------------------------------------------------------
+# OPTION 3: Instant Zero-Delay Boot (Fastest: ~1 second flat)
+# Use this once packages are installed:
+# ----------------------------------------------------------------
+cd /home/container && python main.py
