@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections import defaultdict, deque
+import json
 import logging
+import os
 import time
 import traceback
 
@@ -85,6 +87,8 @@ class Veil(commands.AutoShardedBot):
         self.auth_required = settings.auth_required
         # developer controls (persisted in config under guild 0, module "global")
         self.maintenance: str | None = None
+        self.maintenance_until: float | None = None
+        self._maintenance_channel_id: int | None = None
         self.killswitch: set[str] = set()
         self.recent_errors: deque = deque(maxlen=50)
         self._error_seq = 0
@@ -102,6 +106,8 @@ class Veil(commands.AutoShardedBot):
         self.authorized = {r["guild_id"] for r in await self.db.fetchall("SELECT guild_id FROM authorized")}
         g = await self.db.get_config(0, "global")
         self.maintenance = g.get("maintenance")
+        self.maintenance_until = g.get("maintenance_until")
+        self._maintenance_channel_id = g.get("maintenance_channel_id")
         self.killswitch = set(g.get("killswitch", []))
         for ext in EXTENSIONS:
             try:
@@ -143,6 +149,71 @@ class Veil(commands.AutoShardedBot):
         log.info(" prefix %s · %shelp for the menu", self.default_prefix, self.default_prefix)
         log.info("──────────────────────────────────────────")
         await self.update_dynamic_status()
+        await self.check_restart_notification()
+
+    async def check_restart_notification(self):
+        state_file = ".restart_state.json"
+        if not os.path.exists(state_file):
+            return
+        state = None
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            state = None
+        finally:
+            try:
+                os.remove(state_file)
+            except OSError:
+                pass
+
+        if not state:
+            return
+
+        # Clear temporary restart maintenance
+        if self.maintenance == "Restarting bot":
+            self.maintenance = None
+            self.maintenance_until = None
+
+        channel_id = state.get("channel_id")
+        message_id = state.get("message_id")
+        start_time = state.get("start_time", time.time())
+        duration = max(0.1, time.time() - start_time)
+
+        channel = self.get_channel(channel_id) if channel_id else None
+        if not channel and channel_id:
+            try:
+                channel = await self.fetch_channel(channel_id)
+            except Exception:
+                channel = None
+
+        if not channel:
+            return
+
+        msg = None
+        if message_id:
+            try:
+                msg = await channel.fetch_message(message_id)
+            except Exception:
+                msg = None
+
+        online_desc = f"✅ **Back online!** Restart took `{duration:.1f}s`."
+        if msg:
+            try:
+                embed = msg.embeds[0] if msg.embeds else discord.Embed(color=Colors.success)
+                embed.description = online_desc
+                embed.color = Colors.success
+                if embed.footer and embed.footer.text:
+                    p = embed.footer.text.split("·")[0].strip() if "·" in embed.footer.text else ",restart"
+                    embed.set_footer(text=f"{p} · Bot Dev · Back online in {duration:.1f}s")
+                await msg.edit(embed=embed)
+            except Exception:
+                pass
+
+        try:
+            await channel.send(f"✅ **Veil Utilities is back online!** (Restart completed in `{duration:.1f}s`)")
+        except Exception:
+            pass
 
     # ------------------------------------------------------------- prefixes
     async def _get_prefix(self, bot, message: discord.Message):
@@ -236,8 +307,19 @@ class Veil(commands.AutoShardedBot):
         if await self.is_owner(ctx.author):
             return True
         if self.maintenance is not None:
-            raise UserError("🛠️ The bot is under maintenance right now"
-                            + (f": **{self.maintenance}**" if self.maintenance else "") + ". Try again soon.")
+            now = time.time()
+            until = getattr(self, "maintenance_until", None)
+            if until and until > now:
+                remaining = max(1, int(until - now))
+                time_str = f" (<t:{int(until)}:R> / ~{remaining}s remaining)"
+                raise UserError(f"🛠️ The bot is under maintenance right now{time_str}"
+                                + (f": **{self.maintenance}**" if self.maintenance else "") + ". Try again soon.")
+            elif until and now >= until:
+                self.maintenance = None
+                self.maintenance_until = None
+            else:
+                raise UserError("🛠️ The bot is under maintenance right now"
+                                + (f": **{self.maintenance}**" if self.maintenance else "") + ". Try again soon.")
         root_name = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in self.killswitch or root_name in self.killswitch:
             raise UserError(f"`{ctx.command.qualified_name}` has been temporarily disabled by the developers")

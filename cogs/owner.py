@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 import io
+import json
 import os
 import platform
 import sqlite3
@@ -47,6 +48,8 @@ class Owner(commands.Cog):
     async def save_global(self):
         g = await self.bot.db.get_config(0, "global")
         g["maintenance"] = self.bot.maintenance
+        g["maintenance_until"] = getattr(self.bot, "maintenance_until", None)
+        g["maintenance_channel_id"] = getattr(self.bot, "_maintenance_channel_id", None)
         g["killswitch"] = sorted(self.bot.killswitch)
         await self.bot.db.set_config(0, "global", g)
 
@@ -82,25 +85,61 @@ class Owner(commands.Cog):
 
     # ================================================================ maintenance / kill switch
     @commands.command(hidden=True, aliases=["maint"])
-    async def maintenance(self, ctx: Context, state: str = None, *, reason: str = ""):
-        """`maintenance on [reason]` — everyone but developers gets a maintenance notice; `maintenance off`"""
+    async def maintenance(self, ctx: Context, state: str = None, duration: str = None, *, reason: str = ""):
+        """`maintenance on [duration] [reason]` — e.g. `maintenance on 5m DB update`; `maintenance off`"""
         if state is None:
             m = self.bot.maintenance
-            return await ctx.neutral(f"Maintenance is **{'on' if m is not None else 'off'}**" + (f": {m}" if m else ""))
+            until = getattr(self.bot, "maintenance_until", None)
+            time_info = ""
+            if until and until > time.time():
+                rem = max(1, int(until - time.time()))
+                time_info = f" (<t:{int(until)}:R> / ~{rem}s remaining)"
+            return await ctx.neutral(f"Maintenance is **{'on' if m is not None else 'off'}**{time_info}" + (f": {m}" if m else ""))
+
         if state.lower() in ("on", "enable", "true"):
-            self.bot.maintenance = reason
-            await self.bot.change_presence(status=discord.Status.dnd,
-                                           activity=discord.CustomActivity(name=f"🛠️ Maintenance{f': {reason}' if reason else ''}"))
-            msg = "Maintenance mode **on** — only developers can use commands"
+            parsed_seconds = None
+            if duration and any(duration.endswith(unit) for unit in ("s", "m", "h", "d")):
+                try:
+                    from core.utils import parse_time
+                    parsed_seconds = parse_time(duration)
+                except Exception:
+                    reason = f"{duration} {reason}".strip()
+                    parsed_seconds = None
+            elif duration:
+                reason = f"{duration} {reason}".strip()
+
+            self.bot.maintenance = reason or "Maintenance"
+            if parsed_seconds:
+                until = int(time.time() + parsed_seconds)
+                self.bot.maintenance_until = until
+                time_str = f" (<t:{until}:R> / ~{parsed_seconds}s remaining)"
+            else:
+                self.bot.maintenance_until = None
+                time_str = ""
+
+            self.bot._maintenance_channel_id = getattr(ctx.channel, "id", None)
+            await self.bot.change_presence(
+                status=discord.Status.dnd,
+                activity=discord.CustomActivity(name=f"🛠️ Maintenance{f': {reason}' if reason else ''}")
+            )
+            await self.save_global()
+            await ctx.approve(f"Maintenance mode **on**{time_str} — only developers can use commands")
+
         elif state.lower() in ("off", "disable", "false"):
             self.bot.maintenance = None
-            await self.bot.change_presence(status=discord.Status.online, activity=discord.Activity(
-                type=discord.ActivityType.watching, name=settings.status))
-            msg = "Maintenance mode **off**"
+            self.bot.maintenance_until = None
+            await self.bot.update_dynamic_status()
+            await self.save_global()
+            await ctx.approve("✅ **Veil Utilities is back online!** Maintenance mode disabled.")
+            if getattr(self.bot, "_maintenance_channel_id", None) and getattr(ctx.channel, "id", None) != self.bot._maintenance_channel_id:
+                try:
+                    ch = self.bot.get_channel(self.bot._maintenance_channel_id)
+                    if ch:
+                        await ch.send("✅ **Veil Utilities is back online!** Maintenance has ended.")
+                except Exception:
+                    pass
         else:
-            raise UserError("Use `maintenance on [reason]` or `maintenance off`")
-        await self.save_global()
-        await ctx.approve(msg)
+            raise UserError("Use `maintenance on [duration] [reason]` or `maintenance off`")
 
     @commands.group(hidden=True, aliases=["ks", "globaldisable"], invoke_without_command=True)
     async def killswitch(self, ctx: Context, *, command: str):
@@ -297,9 +336,35 @@ class Owner(commands.Cog):
         await ctx.approve("Status updated")
 
     @commands.command(hidden=True, aliases=["reboot"])
-    async def restart(self, ctx: Context):
-        """Restart the bot cleanly in-process without killing the container"""
-        await ctx.approve("Restarting bot — back in ~2 seconds…")
+    async def restart(self, ctx: Context, seconds: int = 3):
+        """Restart the bot cleanly in-process and announce when back online"""
+        delay = max(1, min(60, seconds))
+        start_time = time.time()
+        target_ts = int(start_time + delay)
+
+        self.bot.maintenance = "Restarting bot"
+        self.bot.maintenance_until = target_ts
+
+        msg = await ctx.approve(f"Restarting — back online <t:{target_ts}:R> (~{delay}s remaining)…")
+
+        channel = getattr(ctx, "channel", None)
+        guild = getattr(ctx, "guild", None)
+        author = getattr(ctx, "author", None)
+        state = {
+            "channel_id": getattr(channel, "id", None),
+            "message_id": getattr(msg, "id", None),
+            "guild_id": getattr(guild, "id", None),
+            "author_id": getattr(author, "id", None),
+            "start_time": start_time,
+            "target_time": target_ts,
+            "estimated_seconds": delay,
+        }
+        try:
+            with open(".restart_state.json", "w", encoding="utf-8") as f:
+                json.dump(state, f)
+        except Exception:
+            pass
+
         self.bot._restart_requested = True
         await self.bot.close()
 
