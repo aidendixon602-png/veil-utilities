@@ -295,8 +295,8 @@ class Logging(commands.Cog):
             staff_roles = [r for r in ctx.author.roles if (r.permissions.manage_guild or r.permissions.manage_messages) and not r.is_default()]
             granted_by = staff_roles[-1].mention if staff_roles else "Staff role"
         else:
-            perm_str = "Member"
-            granted_by = "Default server permissions"
+            perm_str = "None"
+            granted_by = "-"
 
         e = discord.Embed(color=Colors.blurple)
         e.set_author(name=ctx.author.name, icon_url=ctx.author.display_avatar.url)

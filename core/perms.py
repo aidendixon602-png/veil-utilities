@@ -16,7 +16,33 @@ DEV_RANK = 10_000
 OWNER_RANK = 1_000
 ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 
-# key -> (display name, rank, granted bot-permissions). Assignable with `uperm add`.
+# =====================================================================
+# CODE-DEFINED PERMISSIONS (Editable directly in this file)
+# =====================================================================
+# You can assign permission levels directly here in the bot code!
+# The bot merges these with any levels assigned via Discord commands.
+#
+# CODE_USERS: Map user IDs (int or str) to level keys (e.g. "supremeleader", "admin", "mod", "helper")
+# Example:
+#   CODE_USERS = {
+#       1277709272041394187: "supremeleader",
+#   }
+CODE_USERS: dict[int | str, str] = {
+    1277709272041394187: "supremeleader",
+}
+
+# CODE_ROLES: Map role IDs (int or str) or exact role names (str) to level keys
+# Example:
+#   CODE_ROLES = {
+#       "HR | Branch Management": "admin",
+#       "Office of Lilz": "helper",
+#   }
+CODE_ROLES: dict[int | str, str] = {
+    "HR | Branch Management": "admin",
+    "Office of Lilz": "helper",
+}
+
+# key -> (display name, rank, granted bot-permissions). Assignable with `perm add`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "helper":        ("Helper", 1, ["manage_messages"]),
     "mod":           ("Mod", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
@@ -30,10 +56,10 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "supremeleader": ("Supreme Leader", 7, ["administrator"]),
 }
 
-# shown in the level list but handed out automatically, never via `uperm add`
+# shown in the level list but handed out automatically, never via `perm add`
 RESERVED: dict[str, tuple[str, int]] = {
     "serverowner": ("Server Owner", OWNER_RANK),
-    "botdev":      ("Bot Dev", DEV_RANK),
+    "botdev":      ("Bot Developer", DEV_RANK),
 }
 
 
@@ -86,27 +112,37 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
         (level_name, granted_by, rank)
         e.g. ("Supreme Leader", "Permissions attached to user", 7)
              ("Admin", "@HR | Branch Management", 3)
+             ("Bot Developer", "Built-in", 10000)
     """
     if is_dev:
-        return "Bot Dev", "Bot Developer", DEV_RANK
+        return "Bot Developer", "Built-in", DEV_RANK
     if is_owner:
         return "Server Owner", "Server Owner", OWNER_RANK
 
     levels = all_levels(cfg)
 
-    # 1. User-specific assignment takes top precedence
-    ukey = user_key(cfg, getattr(member, "id", 0))
+    # 1. User-specific assignment: Check CODE_USERS first, then cfg["users"]
+    mid = getattr(member, "id", 0)
+    ukey = CODE_USERS.get(mid) or CODE_USERS.get(str(mid)) or user_key(cfg, mid)
     if ukey and ukey in levels:
         info = levels[ukey]
         return info["name"], "Permissions attached to user", info["rank"]
 
-    # 2. Check roles attached to member, selecting the highest-ranking level
+    # 2. Check roles attached to member: Check CODE_ROLES and cfg["roles"]
     roles_cfg = cfg.get("roles") or {}
     best_info = None
     best_role = None
     best_rank = 0
     for r in getattr(member, "roles", []):
-        rkey = roles_cfg.get(str(r.id))
+        r_name = getattr(r, "name", "")
+        r_id = getattr(r, "id", 0)
+        rkey = (
+            CODE_ROLES.get(r_id)
+            or CODE_ROLES.get(str(r_id))
+            or CODE_ROLES.get(r_name)
+            or CODE_ROLES.get(r_name.lower())
+            or roles_cfg.get(str(r_id))
+        )
         if rkey and rkey in levels:
             r_info = levels[rkey]
             if r_info["rank"] > best_rank:
@@ -129,7 +165,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 def level_perms(cfg: dict, member_or_id: discord.Member | int) -> set[str]:
     levels = all_levels(cfg)
     if isinstance(member_or_id, int):
-        key = user_key(cfg, member_or_id)
+        key = CODE_USERS.get(member_or_id) or CODE_USERS.get(str(member_or_id)) or user_key(cfg, member_or_id)
         lv = levels.get(key) if key else None
         return set(lv["perms"]) if lv else set()
 
