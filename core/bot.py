@@ -20,6 +20,8 @@ from core.utils import Colors, Context, Ignored, UserError
 
 log = logging.getLogger("veil")
 
+VERSION = "1.1.0"  # keep in sync with pyproject.toml and CHANGELOG.md
+
 EXTENSIONS = [
     "cogs.settings", "cogs.moderation", "cogs.antinuke", "cogs.automod", "cogs.logging",
     "cogs.voicemaster", "cogs.config", "cogs.levels", "cogs.giveaways", "cogs.tickets",
@@ -114,7 +116,12 @@ class Veil(commands.AutoShardedBot):
         await self.db.close()
 
     async def on_ready(self):
-        log.info("Logged in as %s (%s) in %d guilds", self.user, self.user.id, len(self.guilds))
+        commands_total = sum(1 for _ in self.walk_commands())
+        log.info("──────────────────────────────────────────")
+        log.info(" veil utilities v%s", VERSION)
+        log.info(" %s · %d guilds · %d commands", self.user, len(self.guilds), commands_total)
+        log.info(" prefix %s · %shelp for the menu", self.default_prefix, self.default_prefix)
+        log.info("──────────────────────────────────────────")
 
     # ------------------------------------------------------------- prefixes
     async def _get_prefix(self, bot, message: discord.Message):

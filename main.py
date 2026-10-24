@@ -4,6 +4,7 @@ import importlib.util
 import logging
 import os
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 
 # Run from the bot's own folder no matter how it was started (e.g. `python veil-utilities/main.py` on a host),
@@ -56,20 +57,48 @@ except ConfigError as error:
 
 from core.bot import INTENT_HELP, Veil, intent_plans  # noqa: E402
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8"),
-    ],
-)
+class ConsoleFormatter(logging.Formatter):
+    """Clean panel-console output: `20:17:14 | INFO  | veil.music | message`.
+
+    Colors use ANSI escapes (Pterodactyl-style consoles render them); disabled with LOG_COLOR=0.
+    The rotating log file gets the plain format below instead."""
+
+    LEVEL_COLORS = {"DEBUG": "\x1b[2;37m", "INFO": "\x1b[38;5;42m", "WARNING": "\x1b[38;5;214m",
+                    "ERROR": "\x1b[31m", "CRITICAL": "\x1b[1;41m"}
+    RESET = "\x1b[0m"
+    DIM = "\x1b[2m"
+
+    def __init__(self, color: bool):
+        super().__init__()
+        self.color = color
+
+    def format(self, record: logging.LogRecord) -> str:
+        name = record.name.split(".")[0] if not record.name.startswith("veil") else record.name
+        when = time.strftime("%H:%M:%S", time.localtime(record.created))
+        level = {"WARNING": "WARN", "CRITICAL": "CRIT"}.get(record.levelname, record.levelname)
+        if self.color:
+            c = self.LEVEL_COLORS.get(record.levelname, "")
+            return f"{self.DIM}{when}{self.RESET} {c}{level:<5}{self.RESET} " \
+                   f"{self.DIM}{name:<12}{self.RESET} {record.getMessage()}"
+        return f"{when} {level:<5} {name:<12} {record.getMessage()}"
+
+
+PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+console = logging.StreamHandler()
+console.setFormatter(ConsoleFormatter(color=os.environ.get("LOG_COLOR", "1") != "0"))
+logfile = RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+logfile.setFormatter(logging.Formatter(PLAIN_FORMAT))
+logging.basicConfig(level=logging.INFO, handlers=[console, logfile])
+# library noise: retries/gateway chatter add nothing the bot's own logs don't already say better
+logging.getLogger("discord").setLevel(logging.WARNING)
+logging.getLogger("wavelink").setLevel(logging.WARNING)
+logging.getLogger("wavelink.websocket").setLevel(logging.ERROR)
 log = logging.getLogger("veil")
 
 
 async def main() -> None:
     import discord
-    log.info("Starting with %s", settings.summary())
+    log.info("config: %s", settings.summary())
     for intents, warning in intent_plans():
         if warning:
             log.warning("Discord refused a privileged intent. %s %s", warning, INTENT_HELP)

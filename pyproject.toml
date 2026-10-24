@@ -1,6 +1,6 @@
 [project]
 name = "veil-utilities"
-version = "1.0.0"
+version = "1.1.0"
 description = "All-in-one Discord bot: antinuke, moderation, VoiceMaster, leveling, AI and more"
 requires-python = ">=3.10"
 

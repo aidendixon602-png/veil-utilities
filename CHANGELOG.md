@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-10-24
+
+### Changed
+
+- Console logging redesigned: short timestamps, aligned colored levels, tidy logger names,
+  and a versioned startup banner. discord.py/wavelink chatter is silenced — the bot's own
+  logs say the same things once, properly formatted. Plain format is kept for the log file;
+  `LOG_COLOR=0` disables color.
 
 ### Security
 
