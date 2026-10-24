@@ -475,7 +475,10 @@ async def antinuke_admin(ctx: Context) -> bool:
     cfg = await ctx.bot.db.get_config(ctx.guild.id, "antinuke")
     if ctx.author.id in cfg.get("admins", []):
         return True
-    raise UserError("Only the **server owner** or an **antinuke admin** can use this")
+    pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels")
+    if _perms.rank_of(pl_cfg, ctx.author) >= 7:
+        return True
+    raise UserError("Only the **server owner**, **Supreme Leader**, or an **antinuke admin** can use this")
 
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:

@@ -208,8 +208,7 @@ class Antinuke(commands.Cog):
         if not mod or not mod.get("on"):
             return
         actor_id = entry.user_id
-        if actor_id in (None, self.bot.user.id, guild.owner_id) or actor_id in cfg["whitelist"] \
-                or actor_id in cfg["admins"]:
+        if not actor_id or await self._trusted(guild, cfg, actor_id):
             return
 
         # filter the noisy events down to the dangerous ones
@@ -251,8 +250,10 @@ class Antinuke(commands.Cog):
 
     # ================================================================ bot-command guard
     async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
+        from core import perms as _perms
         return (user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", [])
-                or user_id in cfg.get("admins", []) or await self.bot.is_owner(discord.Object(user_id)))
+                or user_id in cfg.get("admins", []) or await self.bot.is_owner(discord.Object(user_id))
+                or user_id in _perms.BOT_DEVELOPERS)
 
     async def guard(self, ctx: Context, module: str, amount: int = 1) -> None:
         """Count a destructive action done *through the bot* against the member who ran the command.
