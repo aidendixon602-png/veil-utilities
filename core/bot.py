@@ -205,6 +205,37 @@ class Veil(commands.AutoShardedBot):
         if not admin and (ctx.channel.id in settings.get("ignored_channels", [])
                           or ctx.author.id in settings.get("ignored_users", [])):
             raise Ignored()
+
+        # staff-only mode & bot-channels restrictions
+        staff_only = settings.get("staff_only")
+        allowed_channels = settings.get("bot_channels", [])
+        channel_restricted = bool(allowed_channels and ctx.channel.id not in allowed_channels)
+
+        if staff_only or channel_restricted:
+            is_staff = (
+                admin
+                or ctx.author.id == ctx.guild.owner_id
+                or ctx.author.guild_permissions.manage_guild
+                or ctx.author.guild_permissions.manage_messages
+                or ctx.author.guild_permissions.moderate_members
+            )
+            if not is_staff:
+                from core import perms as _perms
+                pl_cfg = await self.db.get_config(ctx.guild.id, "permlevels")
+                if _perms.rank_of(pl_cfg, ctx.author) >= 1:
+                    is_staff = True
+            if not is_staff:
+                fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
+                if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in ctx.author.roles):
+                    is_staff = True
+
+            if staff_only and not is_staff:
+                raise UserError("🔒 The bot is currently in **staff-only** mode in this server.")
+
+            if channel_restricted and not is_staff:
+                channel_list = ", ".join(f"<#{c}>" for c in allowed_channels)
+                raise UserError(f"Commands in this server are restricted to {channel_list}")
+
         disabled = settings.get("disabled", [])
         root = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in disabled or root in disabled:

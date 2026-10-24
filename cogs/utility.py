@@ -21,6 +21,47 @@ log = logging.getLogger("veil.utility")
 CUSTOM_EMOJI = re.compile(r"<(a?):(\w+):(\d+)>")
 
 
+class SnipeView(discord.ui.View):
+    def __init__(self, author_id: int, queue: list[dict], index: int = 1):
+        super().__init__(timeout=90)
+        self.author_id = author_id
+        self.queue = queue
+        self.index = index
+        self._sync()
+
+    def _sync(self):
+        self.prev_button.disabled = self.index <= 1
+        self.next_button.disabled = self.index >= len(self.queue)
+
+    def embed(self) -> discord.Embed:
+        d = self.queue[self.index - 1]
+        e = discord.Embed(description=d["content"] or None, color=Colors.main)
+        e.set_author(name=str(d["author"]), icon_url=d["author"].display_avatar.url)
+        media = d["attachments"] + d["stickers"]
+        if media:
+            e.set_image(url=media[0])
+            if len(media) > 1:
+                e.add_field(name="More attachments", value="\n".join(media[1:])[:1024])
+        e.set_footer(text=f"Deleted {fmt_duration(time.time() - d['time'])} ago • {self.index}/{len(self.queue)}")
+        return e
+
+    @discord.ui.button(label="Prev", emoji="◀", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, it: discord.Interaction, btn: discord.ui.Button):
+        if it.user.id != self.author_id:
+            return await it.response.send_message("Only the person who ran the command can use these buttons", ephemeral=True)
+        self.index = max(1, self.index - 1)
+        self._sync()
+        await it.response.edit_message(embed=self.embed(), view=self)
+
+    @discord.ui.button(label="Next", emoji="▶", style=discord.ButtonStyle.secondary)
+    async def next_button(self, it: discord.Interaction, btn: discord.ui.Button):
+        if it.user.id != self.author_id:
+            return await it.response.send_message("Only the person who ran the command can use these buttons", ephemeral=True)
+        self.index = min(len(self.queue), self.index + 1)
+        self._sync()
+        await it.response.edit_message(embed=self.embed(), view=self)
+
+
 class Utility(commands.Cog):
     """Handy everyday tools"""
     emoji = "🛠️"
@@ -68,19 +109,23 @@ class Utility(commands.Cog):
     async def snipe(self, ctx: Context, index: int = 1):
         """Show a recently deleted message"""
         await self._snipe_allowed(ctx)
-        q = self.deleted[ctx.channel.id]
+        q = list(self.deleted[ctx.channel.id])
         if not q or not 1 <= index <= len(q):
             raise UserError("Nothing to snipe" if not q else f"Pick 1–{len(q)}")
-        d = q[index - 1]
-        e = discord.Embed(description=d["content"] or None, color=Colors.main)
-        e.set_author(name=str(d["author"]), icon_url=d["author"].display_avatar.url)
-        media = d["attachments"] + d["stickers"]
-        if media:
-            e.set_image(url=media[0])
-            if len(media) > 1:
-                e.add_field(name="More attachments", value="\n".join(media[1:])[:1024])
-        e.set_footer(text=f"Deleted {fmt_duration(time.time() - d['time'])} ago • {index}/{len(q)}")
-        await ctx.send(embed=e)
+        if len(q) > 1:
+            view = SnipeView(ctx.author.id, q, index)
+            await ctx.send(embed=view.embed(), view=view)
+        else:
+            d = q[index - 1]
+            e = discord.Embed(description=d["content"] or None, color=Colors.main)
+            e.set_author(name=str(d["author"]), icon_url=d["author"].display_avatar.url)
+            media = d["attachments"] + d["stickers"]
+            if media:
+                e.set_image(url=media[0])
+                if len(media) > 1:
+                    e.add_field(name="More attachments", value="\n".join(media[1:])[:1024])
+            e.set_footer(text=f"Deleted {fmt_duration(time.time() - d['time'])} ago • 1/1")
+            await ctx.send(embed=e)
 
     @commands.command(aliases=["es"])
     @commands.guild_only()
@@ -207,7 +252,7 @@ class Utility(commands.Cog):
         await self.bot.wait_until_ready()
 
     # ================================================================ info
-    @commands.command(aliases=["ui", "whois", "user"])
+    @commands.command(aliases=["ui", "info", "whois", "user"])
     async def userinfo(self, ctx: Context, user: discord.Member | discord.User = None):
         """Info about a user"""
         user = user or ctx.author
@@ -451,8 +496,48 @@ class Utility(commands.Cog):
             except discord.HTTPException:
                 pass
 
+    # ================================================================ staff notes
+    @commands.group(aliases=["note"], invoke_without_command=True)
+    @has_perms(manage_messages=True)
+    @commands.guild_only()
+    async def notes(self, ctx: Context, *, member: discord.Member):
+        """View staff notes for a member"""
+        rows = await self.bot.db.fetchall(
+            "SELECT id, note, author_id, created_at FROM member_notes WHERE guild_id=? AND user_id=? ORDER BY id ASC",
+            ctx.guild.id, member.id
+        )
+        if not rows:
+            return await ctx.neutral(f"No notes for {member.mention}.")
+        lines = [f"`#{r['id']}` {r['note']} — <@{r['author_id']}> ({ts(r['created_at'], 'R')})" for r in rows]
+        await ctx.paginate(chunk_embeds(f"Notes for {member}", lines))
+
+    @notes.command(name="add")
+    @has_perms(manage_messages=True)
+    @commands.guild_only()
+    async def notes_add(self, ctx: Context, member: discord.Member, *, note: str):
+        """Add a staff note for a member"""
+        if len(note) > 1000:
+            raise UserError("Note cannot exceed 1000 characters")
+        await self.bot.db.execute(
+            "INSERT INTO member_notes(guild_id, user_id, author_id, note, created_at) VALUES(?,?,?,?,?)",
+            ctx.guild.id, member.id, ctx.author.id, note, now()
+        )
+        await ctx.approve(f"Added note for {member.mention}.")
+
+    @notes.command(name="clear", aliases=["remove", "del"])
+    @has_perms(manage_messages=True)
+    @commands.guild_only()
+    async def notes_clear(self, ctx: Context, member: discord.Member):
+        """Clear all staff notes for a member"""
+        await self.bot.db.execute(
+            "DELETE FROM member_notes WHERE guild_id=? AND user_id=?",
+            ctx.guild.id, member.id
+        )
+        await ctx.approve(f"Cleared notes for {member.mention}.")
+
     # ================================================================ polls / misc
     @commands.command()
+    @has_perms(manage_messages=True)
     async def poll(self, ctx: Context, *, question: str):
         """Quick poll — `poll Pizza? | Yes | No | Maybe` for options"""
         parts = [p.strip() for p in question.split("|") if p.strip()]

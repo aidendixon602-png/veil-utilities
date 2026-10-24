@@ -179,6 +179,40 @@ class Settings(commands.Cog):
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
         await ctx.approve(f"`{name}` has been re-enabled.")
 
+    # ---------------------------------------------------------- staff-only / bot channels
+    @commands.command(aliases=["botlock", "lockbot"])
+    @is_server_owner()
+    @commands.guild_only()
+    async def staffonly(self, ctx: Context, state: bool | None = None):
+        """Toggle staff-only mode so normal members cannot run bot commands"""
+        s = await self.bot.db.get_config(ctx.guild.id, "settings")
+        current = bool(s.get("staff_only"))
+        new_state = (not current) if state is None else state
+        s["staff_only"] = new_state
+        await self.bot.db.set_config(ctx.guild.id, "settings", s)
+        note = " (only staff & members with permission levels can use commands)" if new_state else " (all members can use public commands)"
+        await ctx.approve(f"Staff-only mode is now **{'enabled' if new_state else 'disabled'}**{note}")
+
+    @commands.group(aliases=["cmdchannels", "botchannel"], invoke_without_command=True)
+    @has_perms(manage_guild=True)
+    async def botchannels(self, ctx: Context, channel: discord.TextChannel = None):
+        """Restrict normal commands to specific channels (`botchannels <#channel>` to toggle)"""
+        s = await self.bot.db.get_config(ctx.guild.id, "settings")
+        channels = s.setdefault("bot_channels", [])
+        if channel is None:
+            if not channels:
+                return await ctx.neutral("Commands are allowed in all channels.")
+            lines = [f"<#{c}>" for c in channels]
+            return await ctx.paginate(chunk_embeds("Allowed Bot Channels", lines))
+        if channel.id in channels:
+            channels.remove(channel.id)
+            msg = f"{channel.mention} removed from allowed bot channels"
+        else:
+            channels.append(channel.id)
+            msg = f"{channel.mention} added to allowed bot channels"
+        await self.bot.db.set_config(ctx.guild.id, "settings", s)
+        await ctx.approve(msg)
+
     # ---------------------------------------------------------- modlog
     @commands.command()
     @has_perms(manage_guild=True)

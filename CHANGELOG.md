@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Midtown Utilities Help Redesign** — Redesigned `,help` menu matching the elite Midtown Utilities style:
+  - Blurple home overview (`0x5865F2`) with clean 2-row category grid (no secret or developer clutter).
+  - Mint-accented category cards (`0x57F287`) with signatures (`,cmd [args] - desc`), aliases block, and dedicated `[Back]` navigation button.
+  - Developer and Secret commands hidden from regular members.
+- **Server Staff-Only Mode (`staffonly` / `botlock`)** — Global server setting allowing owners to restrict the bot so regular members cannot run commands.
+- **Designated Bot Channels (`botchannels` / `botchannel`)** — Whitelist specific channels (e.g. `#bot-commands`) where non-staff are permitted to run commands.
+- **Staff Notes System (`notes`)** — Dedicated staff notes for members (`,notes <member>`, `,notes add`, `,notes clear`).
+- **Permission Levels Redesign** — Compact, single-card embed for `,permlevels` replacing oversized multiple fields, added `,perm` alias so `,perm add <member> <level>` works directly, and added staff protection.
+- **Interactive Snipe Pagination** — Added `[◀ Prev]` and `[Next ▶]` button controls to cycle through recently deleted messages.
+- `tests/test_midtown_redesign.py` — 8 new unit tests covering the Midtown-style help menu, staff-only checks, channel restrictions, and perm aliases (166 tests total).
+
+### Fixed
+
+- **Music Playback Hijacking** — Listeners can no longer stop playback, clear the queue, or change volume when no DJ role is set; controls now require staff permissions, DJ role, or being alone in VC with the bot.
+- **Poll Command Unrestricted** — Added `manage_messages` permission requirement to `,poll` so normal members cannot spam polls.
 - **Home button on the help menu** — one tap back to the category overview instead of
   re-clicking the active category.
 - **Replies**: every bot response now threads the invoking message as a Discord reply

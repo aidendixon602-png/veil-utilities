@@ -51,9 +51,18 @@ CREATE TABLE IF NOT EXISTS vm_channels (channel_id INTEGER PRIMARY KEY, guild_id
 CREATE TABLE IF NOT EXISTS blacklist (id INTEGER PRIMARY KEY, reason TEXT);
 CREATE TABLE IF NOT EXISTS authorized (guild_id INTEGER PRIMARY KEY, authorized_by INTEGER, at REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS globalbans (user_id INTEGER PRIMARY KEY, mod_id INTEGER, reason TEXT, at REAL);
+CREATE TABLE IF NOT EXISTS member_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER,
+    user_id INTEGER,
+    author_id INTEGER,
+    note TEXT,
+    created_at REAL
+);
 
 -- lookups the bot does constantly (warn counts, case history, the reminder/giveaway loops)
 CREATE INDEX IF NOT EXISTS idx_warns_member ON warns (guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_notes_member ON member_notes (guild_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_cases_member ON cases (guild_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (due);
 CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (user_id);

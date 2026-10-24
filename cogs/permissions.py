@@ -28,7 +28,7 @@ class Permissions(commands.Cog):
                              has_admin=ctx.author.guild_permissions.administrator)
 
     # ============================================================ userperm
-    @commands.group(aliases=["uperm", "ups"], invoke_without_command=True)
+    @commands.group(aliases=["perm", "uperm", "ups"], invoke_without_command=True)
     @commands.guild_only()
     async def userperm(self, ctx: Context):
         """Manage members' permission levels"""
@@ -108,13 +108,17 @@ class Permissions(commands.Cog):
     @commands.guild_only()
     async def up_check(self, ctx: Context, member: discord.Member = None):
         """Check a member's permission level and what it grants"""
-        member = member or ctx.author
+        target = member or ctx.author
+        if member and member != ctx.author and not ctx.author.guild_permissions.manage_messages:
+            actor = await self.actor_rank(ctx)
+            if actor < 1:
+                raise UserError("You can only check your own permission level")
         cfg = await self.cfg(ctx.guild.id)
-        key = perms.user_key(cfg, member.id)
-        e = discord.Embed(color=Colors.main)
-        e.set_author(name=f"{member}", icon_url=member.display_avatar.url)
+        key = perms.user_key(cfg, target.id)
+        e = discord.Embed(color=Colors.blurple)
+        e.set_author(name=f"{target}", icon_url=target.display_avatar.url)
         if not key:
-            e.description = f"{member.mention} has no permission level."
+            e.description = f"{target.mention} has no permission level."
         else:
             info = perms.all_levels(cfg)[key]
             e.add_field(name="Level", value=f"**{info['name']}**")
@@ -126,6 +130,7 @@ class Permissions(commands.Cog):
 
     # ============================================================ levels
     @commands.group(aliases=["plevels", "plvl"], invoke_without_command=True)
+    @has_perms(manage_messages=True)
     @commands.guild_only()
     async def permlevels(self, ctx: Context):
         """View the permission levels available in this server"""
@@ -134,15 +139,23 @@ class Permissions(commands.Cog):
         counts: dict[str, int] = {}
         for key in cfg.get("users", {}).values():
             counts[key] = counts.get(key, 0) + 1
-        e = discord.Embed(title="Permission levels", color=Colors.main,
-                          description="Highest to lowest. Assign with `" + ctx.clean_prefix + "uperm add <member> <level>`")
+
+        lines = [f"Highest to lowest. Assign with `{ctx.clean_prefix}perm add <member> <level>`\n"]
         for name, rank in sorted(((n, r) for n, r in perms.RESERVED.values()), key=lambda x: x[1], reverse=True):
-            e.add_field(name=f"{name} · rank {rank}", value="automatic — not assignable", inline=False)
+            lines.append(f"`rank {rank:<5}` **{name}** — automatic (not assignable)")
+
         for key, info in levels:
             grants = "all permissions" if "administrator" in info["perms"] else \
                 (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
-            e.add_field(name=f"{info['name']} · rank {info['rank']}",
-                        value=f"`{key}` — {grants}\n{counts.get(key, 0)} member(s)", inline=False)
+            cnt = counts.get(key, 0)
+            member_str = f"**{cnt}** member{'s' if cnt != 1 else ''}"
+            lines.append(f"`rank {info['rank']:<5}` **{info['name']}** (`{key}`) — {grants} • {member_str}")
+
+        e = discord.Embed(
+            title="Permission levels",
+            color=Colors.blurple,
+            description="\n".join(lines)
+        )
         await ctx.send(embed=e)
 
     @permlevels.command(name="rename")

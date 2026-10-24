@@ -1,6 +1,6 @@
 # Command reference
 
-394 commands. Default prefix `,`. `<required>` `[optional]`.
+399 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -356,11 +356,11 @@ _Assign named permission levels to members_
 
 | Command | Description | Permission |
 |---|---|---|
-| `permlevels` (plevels, plvl) | View the permission levels available in this server |  |
+| `permlevels` (plevels, plvl) | View the permission levels available in this server | manage messages |
 | `permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) |  |
 | `permlevels rank <key> <rank>` | Change a level's rank (server owner) |  |
 | `permlevels rename <key> <name>` | Rename a level (server owner) |  |
-| `userperm` (uperm, ups) | Manage members' permission levels |  |
+| `userperm` (perm, uperm, ups) | Manage members' permission levels |  |
 | `userperm add <member> <level>` (set, give) | Assign a permission level to a member | administrator |
 | `userperm check [member]` (view, info) | Check a member's permission level and what it grants |  |
 | `userperm list` (all) | List members with a permission level | administrator |
@@ -376,6 +376,7 @@ _Configure how the bot behaves in your server_
 | `alias add <shortcut> <command>` | Add an alias, e.g. `alias add b ban` or `alias add hi say hello` | manage guild |
 | `alias list` | List aliases | manage guild |
 | `alias remove <shortcut>` (delete, del) | Remove an alias | manage guild |
+| `botchannels [channel]` (cmdchannels, botchannel) | Restrict normal commands to specific channels (`botchannels <#channel>` to toggle) | manage guild |
 | `disablecommand <command>` (disablecmd, dcmd) | Disable a command for non-admins (`dcmd list` to see what's disabled) | manage guild |
 | `disablecommand list` | List disabled commands | manage guild |
 | `enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
@@ -389,6 +390,7 @@ _Configure how the bot behaves in your server_
 | `prefix` | View the server prefix |  |
 | `prefix set <prefix>` | Change the server prefix | manage guild |
 | `selfprefix [prefix]` | Set a personal prefix that works everywhere (`none` to remove) |  |
+| `staffonly [state]` (botlock, lockbot) | Toggle staff-only mode so normal members cannot run bot commands |  |
 
 ## 🟢 Spotify
 _Look up songs, artists, albums and what people are listening to on Spotify_
@@ -442,8 +444,11 @@ _Handy everyday tools_
 | `membercount` (mc) | Member count breakdown |  |
 | `messageboard [days=0]` (topmsgs, topmessages) | Most active members (optionally over the last N days) |  |
 | `messages [member]` (msgs) | Message stats for a member |  |
+| `notes <member>` (note) | View staff notes for a member | manage messages |
+| `notes add <member> <note>` | Add a staff note for a member | manage messages |
+| `notes clear <member>` (remove, del) | Clear all staff notes for a member | manage messages |
 | `ping` | Latency |  |
-| `poll <question>` | Quick poll — `poll Pizza? \| Yes \| No \| Maybe` for options |  |
+| `poll <question>` | Quick poll — `poll Pizza? \| Yes \| No \| Maybe` for options | manage messages |
 | `reactionsnipe` (rs) | Show recently removed reactions |  |
 | `remind <duration> [reminder=something]` (remindme, reminder) | `remind 2h30m take out the trash` |  |
 | `remind delete <reminder_id>` (remove, cancel) | Cancel a reminder |  |
@@ -457,7 +462,7 @@ _Handy everyday tools_
 | `steal [emojis...]` (addemoji, stealemoji) | Add emojis from other servers (or reply to a message containing them) | manage expressions |
 | `togglesnipe` | Enable/disable snipe commands server-wide | manage guild |
 | `uptime` (up) | How long the bot has been online |  |
-| `userinfo [user]` (ui, whois, user) | Info about a user |  |
+| `userinfo [user]` (ui, info, whois, user) | Info about a user |  |
 
 ## 🎙️ VoiceMaster
 _Temporary personal voice channels_

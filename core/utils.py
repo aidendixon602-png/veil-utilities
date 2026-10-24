@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------- style
 class Colors:
     main = 0xB10F2E
+    blurple = 0x5865F2
+    mint = 0x57F287
     success = 0x43B581
     warn = 0xFAA61A
     error = 0xF04747

@@ -185,20 +185,22 @@ class Music(commands.Cog):
         return player
 
     async def is_dj(self, ctx: Context, player=None) -> bool:
-        """DJ = bot owner, Manage Channels / Move Members (incl. fake perms & perm levels), the DJ role,
-        or anyone when no DJ role is set. Being alone with the bot also counts."""
+        """DJ = bot owner, Manage Channels / Move Members (incl. fake perms & perm levels),
+        the assigned DJ role, or being alone with the bot."""
         if await self.bot.is_owner(ctx.author):
             return True
         perms = ctx.author.guild_permissions
-        if perms.administrator or perms.manage_channels or perms.move_members:
+        if perms.administrator or perms.manage_channels or perms.move_members or ctx.author.id == ctx.guild.owner_id:
             return True
         cfg = await self.bot.db.get_config(ctx.guild.id, "music")
         role_id = cfg.get("dj_role")
-        if not role_id or ctx.guild.get_role(role_id) is None:
+        if role_id and ctx.guild.get_role(role_id) is not None:
+            if any(r.id == role_id for r in ctx.author.roles):
+                return True
+        elif not await missing_perms(ctx, move_members=True):
             return True
-        if any(r.id == role_id for r in ctx.author.roles):
-            return True
-        if not await missing_perms(ctx, move_members=True):
+        from core import perms as _perms
+        if _perms.rank_of(await self.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author) >= 1:
             return True
         if player is not None and listeners(player) == [ctx.author]:
             return True

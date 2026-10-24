@@ -257,7 +257,7 @@ veil-utilities/
 ├── assets/                  banner, help-menu preview, social preview
 ├── fonts/                   bundled caption font (DejaVu)
 ├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
-├── tests/                   158 tests + docs check; all run on every push
+├── tests/                   166 tests + docs check; all run on every push
 ├── lavalink/                optional music server config
 ├── COMMANDS.md              auto-generated reference of all 394 commands
 ├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)

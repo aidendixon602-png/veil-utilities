@@ -22,10 +22,10 @@ def _help():
 def test_home_button_returns_to_overview():
     async def go():
         view = HelpView(_help(), {"Utility": []}, start="Utility")
-        home = next(b for b in view.children if b.label == "Home")
+        back = next(b for b in view.children if b.label in ("Back", "Home"))
         it = SimpleNamespace(response=SimpleNamespace(edit_message=AsyncMock()),
                              user=SimpleNamespace(id=42))
-        await home.callback(it)
+        await back.callback(it)
         return view, it
 
     view, it = asyncio.run(go())
