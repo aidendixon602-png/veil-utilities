@@ -1,6 +1,6 @@
 # Command reference
 
-377 commands. Default prefix `,`. `<required>` `[optional]`.
+371 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -366,18 +366,6 @@ _Configure how the bot behaves in your server_
 | `prefix` | View the server prefix |  |
 | `prefix set <prefix>` | Change the server prefix | manage guild |
 | `selfprefix [prefix]` | Set a personal prefix that works everywhere (`none` to remove) |  |
-
-## 🟢 Spotify
-_Look up Spotify tracks, artists, albums and what people are listening to_
-
-| Command | Description | Permission |
-|---|---|---|
-| `spotify [member]` (sp) | What someone is listening to on Spotify right now |  |
-| `spotify album <query>` (al) | Look up an album and its tracklist |  |
-| `spotify artist <query>` (a) | Look up an artist and their top tracks |  |
-| `spotify cover <query>` (art) | Full-size album cover for a track or album |  |
-| `spotify playlist <query>` (pl) | Look up a public playlist |  |
-| `spotify track <query>` (song, t) | Look up a track |  |
 
 ## 🎫 Tickets
 _Private support tickets_

@@ -7,8 +7,8 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)
 ![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)
-![commands](https://img.shields.io/badge/commands-377-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-21-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-371-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-20-b10f2e?style=flat-square&labelColor=1a1118)
 ![storage](https://img.shields.io/badge/storage-sqlite-b10f2e?style=flat-square&logo=sqlite&logoColor=white&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
@@ -80,7 +80,6 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 🤖 | **AI** | `ask` (chat with memory), `summarize`, `imagine` (free image generation), `tts`, `ocr` |
 | 🖼️ | **Images** | 21 effects (deepfry, caption, meme, blur, pixelate, warp, chaos…). GIFs stay animated |
 | 🎵 | **Music** | Lavalink player, queue, loop, seek, autoplay, nightcore / bassboost / 8D presets |
-| 🟢 | **Spotify** | See what anyone's playing, plus track, artist, album and playlist lookups |
 | 🌐 | **Lookups** | Last.fm (np, whoknows, top charts), weather, GitHub, crypto, Roblox, Minecraft, translate, Wikipedia, Urban Dictionary |
 | 🛠️ | **Utility** | Snipe / editsnipe, AFK, reminders, user & server info, emoji steal, message stats, polls, custom aliases, self prefix |
 | 🎲 | **Fun** | Tic-tac-toe, ship, 8ball, 16 anime interactions, uwulock |
@@ -138,7 +137,6 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | `ERROR_LOG_CHANNEL` | Channel that receives a traceback for every crash |
 | `ANTINUKE_DEV_ALERTS` | DM developers a "Global antinuke alert" whenever antinuke fires |
 | `LASTFM_API_KEY` | Last.fm commands |
-| `SPOTIFY_CLIENT_ID` / `_SECRET` | Spotify search |
 | `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` | AI chat. Any OpenAI-compatible provider, including local Ollama |
 | `LAVALINK_URI` / `_PASSWORD` | Music server |
 
