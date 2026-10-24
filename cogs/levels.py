@@ -8,8 +8,8 @@ import time
 import discord
 from discord.ext import commands, tasks
 
-from core.utils import (Colors, Context, antinuke_guard, build_vars, check_role, chunk_embeds, has_perms, is_dangerous,
-                        send_script)
+from core.utils import (Colors, Context, UserError, antinuke_guard, build_vars, check_role, chunk_embeds, has_perms,
+                        is_dangerous, send_script)
 
 
 def xp_for(level: int) -> int:
@@ -17,7 +17,12 @@ def xp_for(level: int) -> int:
     return 5 * level ** 2 + 50 * level + 100
 
 
+MAX_LEVEL = 1000
+MAX_XP = sum(5 * lv ** 2 + 50 * lv + 100 for lv in range(MAX_LEVEL))  # ~1.7 billion
+
+
 def level_from_xp(xp: int) -> tuple[int, int, int]:
+    xp = max(0, min(int(xp), MAX_XP))  # bounded: a huge value would freeze the bot in this loop
     level = 0
     while xp >= xp_for(level):
         xp -= xp_for(level)
@@ -52,7 +57,11 @@ class Levels(commands.Cog):
         self.voice_xp.cancel()
 
     async def cfg(self, gid):
-        return await self.bot.db.get_config(gid, "levels", DEFAULT)
+        cfg = await self.bot.db.get_config(gid, "levels", DEFAULT)
+        for key, value in DEFAULT.items():  # configs saved by older versions may miss newer keys
+            if key not in cfg:
+                cfg[key] = value.copy() if isinstance(value, (dict, list)) else value
+        return cfg
 
     async def add_xp(self, member: discord.Member, amount: int, channel=None):
         cfg = await self.cfg(member.guild.id)
@@ -61,7 +70,7 @@ class Levels(commands.Cog):
         amount = int(amount * mult)
         row = await self.bot.db.fetchone("SELECT xp, level FROM levels WHERE guild_id=? AND user_id=?",
                                          member.guild.id, member.id)
-        xp = (row["xp"] if row else 0) + amount
+        xp = min((row["xp"] if row else 0) + amount, MAX_XP)
         old = row["level"] if row else 0
         new, _, _ = level_from_xp(xp)
         await self.bot.db.execute(
@@ -116,7 +125,11 @@ class Levels(commands.Cog):
             vcs = [vc for vc in guild.voice_channels if len([m for m in vc.members if not m.bot]) >= 2]
             if not vcs:
                 continue
-            cfg = await self.cfg(guild.id)
+            try:
+                cfg = await self.cfg(guild.id)
+            except Exception:
+                log.exception("voice xp: couldn't load config for %s", guild.id)
+                continue
             if not cfg.get("enabled") or not cfg.get("voice", True):
                 continue
             for vc in vcs:
@@ -214,6 +227,8 @@ class Levels(commands.Cog):
     @has_perms(manage_roles=True)
     async def lv_reward(self, ctx, level: int, role: discord.Role = None):
         """Give a role at a level (omit role to remove)"""
+        if not 1 <= level <= MAX_LEVEL:
+            raise UserError(f"Level must be between 1 and {MAX_LEVEL}")
         cfg = await self.cfg(ctx.guild.id)
         if role:
             check_role(ctx, role)
@@ -257,23 +272,26 @@ class Levels(commands.Cog):
         if multiplier == 1:
             cfg["multipliers"].pop(str(role.id), None)
         else:
-            cfg["multipliers"][str(role.id)] = max(0.1, min(multiplier, 10))
+            multiplier = max(0.1, min(multiplier, 10))
+            cfg["multipliers"][str(role.id)] = multiplier
         await self.bot.db.set_config(ctx.guild.id, "levels", cfg)
-        await ctx.approve(f"{role.mention} XP ×{multiplier}")
+        await ctx.approve(f"{role.mention} XP ×{multiplier:g}")
 
     @leveling.command(name="setxp")
     @has_perms(administrator=True)
     async def lv_setxp(self, ctx, member: discord.Member, xp: int):
         """Set a member's total XP"""
-        level = level_from_xp(max(0, xp))[0]
+        xp = max(0, min(xp, MAX_XP))
+        level = level_from_xp(xp)[0]
         await self.bot.db.execute("INSERT INTO levels VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET xp=excluded.xp, level=excluded.level",
-                                  ctx.guild.id, member.id, max(0, xp), level)
+                                  ctx.guild.id, member.id, xp, level)
         await ctx.approve(f"{member.mention} now has **{xp:,}** XP (level {level})")
 
     @leveling.command(name="setlevel")
     @has_perms(administrator=True)
     async def lv_setlevel(self, ctx, member: discord.Member, level: int):
         """Set a member's level"""
+        level = max(0, min(level, MAX_LEVEL))
         xp = sum(xp_for(i) for i in range(max(0, level)))
         await self.bot.db.execute("INSERT INTO levels VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET xp=excluded.xp, level=excluded.level",
                                   ctx.guild.id, member.id, xp, level)

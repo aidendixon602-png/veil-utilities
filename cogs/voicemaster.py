@@ -176,7 +176,7 @@ class VoiceMaster(commands.Cog):
             vc = await guild.create_voice_channel(
                 name[:100], category=category if isinstance(category, discord.CategoryChannel) else None,
                 overwrites={**(category.overwrites if isinstance(category, discord.CategoryChannel) else {}), **overwrites},
-                user_limit=prefs.get("limit", 0), bitrate=min(cfg.get("bitrate", 64000), guild.bitrate_limit),
+                user_limit=prefs.get("limit", 0), bitrate=int(min(cfg.get("bitrate", 64000), guild.bitrate_limit)),
                 reason=f"VoiceMaster for {member}")
         except discord.HTTPException:
             return
@@ -274,7 +274,10 @@ class VoiceMaster(commands.Cog):
     async def vm_bitrate(self, ctx: Context, kbps: int):
         """Default bitrate for new channels"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "voicemaster")
-        cfg["bitrate"] = max(8, kbps) * 1000
+        kbps = max(8, min(kbps, 384))
+        if ctx.guild.bitrate_limit < kbps * 1000:
+            kbps = int(ctx.guild.bitrate_limit // 1000)
+        cfg["bitrate"] = kbps * 1000
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
         await ctx.approve(f"Default bitrate: **{kbps}kbps**")
 

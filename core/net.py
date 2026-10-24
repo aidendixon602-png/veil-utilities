@@ -90,3 +90,20 @@ def make_public_session(**kwargs) -> aiohttp.ClientSession:
     connector = aiohttp.TCPConnector(resolver=PublicResolver(), limit=20, ttl_dns_cache=60)
     kwargs.setdefault("timeout", aiohttp.ClientTimeout(total=20))
     return aiohttp.ClientSession(connector=connector, trace_configs=[trace], **kwargs)
+
+
+class TooLarge(Exception):
+    pass
+
+
+async def read_capped(response: aiohttp.ClientResponse, limit: int) -> bytes:
+    """Read a whole response body, refusing anything over `limit` bytes.
+
+    (`response.content.read(n)` is not enough: it returns whatever happens to be buffered, so big pages and
+    images come back truncated.)"""
+    buf = bytearray()
+    async for chunk in response.content.iter_chunked(64 * 1024):
+        buf += chunk
+        if len(buf) > limit:
+            raise TooLarge
+    return bytes(buf)

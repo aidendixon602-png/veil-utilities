@@ -24,17 +24,45 @@ EXTENSIONS = [
     "cogs.settings", "cogs.moderation", "cogs.antinuke", "cogs.automod", "cogs.logging",
     "cogs.voicemaster", "cogs.config", "cogs.levels", "cogs.giveaways", "cogs.tickets",
     "cogs.utility", "cogs.integrations", "cogs.fun", "cogs.music", "cogs.owner", "cogs.authorization",
-    "cogs.imaging", "cogs.ai", "cogs.permissions", "cogs.devtools",
+    "cogs.imaging", "cogs.ai", "cogs.permissions", "cogs.devtools", "cogs.feeds", "cogs.spotify",
 ]
-# turned off for now — add back to EXTENSIONS to re-enable: "cogs.feeds" (social feeds), "cogs.spotify"
+# modules whose commands only make sense in a server: blocked in DMs up front instead of erroring halfway
+GUILD_ONLY_COGS = {
+    "Settings", "Moderation", "Antinuke", "Automod", "Logging", "VoiceMaster", "Config", "Levels", "Giveaways",
+    "Tickets", "Music", "Permissions", "Feeds",
+}
+
+
+INTENT_HELP = ("Turn them on at https://discord.com/developers/applications -> your bot -> Bot -> "
+               "Privileged Gateway Intents (Presence, Server Members, Message Content), then restart.")
+
+
+def intent_plans():
+    """Try every intent first; if Discord refuses privileged ones that aren't switched on, drop them one at a
+    time so the bot still starts (with fewer features) instead of crashing in a restart loop."""
+    full = discord.Intents.all()
+    no_presence = discord.Intents.all()
+    no_presence.presences = False
+    minimal = discord.Intents.all()
+    minimal.presences = minimal.members = False
+    bare = discord.Intents.all()
+    bare.presences = bare.members = bare.message_content = False
+    return [
+        (full, None),
+        (no_presence, "Presence Intent is off: Spotify 'listening to' and status-based features are disabled."),
+        (minimal, "Server Members Intent is off: welcome messages, autoroles, antiraid and member counters "
+                  "won't work, and member lookups are limited."),
+        (bare, "Message Content Intent is off: prefix commands won't work — only commands that @mention the "
+               "bot (e.g. '@veil help') will. Automod and snipe are disabled."),
+    ]
 
 
 class Veil(commands.AutoShardedBot):
-    def __init__(self):
+    def __init__(self, intents: discord.Intents | None = None):
         owners = set(settings.owner_ids)
         super().__init__(
             command_prefix=self._get_prefix,
-            intents=discord.Intents.all(),
+            intents=intents or discord.Intents.all(),
             help_command=Help(),
             case_insensitive=True,
             strip_after_prefix=True,
@@ -145,6 +173,8 @@ class Veil(commands.AutoShardedBot):
 
     # ------------------------------------------------------------- checks
     async def _global_check(self, ctx: Context) -> bool:
+        if ctx.guild is None and ctx.cog is not None and ctx.cog.qualified_name in GUILD_ONLY_COGS:
+            raise commands.NoPrivateMessage()
         if await self.is_owner(ctx.author):
             return True
         if self.maintenance is not None:

@@ -42,6 +42,8 @@ class Tickets(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._opening: set[tuple[int, int]] = set()  # (guild, user) mid-creation: stops double-click duplicates
+        self._closing: set[int] = set()              # channels mid-close: stops double transcripts
 
     async def cog_load(self):
         self.bot.add_view(TicketPanel(self))
@@ -71,6 +73,16 @@ class Tickets(commands.Cog):
         await self.bot.db.execute("DELETE FROM tickets WHERE channel_id=?", channel.id)
 
     async def open_ticket(self, it: discord.Interaction):
+        key = (it.guild_id or 0, it.user.id)
+        if it.guild is None or key in self._opening:
+            return await it.response.send_message("Your ticket is already being created.", ephemeral=True)
+        self._opening.add(key)
+        try:
+            await self._open_ticket(it)
+        finally:
+            self._opening.discard(key)
+
+    async def _open_ticket(self, it: discord.Interaction):
         guild, user = it.guild, it.user
         cfg = await self.cfg(guild.id)
         open_count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM tickets WHERE guild_id=? AND user_id=?",
@@ -120,6 +132,17 @@ class Tickets(commands.Cog):
             if it:
                 return await it.response.send_message("You can't close this ticket.", ephemeral=True)
             raise UserError("You can't close this ticket")
+        if channel.id in self._closing:
+            if it:
+                return await it.response.send_message("This ticket is already closing.", ephemeral=True)
+            raise UserError("This ticket is already closing")
+        self._closing.add(channel.id)
+        try:
+            await self._close_ticket(channel, closer, row, it)
+        finally:
+            self._closing.discard(channel.id)
+
+    async def _close_ticket(self, channel, closer, row, it):
         if it:
             await it.response.send_message(embed=discord.Embed(color=Colors.warn, description="🔒 Closing ticket…"))
         lines = []
@@ -137,7 +160,13 @@ class Tickets(commands.Cog):
             except discord.HTTPException:
                 pass
         await self.bot.db.execute("DELETE FROM tickets WHERE channel_id=?", channel.id)
-        await channel.delete(reason=f"ticket closed by {closer}")
+        try:
+            await channel.delete(reason=f"ticket closed by {closer}")
+        except discord.NotFound:
+            pass
+        except discord.HTTPException:
+            await channel.send("I couldn't delete this channel (I need **Manage Channels**). "
+                               "The transcript was saved, so staff can delete it by hand.")
 
     # ------------------------------------------------------------ commands
     @commands.group(invoke_without_command=True)
@@ -217,6 +246,8 @@ class Tickets(commands.Cog):
     async def t_remove(self, ctx: Context, member: discord.Member):
         """Remove someone from this ticket"""
         await self._ticket_staff(ctx)
+        if member == ctx.guild.me:
+            raise UserError("I need to stay in the ticket to manage it")
         await ctx.channel.set_permissions(member, overwrite=None)
         await ctx.approve(f"Removed {member.mention}")
 

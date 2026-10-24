@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import time
+import urllib.parse
 
 import aiohttp
 import discord
@@ -13,6 +15,7 @@ import feedparser
 from discord.ext import commands, tasks
 
 from core.config import settings
+from core.net import TooLarge, read_capped
 from core.utils import Colors, Context, UserError, build_vars, chunk_embeds, has_perms, send_script, shorten
 
 PLATFORMS = {
@@ -28,6 +31,7 @@ RSSHUB_ROUTES = {  # override with RSSHUB_ROUTE_<PLATFORM> if your instance uses
     "x": "/twitter/user/{user}",
 }
 MAX_FEEDS = 30
+log = logging.getLogger("veil.feeds")
 MAX_FEED_BYTES = 5 * 1024 * 1024
 
 
@@ -63,11 +67,12 @@ class Feeds(commands.Cog):
                     headers={"User-Agent": "Mozilla/5.0 (compatible; veil-utilities feeds)"}) as r:
                 if r.status >= 400:
                     raise UserError(f"The feed returned an error ({r.status})")
-                raw = await r.content.read(MAX_FEED_BYTES + 1)
-                if len(raw) > MAX_FEED_BYTES:
-                    raise UserError("That feed is too large")
+                try:
+                    raw = await read_capped(r, MAX_FEED_BYTES)
+                except TooLarge:
+                    raise UserError("That feed is too large") from None
                 return raw.decode(r.get_encoding() if r.charset else "utf-8", errors="replace")
-        except (aiohttp.ClientError, OSError):
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
             raise UserError("I couldn't reach that feed") from None
 
     async def parse(self, url: str):
@@ -76,12 +81,17 @@ class Feeds(commands.Cog):
 
     async def resolve(self, platform: str, account: str) -> tuple[str, str]:
         """Return (feed url, display label)."""
-        account = account.strip().lstrip("@")
+        account = account.strip().strip("<>").lstrip("@")
         if platform == "youtube":
-            if re.fullmatch(r"UC[\w-]{22}", account):
-                cid = account
+            # accept a channel ID, @handle, or any channel URL
+            if m := re.search(r"(UC[\w-]{22})", account):
+                cid = m.group(1)
             else:
-                page = await self.get_text(f"https://www.youtube.com/@{account}")
+                handle = re.sub(r"^(https?://)?(www\.|m\.)?youtube\.com/", "", account).lstrip("@").split("/")[0]
+                if not re.fullmatch(r"[\w.\-]{1,100}", handle):
+                    raise UserError("Give a YouTube @handle, channel link or channel ID")
+                account = handle
+                page = await self.get_text(f"https://www.youtube.com/@{urllib.parse.quote(handle)}")
                 m = re.search(r'"(?:channelId|externalId)":"(UC[\w-]{22})"', page) or \
                     re.search(r"youtube\.com/channel/(UC[\w-]{22})", page)
                 if not m:
@@ -89,19 +99,30 @@ class Feeds(commands.Cog):
                 cid = m.group(1)
             return f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}", account
         if platform == "reddit":
-            sub = account.removeprefix("r/")
+            sub = re.sub(r"^(https?://)?(www\.|old\.)?reddit\.com/", "", account).removeprefix("r/").split("/")[0]
+            if not re.fullmatch(r"\w{2,21}", sub):
+                raise UserError("Give a subreddit name, e.g. `memes`")
             return f"https://www.reddit.com/r/{sub}/new/.rss", f"r/{sub}"
         if platform == "soundcloud":
+            account = re.sub(r"^(https?://)?(www\.|m\.)?soundcloud\.com/", "", account).split("/")[0]
+            if not re.fullmatch(r"[\w-]{1,100}", account):
+                raise UserError("Give a SoundCloud username or profile link")
             page = await self.get_text(f"https://soundcloud.com/{account}")
             m = re.search(r"soundcloud:users:(\d+)", page)
             if not m:
                 raise UserError("I couldn't find that SoundCloud user")
             return f"https://feeds.soundcloud.com/users/soundcloud:users:{m.group(1)}/sounds.rss", account
         if platform in RSSHUB_ROUTES:
+            account = account.rstrip("/").split("/")[-1].lstrip("@")
+            if not re.fullmatch(r"[\w.]{1,50}", account):
+                raise UserError("Give just the username")
             route = os.getenv(f"RSSHUB_ROUTE_{platform.upper()}", RSSHUB_ROUTES[platform])
-            return self.rsshub + route.format(user=account), f"@{account}"
+            return (self.rsshub or "https://rsshub.app").rstrip("/") + route.format(user=account), f"@{account}"
         if platform == "twitch":
-            return f"twitch:{account.lower()}", account.lower()
+            login = account.rstrip("/").split("/")[-1].lower()
+            if not re.fullmatch(r"\w{3,25}", login):
+                raise UserError("Give a Twitch username")
+            return f"twitch:{login}", login
         if platform == "rss":
             if not account.startswith("http"):
                 raise UserError("Give the full feed URL")
@@ -113,10 +134,15 @@ class Feeds(commands.Cog):
             raise UserError("Twitch alerts need `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` (free at dev.twitch.tv)")
         if self._twitch_token and self._twitch_token[1] > time.time() + 60:
             return self._twitch_token[0]
-        async with self.bot.session.post("https://id.twitch.tv/oauth2/token", params={
-                "client_id": self.twitch_id, "client_secret": self.twitch_secret,
-                "grant_type": "client_credentials"}) as r:
-            data = await r.json()
+        try:
+            async with self.bot.session.post("https://id.twitch.tv/oauth2/token", params={
+                    "client_id": self.twitch_id, "client_secret": self.twitch_secret,
+                    "grant_type": "client_credentials"}, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                data = await r.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            raise UserError("Twitch didn't respond, try again in a moment") from None
+        if not isinstance(data, dict) or "access_token" not in data:
+            raise UserError("Twitch rejected `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`")
         self._twitch_token = (data["access_token"], time.time() + data["expires_in"])
         return data["access_token"]
 
@@ -125,9 +151,17 @@ class Feeds(commands.Cog):
         out: dict[str, list[dict]] = {l: [] for l in logins}
         for i in range(0, len(logins), 100):
             params = [("user_login", l) for l in logins[i:i + 100]]
-            async with self.bot.session.get("https://api.twitch.tv/helix/streams", params=params, headers={
-                    "Client-ID": self.twitch_id, "Authorization": f"Bearer {token}"}) as r:
-                data = await r.json()
+            try:
+                async with self.bot.session.get("https://api.twitch.tv/helix/streams", params=params, headers={
+                        "Client-ID": self.twitch_id, "Authorization": f"Bearer {token}"},
+                        timeout=aiohttp.ClientTimeout(total=20)) as r:
+                    if r.status == 401:
+                        self._twitch_token = None  # token revoked/expired early: get a new one next time
+                    data = await r.json(content_type=None)
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+                raise UserError("Twitch didn't respond, try again in a moment") from None
+            if not isinstance(data, dict):
+                continue
             for s in data.get("data", []):
                 out[s["user_login"].lower()] = [{
                     "id": s["id"], "title": s["title"], "link": f"https://twitch.tv/{s['user_login']}",
@@ -221,8 +255,13 @@ class Feeds(commands.Cog):
                     continue
                 seen = feed.setdefault("seen", [])
                 fresh = [e for e in entries if e["id"] and e["id"] not in seen]
+                guild = self.bot.get_guild(gid)
                 for entry in reversed(fresh[:3]):  # oldest first, cap bursts
-                    await self.post(self.bot.get_guild(gid), feed, entry)
+                    try:  # one bad post must not stop the loop (an unhandled error ends the task for good)
+                        if guild:
+                            await self.post(guild, feed, entry)
+                    except Exception:
+                        log.exception("Feed post failed (guild %s, feed %s)", gid, fid)
                 if fresh:
                     feed["seen"] = ([e["id"] for e in fresh] + seen)[:60]
                     await self.bot.db.set_config(gid, "feeds", cfg)
@@ -254,12 +293,9 @@ class Feeds(commands.Cog):
             if any(f["url"] == url and f["channel"] == channel.id for f in cfg["items"].values()):
                 raise UserError("That feed is already posting to that channel")
             if platform == "twitch":
-                entries = (await self.twitch_entries([label]))[label]
+                entries = (await self.twitch_entries([label])).get(label, [])
             else:
-                try:
-                    parsed = await self.parse(url)
-                except (aiohttp.ClientError, asyncio.TimeoutError):
-                    raise UserError("I couldn't reach that feed")
+                parsed = await self.parse(url)
                 if not parsed.entries and parsed.bozo:
                     hint = (" (Instagram, TikTok and X go through RSSHub — the public instance often blocks them; "
                             "self-host one and set `RSSHUB_URL`)") if platform in RSSHUB_ROUTES else ""
@@ -327,7 +363,7 @@ class Feeds(commands.Cog):
             raise UserError("No feed with that ID")
         async with ctx.typing():
             if f["type"] == "twitch":
-                entries = (await self.twitch_entries([f["label"]]))[f["label"]]
+                entries = (await self.twitch_entries([f["label"]])).get(f["label"], [])
                 if not entries:
                     raise UserError(f"**{f['label']}** isn't live right now")
             else:

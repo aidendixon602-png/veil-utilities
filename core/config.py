@@ -76,12 +76,34 @@ class _Reader:
             self.problems.append(f"{name} must be comma-separated Discord IDs (invalid: {', '.join(bad)})")
         return frozenset(ids)
 
+    def urls(self, name: str) -> str | None:
+        """Comma-separated list of URLs (kept as a normalised comma-separated string)."""
+        value = self.raw(name)
+        if value is None:
+            return None
+        parts = [p.strip().rstrip("/") for p in value.split(",") if p.strip()]
+        bad = [p for p in parts if not p.startswith(("http://", "https://"))]
+        if bad:
+            self.problems.append(f"{name} must be http(s) URLs separated by commas (invalid: {', '.join(bad)})")
+            return None
+        return ",".join(parts) or None
+
     def url(self, name: str, default: str | None = None) -> str | None:
         value = self.str(name, default)
         if value is not None and not value.startswith(("http://", "https://")):
             self.problems.append(f"{name} must start with http:// or https:// (got {value!r})")
             return default
         return value.rstrip("/") if value else value
+
+
+def _clean_token(token: str | None) -> str | None:
+    """People often paste the token as 'Bot xxx' or wrapped in quotes — accept both."""
+    if not token:
+        return token
+    token = token.strip().strip("\"'").strip()
+    if token.lower().startswith("bot "):
+        token = token[4:].strip()
+    return token or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,12 +132,13 @@ class Settings:
     # integrations
     lastfm_api_key: str | None
     ai_api_key: str | None
-    ai_base_url: str
-    ai_model: str
+    ai_base_url: str | None   # None = picked from the key (see core/ai_providers.py)
+    ai_model: str | None      # None = best available model for the provider
     ocr_space_api_key: str | None
 
     # music
-    lavalink_uri: str | None
+    music_enabled: bool
+    lavalink_uri: str | None  # one or more comma-separated node URLs; empty = free public nodes
     lavalink_password: str
 
     # modules that are currently disabled (kept so they work if re-enabled)
@@ -128,8 +151,9 @@ class Settings:
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
         r = _Reader(dict(os.environ) if env is None else env)
+        music_off = (r.raw("LAVALINK_URI") or "").lower() in {"off", "none", "false", "disabled", "0"}
         settings = cls(
-            discord_token=r.str("DISCORD_TOKEN"),
+            discord_token=_clean_token(r.str("DISCORD_TOKEN")),
             owner_ids=r.snowflakes("OWNER_IDS"),
             prefix=r.str("PREFIX", ","),
             status=r.str("STATUS", "veil utilities | ,help"),
@@ -144,10 +168,11 @@ class Settings:
             antinuke_dev_alerts=r.bool("ANTINUKE_DEV_ALERTS", True),
             lastfm_api_key=r.str("LASTFM_API_KEY"),
             ai_api_key=r.str("AI_API_KEY"),
-            ai_base_url=r.url("AI_BASE_URL", "https://api.openai.com/v1"),
-            ai_model=r.str("AI_MODEL", "gpt-4o-mini"),
+            ai_base_url=r.url("AI_BASE_URL"),
+            ai_model=r.str("AI_MODEL"),
             ocr_space_api_key=r.str("OCR_SPACE_API_KEY"),
-            lavalink_uri=r.url("LAVALINK_URI"),
+            music_enabled=r.bool("MUSIC_ENABLED", True) and not music_off,
+            lavalink_uri=None if music_off else r.urls("LAVALINK_URI"),
             lavalink_password=r.str("LAVALINK_PASSWORD", "youshallnotpass"),
             spotify_client_id=r.str("SPOTIFY_CLIENT_ID"),
             spotify_client_secret=r.str("SPOTIFY_CLIENT_SECRET"),

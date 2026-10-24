@@ -195,10 +195,15 @@ _DUR = re.compile(r"(\d+)\s*(w|d|h|m|s)", re.I)
 _UNITS = {"w": 604800, "d": 86400, "h": 3600, "m": 60, "s": 1}
 
 
+MAX_DURATION = 5 * 365 * 86400
+
+
 def parse_duration(text: str) -> timedelta:
     total = sum(int(n) * _UNITS[u.lower()] for n, u in _DUR.findall(text or ""))
     if total <= 0:
         raise UserError(f"`{text}` isn't a valid duration (try `10m`, `2h30m`, `7d`)")
+    if total > MAX_DURATION:  # timedelta overflows on absurd values
+        raise UserError("That duration is too long (5 years max)")
     return timedelta(seconds=total)
 
 

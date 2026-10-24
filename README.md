@@ -136,9 +136,18 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | `LOW_MEMORY` | `true` on small hosts: smaller caches and image limits |
 | `ERROR_LOG_CHANNEL` | Channel that receives a traceback for every crash |
 | `ANTINUKE_DEV_ALERTS` | DM developers a "Global antinuke alert" whenever antinuke fires |
-| `LASTFM_API_KEY` | Last.fm commands |
-| `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` | AI chat. Any OpenAI-compatible provider, including local Ollama |
-| `LAVALINK_URI` / `_PASSWORD` | Music server |
+
+**Integrations: all optional.** Everything below works out of the box. Keys only make things faster or unlock extras.
+
+| Variable | Without it | With it |
+|---|---|---|
+| `AI_API_KEY` | Free no-signup AI (slower) | Paste a Groq (`gsk_`), Gemini (`AIza`), OpenRouter (`sk-or-`) or OpenAI (`sk-`) key and the provider + model are picked automatically. Falls back to the free AI if your quota runs out. `AI_BASE_URL` / `AI_MODEL` override (e.g. local Ollama) |
+| `LAVALINK_URI` / `_PASSWORD` | Free public Lavalink nodes with automatic failover | Your own Lavalink 4.2+ server(s), comma-separated. `MUSIC_ENABLED=false` turns music off |
+| `OCR_SPACE_API_KEY` | Shared demo key (rate-limited) | Free personal key from ocr.space |
+| `LASTFM_API_KEY` | Last.fm commands are off | Free key from last.fm/api/account/create |
+| `SPOTIFY_CLIENT_ID` / `_SECRET` | `,sp` search uses Deezer data + Spotify links | Real Spotify data (Spotify requires the app owner to have Premium) |
+| `TWITCH_CLIENT_ID` / `_SECRET` | Twitch feeds are off (YouTube, Reddit, SoundCloud, RSS still work) | Twitch live alerts |
+| `RSSHUB_URL` | Public RSSHub for Instagram/TikTok/X feeds (often blocked) | Your own RSSHub instance |
 
 ## 👑 Developer tools
 

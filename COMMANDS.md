@@ -1,6 +1,6 @@
 # Command reference
 
-372 commands. Default prefix `,`. `<required>` `[optional]`.
+386 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -9,6 +9,7 @@ _Ask AI, generate images, text-to-speech and OCR_
 | Command | Description | Permission |
 |---|---|---|
 | `ask <prompt>` (ai, chat, gpt) | Ask the AI anything — it remembers your last few messages in this channel |  |
+| `ask provider` (model, status) | Show which AI provider and model the bot is using |  |
 | `ask reset` (clear, forget) | Forget your conversation in this channel |  |
 | `imagegen <prompt>` (imagine, generate, img) | Generate an image from a prompt (free, no key needed) |  |
 | `ocr [image]` (readimage) | Read the text in an image (attach, reply or link) |  |
@@ -115,6 +116,19 @@ _Developer-only tools_
 | `antinukepreset list` | List antinuke presets |  |
 | `antinukepreset load <name>` (apply) | Apply a saved preset to this server |  |
 | `antinukepreset save <name>` | Save this server's antinuke config as a preset |  |
+
+## 📡 Feeds
+_Auto-post new content from social platforms_
+
+| Command | Description | Permission |
+|---|---|---|
+| `feeds` (socials, notify, alerts) | Post new content from YouTube, Twitch, SoundCloud, Reddit, Instagram, TikTok, X or any RSS feed | manage guild |
+| `feeds add <platform> <account> [channel]` | `feeds add youtube MrBeast #videos` — platforms: youtube, twitch, soundcloud, reddit, instagram, tiktok, x, rss | manage guild |
+| `feeds list` | List feeds | manage guild |
+| `feeds message <feed_id> [message]` | Custom post message (embed scripts + {feed.title} {feed.link} {feed.author} {feed.image} {feed.account}); `none` resets | manage guild |
+| `feeds ping <feed_id> [role]` (role) | Ping a role when a feed posts (omit to stop) | manage guild |
+| `feeds remove <feed_id>` (delete) | Remove a feed by its ID (see `feeds list`) | manage guild |
+| `feeds test <feed_id>` | Post the latest item from a feed right now | manage guild |
 
 ## 🎲 Fun
 _Games and silly commands_
@@ -367,6 +381,18 @@ _Configure how the bot behaves in your server_
 | `prefix` | View the server prefix |  |
 | `prefix set <prefix>` | Change the server prefix | manage guild |
 | `selfprefix [prefix]` | Set a personal prefix that works everywhere (`none` to remove) |  |
+
+## 🟢 Spotify
+_Look up songs, artists, albums and what people are listening to on Spotify_
+
+| Command | Description | Permission |
+|---|---|---|
+| `spotify [member]` (sp) | What someone is listening to on Spotify right now |  |
+| `spotify album <query>` (al) | Look up an album and its tracklist |  |
+| `spotify artist <query>` (a) | Look up an artist and their top tracks |  |
+| `spotify cover <query>` (art) | Full-size album cover for a track or album |  |
+| `spotify playlist <query>` (pl) | Look up a public playlist |  |
+| `spotify track <query>` (song, t) | Look up a track |  |
 
 ## 🎫 Tickets
 _Private support tickets_

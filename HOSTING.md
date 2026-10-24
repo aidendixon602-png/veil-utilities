@@ -51,16 +51,19 @@ Invite the bot, drag its role to the top of the role list, and run `,help`.
   Run a backup every so often, since everything (settings, levels, cases) lives in `veil.db`.
 
 ## Music on a small plan
-Music needs a separate **Lavalink** server (Java), which won't fit in 512 MB next to the bot. Either leave
-`LAVALINK_URI` empty (music commands just say they're not configured) or point it at a Lavalink node hosted
-elsewhere. Every other module works without it.
+Music needs a **Lavalink** server (Java), which won't fit in 512 MB next to the bot, so by default the bot uses
+**free public Lavalink nodes** and needs no setup. It connects to several at once and switches automatically when one
+goes down. Public nodes can be slow or busy at times. For rock-solid music, host Lavalink 4.2+ somewhere else
+(config in `lavalink/application.yml`) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
+to turn music off.
 
 ## Troubleshooting
 | Console says | Fix |
 |---|---|
 | `Set DISCORD_TOKEN in your .env file` | `.env` is missing, misnamed, or not in the same folder as `main.py` |
-| `PrivilegedIntentsRequired` | Turn on the three intents in the developer portal (step 1) |
-| `LoginFailure: Improper token` | Reset the token and paste the new one, with no spaces or quotes |
+| `Discord refused a privileged intent` | The bot still starts with fewer features. Turn on the three intents in the developer portal (step 1) and restart |
+| `Discord rejected DISCORD_TOKEN` | Reset the token and paste the new one, with no spaces or quotes |
+| `AI unavailable: … rejected the API key` | `AI_API_KEY` is wrong or revoked. Make a new key, or delete the line to use the free AI |
 | `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
 | `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
 | The bot leaves your server right away | Server authorization: your ID must be in `OWNER_IDS`, or run `,authorize <server id>` |

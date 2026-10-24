@@ -1,6 +1,7 @@
-# Lavalink v4 config for veil's music module.
-# Run with: java -jar Lavalink.jar   (Java 17+, from https://github.com/lavalink-devs/Lavalink/releases)
-# Then set LAVALINK_URI=http://localhost:2333 in .env
+# Lavalink v4 config for veil's music module (optional — the bot uses free public nodes by default).
+# Needs Lavalink 4.2.0 or newer: older versions can't join voice since Discord made DAVE encryption mandatory.
+# Run with: java -jar Lavalink.jar   (Java 17+, latest from https://github.com/lavalink-devs/Lavalink/releases)
+# Then set LAVALINK_URI=http://localhost:2333 and LAVALINK_PASSWORD (below) in .env
 server:
   port: 2333
   address: 0.0.0.0
@@ -8,7 +9,13 @@ server:
 plugins:
   youtube:
     enabled: true
-    clients: ["MUSIC", "WEB", "ANDROID_VR"]
+    clients: ["MUSIC", "ANDROID_VR", "WEB"]
+    # If YouTube starts failing with "Sign in to confirm you're not a bot", enable OAuth with a BURNER Google
+    # account (never your main one — it can get banned). Start Lavalink, follow the link it prints, then paste
+    # the refresh token it logs here. See https://github.com/lavalink-devs/youtube-source#using-oauth-tokens
+    # oauth:
+    #   enabled: true
+    #   refreshToken: ""
   lavasrc:
     providers:
       - "ytsearch:\"%ISRC%\""
@@ -22,10 +29,10 @@ plugins:
 
 lavalink:
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.3"
-    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.3.0"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
   server:
-    password: "youshallnotpass"
+    password: "youshallnotpass"   # change this if the server is reachable from the internet
     sources:
       youtube: false   # handled by the youtube plugin
       soundcloud: true

@@ -1,4 +1,7 @@
-"""Music via Lavalink (wavelink 3). Only active when LAVALINK_URI is set."""
+"""Music via Lavalink (wavelink 3).
+
+Works out of the box on free public Lavalink nodes; set LAVALINK_URI for your own server (core/lavalink_nodes.py).
+"""
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +9,10 @@ import logging
 from typing import cast
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from core.config import settings
+from core.lavalink_nodes import resolve_nodes
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, missing_perms, shorten
 
 try:
@@ -59,24 +63,91 @@ class Music(commands.Cog):
         self._alone_tasks: dict[int, asyncio.Task] = {}  # guild id -> pending "leave empty channel" task
 
     async def cog_load(self):
-        uri = settings.lavalink_uri
-        if not uri or wavelink is None:
-            log.info("Music disabled (no LAVALINK_URI)")
+        self.nodes, self.public = resolve_nodes(settings.lavalink_uri, settings.lavalink_password,
+                                                settings.music_enabled)
+        if wavelink is None or not self.nodes:
+            log.info("Music disabled (%s)", "wavelink isn't installed" if wavelink is None else "MUSIC_ENABLED=false")
+            self.nodes = []
             return
-        node = wavelink.Node(uri=uri, password=settings.lavalink_password,
-                             inactive_player_timeout=300)
-        self.bot.loop.create_task(self._connect(node))
+        log.info("Music: connecting to %d %s Lavalink node(s)", len(self.nodes), "public" if self.public else "")
+        self.node_watchdog.start()
 
-    async def _connect(self, node):
-        await self.bot.wait_until_ready()
+    def _make_node(self, index: int) -> "wavelink.Node":
+        uri, password = self.nodes[index]
+        # limited retries so one dead node never blocks the others; the watchdog brings it back later
+        return wavelink.Node(identifier=f"node-{index + 1}", uri=uri, password=password,
+                             inactive_player_timeout=300, retries=3)
+
+    async def _connect_one(self, index: int, first: bool) -> None:
         try:
-            await wavelink.Pool.connect(nodes=[node], client=self.bot, cache_capacity=100)
+            await wavelink.Pool.connect(nodes=[self._make_node(index)], client=self.bot,
+                                        cache_capacity=100 if first else None)
         except Exception:
-            log.exception("Could not connect to Lavalink")
+            log.warning("Could not connect to Lavalink node %s", self.nodes[index][0], exc_info=True)
+
+    @tasks.loop(minutes=5)
+    async def node_watchdog(self):
+        """Connect every node in parallel, and re-add nodes that dropped and used up their retries."""
+        try:
+            await self._check_nodes(self.node_watchdog.current_loop == 0)
+        except Exception:  # an unhandled error would stop the watchdog for good
+            log.exception("Lavalink node watchdog failed")
+
+    async def _check_nodes(self, first: bool):
+        jobs = []
+        for i in range(len(self.nodes)):
+            try:
+                node = wavelink.Pool.get_node(f"node-{i + 1}")
+            except Exception:  # not in the pool yet
+                node = None
+            if node is not None:
+                if node.status is not wavelink.NodeStatus.DISCONNECTED:
+                    continue
+                try:
+                    await node.close(eject=True)
+                except Exception:
+                    pass
+            jobs.append(self._connect_one(i, first))
+        if jobs:
+            await asyncio.gather(*jobs)
+        if first:
+            up = sum(1 for n in wavelink.Pool.nodes.values() if n.status is wavelink.NodeStatus.CONNECTED)
+            log.info("Music: %d/%d Lavalink node(s) online", up, len(self.nodes))
+
+    @node_watchdog.before_loop
+    async def _before_watchdog(self):
+        await self.bot.wait_until_ready()
+
+    def online_nodes(self) -> list:
+        if wavelink is None:
+            return []
+        return [n for n in wavelink.Pool.nodes.values() if n.status is wavelink.NodeStatus.CONNECTED]
+
+    async def search(self, query: str, prefer=None):
+        """Search with failover: try each online node (and YouTube Music -> YouTube -> SoundCloud for plain
+        searches) until something returns results. Raises UserError when nothing works."""
+        nodes = sorted(self.online_nodes(), key=lambda n: (n is not prefer, len(n.players)))
+        if not nodes:
+            raise UserError("The music server is offline right now, try again in a minute")
+        is_url = query.startswith(("http://", "https://"))
+        sources = [None] if is_url else ["ytmsearch", "ytsearch", "scsearch"]
+        for node in nodes[:3]:
+            for source in sources:
+                try:
+                    if source:
+                        found = await wavelink.Playable.search(query, source=source, node=node)
+                    else:
+                        found = await wavelink.Playable.search(query, node=node)
+                except Exception as e:  # LavalinkLoadException, node offline, unsupported source...
+                    log.debug("search %r on %s/%s failed: %r", query, node.identifier, source, e)
+                    continue
+                if found:
+                    return found
+        return None
 
     async def cog_check(self, ctx: Context) -> bool:
-        if wavelink is None or not settings.lavalink_uri:
-            raise UserError("Music isn't configured on this bot (no Lavalink server)")
+        if wavelink is None or not self.nodes:
+            raise UserError("Music is turned off on this bot")
         if not ctx.guild:
             raise commands.NoPrivateMessage()
         return True
@@ -202,6 +273,8 @@ class Music(commands.Cog):
                 self._alone_tasks.pop(gid, None)
 
     async def cog_unload(self):
+        if self.node_watchdog.is_running():
+            self.node_watchdog.cancel()
         for t in self._alone_tasks.values():
             t.cancel()
 
@@ -209,14 +282,15 @@ class Music(commands.Cog):
     @commands.command(aliases=["p"])
     async def play(self, ctx: Context, *, query: str):
         """Play a song or playlist (URL or search)"""
+        if not self.online_nodes():
+            raise UserError("The music server is offline right now, try again in a minute")
         player = await self.player(ctx, connect=True)
-        try:
-            tracks = await wavelink.Playable.search(query)
-        except Exception as e:  # LavalinkLoadException, node offline, ...
-            log.warning("Search failed for %r: %r", query, e)
-            raise UserError("I couldn't load that, try another link or search") from None
+        async with ctx.typing():
+            tracks = await self.search(query.strip("<>"), prefer=getattr(player, "node", None))
         if not tracks:
-            raise UserError("No results")
+            if not player.playing and player.queue.is_empty:
+                await player.disconnect()
+            raise UserError("No results — try another link or search")
         room = MAX_QUEUE - player.queue.count
         if room <= 0:
             raise UserError(f"The queue is full ({MAX_QUEUE} tracks)")

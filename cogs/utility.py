@@ -161,6 +161,10 @@ class Utility(commands.Cog):
     @commands.group(aliases=["remindme", "reminder"], invoke_without_command=True)
     async def remind(self, ctx: Context, duration: Duration, *, reminder: str = "something"):
         """`remind 2h30m take out the trash`"""
+        count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM reminders WHERE user_id=?", ctx.author.id))["c"]
+        if count >= 25:
+            raise UserError(f"You have 25 reminders already — remove some with `{ctx.clean_prefix}remind delete <id>`")
+        reminder = reminder[:1000]
         due = now() + duration.total_seconds()
         await self.bot.db.execute("INSERT INTO reminders(user_id,channel_id,due,content,created) VALUES(?,?,?,?,?)",
                                   ctx.author.id, ctx.channel.id, due, reminder, now())
@@ -213,13 +217,16 @@ class Utility(commands.Cog):
         e.set_thumbnail(url=user.display_avatar.url)
         e.add_field(name="Created", value=f"{ts(user.created_at, 'D')}\n{ts(user.created_at)}")
         if isinstance(user, discord.Member):
-            e.add_field(name="Joined", value=f"{ts(user.joined_at, 'D')}\n{ts(user.joined_at)}")
+            if user.joined_at:
+                e.add_field(name="Joined", value=f"{ts(user.joined_at, 'D')}\n{ts(user.joined_at)}")
             if user.premium_since:
                 e.add_field(name="Boosting since", value=ts(user.premium_since, "D"))
-            pos = sorted(ctx.guild.members, key=lambda m: m.joined_at or discord.utils.utcnow()).index(user) + 1
+            members = sorted(user.guild.members, key=lambda m: m.joined_at or discord.utils.utcnow())
+            pos = members.index(user) + 1 if user in members else None
             roles = [r.mention for r in user.roles[1:][::-1]]
             e.add_field(name=f"Roles ({len(roles)})", value=shorten(" ".join(roles) or "none"), inline=False)
-            e.set_footer(text=f"Join position #{pos:,}")
+            if pos:
+                e.set_footer(text=f"Join position #{pos:,}")
         badges = [f.name.replace("_", " ") for f in user.public_flags.all()]
         if badges:
             e.add_field(name="Badges", value=", ".join(badges), inline=False)

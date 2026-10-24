@@ -80,6 +80,13 @@ class Giveaways(commands.Cog):
         if "--role" in prize:
             prize, _, rarg = prize.partition("--role")
             role = await commands.RoleConverter().convert(ctx, rarg.strip())
+        prize = prize.strip()
+        if not prize:
+            raise UserError("Give a prize, e.g. `gw start 1d 1w Nitro`")
+        if len(prize) > 250:
+            raise UserError("Keep the prize under 250 characters")
+        if duration.total_seconds() < 10 or duration.total_seconds() > 60 * 86400:
+            raise UserError("Giveaways can last from 10 seconds to 60 days")
         ends = now() + duration.total_seconds()
         msg = await ctx.send(embed=self.gw_embed(prize.strip(), ctx.author.id, ends, n, role.id if role else None),
                              view=discord.ui.View(timeout=None).add_item(EnterButton(0)))

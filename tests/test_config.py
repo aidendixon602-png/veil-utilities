@@ -11,7 +11,8 @@ def test_defaults_with_empty_environment():
     assert s.low_memory is False
     assert s.owner_ids == frozenset()
     assert s.auth_log_channel is None
-    assert s.ai_base_url == "https://api.openai.com/v1"
+    assert s.ai_base_url is None and s.ai_model is None  # auto-detected from the key at runtime
+    assert s.music_enabled is True and s.lavalink_uri is None
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -69,3 +70,14 @@ def test_summary_never_leaks_secrets():
     assert "super-secret-token" not in summary
     assert "sk-123" not in summary
     assert "discord_token=set" in summary
+
+
+def test_token_cleanup_and_music_switches():
+    s = Settings.from_env({"DISCORD_TOKEN": "Bot abc.def"})
+    assert s.discord_token == "abc.def"
+    assert Settings.from_env({"LAVALINK_URI": "off"}).music_enabled is False
+    assert Settings.from_env({"MUSIC_ENABLED": "false"}).music_enabled is False
+    multi = Settings.from_env({"LAVALINK_URI": "http://a:1, https://b:2/"})
+    assert multi.lavalink_uri == "http://a:1,https://b:2"
+    with pytest.raises(ConfigError):
+        Settings.from_env({"LAVALINK_URI": "a:1"})

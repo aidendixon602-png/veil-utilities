@@ -15,6 +15,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageSequence
 
 from core.config import settings
+from core.net import TooLarge, read_capped
 from core.utils import Context, UserError
 
 MAX_BYTES = 8 * 1024 * 1024
@@ -251,11 +252,11 @@ class Imaging(commands.Cog):
                     raise UserError("That link isn't an image")
                 if int(r.headers.get("Content-Length") or 0) > MAX_BYTES:
                     raise UserError("That image is too big (8MB max)")
-                data = await r.content.read(MAX_BYTES + 1)
+                data = await read_capped(r, MAX_BYTES)
+        except TooLarge:
+            raise UserError("That image is too big (8MB max)") from None
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
             raise UserError("I couldn't download that image") from None
-        if len(data) > MAX_BYTES:
-            raise UserError("That image is too big (8MB max)")
         return data
 
     async def source(self, ctx: Context, arg: str | None) -> bytes:

@@ -54,7 +54,7 @@ try:
 except ConfigError as error:
     sys.exit(f"{error}\n\nFix these in your .env file (see .env.example) and start again.")
 
-from core.bot import Veil  # noqa: E402
+from core.bot import INTENT_HELP, Veil, intent_plans  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,9 +68,21 @@ log = logging.getLogger("veil")
 
 
 async def main() -> None:
+    import discord
     log.info("Starting with %s", settings.summary())
-    async with Veil() as bot:
-        await bot.start(settings.discord_token)
+    for intents, warning in intent_plans():
+        if warning:
+            log.warning("Discord refused a privileged intent. %s %s", warning, INTENT_HELP)
+        try:
+            async with Veil(intents=intents) as bot:
+                await bot.start(settings.discord_token)
+            return
+        except discord.PrivilegedIntentsRequired:
+            continue
+        except discord.LoginFailure:
+            sys.exit("Discord rejected DISCORD_TOKEN. Open https://discord.com/developers/applications -> your bot "
+                     "-> Bot -> Reset Token, paste the new token into .env (no quotes, no 'Bot ' prefix) and restart.")
+    sys.exit("Discord refused every intent combination. " + INTENT_HELP)
 
 
 if __name__ == "__main__":
