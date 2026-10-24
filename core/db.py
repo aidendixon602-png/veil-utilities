@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS tickets (channel_id INTEGER PRIMARY KEY, guild_id INT
 CREATE TABLE IF NOT EXISTS vm_channels (channel_id INTEGER PRIMARY KEY, guild_id INTEGER, owner_id INTEGER);
 CREATE TABLE IF NOT EXISTS blacklist (id INTEGER PRIMARY KEY, reason TEXT);
 CREATE TABLE IF NOT EXISTS authorized (guild_id INTEGER PRIMARY KEY, authorized_by INTEGER, at REAL, note TEXT);
+CREATE TABLE IF NOT EXISTS globalbans (user_id INTEGER PRIMARY KEY, mod_id INTEGER, reason TEXT, at REAL);
 """
 
 

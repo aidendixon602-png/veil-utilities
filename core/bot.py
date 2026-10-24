@@ -22,7 +22,7 @@ EXTENSIONS = [
     "cogs.settings", "cogs.moderation", "cogs.antinuke", "cogs.automod", "cogs.logging",
     "cogs.voicemaster", "cogs.config", "cogs.levels", "cogs.giveaways", "cogs.tickets",
     "cogs.utility", "cogs.integrations", "cogs.fun", "cogs.music", "cogs.owner", "cogs.authorization",
-    "cogs.imaging", "cogs.ai", "cogs.spotify", "cogs.feeds", "cogs.permissions",
+    "cogs.imaging", "cogs.ai", "cogs.spotify", "cogs.feeds", "cogs.permissions", "cogs.devtools",
 ]
 
 

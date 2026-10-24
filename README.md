@@ -7,8 +7,8 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)
 ![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)
-![commands](https://img.shields.io/badge/commands-372-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-21-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-384-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-22-b10f2e?style=flat-square&labelColor=1a1118)
 ![storage](https://img.shields.io/badge/storage-sqlite-b10f2e?style=flat-square&logo=sqlite&logoColor=white&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
@@ -157,6 +157,9 @@ Hidden from everyone else and listed under the red **Secret** help button:
 | `killswitch <command>` | Disable a broken or abused command everywhere, instantly |
 | `errors` · `error <id>` | Recent crashes and full tracebacks. Users see the error ID |
 | `botlogs` · `backup` | Tail the log file · DM yourself the whole database |
+| `strip` · `unstrip` · `massunrole` · `revert` | Dangerous role/recovery tools |
+| `hardban` · `genreban` · `unhardban` · `hardbans` | Network-wide bans across every server the bot is in |
+| `joinleavelogs` · `anpreset save/load/list` | Join-leave log channel · reusable antinuke presets |
 | `authorize` · `unauthorize` · `authorized` | Control which servers can use the bot |
 | `lookupserver` · `mutuals` · `guilds` | Investigate servers and users |
 | `blacklist` · `dm` · `reload` · `restart` | Everything else you need to run it |

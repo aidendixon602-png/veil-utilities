@@ -402,6 +402,14 @@ def has_perms(**perms: bool):
     return deco
 
 
+def is_developer():
+    async def predicate(ctx: Context):
+        if await ctx.bot.is_owner(ctx.author):
+            return True
+        raise UserError("This command is restricted to the bot's developers")
+    return commands.check(predicate)
+
+
 def is_server_owner():
     async def predicate(ctx: Context):
         if ctx.guild and (ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author)):

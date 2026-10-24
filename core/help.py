@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from core.utils import Colors, OwnedView, fmt_duration
 
-HIDDEN_COGS = {"Owner", "Events", "Authorization"}
+HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
 # (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [

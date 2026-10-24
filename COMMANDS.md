@@ -1,6 +1,6 @@
 # Command reference
 
-372 commands. Default prefix `,`. `<required>` `[optional]`.
+384 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -105,6 +105,16 @@ _Welcome messages, roles, responders, starboard and more_
 | `welcome deleteafter [seconds=0]` | Auto-delete welcome messages after N seconds (0 = never) | manage guild |
 | `welcome off` (disable) | Disable welcome messages | manage guild |
 | `welcome test` | Preview the welcome message | manage guild |
+
+## ⚡ DevTools
+_Developer-only tools_
+
+| Command | Description | Permission |
+|---|---|---|
+| `antinukepreset delete <name>` (remove) | Delete a preset |  |
+| `antinukepreset list` | List antinuke presets |  |
+| `antinukepreset load <name>` (apply) | Apply a saved preset to this server |  |
+| `antinukepreset save <name>` | Save this server's antinuke config as a preset |  |
 
 ## 📡 Feeds
 _Auto-post new content from social platforms_
@@ -259,7 +269,6 @@ _Keep your server in line_
 | `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members |
 | `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members |
 | `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames |
-| `hardban <user> [reason]` | Permanently ban — the user is re-banned if anyone unbans them | administrator, ban members |
 | `hide [channel]` | Hide a channel from @everyone | manage channels |
 | `jail <member> [reason]` | Jail a member: strips their roles and confines them to #jail | manage roles, moderate members |
 | `jail list` | List jailed members | moderate members |
@@ -301,7 +310,6 @@ _Keep your server in line_
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator |
 | `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members |
 | `unban <user> [reason]` | Unban a user | ban members |
-| `unhardban <user>` | Lift a hardban | administrator |
 | `unhide [channel]` (reveal) | Reveal a hidden channel | manage channels |
 | `unjail <member> [reason]` | Release a member and give back their roles | moderate members |
 | `unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels |

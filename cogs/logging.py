@@ -22,7 +22,9 @@ class Logging(commands.Cog):
         if guild is None:
             return None
         cfg = await self.bot.db.get_config(guild.id, "logs")
-        ch = guild.get_channel(cfg.get(kind) or 0)
+        # joins/leaves/kicks use their own channel if set, else the main member log
+        cid = cfg.get(kind) or (cfg.get("members") if kind == "joinleave" else 0)
+        ch = guild.get_channel(cid or 0)
         return ch if isinstance(ch, discord.TextChannel) else None
 
     async def send(self, guild, kind, embed: discord.Embed, file: discord.File | None = None):
@@ -96,7 +98,7 @@ class Logging(commands.Cog):
         e = discord.Embed(color=Colors.success, description=f"{m.mention} joined\nCreated {ts(m.created_at)}")
         e.set_author(name=str(m), icon_url=m.display_avatar.url)
         e.set_footer(text=f"ID {m.id} • member #{m.guild.member_count}")
-        await self.send(m.guild, "members", e)
+        await self.send(m.guild, "joinleave", e)
 
     @commands.Cog.listener()
     async def on_member_remove(self, m: discord.Member):
@@ -105,7 +107,7 @@ class Logging(commands.Cog):
         e.add_field(name="Roles", value=shorten(roles))
         e.set_author(name=str(m), icon_url=m.display_avatar.url)
         e.set_footer(text=f"ID {m.id}")
-        await self.send(m.guild, "members", e)
+        await self.send(m.guild, "joinleave", e)
 
     @commands.Cog.listener()
     async def on_member_update(self, b: discord.Member, a: discord.Member):

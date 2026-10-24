@@ -48,9 +48,9 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(ban_members=True)
     async def unban(self, ctx: Context, user: discord.User, *, reason: str = None):
         """Unban a user"""
-        hb = await self._cfg(ctx.guild.id, "hardbans")
-        if str(user.id) in hb and ctx.author.id != ctx.guild.owner_id:
-            raise UserError(f"**{user}** is hardbanned — only the server owner can lift it with `unhardban`")
+        gb = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
+        if gb and not await self.bot.is_owner(ctx.author):
+            raise UserError(f"**{user}** is hardbanned across the network — a developer must lift it with `unhardban`")
         try:
             await ctx.guild.unban(user, reason=f"{ctx.author}: {reason}")
         except discord.NotFound:
@@ -68,44 +68,6 @@ class Moderation(commands.Cog):
         await ctx.guild.unban(member, reason="softban")
         num = await create_case(self.bot, ctx.guild, "softban", member, ctx.author, reason)
         await ctx.approve(f"Softbanned **{member}** • case `#{num}`")
-
-    @commands.command()
-    @has_perms(administrator=True)
-    @commands.bot_has_permissions(ban_members=True)
-    async def hardban(self, ctx: Context, user: discord.Member | discord.User, *, reason: str = None):
-        """Permanently ban — the user is re-banned if anyone unbans them"""
-        if isinstance(user, discord.Member):
-            check_hierarchy(ctx, user, "hardban")
-        hb = await self._cfg(ctx.guild.id, "hardbans")
-        hb[str(user.id)] = {"mod": ctx.author.id, "reason": reason, "at": now()}
-        await self.bot.db.set_config(ctx.guild.id, "hardbans", hb)
-        await ctx.guild.ban(user, reason=f"hardban by {ctx.author}: {reason}")
-        num = await create_case(self.bot, ctx.guild, "hardban", user, ctx.author, reason)
-        await ctx.approve(f"Hardbanned **{user}** • case `#{num}`")
-
-    @commands.command()
-    @has_perms(administrator=True)
-    async def unhardban(self, ctx: Context, user: discord.User):
-        """Lift a hardban"""
-        hb = await self._cfg(ctx.guild.id, "hardbans")
-        if hb.pop(str(user.id), None) is None:
-            raise UserError(f"**{user}** isn't hardbanned")
-        await self.bot.db.set_config(ctx.guild.id, "hardbans", hb)
-        try:
-            await ctx.guild.unban(user, reason=f"unhardban by {ctx.author}")
-        except discord.NotFound:
-            pass
-        await ctx.approve(f"Lifted hardban on **{user}**")
-
-    @commands.Cog.listener()
-    async def on_member_unban(self, guild: discord.Guild, user: discord.User):
-        hb = await self._cfg(guild.id, "hardbans")
-        if str(user.id) in hb:
-            await asyncio.sleep(1)
-            try:
-                await guild.ban(user, reason="hardbanned user was unbanned")
-            except discord.HTTPException:
-                pass
 
     @commands.command(aliases=["banrecent"])
     @has_perms(administrator=True)
@@ -820,12 +782,6 @@ class Moderation(commands.Cog):
                     await member.add_roles(role, reason="rejoined while jailed")
                 except discord.HTTPException:
                     pass
-        hb = await self._cfg(member.guild.id, "hardbans")
-        if str(member.id) in hb:
-            try:
-                await member.ban(reason="hardbanned")
-            except discord.HTTPException:
-                pass
 
 
 async def setup(bot):
