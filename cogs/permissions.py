@@ -49,7 +49,10 @@ class Permissions(commands.Cog):
         info = perms.all_levels(cfg)[key]
         actor = await self.actor_rank(ctx)
         target_current = perms.rank_of(cfg, member, is_owner=member.id == ctx.guild.owner_id,
+                                       is_dev=await self.bot.is_owner(member),
                                        has_admin=member.guild_permissions.administrator)
+        if member.bot:
+            raise UserError("Bots can't have permission levels")
         if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author):
             if info["rank"] >= actor:
                 raise UserError("You can't assign a level equal to or above your own")
@@ -67,7 +70,9 @@ class Permissions(commands.Cog):
         if str(member.id) not in cfg.get("users", {}):
             raise UserError(f"{member.mention} has no permission level")
         actor = await self.actor_rank(ctx)
-        target = perms.rank_of(cfg, member, is_owner=member.id == ctx.guild.owner_id)
+        target = perms.rank_of(cfg, member, is_owner=member.id == ctx.guild.owner_id,
+                               is_dev=await self.bot.is_owner(member),
+                               has_admin=member.guild_permissions.administrator)
         if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author) and target >= actor:
             raise UserError(f"You can't change {member.mention}, they rank at or above you")
         cfg["users"].pop(str(member.id))

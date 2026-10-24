@@ -3,6 +3,7 @@ reaction triggers, sticky messages, starboard, counters, bump reminders, vanity 
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 
 import discord
@@ -10,6 +11,8 @@ from discord.ext import commands, tasks
 
 from core.utils import (Colors, Context, UserError, antinuke_guard, build_message, build_vars, check_role,
                         chunk_embeds, has_perms, is_dangerous, now, send_script, shorten)
+
+log = logging.getLogger("veil.config")
 
 
 def self_assignable(role: discord.Role) -> bool:
@@ -648,12 +651,14 @@ class Config(commands.Cog):
                 ch = guild.get_channel(int(cid))
                 if not ch:
                     continue
-                name = data["template"].replace("{count}", f"{self._count(guild, data['kind']):,}")
-                if ch.name != name:
-                    try:
-                        await ch.edit(name=name)
-                    except discord.HTTPException:
-                        pass
+                try:  # one broken counter must not stop the loop for every server
+                    name = data["template"].replace("{count}", f"{self._count(guild, data['kind']):,}")[:100]
+                    if ch.name != name:
+                        await ch.edit(name=name, reason="Member counter")
+                except discord.HTTPException:
+                    pass
+                except Exception:
+                    log.exception("Counter %s in guild %s failed", cid, gid)
 
     @counter_loop.before_loop
     async def _wait1(self):
@@ -719,6 +724,8 @@ class Config(commands.Cog):
                     await send_script(ch, cfg["message"], build_vars(member, guild, ch))
                 except discord.HTTPException:
                     pass
+                except Exception:
+                    log.exception("Bump reminder in guild %s failed", gid)
 
     @bump_loop.before_loop
     async def _wait2(self):

@@ -1,12 +1,17 @@
 """Server settings: prefix, aliases, ignores, disabled commands, fake permissions, modlog."""
 from __future__ import annotations
 
+import re
+
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, is_server_owner
+from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, chunk_embeds, has_perms, is_server_owner
 
 VALID_PERMS = sorted(p for p, _ in discord.Permissions.all())
+# fake perms that would be a problem on @everyone (moderation powers for every member)
+EVERYONE_BLOCKED = {*DANGEROUS_PERMS, "moderate_members", "manage_messages", "manage_nicknames", "move_members",
+                    "mute_members", "deafen_members", "manage_threads", "manage_events"}
 
 
 class Settings(commands.Cog):
@@ -60,10 +65,29 @@ class Settings(commands.Cog):
     async def alias_add(self, ctx: Context, shortcut: str, *, command: str):
         """Add an alias, e.g. `alias add b ban` or `alias add hi say hello`"""
         shortcut = shortcut.lower()
+        command = command.strip()
+        if not re.fullmatch(r"[\w\-!?.]{1,32}", shortcut):
+            raise UserError("Shortcuts must be one word (letters, numbers, `-_!?.`), up to 32 characters")
+        if len(command) > 500:
+            raise UserError("That command is too long (500 characters max)")
         if self.bot.get_command(shortcut):
             raise UserError(f"`{shortcut}` is already a command")
-        if not self.bot.get_command(command.split()[0]):
-            raise UserError(f"`{command.split()[0]}` isn't a command")
+        # resolve as deep as possible so `alias add w warn list` is checked down to the subcommand
+        words = command.split()
+        target = self.bot.get_command(words[0])
+        if target is None:
+            raise UserError(f"`{words[0]}` isn't a command")
+        for word in words[1:]:
+            if not isinstance(target, commands.Group):
+                break
+            sub = target.get_command(word)
+            if sub is None:
+                break
+            target = sub
+        if target.qualified_name.split()[0] == "alias":
+            raise UserError("An alias can't point at the alias command")
+        if target.hidden or getattr(target.cog, "qualified_name", "") in ("Owner", "DevTools"):
+            raise UserError("You can't alias developer commands")
         a = await self.bot.db.get_config(ctx.guild.id, "aliases")
         if len(a) >= 100:
             raise UserError("You can have at most 100 aliases")
@@ -183,11 +207,17 @@ class Settings(commands.Cog):
         bad = [p for p in perms if p not in VALID_PERMS]
         if bad:
             raise UserError(f"Invalid permission(s): {', '.join(bad)}")
+        dangerous = [p for p in perms if p in EVERYONE_BLOCKED]
+        if role.is_default() and dangerous:
+            raise UserError(f"You can't give @everyone {', '.join(f'`{p}`' for p in dangerous)} — that would let "
+                            "every member use those commands. Make a staff role instead")
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
         lst = fp.setdefault(str(role.id), [])
         lst.extend(p for p in perms if p not in lst)
         await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
-        await ctx.approve(f"{role.mention} now has fake {', '.join(f'`{p}`' for p in perms)}")
+        note = ("\n⚠️ `administrator` lets this role use **every** bot command, including antinuke-sensitive ones"
+                if "administrator" in perms else "")
+        await ctx.approve(f"{role.mention} now has fake {', '.join(f'`{p}`' for p in perms)}{note}")
 
     @fakepermissions.command(name="revoke", aliases=["remove"])
     @is_server_owner()

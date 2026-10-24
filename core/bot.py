@@ -1,6 +1,7 @@
 """The bot class: prefixes, aliases, global checks, error handling."""
 from __future__ import annotations
 
+import asyncio
 import copy
 from collections import deque
 import logging
@@ -14,6 +15,7 @@ from discord.ext import commands
 from core.config import settings
 from core.db import Database
 from core.help import Help
+from core.net import make_public_session
 from core.utils import Colors, Context, Ignored, UserError
 
 log = logging.getLogger("veil")
@@ -45,6 +47,8 @@ class Veil(commands.AutoShardedBot):
         self.default_prefix = settings.prefix
         self.db = Database(settings.db_path)
         self.session: aiohttp.ClientSession | None = None
+        # for URLs supplied by users: refuses private/internal addresses (see core/net.py)
+        self.public_session: aiohttp.ClientSession | None = None
         self.started_at = time.time()
         self.blacklist: set[int] = set()
         self.authorized: set[int] = set()
@@ -60,6 +64,7 @@ class Veil(commands.AutoShardedBot):
         await self.db.connect()
         self.session = aiohttp.ClientSession(headers={"User-Agent": "veil-utilities-discord-bot/1.0"},
                                              timeout=aiohttp.ClientTimeout(total=15))
+        self.public_session = make_public_session(headers={"User-Agent": "veil-utilities-discord-bot/1.0"})
         self.blacklist = {r["id"] for r in await self.db.fetchall("SELECT id FROM blacklist")}
         self.authorized = {r["guild_id"] for r in await self.db.fetchall("SELECT guild_id FROM authorized")}
         g = await self.db.get_config(0, "global")
@@ -75,8 +80,9 @@ class Veil(commands.AutoShardedBot):
     async def close(self) -> None:
         # disconnect from Discord first so no new events try to use the session/database while they close
         await super().close()
-        if self.session:
-            await self.session.close()
+        for session in (self.session, self.public_session):
+            if session:
+                await session.close()
         await self.db.close()
 
     async def on_ready(self):
@@ -195,8 +201,14 @@ class Veil(commands.AutoShardedBot):
         if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
                               commands.TooManyArguments)):
             return await ctx.warn(str(error))
+        if isinstance(error, commands.UserInputError):  # quote errors, bad flags, ...
+            return await ctx.warn(str(error) or "That input isn't valid")
+        if isinstance(error, commands.DisabledCommand):
+            return await ctx.warn("That command is disabled right now")
         if isinstance(error, commands.CheckFailure):
             return await ctx.warn(str(error) or "You can't use this command")
+        if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+            return await ctx.warn("That took too long, try again in a moment")
         if isinstance(error, discord.Forbidden):
             return await ctx.warn("I don't have permission to do that (check my role position & permissions)")
         if isinstance(error, discord.HTTPException):
@@ -209,9 +221,15 @@ class Veil(commands.AutoShardedBot):
                   "guild": ctx.guild.id if ctx.guild else None, "time": time.time(),
                   "error": f"{type(error).__name__}: {error}", "traceback": tb}
         self.recent_errors.appendleft(record)
-        await ctx.send(embed=discord.Embed(color=Colors.error,
-                                           description=f"❌ Something went wrong: `{type(error).__name__}: {error}`"[:3900]
-                                           + f"\nError ID: `{record['id']}`"))
+        # don't echo the exception message itself: it can contain file paths, SQL or other internals.
+        # developers can see the full details with the error ID (and in ERROR_LOG_CHANNEL).
+        try:
+            await ctx.send(embed=discord.Embed(
+                color=Colors.error,
+                description=f"❌ Something went wrong running that command (`{type(error).__name__}`). "
+                            f"It has been reported — error ID `{record['id']}`."))
+        except discord.HTTPException:
+            pass
         channel = self.get_channel(settings.error_log_channel or 0)
         if channel:
             e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",

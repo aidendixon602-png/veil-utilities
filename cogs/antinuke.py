@@ -13,7 +13,8 @@ from core.utils import Colors, Context, UserError, antinuke_admin, has_perms, is
 
 # verbs for the "that would … at once" message
 VERBS = {"ban": "ban", "kick": "kick", "channeldelete": "delete channels for", "roledelete": "delete roles for",
-         "rolecreate": "create roles for", "permissions": "grant staff permissions to"}
+         "rolecreate": "create roles for", "permissions": "grant staff permissions to", "timeout": "time out",
+         "unban": "unban"}
 
 A = discord.AuditLogAction
 MODULES = {
@@ -24,7 +25,13 @@ MODULES = {
     "botadd": "Adding bots", "vanity": "Changing the vanity URL",
     "permissions": "Granting dangerous permissions to roles/members",
     "prune": "Pruning members",
+    "timeout": "Mass timing out members", "unban": "Mass unbanning users",
 }
+# modules that default to a higher threshold than 3 when turned on with `antinuke enable`
+DEFAULT_THRESHOLDS = {"timeout": 5}
+# channel-overwrite permissions that are staff powers inside a channel (administrator can't be set there)
+OVERWRITE_DANGEROUS = discord.Permissions(manage_roles=True, manage_channels=True, manage_webhooks=True,
+                                          mention_everyone=True, manage_messages=True)
 ACTION_MAP = {
     A.ban: "ban", A.kick: "kick", A.member_prune: "prune",
     A.channel_delete: "channeldelete", A.channel_create: "channelcreate",
@@ -32,6 +39,8 @@ ACTION_MAP = {
     A.webhook_create: "webhook", A.emoji_delete: "emoji", A.sticker_delete: "emoji",
     A.bot_add: "botadd", A.guild_update: "vanity",
     A.role_update: "permissions", A.member_role_update: "permissions",
+    A.overwrite_create: "permissions", A.overwrite_update: "permissions",
+    A.member_update: "timeout", A.unban: "unban",
 }
 INSTANT = {"botadd", "vanity", "permissions", "prune"}  # threshold of 1
 LABELS = {
@@ -39,7 +48,27 @@ LABELS = {
     "channeldelete": "Channel Delete", "channelcreate": "Channel Create",
     "roledelete": "Role Delete", "rolecreate": "Role Create", "webhook": "Webhook Create",
     "emoji": "Emoji Delete", "botadd": "Bot Add", "vanity": "Vanity Change", "permissions": "Permission Grant",
+    "timeout": "Mass Timeout", "unban": "Mass Unban",
 }
+
+
+def gained_dangerous(before: discord.Permissions | None, after: discord.Permissions | None) -> bool:
+    """True if `after` has a dangerous permission that `before` didn't (bit-wise, not by total value:
+    swapping Manage Server for Administrator lowers the number but is a big escalation)."""
+    if after is None:
+        return False
+    added = discord.Permissions(after.value & ~(before.value if before is not None else 0))
+    return is_dangerous(added)
+
+
+def overwrite_gained(before, after) -> bool:
+    """For channel overwrite audit entries: did the allow set gain a staff power?"""
+    allow_after = getattr(after, "allow", None)
+    if allow_after is None:
+        return False
+    allow_before = getattr(before, "allow", None)
+    added = allow_after.value & ~(allow_before.value if allow_before is not None else 0)
+    return bool(added & OVERWRITE_DANGEROUS.value)
 
 
 def alert_embed(*, guild, user, actor_id, module, threshold, window, punishment, highest, roles,
@@ -105,12 +134,17 @@ class Antinuke(commands.Cog):
         if module == "vanity":
             if getattr(entry.before, "vanity_url_code", None) == getattr(entry.after, "vanity_url_code", None):
                 return
+        if module == "timeout":
+            # member_update covers nick changes etc. — only count a timeout being applied
+            if getattr(entry.after, "timed_out_until", None) is None:
+                return
         if module == "permissions":
             if entry.action == A.role_update:
-                before = getattr(entry.before, "permissions", None)
-                after = getattr(entry.after, "permissions", None)
-                if after is None or not is_dangerous(after) or (before is not None and is_dangerous(before)
-                                                                 and before.value >= after.value):
+                if not gained_dangerous(getattr(entry.before, "permissions", None),
+                                        getattr(entry.after, "permissions", None)):
+                    return
+            elif entry.action in (A.overwrite_create, A.overwrite_update):
+                if not overwrite_gained(entry.before, entry.after):
                     return
             else:
                 added = getattr(entry.after, "roles", []) or []
@@ -218,6 +252,20 @@ class Antinuke(commands.Cog):
                 if before is not None:
                     await entry.target.edit(permissions=before, reason=reason)
                     done.append(f"reverted permissions on {entry.target.name}")
+            elif module == "permissions" and entry.action in (A.overwrite_create, A.overwrite_update) \
+                    and isinstance(entry.target, discord.abc.GuildChannel):
+                ow_target = getattr(entry.extra, "id", None) and (
+                    guild.get_role(entry.extra.id) or guild.get_member(entry.extra.id))
+                if ow_target is not None:
+                    ow = entry.target.overwrites_for(ow_target)
+                    for perm, value in OVERWRITE_DANGEROUS:
+                        if value and getattr(ow, perm) is True:
+                            setattr(ow, perm, None)
+                    await entry.target.set_permissions(ow_target, overwrite=ow, reason=reason)
+                    done.append(f"removed staff overwrites in #{entry.target.name}")
+            elif module == "timeout" and isinstance(entry.target, discord.Member):
+                await entry.target.timeout(None, reason=reason)
+                done.append(f"removed the timeout from {entry.target}")
             elif module == "permissions" and isinstance(entry.target, discord.Member):
                 added = [r for r in getattr(entry.after, "roles", []) if isinstance(r, discord.Role)
                          and is_dangerous(r.permissions)]
@@ -291,9 +339,9 @@ class Antinuke(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         cfg["enabled"] = True
         for m in MODULES:
-            cfg["modules"].setdefault(m, {"on": True, "threshold": 3})
+            cfg["modules"].setdefault(m, {"on": True, "threshold": DEFAULT_THRESHOLDS.get(m, 3)})
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve("Antinuke **enabled** with every module on (threshold 3 / 60s). "
+        await ctx.approve("Antinuke **enabled** with every module on (threshold 3 / 60s, timeouts 5). "
                           "Make sure my role is at the **top** of the role list.")
 
     @antinuke.command(name="disable", aliases=["off"])
@@ -307,13 +355,17 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="module", aliases=["set"])
     async def an_module(self, ctx: Context, module: str, state: str, threshold: int = 3):
-        """Toggle a module: `antinuke module ban on 3`. Modules: ban, kick, channeldelete, channelcreate, roledelete, rolecreate, webhook, emoji, botadd, vanity, permissions, prune"""
+        """Toggle a module: `antinuke module ban on 3`. Modules: ban, kick, channeldelete, channelcreate, roledelete, rolecreate, webhook, emoji, botadd, vanity, permissions, prune, timeout, unban"""
         await antinuke_admin(ctx)
         module = module.lower()
         if module not in MODULES:
             raise UserError(f"Unknown module. Options: {', '.join(f'`{m}`' for m in MODULES)}")
         cfg = await self.cfg(ctx.guild.id)
-        cfg["modules"][module] = {"on": state.lower() in ("on", "enable", "true", "yes"), "threshold": max(1, threshold)}
+        state = state.lower()
+        if state not in ("on", "enable", "true", "yes", "off", "disable", "false", "no"):
+            raise UserError("State must be `on` or `off`")
+        threshold = max(1, min(threshold, 100))
+        cfg["modules"][module] = {"on": state in ("on", "enable", "true", "yes"), "threshold": threshold}
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"`{module}` is now **{'on' if cfg['modules'][module]['on'] else 'off'}**"
                           + ("" if module in INSTANT else f" (threshold **{threshold}**)"))
@@ -421,6 +473,8 @@ class Antinuke(commands.Cog):
     @has_perms(administrator=True)
     async def ar_massjoin(self, ctx: Context, joins: int = 0, seconds: int = 10):
         """Punish everyone in a join wave: `antiraid massjoin 10 10` (0 to disable)"""
+        if joins and not (2 <= joins <= 100 and 1 <= seconds <= 300):
+            raise UserError("Use 2–100 joins within 1–300 seconds, e.g. `antiraid massjoin 10 10`")
         await self._ar_set(ctx, "massjoin", {"joins": joins, "seconds": seconds} if joins else None,
                            f"Mass join filter: {joins} joins / {seconds}s" if joins else "Mass join filter off")
 
@@ -468,22 +522,38 @@ class Antinuke(commands.Cog):
         elif cfg.get("avatar") and member.avatar is None:
             reason = "no avatar"
         mj = cfg.get("massjoin")
+        wave: list[int] = []
         if mj and not reason:
-            q = self.joins[member.guild.id]
+            gid = member.guild.id
+            q = self.joins[gid]
             t = time.monotonic()
-            q.append(t)
-            while q and t - q[0] > mj["seconds"]:
+            q.append((t, member.id))
+            while q and t - q[0][0] > mj["seconds"]:
                 q.popleft()
             if len(q) >= mj["joins"]:
-                self.raid_until[member.guild.id] = t + 300  # raid mode for 5 minutes
-            if self.raid_until.get(member.guild.id, 0) > t:
+                if self.raid_until.get(gid, 0) <= t:
+                    # raid mode just started: the earlier joiners in this wave are part of it too
+                    wave = [uid for _, uid in q if uid != member.id]
+                    self.bot.loop.create_task(self._raid_alert(member.guild, len(q), mj["seconds"]))
+                self.raid_until[gid] = t + 300  # raid mode for 5 minutes (extended while joins continue)
+            if self.raid_until.get(gid, 0) > t:
                 reason = "mass join (raid mode)"
+            elif not q:
+                self.joins.pop(gid, None)
+        if wave:
+            for uid in wave:
+                m = member.guild.get_member(uid)
+                if m and uid not in cfg.get("whitelist", []):
+                    await self._raid_punish(m, cfg, "mass join (raid mode)")
         if not reason:
             return
+        await self._raid_punish(member, cfg, reason)
+
+    async def _raid_punish(self, member: discord.Member, cfg: dict, reason: str) -> None:
         p = cfg.get("punishment", "kick")
         try:
             if p == "ban":
-                await member.ban(reason=f"Antiraid: {reason}")
+                await member.ban(reason=f"Antiraid: {reason}", delete_message_seconds=3600)
             elif p == "timeout":
                 await member.timeout(timedelta(days=1), reason=f"Antiraid: {reason}")
             else:
@@ -491,6 +561,19 @@ class Antinuke(commands.Cog):
         except discord.HTTPException:
             pass
 
+    async def _raid_alert(self, guild: discord.Guild, joins: int, seconds: int) -> None:
+        """Tell the antinuke log channel (or the owner) that raid mode switched on."""
+        cfg = await self.cfg(guild.id)
+        dest = guild.get_channel(cfg.get("log") or 0) or guild.owner
+        if dest is None:
+            return
+        e = discord.Embed(title="🚨 Raid mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
+                          description=f"**{joins}** members joined **{guild.name}** within {seconds}s. "
+                                      "New joiners will be punished for the next 5 minutes.")
+        try:
+            await dest.send(embed=e)
+        except discord.HTTPException:
+            pass
 
 async def setup(bot):
     await bot.add_cog(Antinuke(bot))

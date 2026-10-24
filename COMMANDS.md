@@ -1,6 +1,6 @@
 # Command reference
 
-371 commands. Default prefix `,`. `<required>` `[optional]`.
+372 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -26,7 +26,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke disable` (off) | Turn antinuke off |  |
 | `antinuke enable` (on) | Turn antinuke on with recommended settings |  |
 | `antinuke log [channel]` | Set where antinuke alerts go (owner always gets a DM) |  |
-| `antinuke module <module> <state> [threshold=3]` (set) | Toggle a module: `antinuke module ban on 3`. Modules: ban, kick, channeldelete, channelcreate, roledelete, rolecreate, webhook, emoji, botadd, vanity, permissions, prune |  |
+| `antinuke module <module> <state> [threshold=3]` (set) | Toggle a module: `antinuke module ban on 3`. Modules: ban, kick, channeldelete, channelcreate, roledelete, rolecreate, webhook, emoji, botadd, vanity, permissions, prune, timeout, unban |  |
 | `antinuke punishment <punishment>` | Set the punishment: ban, kick or strip |  |
 | `antinuke whitelist <user>` (wl, trust) | Toggle a user/bot being ignored by antinuke |  |
 | `antinuke window <seconds>` | Set the time window thresholds are counted over |  |
@@ -276,7 +276,7 @@ _Keep your server in line_
 | `purge invites [amount=100]` | Delete messages containing invites | manage messages |
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
-| `reason <case> <reason>` | Update the reason on a case | moderate members |
+| `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `role <member> <role>` (r) | Toggle a role on a member | manage roles |
 | `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator |
@@ -315,6 +315,7 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `audiofilter [preset]` (preset, fx) | Audio presets: nightcore, vaporwave, bassboost, 8d, slowed, karaoke, clear |  |
 | `autoplay <state>` | Keep playing recommended songs when the queue ends |  |
 | `clearqueue` | Clear the queue |  |
+| `djrole [role]` | Set the DJ role (needed to pause/stop/volume/etc.), or no role to let everyone control music | manage guild |
 | `loop [mode=track]` | Loop mode: track, queue or off |  |
 | `pause` | Pause |  |
 | `play <query>` (p) | Play a song or playlist (URL or search) |  |
@@ -323,7 +324,7 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `resume` | Resume |  |
 | `seek <position>` | Seek to a time: `seek 1:30` |  |
 | `shuffle` | Shuffle the queue |  |
-| `skip` (next) | Skip the current song |  |
+| `skip` (next, voteskip, vs) | Skip the current song (DJs and the requester skip instantly, others vote) |  |
 | `song` (playing, current) | What's playing |  |
 | `stop` (dc, disconnect) | Stop and leave |  |
 | `volume <volume>` (vol, v) | Set volume (0–150) |  |

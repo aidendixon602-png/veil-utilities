@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS vm_channels (channel_id INTEGER PRIMARY KEY, guild_id
 CREATE TABLE IF NOT EXISTS blacklist (id INTEGER PRIMARY KEY, reason TEXT);
 CREATE TABLE IF NOT EXISTS authorized (guild_id INTEGER PRIMARY KEY, authorized_by INTEGER, at REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS globalbans (user_id INTEGER PRIMARY KEY, mod_id INTEGER, reason TEXT, at REAL);
+
+-- lookups the bot does constantly (warn counts, case history, the reminder/giveaway loops)
+CREATE INDEX IF NOT EXISTS idx_warns_member ON warns (guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_cases_member ON cases (guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (due);
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (user_id);
+CREATE INDEX IF NOT EXISTS idx_giveaways_open ON giveaways (ended, ends);
+CREATE INDEX IF NOT EXISTS idx_levels_rank ON levels (guild_id, xp DESC);
+CREATE INDEX IF NOT EXISTS idx_msgstats_day ON msgstats (guild_id, day);
 """
 
 
@@ -65,18 +74,32 @@ class Database:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.execute("PRAGMA journal_mode=WAL")
+        # WAL + NORMAL is crash-safe (a power cut can lose only the last moments, never corrupt the db)
+        # and makes the per-statement commits much cheaper than the default FULL sync
+        await self.conn.execute("PRAGMA synchronous=NORMAL")
+        await self.conn.execute("PRAGMA busy_timeout=5000")
         await self.conn.executescript(SCHEMA)
         await self.conn.commit()
 
     async def close(self) -> None:
         if self.conn:
+            try:
+                await self.conn.execute("PRAGMA optimize")
+            except Exception:
+                pass
             await self.conn.close()
+            self.conn = None
 
     # ---- raw helpers -------------------------------------------------
     async def execute(self, query: str, *args) -> aiosqlite.Cursor:
         cur = await self.conn.execute(query, args)
         await self.conn.commit()
         return cur
+
+    async def executemany(self, query: str, rows) -> None:
+        """Run one statement for many rows in a single transaction (one commit instead of N)."""
+        await self.conn.executemany(query, rows)
+        await self.conn.commit()
 
     async def fetchone(self, query: str, *args):
         async with self.conn.execute(query, args) as cur:

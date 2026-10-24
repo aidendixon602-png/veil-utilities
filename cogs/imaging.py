@@ -9,6 +9,7 @@ import random
 import re
 from functools import partial
 
+import aiohttp
 import discord
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageSequence
@@ -241,12 +242,18 @@ class Imaging(commands.Cog):
         self.bot = bot
 
     async def fetch(self, url: str) -> bytes:
-        async with self.bot.session.get(url) as r:
-            if r.status != 200:
-                raise UserError("I couldn't download that image")
-            if int(r.headers.get("Content-Length") or 0) > MAX_BYTES:
-                raise UserError("That image is too big (8MB max)")
-            data = await r.content.read(MAX_BYTES + 1)
+        # user-supplied links go through the public session, which refuses private/internal addresses
+        try:
+            async with self.bot.public_session.get(url) as r:
+                if r.status != 200:
+                    raise UserError("I couldn't download that image")
+                if not (r.headers.get("Content-Type") or "image/").startswith(("image/", "application/octet-stream")):
+                    raise UserError("That link isn't an image")
+                if int(r.headers.get("Content-Length") or 0) > MAX_BYTES:
+                    raise UserError("That image is too big (8MB max)")
+                data = await r.content.read(MAX_BYTES + 1)
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+            raise UserError("I couldn't download that image") from None
         if len(data) > MAX_BYTES:
             raise UserError("That image is too big (8MB max)")
         return data

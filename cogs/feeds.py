@@ -28,6 +28,7 @@ RSSHUB_ROUTES = {  # override with RSSHUB_ROUTE_<PLATFORM> if your instance uses
     "x": "/twitter/user/{user}",
 }
 MAX_FEEDS = 30
+MAX_FEED_BYTES = 5 * 1024 * 1024
 
 
 class Feeds(commands.Cog):
@@ -52,11 +53,22 @@ class Feeds(commands.Cog):
 
     # ================================================================ fetching
     async def get_text(self, url: str) -> str:
-        async with self.bot.session.get(url, timeout=aiohttp.ClientTimeout(total=20),
-                                        headers={"User-Agent": "Mozilla/5.0 (compatible; veil-utilities feeds)"}) as r:
-            if r.status >= 400:
-                raise UserError(f"The feed returned an error ({r.status})")
-            return await r.text()
+        # feed URLs can come from users (rss platform), so use the public-only session and cap the size.
+        # The owner's own RSSHUB_URL is trusted (it's often self-hosted on localhost).
+        trusted = bool(self.rsshub) and url.startswith(self.rsshub.rstrip("/") + "/")
+        session = self.bot.session if trusted else self.bot.public_session
+        try:
+            async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=20),
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; veil-utilities feeds)"}) as r:
+                if r.status >= 400:
+                    raise UserError(f"The feed returned an error ({r.status})")
+                raw = await r.content.read(MAX_FEED_BYTES + 1)
+                if len(raw) > MAX_FEED_BYTES:
+                    raise UserError("That feed is too large")
+                return raw.decode(r.get_encoding() if r.charset else "utf-8", errors="replace")
+        except (aiohttp.ClientError, OSError):
+            raise UserError("I couldn't reach that feed") from None
 
     async def parse(self, url: str):
         text = await self.get_text(url)

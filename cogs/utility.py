@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import operator
 import platform
 import re
@@ -14,6 +15,8 @@ from discord.ext import commands, tasks
 
 from core.utils import (Colors, Context, Duration, UserError, build_message, build_vars, chunk_embeds,
                         fmt_duration, has_perms, now, shorten, ts)
+
+log = logging.getLogger("veil.utility")
 
 CUSTOM_EMOJI = re.compile(r"<(a?):(\w+):(\d+)>")
 
@@ -192,6 +195,8 @@ class Utility(commands.Cog):
                     await user.send(embed=e)
             except discord.HTTPException:
                 pass
+            except Exception:
+                log.exception("Reminder %s failed", r["id"])
 
     @reminder_loop.before_loop
     async def _wait(self):

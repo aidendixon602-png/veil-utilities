@@ -68,7 +68,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 
 | | Module | Highlights |
 |:-:|---|---|
-| 🛡️ | **Antinuke** | 12 attack types (mass ban/kick, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants…), sliding-window thresholds, auto-revert, ban / kick / strip, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
+| 🛡️ | **Antinuke** | 14 attack types (mass ban/kick/timeout/unban, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, auto-revert, ban / kick / strip, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
 | 🚨 | **Antiraid** | Mass-join raid mode, minimum account age, no-avatar filter, per-user bypass |
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |
@@ -79,7 +79,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |
 | 🤖 | **AI** | `ask` (chat with memory), `summarize`, `imagine` (free image generation), `tts`, `ocr` |
 | 🖼️ | **Images** | 21 effects (deepfry, caption, meme, blur, pixelate, warp, chaos…). GIFs stay animated |
-| 🎵 | **Music** | Lavalink player, queue, loop, seek, autoplay, nightcore / bassboost / 8D presets |
+| 🎵 | **Music** | Lavalink player, queue, loop, seek, autoplay, nightcore / bassboost / 8D presets, optional DJ role with vote-skip, auto-leaves empty channels |
 | 🌐 | **Lookups** | Last.fm (np, whoknows, top charts), weather, GitHub, crypto, Roblox, Minecraft, translate, Wikipedia, Urban Dictionary |
 | 🛠️ | **Utility** | Snipe / editsnipe, AFK, reminders, user & server info, emoji steal, message stats, polls, custom aliases, self prefix |
 | 🎲 | **Fun** | Tic-tac-toe, ship, 8ball, 16 anime interactions, uwulock |
@@ -164,9 +164,11 @@ Hidden from everyone else and listed under the red **Secret** help button:
 pip install -r requirements-dev.txt
 ruff check .          # lint
 python -m pytest -q   # unit tests + offline smoke test (loads every module)
+python scripts/gen_commands.py   # regenerate COMMANDS.md after adding/changing commands
 ```
 
-CI runs the same checks on every push, plus a validation of `.env.example`.
+CI runs the same checks on every push (Python 3.11 and 3.12), plus a validation of `.env.example`.
+A test fails if `COMMANDS.md` doesn't match the real commands, so the reference never goes stale.
 
 ## 🧱 Project structure
 
@@ -179,16 +181,19 @@ veil-utilities/
 │   ├── db.py            SQLite + cached per-server JSON config
 │   ├── help.py          button help menu
 │   ├── modlog.py        case system
+│   ├── net.py           safe HTTP for user-supplied links (blocks private/internal addresses)
+│   ├── perms.py         permission levels
 │   └── utils.py         embeds, paginator, embed scripting, permission checks
 ├── cogs/                one file per module (20 total)
 ├── assets/              banner + social preview
 ├── fonts/               bundled caption font (DejaVu)
-├── tests/              config unit tests + offline smoke test; run on every push
+├── scripts/             gen_commands.py (builds COMMANDS.md)
+├── tests/               unit tests + docs check; run on every push
 └── lavalink/            optional music server config
 ```
 
 **Adding a feature:** drop a new file in `cogs/`, add it to `EXTENSIONS` in `core/bot.py`, and give the cog an
-`emoji`. It appears in the help menu automatically. Run `python tests/smoke_test.py` before pushing.
+`emoji`. It appears in the help menu automatically. Run `python -m pytest -q` and `python scripts/gen_commands.py` before pushing.
 
 <br/>
 

@@ -306,10 +306,13 @@ def parse_color(value: str) -> int:
              "invisible": Colors.neutral}
     if value in named:
         return named[value]
-    try:
-        return int(value, 16)
-    except ValueError:
+    if value.startswith("0x"):
+        value = value[2:]
+    if len(value) == 3 and all(c in "0123456789abcdef" for c in value):
+        value = "".join(c * 2 for c in value)  # #f0a -> #ff00aa
+    if not re.fullmatch(r"[0-9a-f]{1,6}", value):
         return Colors.main
+    return int(value, 16)
 
 
 def build_message(script: str, variables: dict[str, str] | None = None) -> dict:
@@ -383,29 +386,34 @@ async def send_script(dest: discord.abc.Messageable, script: str, variables: dic
 
 
 # ---------------------------------------------------------------- checks
+async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
+    """Permissions the author lacks, after counting owner, admin, fake permissions and perm levels."""
+    if await ctx.bot.is_owner(ctx.author):
+        return []
+    p = ctx.channel.permissions_for(ctx.author)
+    if p.administrator:
+        return []
+    missing = [k for k, v in perms.items() if getattr(p, k, None) != v]
+    if not missing:
+        return []
+    fake = await ctx.bot.db.get_config(ctx.guild.id, "fakeperms")
+    granted: set[str] = set()
+    for role in ctx.author.roles:
+        granted.update(fake.get(str(role.id), []))
+    from core import perms as _perms
+    granted.update(_perms.level_perms(await ctx.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author.id))
+    if "administrator" in granted:
+        return []
+    return [m for m in missing if m not in granted]
+
+
 def has_perms(**perms: bool):
     """Like has_permissions, but also honours roles granted *fake permissions* via the bot."""
 
     async def predicate(ctx: Context) -> bool:
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if await ctx.bot.is_owner(ctx.author):
-            return True
-        p = ctx.channel.permissions_for(ctx.author)
-        if p.administrator:
-            return True
-        missing = [k for k, v in perms.items() if getattr(p, k, None) != v]
-        if not missing:
-            return True
-        fake = await ctx.bot.db.get_config(ctx.guild.id, "fakeperms")
-        granted: set[str] = set()
-        for role in ctx.author.roles:
-            granted.update(fake.get(str(role.id), []))
-        from core import perms as _perms
-        granted.update(_perms.level_perms(await ctx.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author.id))
-        if "administrator" in granted:
-            return True
-        still = [m for m in missing if m not in granted]
+        still = await missing_perms(ctx, **perms)
         if still:
             raise commands.MissingPermissions(still)
         return True

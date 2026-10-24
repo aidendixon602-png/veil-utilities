@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from core.modlog import case_line, create_case, dm_target
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy,
-                        check_role, chunk_embeds, fmt_duration, has_perms, is_dangerous, now, parse_duration, shorten,
+                        check_role, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts)
 
 URL = re.compile(r"https?://\S+", re.I)
@@ -53,6 +53,7 @@ class Moderation(commands.Cog):
         gb = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
         if gb and not await self.bot.is_owner(ctx.author):
             raise UserError(f"**{user}** is hardbanned across the network — a developer must lift it with `unhardban`")
+        await antinuke_guard(ctx, "unban")
         try:
             await ctx.guild.unban(user, reason=f"{ctx.author}: {reason}")
         except discord.NotFound:
@@ -116,6 +117,7 @@ class Moderation(commands.Cog):
         duration = duration or timedelta(minutes=5)
         if duration > timedelta(days=28):
             raise UserError("Timeouts can be at most 28 days")
+        await antinuke_guard(ctx, "timeout")
         await member.timeout(duration, reason=f"{ctx.author}: {reason}")
         human = fmt_duration(duration.total_seconds())
         await dm_target(member, ctx.guild, "timed out", ctx.author, reason, human)
@@ -211,17 +213,34 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     async def clearwarns(self, ctx: Context, member: discord.Member | discord.User):
         """Clear all of a member's warnings"""
-        await self.bot.db.execute("DELETE FROM warns WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
-        await ctx.approve(f"Cleared warnings for **{member}**")
+        self._check_warn_target(ctx, member, "clear warnings for")
+        cur = await self.bot.db.execute("DELETE FROM warns WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
+        if cur.rowcount == 0:
+            raise UserError(f"**{member}** has no warnings")
+        await create_case(self.bot, ctx.guild, "clearwarns", member, ctx.author, f"Cleared {cur.rowcount} warning(s)")
+        await ctx.approve(f"Cleared **{cur.rowcount}** warning(s) for **{member}**")
 
     @commands.command(aliases=["unwarn"])
     @has_perms(moderate_members=True)
     async def delwarn(self, ctx: Context, warn_id: int):
         """Delete a single warning by ID"""
-        cur = await self.bot.db.execute("DELETE FROM warns WHERE guild_id=? AND id=?", ctx.guild.id, warn_id)
-        if cur.rowcount == 0:
+        row = await self.bot.db.fetchone("SELECT user_id FROM warns WHERE guild_id=? AND id=?", ctx.guild.id, warn_id)
+        if row is None:
             raise UserError("No warning with that ID")
+        target = ctx.guild.get_member(row["user_id"]) or discord.Object(row["user_id"])
+        self._check_warn_target(ctx, target, "remove warnings from")
+        await self.bot.db.execute("DELETE FROM warns WHERE guild_id=? AND id=?", ctx.guild.id, warn_id)
         await ctx.approve(f"Deleted warning `{warn_id}`")
+
+    @staticmethod
+    def _check_warn_target(ctx: Context, target, action: str) -> None:
+        """Mods can't wipe their own record or the record of someone at/above their top role."""
+        if ctx.author.id == ctx.guild.owner_id:
+            return
+        if target.id == ctx.author.id:
+            raise UserError(f"You can't {action} yourself")
+        if isinstance(target, discord.Member) and target.top_role >= ctx.author.top_role:
+            raise UserError(f"You can't {action} {target.mention}, their top role is equal or higher than yours")
 
     # ================================================================ cases
     @commands.command(aliases=["history", "modlogs"])
@@ -240,11 +259,17 @@ class Moderation(commands.Cog):
     @commands.command()
     @has_perms(moderate_members=True)
     async def reason(self, ctx: Context, case: int, *, reason: str):
-        """Update the reason on a case"""
-        cur = await self.bot.db.execute("UPDATE cases SET reason=? WHERE guild_id=? AND case_num=?",
-                                        reason, ctx.guild.id, case)
-        if cur.rowcount == 0:
+        """Update the reason on a case (your own cases, or any case with Manage Server)"""
+        row = await self.bot.db.fetchone("SELECT mod_id, user_id FROM cases WHERE guild_id=? AND case_num=?",
+                                         ctx.guild.id, case)
+        if row is None:
             raise UserError(f"Case `#{case}` doesn't exist")
+        if row["user_id"] == ctx.author.id and ctx.author.id != ctx.guild.owner_id:
+            raise UserError("You can't edit a case about yourself")
+        if row["mod_id"] != ctx.author.id and await missing_perms(ctx, manage_guild=True):
+            raise UserError("You can only edit the reason on your own cases (Manage Server can edit any)")
+        await self.bot.db.execute("UPDATE cases SET reason=? WHERE guild_id=? AND case_num=?",
+                                  shorten(reason, 1000), ctx.guild.id, case)
         await ctx.approve(f"Updated reason for case `#{case}`")
 
     # ================================================================ purge
