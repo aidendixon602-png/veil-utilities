@@ -151,3 +151,90 @@ def test_help_command_lookup_works_for_developers():
     out = _browse(is_dev=True)
     assert out["errors"] == []
     assert out["sent"] == 2
+
+
+# ------------------------------------------------------------------ no level can unlock dev tools
+def _fresh_bot():
+    """A Veil instance pinned to our own env regardless of what other tests froze in first."""
+    import core.bot
+    from core.config import Settings
+    saved_env = {k: os.environ.get(k) for k in ("DB_PATH", "OWNER_IDS", "DISCORD_TOKEN")}
+    os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "lockdown.db")
+    os.environ["OWNER_IDS"] = str(OWNER_ID)
+    os.environ.setdefault("DISCORD_TOKEN", "x")
+    saved_settings = core.bot.settings
+    core.bot.settings = Settings.from_env()
+    return core.bot, saved_settings, saved_env
+
+
+def test_permission_levels_cannot_unlock_developer_commands():
+    """Helper/Mod/Admin/Overseer… are all fake-permission levels. Dev commands check is_owner,
+    which only looks at OWNER_IDS — so even a guild-owner administrator uperm target is refused."""
+    import core.bot
+
+    async def go():
+        bot_cls, saved_settings, saved_env = _fresh_bot()
+        bot = bot_cls.Veil()
+        try:
+            powerful = SimpleNamespace(
+                id=RANDOM_USER,  # not in OWNER_IDS
+                guild_permissions=SimpleNamespace(administrator=True),
+                top_role=SimpleNamespace(position=9999),
+            )
+            ctx = SimpleNamespace(guild=None, cog=None, author=powerful,
+                                  command=SimpleNamespace(hidden=True, parents=[], qualified_name="restart",
+                                                          root_parent=None, name="restart"))
+            try:
+                await bot._global_check(ctx)
+                return "passed"
+            except commands.CommandNotFound:
+                return "notfound"
+        finally:
+            core.bot.settings = saved_settings
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    assert asyncio.run(go()) == "notfound"
+
+
+def test_every_developer_cog_requires_bot_owner():
+    """Static guard: Owner/DevTools/Authorization must gate via is_owner in cog_check forever."""
+    import ast
+    for name in ("owner", "devtools", "authorization"):
+        tree = ast.parse(open(f"cogs/{name}.py").read())
+        checks = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "cog_check"
+                  and "is_owner" in ast.unparse(n)]
+        assert checks, f"cogs/{name}.py lost its is_owner cog_check"
+
+
+def test_unhandled_error_never_echoes_the_exception_message():
+    """If a command crashes, users get the error type + ID only — never the message text,
+    which can contain paths, SQL, URLs or other internals."""
+    import core.bot
+    from unittest.mock import AsyncMock
+
+    async def go():
+        bot_cls, saved_settings, saved_env = _fresh_bot()
+        bot = bot_cls.Veil()
+        try:
+            ctx = SimpleNamespace(guild=None, author=SimpleNamespace(id=RANDOM_USER),
+                                  command=SimpleNamespace(qualified_name="somecmd"),
+                                  message=SimpleNamespace(content=",somecmd"),
+                                  send=AsyncMock(), warn=AsyncMock(), approve=AsyncMock())
+            secret = "DB_PATH-super-secret-VALUE"
+            await bot.on_command_error(ctx, ValueError(secret))
+            shown = " ".join(str(c) for c in ctx.send.call_args_list)
+            return secret in shown
+        finally:
+            core.bot.settings = saved_settings
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    assert asyncio.run(go()) is False

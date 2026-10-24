@@ -16,8 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `tests/test_lockdown.py` — 5 tests covering the hidden-command gate and a registry check that
-  every Owner/DevTools/Authorization command stays hidden.
+- `tests/test_lockdown.py` — 10 tests covering the hidden-command gate, help-menu lookups
+  (commands and groups), proof that no permission level can unlock developer tools, static
+  checks that dev cogs always require bot-owner, and that crash replies never echo exception
+  messages.
+
+### Security (follow-up)
+
+- `,help <hidden group>` no longer shows dev group descriptions to non-developers —
+  it pretends the command doesn't exist, exactly like single commands already did.
+  Help-menu hidden gating now also walks parent chains.
+- Verified: permission levels (helper/mod/admin/overseer…) can never unlock developer
+  commands — those check bot-owner identity (`OWNER_IDS`) and nothing else; no command can
+  modify `OWNER_IDS`. Startup config logging masks all secrets; crash responses show only the
+  error type + ID.
 
 ### Fixed
 
