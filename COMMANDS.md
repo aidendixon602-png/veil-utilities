@@ -1,6 +1,6 @@
 # Command reference
 
-399 commands. Default prefix `,`. `<required>` `[optional]`.
+420 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -21,16 +21,37 @@ _Stop rogue admins and raids before they wreck your server_
 
 | Command | Description | Permission |
 |---|---|---|
-| `antinuke` (an) | Configure antinuke protection |  |
+| `antinuke` (an) | View antinuke rules and status overview |  |
 | `antinuke admin <member>` | Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted |  |
-| `antinuke config` (settings, status) | View antinuke settings |  |
+| `antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
+| `antinuke ban [count] [punishment] [timeframe]` | Configure the ban rule: `,an ban 3 ban 60s` |  |
+| `antinuke botadd [count] [punishment] [timeframe]` (bot, bots) | Configure the bot add rule: `,an botadd 1 ban 60s` |  |
+| `antinuke channelcreate [count] [punishment] [timeframe]` | Configure the channel create rule: `,an channelcreate 2 kick 120s` |  |
+| `antinuke channeldelete [count] [punishment] [timeframe]` | Configure the channel delete rule: `,an channeldelete 2 ban 120s` |  |
 | `antinuke disable` (off) | Turn antinuke off |  |
-| `antinuke enable` (on) | Turn antinuke on with recommended settings |  |
+| `antinuke enable` (on) | Turn antinuke on |  |
+| `antinuke kick [count] [punishment] [timeframe]` | Configure the kick rule: `,an kick 3 ban 120s` |  |
 | `antinuke log [channel]` | Set where antinuke alerts go (owner always gets a DM) |  |
-| `antinuke module <module> <state> [threshold=3]` (set) | Toggle a module: `antinuke module ban on 3`. Modules: ban, kick, channeldelete, channelcreate, roledelete, rolecreate, webhook, emoji, botadd, vanity, permissions, prune, timeout, unban |  |
-| `antinuke punishment <punishment>` | Set the punishment: ban, kick or strip |  |
-| `antinuke whitelist <user>` (wl, trust) | Toggle a user/bot being ignored by antinuke |  |
-| `antinuke window <seconds>` | Set the time window thresholds are counted over |  |
+| `antinuke module <module> <state> [threshold=3]` | Toggle an individual module: `antinuke module ban on 3` |  |
+| `antinuke permissions [count] [punishment] [timeframe]` (permission, perms) | Configure the permission grant rule: `,an permissions 1 strip 60s` |  |
+| `antinuke preset` | Manage rule presets: `,an preset save/load/list` |  |
+| `antinuke preset list` | List available antinuke presets |  |
+| `antinuke preset load <name>` | Load an antinuke preset (default, strict, relaxed, or saved custom) |  |
+| `antinuke preset save <name>` | Save current antinuke rules as a named preset |  |
+| `antinuke punishment <punishment>` | Set the default punishment: ban, kick or strip |  |
+| `antinuke reset [action]` | Reset an action rule or all rules to defaults: `,an reset ban` or `,an reset` |  |
+| `antinuke rolecreate [count] [punishment] [timeframe]` | Configure the role create rule: `,an rolecreate 5 strip 120s` |  |
+| `antinuke roledelete [count] [punishment] [timeframe]` | Configure the role delete rule: `,an roledelete 5 strip 120s` |  |
+| `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the role invite rule: `,an roleinvite 1 strip 60s` |  |
+| `antinuke serverupdate [count] [punishment] [timeframe]` (server) | Configure the server update rule: `,an serverupdate 1 strip 60s` |  |
+| `antinuke set <action> <arg2> [arg3] [arg4]` (rule, configure) | Configure an antinuke rule: `,an set ban 3 ban 60s` or `,an set ban on 3` |  |
+| `antinuke status` (config, settings) | View antinuke rules and status overview |  |
+| `antinuke timeout [count] [punishment] [timeframe]` (mute) | Configure the timeout rule: `,an timeout 5 strip 120s` |  |
+| `antinuke toggle` (on/off) | Toggle antinuke on or off |  |
+| `antinuke unwhitelist <user>` (unwl, untrust) | Remove a user or bot from the antinuke whitelist |  |
+| `antinuke webhook [count] [punishment] [timeframe]` (webhooks) | Configure the webhook rule: `,an webhook 1 kick 60s` |  |
+| `antinuke whitelist <user>` (wl, trust) | Add a user or bot to the antinuke whitelist |  |
+| `antinuke window <seconds>` | Set the default time window thresholds are counted over |  |
 | `antiraid` (raid) | Filter suspicious joins: mass joins, new accounts, no avatar | administrator |
 | `antiraid age [days=0]` | Punish accounts younger than N days (0 to disable) | administrator |
 | `antiraid avatar <state>` | Punish accounts with no avatar (on/off) | administrator |

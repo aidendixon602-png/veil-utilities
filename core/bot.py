@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from collections import deque
+from collections import defaultdict, deque
 import logging
 import time
 import traceback
@@ -88,6 +88,9 @@ class Veil(commands.AutoShardedBot):
         self.killswitch: set[str] = set()
         self.recent_errors: deque = deque(maxlen=50)
         self._error_seq = 0
+        self._cmd_cooldowns: dict[int, list[float]] = defaultdict(list)
+        self._spam_warned: dict[int, float] = {}
+        self._restart_requested: bool = False
 
     # ------------------------------------------------------------- setup
     async def setup_hook(self) -> None:
@@ -200,6 +203,26 @@ class Veil(commands.AutoShardedBot):
     async def on_guild_remove(self, guild: discord.Guild):
         await self.update_dynamic_status()
 
+    async def is_staff_member(self, ctx: Context) -> bool:
+        """True if the author has staff authority in the server or on the bot."""
+        if not ctx.guild:
+            return False
+        if ctx.author.id == ctx.guild.owner_id:
+            return True
+        if await self.is_owner(ctx.author):
+            return True
+        perms = ctx.author.guild_permissions
+        if perms.administrator or perms.manage_guild or perms.manage_messages or perms.moderate_members:
+            return True
+        from core import perms as _perms
+        pl_cfg = await self.db.get_config(ctx.guild.id, "permlevels")
+        if _perms.rank_of(pl_cfg, ctx.author) >= 1:
+            return True
+        fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
+        if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in ctx.author.roles):
+            return True
+        return False
+
     # ------------------------------------------------------------- checks
     async def _global_check(self, ctx: Context) -> bool:
         if ctx.guild is None and ctx.cog is not None and ctx.cog.qualified_name in GUILD_ONLY_COGS:
@@ -234,29 +257,29 @@ class Veil(commands.AutoShardedBot):
         channel_restricted = bool(allowed_channels and ctx.channel.id not in allowed_channels)
 
         if staff_only or channel_restricted:
-            is_staff = (
-                admin
-                or ctx.author.id == ctx.guild.owner_id
-                or ctx.author.guild_permissions.manage_guild
-                or ctx.author.guild_permissions.manage_messages
-                or ctx.author.guild_permissions.moderate_members
-            )
-            if not is_staff:
-                from core import perms as _perms
-                pl_cfg = await self.db.get_config(ctx.guild.id, "permlevels")
-                if _perms.rank_of(pl_cfg, ctx.author) >= 1:
-                    is_staff = True
-            if not is_staff:
-                fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
-                if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in ctx.author.roles):
-                    is_staff = True
-
+            is_staff = await self.is_staff_member(ctx)
             if staff_only and not is_staff:
                 raise UserError("🔒 The bot is currently in **staff-only** mode in this server.")
-
             if channel_restricted and not is_staff:
                 channel_list = ", ".join(f"<#{c}>" for c in allowed_channels)
                 raise UserError(f"Commands in this server are restricted to {channel_list}")
+
+        # anti-spam command cooldown for regular users to prevent chat floods
+        if ctx.guild and not await self.is_staff_member(ctx):
+            now = time.monotonic()
+            uid = ctx.author.id
+            history = [t for t in self._cmd_cooldowns[uid] if now - t < 5.0]
+            self._cmd_cooldowns[uid] = history
+            if len(history) >= 4:
+                last_warn = self._spam_warned.get(uid, 0.0)
+                if now - last_warn > 8.0:
+                    self._spam_warned[uid] = now
+                    try:
+                        await ctx.send("⏳ **Slow down!** You are sending commands too quickly.", delete_after=3.5)
+                    except discord.HTTPException:
+                        pass
+                raise Ignored()
+            history.append(now)
 
         disabled = settings.get("disabled", [])
         root = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
@@ -271,7 +294,9 @@ class Veil(commands.AutoShardedBot):
         if isinstance(error, (commands.CommandNotFound, Ignored)):
             return
         if isinstance(error, UserError):
-            return await ctx.warn(str(error))
+            err_msg = str(error)
+            del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None
+            return await ctx.warn(err_msg, delete_after=del_after)
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.send_help(ctx.command)
         if isinstance(error, commands.MissingPermissions):
@@ -285,7 +310,12 @@ class Veil(commands.AutoShardedBot):
         if isinstance(error, commands.NoPrivateMessage):
             return await ctx.warn("This command can only be used in servers")
         if isinstance(error, commands.CommandOnCooldown):
-            return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=5)
+            now = time.monotonic()
+            uid = ctx.author.id
+            if now - self._spam_warned.get(uid, 0.0) > 4.0:
+                self._spam_warned[uid] = now
+                return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=3.5)
+            return
         if isinstance(error, commands.MaxConcurrencyReached):
             return await ctx.warn("This command is already running")
         if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):

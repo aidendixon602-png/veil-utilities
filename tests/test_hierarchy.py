@@ -1,5 +1,4 @@
 """Moderation hierarchy protections + panel-safe restart."""
-import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -49,15 +48,16 @@ class TestHierarchy:
 
 
 class TestRestart:
-    def test_restart_flaps_process(self, monkeypatch):
-        """Restart must exit non-zero (panel auto-restart), never os.execv."""
+    def test_restart_triggers_clean_reboot(self):
+        """Restart must trigger in-process reboot without killing the container (prevents crash backoff)."""
         import asyncio
 
         from cogs.owner import Owner
 
-        exited = []
-        monkeypatch.setattr(os, "_exit", lambda code: exited.append(code))
+        bot = SimpleNamespace(_restart_requested=False, close=AsyncMock())
         ctx = SimpleNamespace(approve=AsyncMock())
-        asyncio.run(Owner.restart.callback(SimpleNamespace(), ctx))
+        cog = SimpleNamespace(bot=bot)
+        asyncio.run(Owner.restart.callback(cog, ctx))
         ctx.approve.assert_awaited_once()
-        assert exited == [3], "restart must exit with code 3 so the panel reboots the bot"
+        assert bot._restart_requested is True
+        bot.close.assert_awaited_once()

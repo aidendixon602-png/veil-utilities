@@ -96,16 +96,19 @@ logging.getLogger("wavelink.websocket").setLevel(logging.ERROR)
 log = logging.getLogger("veil")
 
 
-async def main() -> None:
+async def run_bot() -> bool:
+    """Run one bot session. Returns True if an in-process restart was requested, False if exiting."""
     import discord
     log.info("config: %s", settings.summary())
     for intents, warning in intent_plans():
         if warning:
             log.warning("Discord refused a privileged intent. %s %s", warning, INTENT_HELP)
         try:
-            async with Veil(intents=intents) as bot:
+            bot = Veil(intents=intents)
+            bot._restart_requested = False
+            async with bot:
                 await bot.start(settings.discord_token)
-            return
+            return getattr(bot, "_restart_requested", False)
         except discord.PrivilegedIntentsRequired:
             continue
         except discord.LoginFailure:
@@ -114,8 +117,22 @@ async def main() -> None:
     sys.exit("Discord refused every intent combination. " + INTENT_HELP)
 
 
+def main() -> None:
+    while True:
+        try:
+            should_restart = asyncio.run(run_bot())
+            if not should_restart:
+                break
+            log.info("──────────────────────────────────────────")
+            log.info(" Internal restart requested — re-initializing in 1s…")
+            log.info("──────────────────────────────────────────")
+            time.sleep(1)
+        except KeyboardInterrupt:
+            break
+        except Exception:
+            log.exception("Unexpected error in main loop")
+            break
+
+
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    main()
