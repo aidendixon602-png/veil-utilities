@@ -271,7 +271,8 @@ veil-utilities/
 - [x] Auto-generated command reference that CI refuses to let go stale
 - [ ] Web dashboard for per-server configuration
 - [ ] PostgreSQL backend option for large deployments
-- [ ] Audit pass over automod · logging · permissions cogs
+- [x] Audit pass over automod · logging · permissions cogs
+- [x] Developer lockdown: hidden commands are invisible to non-developers
 - [ ] More image filters and AI models
 
 Have an idea? [Open a feature request](https://github.com/aidendixon602-png/veil-utilities/issues/new?template=feature_request.md).

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Hidden commands are now developer-only at the **global check level**: for anyone else they
+  behave as if they don't exist (silent `CommandNotFound`) — guessing a dev command's name
+  reveals nothing. Previously they relied on per-cog checks only.
+- DevTools cog failures are silent too, consistent with the other developer cogs.
+
+### Added
+
+- `tests/test_lockdown.py` — 5 tests covering the hidden-command gate and a registry check that
+  every Owner/DevTools/Authorization command stays hidden.
+
+### Fixed
+
+- Automod: partial-word entries (ending in `*`) no longer also run a literal-star regex
+  (`a and b or c` operator-precedence bug).
+- Automod: spam tracker no longer accumulates one dict entry per (guild, user) forever.
+- Automod: filter values are range-checked (caps 30-100%, mentions 3-50, timeout max 28 days…);
+  capped at 100 blocked words and 20 regex patterns.
+
 ## [1.0.0] - 2026-10-24
 
 First stable release. 386 commands across 22 modules.

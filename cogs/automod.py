@@ -81,7 +81,11 @@ class Automod(commands.Cog):
             return "zalgo text isn't allowed"
         low = c.lower()
         for w in cfg.get("words", []):
-            if w.endswith("*") and w[:-1] in low or re.search(rf"\b{re.escape(w)}\b", low):
+            # `a and b or c` would run the literal regex on partial entries too — branch instead
+            if w.endswith("*"):
+                if w[:-1] in low:
+                    return "that word isn't allowed"
+            elif re.search(rf"\b{re.escape(w)}\b", low):
                 return "that word isn't allowed"
         for pattern in cfg.get("regex", []):
             try:
@@ -93,13 +97,17 @@ class Automod(commands.Cog):
                 continue
         if cfg.get("spam") and count_spam:
             limit, secs = cfg["spam"]
-            q = self.spam[(m.guild.id, m.author.id)]
             t = time.monotonic()
+            key = (m.guild.id, m.author.id)
+            q = self.spam[key]
             q.append(t)
             while q and t - q[0] > secs:
                 q.popleft()
             if len(q) > limit:
                 return "slow down — you're sending messages too fast"
+            # the defaultdict would otherwise grow by one entry per (guild, user) forever
+            if len(q) <= 1:
+                self.spam.pop(key, None)
         return None
 
     @commands.Cog.listener()
@@ -193,30 +201,40 @@ class Automod(commands.Cog):
     @has_perms(manage_guild=True)
     async def f_spam(self, ctx, messages: int = 0, seconds: int = 5):
         """Limit messages per N seconds: `filter spam 5 5` (0 disables)"""
+        if messages and not (2 <= messages <= 30 and 2 <= seconds <= 120):
+            raise UserError("Spam limits: 2-30 messages per 2-120 seconds")
         await self._toggle(ctx, "spam", [messages, seconds] if messages else None, "Spam")
 
     @filter.command(name="caps")
     @has_perms(manage_guild=True)
     async def f_caps(self, ctx, percent: int = 0):
         """Block messages over N% caps (0 disables)"""
+        if percent and not 30 <= percent <= 100:
+            raise UserError("Caps filter: 30-100 percent")
         await self._toggle(ctx, "caps", percent, "Caps")
 
     @filter.command(name="massmention", aliases=["mentions"])
     @has_perms(manage_guild=True)
     async def f_mentions(self, ctx, limit: int = 0):
         """Block messages with N+ mentions (0 disables)"""
+        if limit and not 3 <= limit <= 50:
+            raise UserError("Mention filter: 3-50 mentions")
         await self._toggle(ctx, "massmention", limit, "Mass mention")
 
     @filter.command(name="emojis")
     @has_perms(manage_guild=True)
     async def f_emojis(self, ctx, limit: int = 0):
         """Block messages with N+ emojis (0 disables)"""
+        if limit and not 2 <= limit <= 50:
+            raise UserError("Emoji filter: 2-50 emojis")
         await self._toggle(ctx, "emojis", limit, "Emoji")
 
     @filter.command(name="newlines")
     @has_perms(manage_guild=True)
     async def f_newlines(self, ctx, limit: int = 0):
         """Block messages with N+ line breaks (0 disables)"""
+        if limit and not 3 <= limit <= 50:
+            raise UserError("Newline filter: 3-50 line breaks")
         await self._toggle(ctx, "newlines", limit, "Newline")
 
     @filter.command(name="zalgo")
@@ -229,11 +247,15 @@ class Automod(commands.Cog):
     @has_perms(manage_guild=True)
     async def f_word(self, ctx, *, word: str):
         """Toggle a blocked word (end with * to match partial words)"""
+        if len(word) > 100:
+            raise UserError("Words can be at most 100 characters")
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("words", [])
         word = word.lower()
         if word in lst:
             lst.remove(word); msg = f"Unblocked `{word}`"
+        elif len(lst) >= 100:
+            raise UserError("100 blocked words max — remove one first")
         else:
             lst.append(word); msg = f"Blocked `{word}`"
         await self.save(ctx.guild.id, cfg)
@@ -251,7 +273,12 @@ class Automod(commands.Cog):
             raise UserError(f"Invalid regex: {e}") from None
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("regex", [])
-        lst.remove(pattern) if pattern in lst else lst.append(pattern)
+        if pattern in lst:
+            lst.remove(pattern)
+        elif len(lst) >= 20:
+            raise UserError("20 patterns max — each one runs on every message")
+        else:
+            lst.append(pattern)
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"Toggled pattern `{pattern}`")
 
@@ -280,6 +307,8 @@ class Automod(commands.Cog):
         """What happens on a violation: `delete` or `timeout <seconds>`"""
         if action not in ("delete", "timeout"):
             raise UserError("Action must be `delete` or `timeout`")
+        if action == "timeout" and not 10 <= seconds <= 2_419_200:
+            raise UserError("Timeout must be 10 seconds to 28 days (Discord's max)")
         cfg = await self.cfg(ctx.guild.id)
         cfg["action"], cfg["timeout"] = action, seconds
         await self.save(ctx.guild.id, cfg)

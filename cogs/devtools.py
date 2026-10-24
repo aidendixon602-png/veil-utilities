@@ -25,7 +25,7 @@ class DevTools(commands.Cog):
     async def cog_check(self, ctx: Context) -> bool:
         if await self.bot.is_owner(ctx.author):
             return True
-        raise UserError("This command is restricted to the bot's developers")
+        raise commands.NotOwner()  # silent — don't confirm the command exists
 
     # ================================================================ strip / unstrip
     @commands.command(hidden=True)

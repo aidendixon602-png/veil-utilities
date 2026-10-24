@@ -175,6 +175,12 @@ class Veil(commands.AutoShardedBot):
     async def _global_check(self, ctx: Context) -> bool:
         if ctx.guild is None and ctx.cog is not None and ctx.cog.qualified_name in GUILD_ONLY_COGS:
             raise commands.NoPrivateMessage()
+        # hidden commands are developer-only, no exceptions: pretend they don't exist so
+        # guessing a command's name reveals nothing. Runs before every other check.
+        cmd = ctx.command
+        if cmd is not None and (cmd.hidden or any(p.hidden for p in cmd.parents)) \
+                and not await self.is_owner(ctx.author):
+            raise commands.CommandNotFound()
         if await self.is_owner(ctx.author):
             return True
         if self.maintenance is not None:
