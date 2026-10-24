@@ -122,7 +122,7 @@ class Antinuke(commands.Cog):
             q.popleft()
         if len(q) < threshold:
             return
-        q.clear()
+        del self.hits[key]  # don't keep an empty deque per (guild, user, module) forever
         await self.respond(guild, cfg, actor_id, module, entry, threshold)
 
     async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1):
@@ -284,6 +284,8 @@ class Antinuke(commands.Cog):
     @antinuke.command(name="admin")
     async def an_admin(self, ctx: Context, member: discord.Member):
         """Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted"""
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
         if ctx.author.id != ctx.guild.owner_id:
             raise UserError("Only the server owner can manage antinuke admins")
         cfg = await self.cfg(ctx.guild.id)
@@ -306,6 +308,7 @@ class Antinuke(commands.Cog):
     @antinuke.command(name="config", aliases=["settings", "status"])
     async def an_config(self, ctx: Context):
         """View antinuke settings"""
+        await antinuke_admin(ctx)  # the whitelist/admin list tells an attacker exactly whose account to target
         cfg = await self.cfg(ctx.guild.id)
         embed = discord.Embed(title="Antinuke", color=Colors.main,
                               description=f"Status: **{'enabled' if cfg['enabled'] else 'disabled'}** • "

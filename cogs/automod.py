@@ -1,12 +1,15 @@
 """Chat filters: invites, links, spam, caps, mass mentions, emojis, blocked words, regex."""
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import discord
+import regex
 from discord.ext import commands
 
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms
@@ -16,6 +19,28 @@ URL = re.compile(r"https?://\S+|www\.\S+", re.I)
 EMOJI = re.compile(r"<a?:\w+:\d+>|[\U0001F300-\U0001FAFF☀-➿]")
 FILTERS = ("invites", "links", "spam", "caps", "massmention", "emojis", "words", "regex", "zalgo", "newlines")
 ZALGO = re.compile(r"[̀-ͯ҉]{3,}")
+# Custom patterns run on every message, so a catastrophic one like `(a+)+$` must not freeze the bot.
+# The `regex` module supports a per-call timeout (stdlib `re` doesn't, and never releases the GIL).
+REGEX_TIMEOUT = 0.05
+MAX_PATTERN_LEN = 300
+log = logging.getLogger("veil.automod")
+
+
+def _domain(entry: str) -> str:
+    """Normalise an allowlist entry: 'https://www.YouTube.com/watch' -> 'youtube.com'."""
+    entry = entry.strip().lower()
+    host = urlsplit(entry if "://" in entry else f"//{entry}").hostname or entry
+    return host.removeprefix("www.")
+
+
+def link_allowed(url: str, allowed: list[str]) -> bool:
+    """True if the URL's host is an allowed domain or a subdomain of one.
+
+    Substring checks are bypassable (`youtube.com.evil.ru`, `evil.ru/?youtube.com`), so compare hostnames.
+    """
+    host = urlsplit(url if "://" in url else f"//{url}").hostname or ""
+    host = host.lower().removeprefix("www.")
+    return any(host == d or host.endswith("." + d) for d in map(_domain, allowed) if d)
 
 
 class Automod(commands.Cog):
@@ -34,13 +59,13 @@ class Automod(commands.Cog):
         await self.bot.db.set_config(gid, "filters", cfg)
 
     # ---------------------------------------------------------------- engine
-    def check(self, cfg: dict, m: discord.Message) -> str | None:
+    def check(self, cfg: dict, m: discord.Message, count_spam: bool = True) -> str | None:
         c = m.content
         if cfg.get("invites") and INVITE.search(c):
             return "invite links aren't allowed"
         if cfg.get("links") and URL.search(c):
             allowed = cfg.get("links_allow", [])
-            if not all(any(a in u for a in allowed) for u in URL.findall(c)):
+            if not all(link_allowed(u, allowed) for u in URL.findall(c)):
                 return "links aren't allowed"
         if cfg.get("massmention") and len(set(m.raw_mentions)) >= cfg["massmention"]:
             return "too many mentions"
@@ -60,11 +85,13 @@ class Automod(commands.Cog):
                 return "that word isn't allowed"
         for pattern in cfg.get("regex", []):
             try:
-                if re.search(pattern, c, re.I):
+                if regex.search(pattern, c, regex.I, timeout=REGEX_TIMEOUT):
                     return "message matched a blocked pattern"
-            except re.error:
+            except TimeoutError:
+                log.warning("automod regex %r timed out in guild %s", pattern, m.guild.id)
+            except regex.error:
                 continue
-        if cfg.get("spam"):
+        if cfg.get("spam") and count_spam:
             limit, secs = cfg["spam"]
             q = self.spam[(m.guild.id, m.author.id)]
             t = time.monotonic()
@@ -76,7 +103,7 @@ class Automod(commands.Cog):
         return None
 
     @commands.Cog.listener()
-    async def on_message(self, m: discord.Message):
+    async def on_message(self, m: discord.Message, *, edited: bool = False):
         if not m.guild or m.author.bot or not isinstance(m.author, discord.Member):
             return
         cfg = await self.cfg(m.guild.id)
@@ -85,7 +112,7 @@ class Automod(commands.Cog):
         if m.author.guild_permissions.manage_messages or m.channel.id in cfg.get("exempt_channels", []) \
                 or any(r.id in cfg.get("exempt_roles", []) for r in m.author.roles):
             return
-        why = self.check(cfg, m)
+        why = self.check(cfg, m, count_spam=not edited)
         if not why:
             return
         try:
@@ -106,7 +133,7 @@ class Automod(commands.Cog):
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
         if before.content != after.content:
-            await self.on_message(after)
+            await self.on_message(after, edited=True)  # edits shouldn't count toward the spam limit
 
     # ---------------------------------------------------------------- commands
     @commands.group(aliases=["automod", "am"], invoke_without_command=True)
@@ -157,6 +184,7 @@ class Automod(commands.Cog):
         """Toggle a domain allowed through the link filter (e.g. youtube.com)"""
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("links_allow", [])
+        domain = _domain(domain)
         lst.remove(domain) if domain in lst else lst.append(domain)
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"Allowed domains: {', '.join(lst) or 'none'}")
@@ -215,10 +243,12 @@ class Automod(commands.Cog):
     @has_perms(manage_guild=True)
     async def f_regex(self, ctx, *, pattern: str):
         """Toggle a blocked regex pattern"""
+        if len(pattern) > MAX_PATTERN_LEN:
+            raise UserError(f"Patterns can be at most {MAX_PATTERN_LEN} characters")
         try:
-            re.compile(pattern)
-        except re.error as e:
-            raise UserError(f"Invalid regex: {e}")
+            regex.compile(pattern)
+        except regex.error as e:
+            raise UserError(f"Invalid regex: {e}") from None
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("regex", [])
         lst.remove(pattern) if pattern in lst else lst.append(pattern)

@@ -460,25 +460,38 @@ class Utility(commands.Cog):
     _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
             ast.Pow: operator.pow, ast.Mod: operator.mod, ast.FloorDiv: operator.floordiv, ast.USub: operator.neg}
 
+    _MAX_BITS = 2048  # ~600 digits; keeps every step cheap and the answer inside one embed
+
     def _eval(self, node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            return self._bounded(node.value)
         if isinstance(node, ast.BinOp) and type(node.op) in self._OPS:
             l, r = self._eval(node.left), self._eval(node.right)
-            if isinstance(node.op, ast.Pow) and abs(r) > 100:
-                raise ValueError("exponent too large")
-            return self._OPS[type(node.op)](l, r)
+            if isinstance(node.op, ast.Pow):
+                if abs(r) > 100:
+                    raise ValueError("exponent too large")
+                # estimate the size *before* computing: (10**100)**100**... used to exhaust memory
+                if isinstance(l, int) and abs(l) > 1 and abs(l).bit_length() * abs(r) > self._MAX_BITS:
+                    raise ValueError("result too large")
+            return self._bounded(self._OPS[type(node.op)](l, r))
         if isinstance(node, ast.UnaryOp) and type(node.op) in self._OPS:
             return self._OPS[type(node.op)](self._eval(node.operand))
         raise ValueError("unsupported expression")
+
+    def _bounded(self, value):
+        if isinstance(value, complex):
+            raise ValueError("complex result")
+        if isinstance(value, int) and value.bit_length() > self._MAX_BITS:
+            raise ValueError("result too large")
+        return value
 
     @commands.command(aliases=["calc", "math"])
     async def calculate(self, ctx: Context, *, expression: str):
         """Safely evaluate a math expression"""
         try:
             result = self._eval(ast.parse(expression.replace("^", "**").replace("x", "*"), mode="eval").body)
-        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError) as e:
-            raise UserError(f"Can't calculate that: {e}")
+        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, RecursionError) as e:
+            raise UserError(f"Can't calculate that: {e}") from None
         await ctx.neutral(f"`{expression}` = **{result:,}**" if isinstance(result, int) else f"`{expression}` = **{result:,.6g}**")
 
     # ================================================================ message stats

@@ -88,7 +88,7 @@ class Context(commands.Context["Veil"]):
         return view.message
 
     async def confirm(self, text: str, timeout: float = 30) -> bool:
-        view = Confirm(self.author.id)
+        view = Confirm(self.author.id, timeout=timeout)
         msg = await self.warn(text, view=view)
         await view.wait()
         try:
@@ -163,8 +163,8 @@ class Paginator(OwnedView):
 
 class Confirm(OwnedView):
     # confirmations guard destructive actions (nuke, massban, resets), so only the person who ran it may answer
-    def __init__(self, author_id: int):
-        super().__init__(author_id, timeout=30, allow_developers=False)
+    def __init__(self, author_id: int, timeout: float = 30):
+        super().__init__(author_id, timeout=timeout, allow_developers=False)
         self.value = None
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
@@ -238,9 +238,26 @@ def now() -> float:
 _VAR = re.compile(r"\{([a-zA-Z_.]+)\}")
 
 
+class _Vars(dict):
+    """Variables dict whose expensive entries are computed on first lookup."""
+
+    def __init__(self):
+        super().__init__()
+        self.lazy: dict[str, callable] = {}
+
+    def get(self, key, default=None):
+        if key not in self and key in self.lazy:
+            self[key] = self.lazy.pop(key)()
+        return super().get(key, default)
+
+
+def _join_position(member: discord.Member) -> int:
+    return sum(1 for m in member.guild.members if m.joined_at and m.joined_at <= member.joined_at)
+
+
 def build_vars(member: discord.Member | discord.User | None = None, guild: discord.Guild | None = None,
                channel: discord.abc.GuildChannel | None = None, extra: dict | None = None) -> dict[str, str]:
-    v: dict[str, str] = {}
+    v = _Vars()
     n = datetime.now(timezone.utc)
     v["date"] = n.strftime("%B %d, %Y")
     v["time"] = n.strftime("%H:%M UTC")
@@ -256,9 +273,9 @@ def build_vars(member: discord.Member | discord.User | None = None, guild: disco
             v["user.joined_at"] = ts(member.joined_at, "R") if member.joined_at else "unknown"
             v["user.top_role"] = member.top_role.name
             if member.guild and member.joined_at:
-                pos = sum(1 for m in member.guild.members if m.joined_at and m.joined_at <= member.joined_at)
-                v["user.join_position"] = str(pos)
-                v["user.join_position.format"] = ordinal(pos)
+                # O(members) — only computed if a template actually uses it (sticky messages run on every message)
+                v.lazy["user.join_position"] = lambda: str(_join_position(member))
+                v.lazy["user.join_position.format"] = lambda: ordinal(_join_position(member))
     if guild:
         v.update({
             "guild.name": guild.name, "guild.id": str(guild.id),
@@ -303,19 +320,22 @@ def build_message(script: str, variables: dict[str, str] | None = None) -> dict:
     $v{author: name && icon && url}$v{footer: text && icon}$v{image: url}$v{thumbnail: url}
     $v{field: name && value && inline}$v{button: label && url}$v{content: text}$v{timestamp}
     """
-    text = replace_vars(script, variables or {})
-    if not text.lower().startswith("{embed}"):
-        return {"content": text[:2000]}
+    variables = variables or {}
+    if not script.lower().startswith("{embed}"):
+        return {"content": replace_vars(script, variables)[:2000]}
 
+    # Parse the script's structure *before* filling in variables. Otherwise a member whose name contains
+    # `}$v{button: ...` or `&&` could inject their own blocks (links, images, buttons) into bot messages.
     embed = discord.Embed(color=Colors.main)
     content, view, has_embed = None, None, False
-    for part in text[len("{embed}"):].split("$v"):
+    for part in script[len("{embed}"):].split("$v"):
         part = part.strip()
         if not (part.startswith("{") and part.endswith("}")):
             continue
-        key, _, val = part[1:-1].partition(":")
-        key, val = key.strip().lower(), val.strip()
-        args = [a.strip() for a in val.split("&&")]
+        key, _, raw_val = part[1:-1].partition(":")
+        key = key.strip().lower()
+        val = replace_vars(raw_val.strip(), variables)
+        args = [replace_vars(a.strip(), variables) for a in raw_val.split("&&")]
         if key == "content":
             content = val
         elif key == "title":
@@ -351,7 +371,7 @@ def build_message(script: str, variables: dict[str, str] | None = None) -> dict:
     if view:
         out["view"] = view
     if not content and not has_embed:
-        out["content"] = "​"
+        out["content"] = "\u200b"
     return out
 
 
@@ -419,6 +439,8 @@ def is_server_owner():
 
 
 async def antinuke_admin(ctx: Context) -> bool:
+    if ctx.guild is None:  # subcommands don't inherit the group's guild_only() when invoke_without_command=True
+        raise commands.NoPrivateMessage()
     if ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author):
         return True
     cfg = await ctx.bot.db.get_config(ctx.guild.id, "antinuke")

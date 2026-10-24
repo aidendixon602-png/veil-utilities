@@ -106,6 +106,7 @@ class Settings(commands.Cog):
         await ctx.approve(msg)
 
     @ignore.command(name="list")
+    @commands.guild_only()
     async def ignore_list(self, ctx: Context):
         """List ignored channels and users"""
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
@@ -202,6 +203,7 @@ class Settings(commands.Cog):
         await ctx.approve(f"Updated fake permissions for {role.mention}")
 
     @fakepermissions.command(name="list")
+    @commands.guild_only()
     async def fp_list(self, ctx: Context):
         """List fake permissions"""
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")

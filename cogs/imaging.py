@@ -202,8 +202,15 @@ def fx_meme(im, text: str):
     return im
 
 
+# An 8 MB PNG can decode to hundreds of megapixels (a "decompression bomb"); Pillow only *warns* below
+# ~179 MP, and each frame is converted to RGBA at full size before thumbnailing. Refuse anything huge up front.
+MAX_PIXELS = 16_000_000 if LOW_MEMORY else 40_000_000
+
+
 def render(data: bytes, effect, name: str) -> tuple[io.BytesIO, str]:
     src = Image.open(io.BytesIO(data))
+    if src.width * src.height > MAX_PIXELS:
+        raise ValueError("image dimensions too large")
     animated = getattr(src, "is_animated", False) and src.n_frames > 1
     frames, durations = [], []
     for i, frame in enumerate(ImageSequence.Iterator(src)):
@@ -281,8 +288,10 @@ class Imaging(commands.Cog):
             data = await self.source(ctx, arg)
             try:
                 buf, filename = await asyncio.to_thread(render, data, effect, name)
-            except (OSError, ValueError) as e:
-                raise UserError(f"I couldn't process that image ({e.__class__.__name__})")
+            except (OSError, ValueError, Image.DecompressionBombError) as e:
+                why = "it's too large" if isinstance(e, Image.DecompressionBombError) or "too large" in str(e) \
+                    else e.__class__.__name__
+                raise UserError(f"I couldn't process that image ({why})") from None
         await ctx.send(file=discord.File(buf, filename))
 
     # ------------------------------------------------------------ simple effects

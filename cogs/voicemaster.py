@@ -178,10 +178,19 @@ class VoiceMaster(commands.Cog):
                 overwrites={**(category.overwrites if isinstance(category, discord.CategoryChannel) else {}), **overwrites},
                 user_limit=prefs.get("limit", 0), bitrate=min(cfg.get("bitrate", 64000), guild.bitrate_limit),
                 reason=f"VoiceMaster for {member}")
-            await member.move_to(vc)
         except discord.HTTPException:
             return
         await self.bot.db.execute("INSERT OR REPLACE INTO vm_channels VALUES(?,?,?)", vc.id, guild.id, member.id)
+        try:
+            await member.move_to(vc)
+        except discord.HTTPException:
+            # they left the join channel before we could move them — don't leave an empty, untracked channel behind
+            try:
+                await vc.delete(reason="VoiceMaster: owner left before being moved")
+            except discord.HTTPException:
+                pass
+            await self.bot.db.execute("DELETE FROM vm_channels WHERE channel_id=?", vc.id)
+            return
         if role:
             try:
                 await member.add_roles(role, reason="VoiceMaster role")

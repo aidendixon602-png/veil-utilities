@@ -9,7 +9,14 @@ import discord
 from discord.ext import commands, tasks
 
 from core.utils import (Colors, Context, UserError, build_message, build_vars, check_role, chunk_embeds,
-                        has_perms, now, send_script, shorten)
+                        has_perms, is_dangerous, now, send_script, shorten)
+
+
+def self_assignable(role: discord.Role) -> bool:
+    """Checked when a self-role is *claimed*, not just when the panel was made: if staff later give the role
+    admin/ban/etc., a months-old button or reaction must not hand those permissions to anyone who clicks."""
+    me = role.guild.me
+    return not role.managed and not role.is_default() and role < me.top_role and not is_dangerous(role.permissions)
 
 DISBOARD_ID = 302050872383242240
 MSG_LINK = re.compile(r"discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)")
@@ -31,6 +38,9 @@ class RoleButton(discord.ui.DynamicItem[discord.ui.Button], template=r"rb:(?P<ro
         role = it.guild.get_role(self.role_id)
         if not role:
             return await it.response.send_message("That role no longer exists.", ephemeral=True)
+        if not self_assignable(role) and role not in it.user.roles:
+            return await it.response.send_message(
+                f"{role.mention} has staff permissions now, so I won't hand it out. Ask a server admin.", ephemeral=True)
         try:
             if role in it.user.roles:
                 await it.user.remove_roles(role, reason="button role")
@@ -279,6 +289,8 @@ class Config(commands.Cog):
     async def rr_add(self, ctx, message: str, emoji: str, *, role: discord.Role):
         """`rr add <message link> 🎮 @Gamer`"""
         check_role(ctx, role)
+        if is_dangerous(role.permissions):
+            raise UserError(f"{role.mention} has staff permissions — it can't be a self-role")
         msg = await self._resolve_message(ctx, message)
         try:
             await msg.add_reaction(emoji)
@@ -318,7 +330,7 @@ class Config(commands.Cog):
         guild = self.bot.get_guild(payload.guild_id)
         member = guild.get_member(payload.user_id)
         role = guild.get_role(role_id)
-        if member and role and not member.bot:
+        if member and role and not member.bot and (not add or self_assignable(role)):
             try:
                 await (member.add_roles if add else member.remove_roles)(role, reason="reaction role")
             except discord.HTTPException:
@@ -343,6 +355,8 @@ class Config(commands.Cog):
             raise UserError("Give 1–25 roles")
         for r in roles:
             check_role(ctx, r)
+            if is_dangerous(r.permissions):
+                raise UserError(f"{r.mention} has staff permissions — it can't be a self-role")
         view = discord.ui.View(timeout=None)
         for r in roles:
             view.add_item(RoleButton(r.id, label=r.name[:80]))

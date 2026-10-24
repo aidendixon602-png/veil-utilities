@@ -1,12 +1,15 @@
 """Giveaways with button entry, requirements, reroll and persistence across restarts."""
 from __future__ import annotations
 
+import logging
 import random
 
 import discord
 from discord.ext import commands, tasks
 
 from core.utils import Colors, Context, Duration, UserError, chunk_embeds, has_perms, now, ts
+
+log = logging.getLogger("veil.giveaways")
 
 
 class EnterButton(discord.ui.DynamicItem[discord.ui.Button], template=r"gw:(?P<id>\d+)"):
@@ -25,14 +28,13 @@ class EnterButton(discord.ui.DynamicItem[discord.ui.Button], template=r"gw:(?P<i
             return await it.response.send_message("This giveaway has ended.", ephemeral=True)
         if gw["required_role"] and not it.user.get_role(gw["required_role"]):
             return await it.response.send_message(f"You need <@&{gw['required_role']}> to enter.", ephemeral=True)
-        exists = await bot.db.fetchone("SELECT 1 FROM giveaway_entries WHERE message_id=? AND user_id=?",
-                                       it.message.id, it.user.id)
-        if exists:
+        # toggle without a check-then-insert race (a fast double click used to hit the primary key and error)
+        cur = await bot.db.execute("INSERT OR IGNORE INTO giveaway_entries VALUES(?,?)", it.message.id, it.user.id)
+        if cur.rowcount:
+            msg = "🎉 You're entered!"
+        else:
             await bot.db.execute("DELETE FROM giveaway_entries WHERE message_id=? AND user_id=?", it.message.id, it.user.id)
             msg = "You left the giveaway."
-        else:
-            await bot.db.execute("INSERT INTO giveaway_entries VALUES(?,?)", it.message.id, it.user.id)
-            msg = "🎉 You're entered!"
         count = (await bot.db.fetchone("SELECT COUNT(*) c FROM giveaway_entries WHERE message_id=?", it.message.id))["c"]
         embed = it.message.embeds[0]
         embed.set_footer(text=f"{count} entries")
@@ -89,14 +91,19 @@ class Giveaways(commands.Cog):
         except discord.HTTPException:
             pass
 
-    async def finish(self, gw, reroll: bool = False) -> list[int]:
+    async def finish(self, gw, reroll: bool = False) -> list[int] | None:
+        if not reroll:
+            # claim the giveaway atomically so the checker loop and `gw end` can't both draw winners
+            cur = await self.bot.db.execute("UPDATE giveaways SET ended=1 WHERE message_id=? AND ended=0",
+                                            gw["message_id"])
+            if not cur.rowcount:
+                return None
         entries = [r["user_id"] for r in await self.bot.db.fetchall(
             "SELECT user_id FROM giveaway_entries WHERE message_id=?", gw["message_id"])]
         guild = self.bot.get_guild(gw["guild_id"])
         if guild:
             entries = [u for u in entries if guild.get_member(u)]
         winners = random.sample(entries, min(gw["winners"], len(entries)))
-        await self.bot.db.execute("UPDATE giveaways SET ended=1 WHERE message_id=?", gw["message_id"])
         ch = self.bot.get_channel(gw["channel_id"])
         if not ch:
             return winners
@@ -110,14 +117,21 @@ class Giveaways(commands.Cog):
                 await msg.edit(embed=e, view=None)
             except discord.HTTPException:
                 pass
-        await ch.send(f"🎉 {'New winner' if reroll else 'Congratulations'} {mention}! You won **{gw['prize']}**",
-                      allowed_mentions=discord.AllowedMentions(users=True))
+        try:
+            await ch.send(f"🎉 {'New winner' if reroll else 'Congratulations'} {mention}! You won **{gw['prize']}**",
+                          allowed_mentions=discord.AllowedMentions(users=True))
+        except discord.HTTPException:
+            pass
         return winners
 
     @tasks.loop(seconds=15)
     async def checker(self):
         for gw in await self.bot.db.fetchall("SELECT * FROM giveaways WHERE ended=0 AND ends<=?", now()):
-            await self.finish(gw)
+            # an unhandled error would stop the task loop for good, and no giveaway would ever end again
+            try:
+                await self.finish(gw)
+            except Exception:
+                log.exception("Failed to finish giveaway %s", gw["message_id"])
 
     @checker.before_loop
     async def _wait(self):
@@ -131,7 +145,8 @@ class Giveaways(commands.Cog):
                                         message_id, ctx.guild.id)
         if not gw:
             raise UserError("No active giveaway with that message ID")
-        await self.finish(gw)
+        if await self.finish(gw) is None:
+            raise UserError("That giveaway already ended")
         await ctx.approve("Ended the giveaway")
 
     @giveaway.command(name="reroll")
@@ -143,7 +158,7 @@ class Giveaways(commands.Cog):
         if not gw:
             raise UserError("No ended giveaway with that message ID")
         gw = dict(gw)
-        gw["winners"] = winners
+        gw["winners"] = max(1, min(winners, 50))
         await self.finish(gw, reroll=True)
 
     @giveaway.command(name="list")

@@ -54,11 +54,36 @@ class Tickets(commands.Cog):
         cfg = await self.cfg(member.guild.id)
         return member.guild_permissions.manage_channels or any(r.id in cfg["support"] for r in member.roles)
 
+    async def _ticket_staff(self, ctx: Context):
+        """Ticket management commands must only work *inside a ticket* — otherwise a support role could
+        `ticket add @me` in any staff channel and the bot would grant them access."""
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        row = await self.bot.db.fetchone("SELECT 1 FROM tickets WHERE channel_id=?", ctx.channel.id)
+        if not row:
+            raise UserError("This isn't a ticket channel")
+        if not await self.is_support(ctx.author):
+            raise UserError("Only support staff can do that")
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        # a ticket channel deleted by hand would otherwise count as "open" forever and lock the user out
+        await self.bot.db.execute("DELETE FROM tickets WHERE channel_id=?", channel.id)
+
     async def open_ticket(self, it: discord.Interaction):
         guild, user = it.guild, it.user
         cfg = await self.cfg(guild.id)
         open_count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM tickets WHERE guild_id=? AND user_id=?",
                                                  guild.id, user.id))["c"]
+        if open_count >= cfg.get("max", 1):
+            # drop rows whose channel no longer exists (e.g. deleted while the bot was offline), then recount
+            rows = await self.bot.db.fetchall("SELECT channel_id FROM tickets WHERE guild_id=? AND user_id=?",
+                                              guild.id, user.id)
+            for r in rows:
+                if not guild.get_channel(r["channel_id"]):
+                    await self.bot.db.execute("DELETE FROM tickets WHERE channel_id=?", r["channel_id"])
+            open_count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM tickets WHERE guild_id=? AND user_id=?",
+                                                     guild.id, user.id))["c"]
         if open_count >= cfg.get("max", 1):
             return await it.response.send_message("You already have an open ticket.", ephemeral=True)
         category = guild.get_channel(cfg.get("category") or 0)
@@ -177,30 +202,29 @@ class Tickets(commands.Cog):
     @ticket.command(name="close")
     async def t_close(self, ctx: Context):
         """Close the current ticket"""
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
         await self.close_ticket(ctx.channel, ctx.author)
 
     @ticket.command(name="add")
     async def t_add(self, ctx: Context, member: discord.Member):
         """Add someone to this ticket"""
-        if not await self.is_support(ctx.author):
-            raise UserError("Only support staff can do that")
+        await self._ticket_staff(ctx)
         await ctx.channel.set_permissions(member, view_channel=True, send_messages=True)
         await ctx.approve(f"Added {member.mention}")
 
     @ticket.command(name="remove")
     async def t_remove(self, ctx: Context, member: discord.Member):
         """Remove someone from this ticket"""
-        if not await self.is_support(ctx.author):
-            raise UserError("Only support staff can do that")
+        await self._ticket_staff(ctx)
         await ctx.channel.set_permissions(member, overwrite=None)
         await ctx.approve(f"Removed {member.mention}")
 
     @ticket.command(name="rename")
     async def t_rename(self, ctx: Context, *, name: str):
         """Rename this ticket"""
-        if not await self.is_support(ctx.author):
-            raise UserError("Only support staff can do that")
-        await ctx.channel.edit(name=name)
+        await self._ticket_staff(ctx)
+        await ctx.channel.edit(name=name[:100])
         await ctx.approve(f"Renamed to **{name}**")
 
 

@@ -73,10 +73,11 @@ class Veil(commands.AutoShardedBot):
         self.add_check(self._global_check)
 
     async def close(self) -> None:
+        # disconnect from Discord first so no new events try to use the session/database while they close
+        await super().close()
         if self.session:
             await self.session.close()
         await self.db.close()
-        await super().close()
 
     async def on_ready(self):
         log.info("Logged in as %s (%s) in %d guilds", self.user, self.user.id, len(self.guilds))
@@ -111,19 +112,25 @@ class Veil(commands.AutoShardedBot):
     def is_authorized(self, guild_id: int | None) -> bool:
         return guild_id is None or not self.auth_required or guild_id in self.authorized
 
-    async def on_message(self, message: discord.Message):
+    async def _may_run_commands(self, message: discord.Message) -> bool:
+        """Gate shared by new and edited messages (blacklist + server authorization)."""
         if message.author.bot or message.author.id in self.blacklist:
-            return
+            return False
         if message.guild and message.guild.id in self.blacklist:
-            return
+            return False
         if message.guild and not self.is_authorized(message.guild.id) and not await self.is_owner(message.author):
-            return
-        await self.process_commands(message)
+            return False
+        return True
+
+    async def on_message(self, message: discord.Message):
+        if await self._may_run_commands(message):
+            await self.process_commands(message)
 
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        # re-run commands that were fixed within 60s
-        if before.content != after.content and not after.author.bot and \
-                (discord.utils.utcnow() - after.created_at).total_seconds() < 60:
+        # re-run commands that were fixed within 60s (same gate as on_message, or edits would bypass the blacklist)
+        if before.content == after.content or (discord.utils.utcnow() - after.created_at).total_seconds() >= 60:
+            return
+        if await self._may_run_commands(after):
             await self.process_commands(after)
 
     async def on_guild_join(self, guild: discord.Guild):
@@ -158,7 +165,7 @@ class Veil(commands.AutoShardedBot):
 
     # ------------------------------------------------------------- errors
     async def on_command_error(self, ctx: Context, error: commands.CommandError):
-        error =getattr(error, "original", error)
+        error = getattr(error, "original", error)
         if isinstance(error, (commands.CommandNotFound, Ignored)):
             return
         if isinstance(error, UserError):

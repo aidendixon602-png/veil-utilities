@@ -1,6 +1,7 @@
 """Leveling: XP per message & voice minute, rank, leaderboard, level roles, multipliers."""
 from __future__ import annotations
 
+import logging
 import random
 import time
 
@@ -30,6 +31,9 @@ def bar(cur: int, total: int, width: int = 14) -> str:
 
 DEFAULT = {"enabled": False, "message": "GG {user.mention}, you reached **level {level}**!", "channel": None,
            "roles": {}, "stack": True, "ignored": [], "multipliers": {}, "voice": True}
+
+
+log = logging.getLogger("veil.levels")
 
 
 class Levels(commands.Cog):
@@ -119,7 +123,10 @@ class Levels(commands.Cog):
                     continue
                 for m in vc.members:
                     if not m.bot and m.voice and not (m.voice.self_mute or m.voice.self_deaf):
-                        await self.add_xp(m, 5)
+                        try:  # one bad member/config must not kill the task loop for every server
+                            await self.add_xp(m, 5)
+                        except Exception:
+                            log.exception("voice xp failed for %s in %s", m.id, guild.id)
 
     @voice_xp.before_loop
     async def _wait(self):

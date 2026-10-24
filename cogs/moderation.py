@@ -73,9 +73,14 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(ban_members=True)
     async def massban(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
         """Ban everyone who joined in the last N minutes (raid cleanup)"""
+        if not 1 <= minutes <= 10080:
+            raise UserError("Minutes must be between 1 and 10080 (one week)")
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
+        is_owner = ctx.author.id == ctx.guild.owner_id
+        # respect the invoker's hierarchy too — fake-permission admins must not be able to sweep up senior staff
         targets = [m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
-                   and not m.bot and m.top_role < ctx.guild.me.top_role and m != ctx.author]
+                   and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
+                   and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)]
         if not targets:
             raise UserError("Nobody joined in that window")
         if not await ctx.confirm(f"Ban **{len(targets)}** members who joined in the last {minutes} minutes?"):
@@ -115,6 +120,7 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     async def untimeout(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Remove a timeout (use `untimeout all` for everyone)"""
+        check_hierarchy(ctx, member, "untimeout")
         if not member.is_timed_out():
             raise UserError(f"{member.mention} isn't timed out")
         await member.timeout(None, reason=f"{ctx.author}: {reason}")
