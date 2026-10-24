@@ -19,6 +19,48 @@
 
 <br/>
 
+<div align="center">
+
+<img src="assets/banner.svg" alt="veil utilities — the all-in-one discord bot" width="100%"/>
+
+<br/>
+
+[![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
+[![release](https://img.shields.io/github/v/release/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)](https://github.com/aidendixon602-png/veil-utilities/releases/latest)
+[![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
+[![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
+![commands](https://img.shields.io/badge/commands-386-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-22-b10f2e?style=flat-square&labelColor=1a1118)
+[![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
+[![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
+![last commit](https://img.shields.io/github/last-commit/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)
+
+**Protection, moderation and community tools in one bot — built to replace the five you're running now.**
+
+[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+
+<details>
+<summary><b>📑 Contents</b></summary>
+<br/>
+
+- [✦ Why veil](#-why-veil)
+- [⚡ Features](#-features)
+- [🚀 Quick start](#-quick-start)
+- [🏗️ Architecture](#-architecture)
+- [⚙️ Configuration](#-configuration)
+- [👑 Developer tools](#-developer-tools)
+- [🧪 Development](#-development)
+- [🧱 Project structure](#-project-structure)
+- [🗺️ Roadmap](#-roadmap)
+- [🤝 Contributing](#-contributing)
+- [📜 License](#-license)
+
+</details>
+
+</div>
+
+<br/>
+
 ## ✦ Why veil
 
 <table>
@@ -88,18 +130,16 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 <summary><b>Help menu preview</b></summary>
 <br/>
 
-`,help` opens a card with the bot's avatar and a grid of category buttons:
+<div align="center">
+<img src="assets/help-preview.svg" alt="The ,help menu with category buttons" width="720"/>
+</div>
 
-```
- [ Utility ] [ Music ] [ Moderation ] [ Roles ] [ Permissions ]
- [ Antinuke ] [ Automod ] [ Server ] [ VoiceMaster ] [ Community ]
- [ Social ] [ Fun ] [ Images & AI ] [ Developer ] [ Secret ]
-```
-
-The active category lights up, and only the person who ran the command can click. **Secret** (red) lists
-the developer tools and only opens for developers.
+15 category buttons, one owner-locked menu: only the person who ran `,help` can click, the active
+category lights up, and the red **Secret** button lists the developer tools — it only opens for developers.
+The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>
+
 
 ## 🚀 Quick start
 
@@ -123,6 +163,24 @@ python main.py
 ```
 
 > **Hosting on Wispbyte or another Pterodactyl panel?** Follow [HOSTING.md](HOSTING.md). It covers the 512 MB free plan, GitHub auto-deploy and troubleshooting.
+
+## 🏗️ Architecture
+
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+flowchart LR
+    A([Discord gateway]) --> B{core/bot.py<br>prefixes · aliases<br>global checks}
+    B --> C["cogs/ — 22 feature modules"]
+    C --- D[("SQLite — core/db.py<br>cached per-server config")]
+    C --- E["core/net.py — SSRF-safe HTTP"] --> F{{external APIs}}
+    C --- G["music — wavelink → Lavalink 4.2+<br>5 free nodes, auto-failover"]
+    C --- H["AI — core/ai_providers.py<br>Groq / Gemini / OpenRouter / OpenAI<br>→ free Pollinations fallback"]
+```
+
+One cog per feature, behind typed, validated config ([`core/config.py`](core/config.py)) and a single safe-HTTP
+helper. Everything optional degrades instead of crashing: no Lavalink node hides music, no AI key falls back
+to the free provider, and a failed background loop takes down nothing else.
+
 
 ## ⚙️ Configuration
 
@@ -153,7 +211,7 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 
 Hidden from everyone else and listed under the red **Secret** help button:
 
-| | |
+| Command | What it does |
 |---|---|
 | `system` | Uptime, shard latency, memory, CPU, database size, error count |
 | `maintenance on [reason]` | Everyone but developers gets a maintenance notice |
@@ -176,33 +234,57 @@ python -m pytest -q   # unit tests + offline smoke test (loads every module)
 python scripts/gen_commands.py   # regenerate COMMANDS.md after adding/changing commands
 ```
 
-CI runs the same checks on every push (Python 3.11 and 3.12), plus a validation of `.env.example`.
+Version lives in [`pyproject.toml`](pyproject.toml). CI — lint, the full test suite, the smoke test that loads every module, and `.env.example` validation — runs on every push, on Python 3.11 and 3.12.
 A test fails if `COMMANDS.md` doesn't match the real commands, so the reference never goes stale.
 
 ## 🧱 Project structure
-
 ```
 veil-utilities/
-├── main.py              entry point
+├── main.py                  entry point — validates the environment, then starts the bot
 ├── core/
-│   ├── bot.py           prefixes, aliases, global checks, error tracking
-│   ├── config.py        typed, validated settings loaded from .env
-│   ├── db.py            SQLite + cached per-server JSON config
-│   ├── help.py          button help menu
-│   ├── modlog.py        case system
-│   ├── net.py           safe HTTP for user-supplied links (blocks private/internal addresses)
-│   ├── perms.py         permission levels
-│   └── utils.py         embeds, paginator, embed scripting, permission checks
-├── cogs/                one file per module (20 total)
-├── assets/              banner + social preview
-├── fonts/               bundled caption font (DejaVu)
-├── scripts/             gen_commands.py (builds COMMANDS.md)
-├── tests/               unit tests + docs check; run on every push
-└── lavalink/            optional music server config
+│   ├── bot.py               prefixes, aliases, global checks, error tracking, cog loading
+│   ├── config.py            typed, validated settings loaded from .env
+│   ├── db.py                SQLite + cached per-server JSON config
+│   ├── help.py              the button help menu
+│   ├── modlog.py            numbered moderation cases
+│   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
+│   ├── perms.py             named permission levels
+│   ├── ai_providers.py      Groq / Gemini / OpenRouter / OpenAI auto-detect + free fallback
+│   ├── lavalink_nodes.py    5 free Lavalink nodes with health checks and failover
+│   └── utils.py             embeds, paginator, embed scripting, permission checks
+├── cogs/                    one file per module (22 total)
+├── assets/                  banner, help-menu preview, social preview
+├── fonts/                   bundled caption font (DejaVu)
+├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
+├── tests/                   129 tests + docs check; all run on every push
+├── lavalink/                optional music server config
+├── COMMANDS.md              auto-generated reference of all 386 commands
+├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
+├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE
+└── .github/                 CI, dependabot, issue and PR templates
 ```
 
-**Adding a feature:** drop a new file in `cogs/`, add it to `EXTENSIONS` in `core/bot.py`, and give the cog an
-`emoji`. It appears in the help menu automatically. Run `python -m pytest -q` and `python scripts/gen_commands.py` before pushing.
+
+## 🗺️ Roadmap
+
+- [x] Full bug audit + zero-setup integrations (every optional API has a free fallback)
+- [x] Auto-generated command reference that CI refuses to let go stale
+- [ ] Web dashboard for per-server configuration
+- [ ] PostgreSQL backend option for large deployments
+- [ ] Audit pass over automod · logging · permissions cogs
+- [ ] More image filters and AI models
+
+Have an idea? [Open a feature request](https://github.com/aidendixon602-png/veil-utilities/issues/new?template=feature_request.md).
+
+## 🤝 Contributing
+
+Pull requests are welcome — [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the coding style and
+the three commands to run before pushing (`ruff`, the tests, and `gen_commands.py`).
+Found a security problem? Please follow [SECURITY.md](SECURITY.md) instead of opening an issue.
+
+## 📜 License
+
+[MIT](LICENSE) — do whatever you want, just keep the notice.
 
 <br/>
 

@@ -1,28 +1,32 @@
-# secrets — NEVER commit these
+# secrets — never commit your bot token
 .env
 *.env
 !.env.example
 
 # runtime data (lives on the host, not in git)
 *.db
-*.db-wal
 *.db-shm
+*.db-wal
 *.db.gz
 *.log
 *.log.*
+logs/
+backups/
 
 # python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .venv/
 venv/
+
+# tool caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
 
 # os / editor junk
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# tooling
-.pytest_cache/
-.ruff_cache/

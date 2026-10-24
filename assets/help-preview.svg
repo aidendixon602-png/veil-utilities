@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620">
+<defs>
+ <linearGradient id="av" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4d6d"/><stop offset="1" stop-color="#6d1640"/></linearGradient>
+ <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b10f2e" stop-opacity=".18"/><stop offset="1" stop-color="#b10f2e" stop-opacity="0"/></linearGradient>
+ <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity=".45"/></filter>
+</defs>
+<rect width="960" height="620" rx="18" fill="#1a1118"/>
+<rect width="960" height="260" rx="18" fill="url(#fade)"/>
+<g filter="url(#sh)"><rect x="24" y="24" width="912" height="572" rx="12" fill="#313338"/></g>
+<rect x="24" y="24" width="912" height="40" rx="12" fill="#2b2d31"/><rect x="24" y="52" width="912" height="12" fill="#2b2d31"/>
+<circle cx="48" cy="44" r="6" fill="#ff5f57"/><circle cx="68" cy="44" r="6" fill="#febc2e"/><circle cx="88" cy="44" r="6" fill="#28c840"/>
+<text x="480" y="49" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#949ba4"># commands</text>
+<circle cx="72" cy="104" r="20" fill="url(#av)"/>
+<text x="72" y="111" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="800" fill="#fff">v</text>
+<text x="104" y="99" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#ff8fa3">veil utilities</text>
+<rect x="214" y="86" width="34" height="17" rx="4" fill="#5865f2"/>
+<text x="231" y="99" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#fff">APP</text>
+<text x="258" y="99" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#949ba4">Today at 11:52 AM</text>
+<rect x="104" y="114" width="640" height="330" rx="6" fill="#2b2d31"/>
+<rect x="104" y="114" width="4" height="330" rx="2" fill="#b10f2e"/>
+<circle cx="132" cy="140" r="10" fill="url(#av)"/>
+<text x="132" y="144" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="800" fill="#fff">v</text>
+<text x="150" y="145" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#f2f3f5">veil utilities</text>
+<path d="M122 163 l8 -3.5 l8 3.5 v5.5 c0 5.5 -3.5 9 -8 11 c-4.5 -2 -8 -5.5 -8 -11 z" fill="#ff4d6d"/><text x="144" y="178" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f3f5">Antinuke</text>
+<rect x="122" y="197" width="128" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="212" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke enable</text>
+<text x="258" y="212" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Turn antinuke on with recommended settings</text>
+<rect x="122" y="224" width="128" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="239" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke module</text>
+<text x="258" y="239" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Toggle a module: ban, kick, roledelete, webhook…</text>
+<rect x="122" y="251" width="159" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="266" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke punishment</text>
+<text x="289" y="266" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Set the punishment: ban, kick or strip</text>
+<rect x="122" y="278" width="151" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="293" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke whitelist</text>
+<text x="281" y="293" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Toggle a user/bot being ignored by antinuke</text>
+<rect x="122" y="305" width="120" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="320" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke admin</text>
+<text x="250" y="320" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Toggle an antinuke admin (server owner only)</text>
+<rect x="122" y="332" width="128" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="347" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke window</text>
+<text x="258" y="347" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Set the time window thresholds are counted over</text>
+<rect x="122" y="359" width="104" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="374" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke log</text>
+<text x="234" y="374" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— Set where antinuke alerts go</text>
+<rect x="122" y="386" width="128" height="21" rx="4" fill="#1e1f22"/>
+<text x="127" y="401" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" fill="#ffb3c1">antinuke config</text>
+<text x="258" y="401" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#dbdee1">— View antinuke settings</text>
+<text x="122" y="428" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#949ba4">16 commands • ,help &lt;command&gt; for details</text>
+<rect x="104" y="458" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="163.0" y="480" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Utility</text>
+<rect x="230" y="458" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="289.0" y="480" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Music</text>
+<rect x="356" y="458" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="415.0" y="480" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Moderation</text>
+<rect x="482" y="458" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="541.0" y="480" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Roles</text>
+<rect x="608" y="458" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="667.0" y="480" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Permissions</text>
+<rect x="104" y="500" width="118" height="34" rx="5" fill="#5865f2"/>
+<text x="163.0" y="522" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Antinuke</text>
+<rect x="230" y="500" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="289.0" y="522" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Automod</text>
+<rect x="356" y="500" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="415.0" y="522" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Server</text>
+<rect x="482" y="500" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="541.0" y="522" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">VoiceMaster</text>
+<rect x="608" y="500" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="667.0" y="522" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Community</text>
+<rect x="104" y="542" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="163.0" y="564" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Social</text>
+<rect x="230" y="542" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="289.0" y="564" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Fun</text>
+<rect x="356" y="542" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="415.0" y="564" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Images &amp; AI</text>
+<rect x="482" y="542" width="118" height="34" rx="5" fill="#4e5058"/>
+<text x="541.0" y="564" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Developer</text>
+<rect x="608" y="542" width="118" height="34" rx="5" fill="#da373c"/>
+<text x="667.0" y="564" text-anchor="middle" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#fff">Secret</text>
+<rect x="774" y="140" width="146" height="74" rx="8" fill="#2b2d31" stroke="#3f4147"/>
+<circle cx="790" cy="160" r="4" fill="#ff4d6d"/>
+<text x="802" y="165" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f2f3f5">Categories</text>
+<text x="786" y="186" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">click to switch,</text>
+<text x="786" y="202" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">click again for home</text>
+<rect x="774" y="228" width="146" height="74" rx="8" fill="#2b2d31" stroke="#3f4147"/>
+<circle cx="790" cy="248" r="4" fill="#ff4d6d"/>
+<text x="802" y="253" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f2f3f5">Owner-locked</text>
+<text x="786" y="274" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">only the person who</text>
+<text x="786" y="290" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">ran ,help can click</text>
+<rect x="774" y="316" width="146" height="74" rx="8" fill="#2b2d31" stroke="#3f4147"/>
+<circle cx="790" cy="336" r="4" fill="#ff4d6d"/>
+<text x="802" y="341" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f2f3f5">Secret</text>
+<text x="786" y="362" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">developer tools,</text>
+<text x="786" y="378" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">opens for devs only</text>
+<rect x="774" y="404" width="146" height="74" rx="8" fill="#2b2d31" stroke="#3f4147"/>
+<circle cx="790" cy="424" r="4" fill="#ff4d6d"/>
+<text x="802" y="429" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f2f3f5">Always in sync</text>
+<text x="786" y="450" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">built from the live</text>
+<text x="786" y="466" font-family="gg sans, 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#b5bac1">command list</text>
+</svg>
