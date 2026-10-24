@@ -238,11 +238,15 @@ class Help(commands.HelpCommand):
         return embed
 
     async def send_command_help(self, cmd):
-        if cmd.hidden and not await self.context.bot.is_owner(self.context.author):
+        if (cmd.hidden or any(p.hidden for p in cmd.parents)) \
+                and not await self.context.bot.is_owner(self.context.author):
             return await self.send_error_message(f'No command called "{cmd.name}" found.')
         await self.get_destination().send(embed=self.command_embed(cmd))
 
     async def send_group_help(self, group: commands.Group):
+        if (group.hidden or any(p.hidden for p in group.parents)) \
+                and not await self.context.bot.is_owner(self.context.author):
+            return await self.send_error_message(f'No command called "{group.name}" found.')
         embed = self.command_embed(group)
         subs = sorted((c for c in group.walk_commands() if not c.hidden), key=lambda c: c.qualified_name)
         if subs:

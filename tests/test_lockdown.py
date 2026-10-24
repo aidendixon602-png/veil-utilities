@@ -98,3 +98,56 @@ def test_normal_commands_still_work_for_everyone():
 
 def test_every_developer_cog_command_is_hidden():
     assert _results()["unhidden_dev"] == []
+
+
+# ------------------------------------------------------------------ help-menu paths
+# The buttons aren't the only door: `,help <name>` text lookups must hide dev commands too.
+def _help_ctx(is_dev: bool):
+    from unittest.mock import AsyncMock
+    return SimpleNamespace(
+        guild=SimpleNamespace(),  # any truthy guild -> help replies in the channel
+        channel=SimpleNamespace(send=AsyncMock()),
+        author=SimpleNamespace(id=RANDOM_USER), clean_prefix=",",
+        bot=SimpleNamespace(user=None, is_owner=AsyncMock(return_value=is_dev)),
+    )
+
+
+def _fake_group(hidden: bool):
+    return SimpleNamespace(hidden=hidden, parents=[], name="killswitch", qualified_name="killswitch",
+                           help="dangerous developer tools", short_doc="dangerous developer tools",
+                           signature="", aliases=[], checks=[], callback=SimpleNamespace(), clean_params={},
+                           walk_commands=lambda: [])
+
+
+def _browse(is_dev: bool) -> dict:
+    async def go() -> dict:
+        from core.help import Help
+        h = Help()
+        h.context = _help_ctx(is_dev)
+        sent: list[str] = []
+
+        async def spy(err):
+            sent.append(err)
+
+        h.send_error_message = spy
+        cmd = SimpleNamespace(hidden=True, parents=[], name="system", qualified_name="system",
+                              help="shows system info", short_doc="shows system info", signature="",
+                              aliases=[], checks=[], callback=SimpleNamespace(), clean_params={})
+        await h.send_command_help(cmd)
+        await h.send_group_help(_fake_group(hidden=True))
+        return {"errors": sent, "sent": h.context.channel.send.call_count}
+
+    return asyncio.run(go())
+
+
+def test_help_command_lookup_denied_for_strangers():
+    out = _browse(is_dev=False)
+    assert len(out["errors"]) == 2  # both the hidden command and the hidden group
+    assert all("No command" in e for e in out["errors"])
+    assert out["sent"] == 0
+
+
+def test_help_command_lookup_works_for_developers():
+    out = _browse(is_dev=True)
+    assert out["errors"] == []
+    assert out["sent"] == 2
