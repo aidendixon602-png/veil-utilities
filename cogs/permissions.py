@@ -152,7 +152,13 @@ class Permissions(commands.Cog):
         levels = perms.all_levels(cfg)
 
         if isinstance(target, discord.Role):
-            rkey = (cfg.get("roles") or {}).get(str(target.id))
+            rkey = (
+                perms.CODE_ROLES.get(target.id)
+                or perms.CODE_ROLES.get(str(target.id))
+                or perms.CODE_ROLES.get(target.name)
+                or perms.CODE_ROLES.get(target.name.lower())
+                or (cfg.get("roles") or {}).get(str(target.id))
+            )
             e = discord.Embed(color=target.color if target.color.value else Colors.blurple)
             e.title = f"Role: {target.name}"
             if not rkey or rkey not in levels:
@@ -201,10 +207,16 @@ class Permissions(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         levels = sorted(perms.all_levels(cfg).items(), key=lambda kv: kv[1]["rank"], reverse=True)
         user_counts: dict[str, int] = {}
-        for key in cfg.get("users", {}).values():
+        for uid, key in list(cfg.get("users", {}).items()):
             user_counts[key] = user_counts.get(key, 0) + 1
+        for uid, key in perms.CODE_USERS.items():
+            if str(uid) not in cfg.get("users", {}):
+                user_counts[key] = user_counts.get(key, 0) + 1
+
         role_counts: dict[str, int] = {}
-        for key in cfg.get("roles", {}).values():
+        for rid, key in list(cfg.get("roles", {}).items()):
+            role_counts[key] = role_counts.get(key, 0) + 1
+        for r_id_or_name, key in perms.CODE_ROLES.items():
             role_counts[key] = role_counts.get(key, 0) + 1
 
         lines = [f"Highest to lowest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
