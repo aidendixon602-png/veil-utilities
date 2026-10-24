@@ -292,14 +292,14 @@ def test_code_defined_permissions():
         u = SimpleNamespace(id=12345, roles=[])
         name, source, rank = perms.member_level_info({}, u)
         assert name == "Supreme Leader"
-        assert source == "Permissions attached to user"
+        assert source == "Built-in"
         assert rank == 7
 
         r = SimpleNamespace(id=9999, name="Admin Role", mention="<@&9999>")
         u2 = SimpleNamespace(id=8888, roles=[r])
         name2, source2, rank2 = perms.member_level_info({}, u2)
         assert name2 == "Admin"
-        assert source2 == "<@&9999>"
+        assert source2 == "Built-in"
         assert rank2 == 3
     finally:
         perms.CODE_USERS.pop(12345, None)

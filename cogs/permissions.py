@@ -223,12 +223,8 @@ class Permissions(commands.Cog):
         for name, rank in sorted(((n, r) for n, r in perms.RESERVED.values()), key=lambda x: x[1], reverse=True):
             lines.append(f"`rank {rank}` **{name}** — automatic (not assignable)")
 
-        seen_names = set()
         for key, info in levels:
-            if info["name"] in seen_names:
-                continue
-            seen_names.add(info["name"])
-            grants = "all permissions" if ("administrator" in info["perms"] or "veil.all" in info["perms"]) else \
+            grants = "all permissions" if "administrator" in info["perms"] else \
                 (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
             ucnt = user_counts.get(key, 0)
             rcnt = role_counts.get(key, 0)
@@ -240,35 +236,8 @@ class Permissions(commands.Cog):
             lines.append(f"`rank {info['rank']}` **{info['name']}** (`{key}`) — {grants} • {count_str}")
 
         e = discord.Embed(
-            title="Veil Permission Levels",
-            color=Colors.main,
-            description="\n".join(lines)
-        )
-        await ctx.send(embed=e)
-
-    @userperm.command(name="preset")
-    @has_perms(administrator=True)
-    async def up_preset(self, ctx: Context, name: str):
-        """Switch permission level preset (options: veil, staff, security)"""
-        name = name.lower()
-        if name not in perms.PRESET_TEMPLATES:
-            options = ", ".join(f"`{k}`" for k in perms.PRESET_TEMPLATES.keys())
-            raise UserError(f"Unknown preset. Available options: {options}")
-        cfg = await self.cfg(ctx.guild.id)
-        cfg["preset"] = name
-        template = perms.PRESET_TEMPLATES[name]
-        cfg["overrides"] = {k: {"name": n, "rank": r, "perms": p} for k, (n, r, p) in template.items()}
-        await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Applied the **{name.title()}** permission preset to this server!")
-
-    @userperm.command(name="nodes")
-    @has_perms(manage_messages=True)
-    async def up_nodes(self, ctx: Context):
-        """View all custom Veil bot permission nodes"""
-        lines = [f"`{node}` — {desc}" for node, desc in perms.VEIL_PERMISSION_NODES.items()]
-        e = discord.Embed(
-            title="Veil Custom Permission Nodes",
-            color=Colors.main,
+            title="Permission levels",
+            color=Colors.blurple,
             description="\n".join(lines)
         )
         await ctx.send(embed=e)

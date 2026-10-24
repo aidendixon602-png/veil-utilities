@@ -1,6 +1,6 @@
 # Command reference
 
-425 commands. Default prefix `,`. `<required>` `[optional]`.
+423 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -388,8 +388,6 @@ _Assign named permission levels to members_
 | `userperm add <target> <level>` (set, give) | Assign a permission level to a member or a role | administrator |
 | `userperm check [target]` (view, info) | Check a member's or role's permission level and what it grants |  |
 | `userperm list` (all) | List members and roles with a permission level | administrator |
-| `userperm nodes` | View all custom Veil bot permission nodes | manage messages |
-| `userperm preset <name>` | Switch permission level preset (options: veil, staff, security) | administrator |
 | `userperm remove <target>` (rem, delete, unset) | Remove a member's or role's permission level | administrator |
 | `userperm remove deleted` | Purge permission levels for members who left the server | administrator |
 
