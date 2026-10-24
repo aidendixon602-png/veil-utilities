@@ -1,0 +1,24 @@
+# secrets — NEVER commit these
+.env
+*.env
+!.env.example
+
+# runtime data (lives on the host, not in git)
+*.db
+*.db-wal
+*.db-shm
+*.db.gz
+*.log
+*.log.*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# os / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

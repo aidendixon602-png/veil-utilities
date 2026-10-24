@@ -1,0 +1,109 @@
+# Hosting veil utilities on Wispbyte
+
+Wispbyte's free plan (512 MB RAM) is enough for this bot: it uses about 60 MB idle and ~150 MB at peak
+while editing a large GIF. Member caches grow with server size, so very large servers will use more.
+
+## 1. Prepare the bot in Discord
+1. <https://discord.com/developers/applications> → your app → **Bot**.
+2. Turn on all three **Privileged Gateway Intents**: Presence, Server Members, Message Content.
+3. **Reset Token** and copy it. Never share it or post it anywhere.
+4. Copy your own Discord user ID (Settings → Advanced → Developer Mode, then right-click your name → Copy User ID).
+
+## 2. Create the server on Wispbyte
+1. Sign up at <https://wispbyte.com> and create a new server.
+2. Choose the **Python** (Discord bot) type. If you can pick a Python version, choose **3.11 or 3.12**
+   (3.10 is the minimum).
+
+## 3. Upload the files
+1. Open the server's **File Manager**.
+2. Upload `veil-utilities-wispbyte.zip` and **Unarchive** it. `main.py`, `requirements.txt`, `core/`, `cogs/`
+   and `fonts/` must sit at the top level (not inside another folder).
+3. Delete the zip afterwards.
+
+## 4. Create your `.env`
+1. In the File Manager, open `.env.example`, copy everything, then create a **New File** named `.env` and paste.
+2. Fill in at least:
+   ```
+   DISCORD_TOKEN=your-token-here
+   OWNER_IDS=your-user-id
+   LOW_MEMORY=true
+   ```
+3. Add any optional keys you want (Last.fm, Spotify, AI, Twitch…). Save.
+
+## 5. Startup settings
+Open the **Startup** tab and set:
+- **Main / app file** (often called `PY_FILE` or "App py file"): `main.py`
+- **Requirements file**: `requirements.txt` — the panel installs the packages on each start.
+
+If your panel has no requirements setting, put this in **Additional Python packages** instead:
+`discord.py aiosqlite aiohttp python-dotenv wavelink Pillow gTTS feedparser`
+
+## 6. Start it
+Press **Start** and watch the **Console**. The first boot installs packages (a minute or two), then you should see:
+```
+Logged in as veil utilities#1234 (…) in N guilds
+```
+Invite the bot, drag its role to the top of the role list, and run `,help`.
+
+## Keeping it online
+- Wispbyte's free plan asks you to **log in to the panel every two weeks**. Set a reminder.
+- `,restart` restarts the bot from Discord. `,system` shows memory use, and `,backup` DMs you the database.
+  Run a backup every so often, since everything (settings, levels, cases) lives in `veil.db`.
+
+## Music on a small plan
+Music needs a separate **Lavalink** server (Java), which won't fit in 512 MB next to the bot. Either leave
+`LAVALINK_URI` empty (music commands just say they're not configured) or point it at a Lavalink node hosted
+elsewhere. Every other module works without it.
+
+## Troubleshooting
+| Console says | Fix |
+|---|---|
+| `Set DISCORD_TOKEN in your .env file` | `.env` is missing, misnamed, or not in the same folder as `main.py` |
+| `PrivilegedIntentsRequired` | Turn on the three intents in the developer portal (step 1) |
+| `LoginFailure: Improper token` | Reset the token and paste the new one, with no spaces or quotes |
+| `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
+| `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
+| The bot leaves your server right away | Server authorization: your ID must be in `OWNER_IDS`, or run `,authorize <server id>` |
+
+---
+
+# Deploying from GitHub (recommended)
+
+Keeping the code on GitHub means you can edit it anywhere, keep a history of changes, and have Wispbyte pull
+the newest version every time the bot restarts.
+
+## 1. Put the code on GitHub
+1. Create a **New repository** on <https://github.com>. Make it **Private**.
+2. Upload the files, either way:
+   - **Website:** on the empty repo page click *uploading an existing file*, drag in everything from the unzipped
+     folder (including `.gitignore` — turn on "show hidden files" if you can't see it), then **Commit changes**.
+   - **GitHub Desktop:** *File → Add local repository* → pick the unzipped folder → *Publish repository*
+     (keep "Keep this code private" checked).
+3. Check the repo on github.com: `.env`, `veil.db` and `veil.log` must **not** be there. `.gitignore` keeps them out.
+
+## 2. Let Wispbyte read a private repo
+1. GitHub → *Settings → Developer settings → Personal access tokens → Fine-grained tokens* → **Generate new token**.
+2. Repository access: **Only select repositories** → your bot repo.
+3. Permissions → Repository → **Contents: Read-only**. Generate and copy the token.
+
+## 3. Point Wispbyte at the repo
+In the server's **Startup** tab (names vary slightly between panels):
+- **Git Repo Address**: `https://github.com/<you>/<repo>.git`
+- **Git Branch**: `main`
+- **Git Username**: your GitHub username
+- **Git Access Token**: the token from step 2
+- **Auto Update**: **On** (pulls the latest code on every restart)
+- **App py file**: `main.py` • **Requirements file**: `requirements.txt`
+
+The panel only clones into an **empty** server folder. If you already uploaded the files by hand:
+1. Download your `.env` and `veil.db` from the File Manager first (they hold your token and all settings).
+2. Delete everything in the File Manager.
+3. Start the server once, so it clones the repo.
+4. Upload `.env` and `veil.db` back.
+
+## 4. Updating the bot
+Edit or upload changed files on GitHub (or commit + push with GitHub Desktop), then press **Restart** on Wispbyte
+or run `,restart` in Discord. Your `.env` and database stay untouched because they aren't in git.
+
+**If your token ever ends up on GitHub**, even for a second, reset it immediately in the Discord developer
+portal. Bots scan GitHub for leaked tokens within minutes.
