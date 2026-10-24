@@ -481,10 +481,12 @@ async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
 
 
 def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
-    if target == ctx.author:
+    if target.id == ctx.author.id:
         raise UserError(f"You can't {action} yourself")
     if target.id == ctx.guild.owner_id:
         raise UserError(f"You can't {action} the server owner")
+    if ctx.bot.owner_ids and target.id in ctx.bot.owner_ids:
+        raise UserError(f"You can't {action} a bot developer")
     if target == ctx.guild.me:
         raise UserError(f"I can't {action} myself")
     if ctx.author.id != ctx.guild.owner_id and target.top_role >= ctx.author.top_role:

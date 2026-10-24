@@ -298,10 +298,12 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True, aliases=["reboot"])
     async def restart(self, ctx: Context):
-        """Restart the bot process"""
-        await ctx.approve("Restarting…")
-        await self.bot.close()
-        os.execv(sys.executable, [sys.executable, *sys.argv])
+        """Restart the bot process (panel hosts auto-restart it within seconds)"""
+        await ctx.approve("Restarting — back in a few seconds…")
+        # os.execv often dies silently on container panels (they only track the original
+        # process), so instead flap the process with a non-zero exit: Pterodactyl-style
+        # panels treat that as a crash and boot the bot right back up.
+        os._exit(3)
 
     @commands.command(hidden=True)
     async def shutdown(self, ctx: Context):

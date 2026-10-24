@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Replies**: every bot response now threads the invoking message as a Discord reply
   (without pinging), with a plain-message fallback if the original was deleted.
 - `tests/test_menu_reply.py` — Home-button and reply-threading coverage.
+- `tests/test_hierarchy.py` — moderation protections (self / server owner / bot developer /
+  role hierarchy) and panel-safe restart coverage.
+
+### Fixed
+
+- **`,restart` never came back online on container hosts** — `os.execv` replaces the process
+  the panel tracks and the restart died silently. Restart now flaps the process with a
+  non-zero exit code, which Pterodactyl-style panels detect as a crash and auto-restart
+  within seconds.
+
+### Security
+
+- **Bot developers are protected from moderation** — `check_hierarchy` (ban, softban, kick,
+  timeout, jail, forcenickname…) and the warn-management guard now refuse to target a bot
+  developer, on top of the existing self/server-owner/role-hierarchy checks.
 
 ## [1.1.0] - 2026-10-24
 

@@ -235,6 +235,8 @@ class Moderation(commands.Cog):
     @staticmethod
     def _check_warn_target(ctx: Context, target, action: str) -> None:
         """Mods can't wipe their own record or the record of someone at/above their top role."""
+        if ctx.bot.owner_ids and target.id in ctx.bot.owner_ids:
+            raise UserError(f"You can't {action} a bot developer")
         if ctx.author.id == ctx.guild.owner_id:
             return
         if target.id == ctx.author.id:

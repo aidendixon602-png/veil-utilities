@@ -129,7 +129,8 @@ def test_overwrite_gained():
 # ------------------------------------------------------------------ warn guards
 def _ctx(author_id, top, owner_id=1):
     return SimpleNamespace(author=SimpleNamespace(id=author_id, top_role=top),
-                           guild=SimpleNamespace(owner_id=owner_id))
+                           guild=SimpleNamespace(owner_id=owner_id),
+                           bot=SimpleNamespace(owner_ids=frozenset()))
 
 
 def test_mods_cannot_clear_their_own_or_a_higher_members_warnings():
