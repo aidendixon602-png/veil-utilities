@@ -1,4 +1,4 @@
-"""Server event logging."""
+"""Server event logging with Midtown Utilities-style join logs, bans, and command logging."""
 from __future__ import annotations
 
 import io
@@ -8,7 +8,79 @@ from discord.ext import commands
 
 from core.utils import Colors, Context, UserError, has_perms, shorten, ts
 
-TYPES = ("messages", "members", "roles", "channels", "voice", "server")
+TYPES = ("messages", "members", "roles", "channels", "voice", "server", "bans", "joinleave", "commands")
+
+AUTO_CHANNELS: dict[str, list[str]] = {
+    "joinleave": ["join-logs", "join-log", "joins-leaves", "member-logs"],
+    "bans": ["bans", "ban-logs", "ban-log", "punishments", "mod-logs", "modlog"],
+    "commands": ["command-logs", "cmd-logs", "commands", "command-log"],
+    "messages": ["message-logs", "msg-logs"],
+    "members": ["member-logs", "members"],
+    "roles": ["role-logs", "roles"],
+    "channels": ["channel-logs", "channels"],
+    "server": ["veil-utilities-logging", "server-logs", "bot-logs", "logs"],
+    "voice": ["voice-logs", "vc-logs"],
+}
+
+
+class BanLogView(discord.ui.View):
+    def __init__(self, guild_id: int, user_id: int, is_banned: bool = True):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.is_banned = is_banned
+        self._sync()
+
+    def _sync(self):
+        self.toggle_btn.label = "Unban" if self.is_banned else "Reban"
+        self.toggle_btn.style = discord.ButtonStyle.success if self.is_banned else discord.ButtonStyle.danger
+        self.toggle_btn.custom_id = f"banlog:{self.guild_id}:{self.user_id}:{int(self.is_banned)}"
+
+    @discord.ui.button(label="Unban", style=discord.ButtonStyle.success, custom_id="banlog:btn")
+    async def toggle_btn(self, it: discord.Interaction, btn: discord.ui.Button):
+        guild = it.guild or it.client.get_guild(self.guild_id)
+        if not guild:
+            return await it.response.send_message("Guild not found", ephemeral=True)
+        member = guild.get_member(it.user.id)
+        if not member:
+            return await it.response.send_message("You are not in this guild", ephemeral=True)
+        perms = member.guild_permissions
+        if not (perms.administrator or perms.ban_members or member.id == guild.owner_id or await it.client.is_owner(member)):
+            from core import perms as _perms
+            cfg = await it.client.db.get_config(guild.id, "permlevels")
+            if _perms.rank_of(cfg, member) < 3:
+                return await it.response.send_message("You need Ban Members permission or rank 3+ to use this button", ephemeral=True)
+
+        user = it.client.get_user(self.user_id)
+        if user is None:
+            try:
+                user = await it.client.fetch_user(self.user_id)
+            except Exception:
+                user = discord.Object(id=self.user_id)
+
+        if self.is_banned:
+            try:
+                await guild.unban(user, reason=f"Unbanned via button by {it.user}")
+                self.is_banned = False
+                self._sync()
+                await it.response.edit_message(view=self)
+                user_name = getattr(user, "name", str(self.user_id))
+                await it.followup.send(f"{it.user.mention} unbanned **{user_name}** (`{self.user_id}`).")
+            except discord.NotFound:
+                user_name = getattr(user, "name", str(self.user_id))
+                await it.response.send_message(f"Failed — **{user_name}** is not currently banned.", ephemeral=True)
+            except discord.HTTPException as err:
+                await it.response.send_message(f"Failed to unban: {err}", ephemeral=True)
+        else:
+            try:
+                await guild.ban(user, reason=f"Rebanned via button by {it.user}")
+                self.is_banned = True
+                self._sync()
+                await it.response.edit_message(view=self)
+                user_name = getattr(user, "name", str(self.user_id))
+                await it.followup.send(f"{it.user.mention} rebanned **{user_name}** (`{self.user_id}`).")
+            except discord.HTTPException as err:
+                await it.response.send_message(f"Failed to reban: {err}", ephemeral=True)
 
 
 class Logging(commands.Cog):
@@ -22,17 +94,36 @@ class Logging(commands.Cog):
         if guild is None:
             return None
         cfg = await self.bot.db.get_config(guild.id, "logs")
-        # joins/leaves/kicks use their own channel if set, else the main member log
         cid = cfg.get(kind) or (cfg.get("members") if kind == "joinleave" else 0)
         ch = guild.get_channel(cid or 0)
-        return ch if isinstance(ch, discord.TextChannel) else None
+        if isinstance(ch, discord.TextChannel):
+            return ch
 
-    async def send(self, guild, kind, embed: discord.Embed, file: discord.File | None = None):
+        # Auto-detect channel by common channel names if not explicitly set
+        patterns = AUTO_CHANNELS.get(kind, [])
+        for ch_obj in guild.text_channels:
+            if ch_obj.name.lower() in patterns:
+                return ch_obj
+
+        # General server logging fallback
+        if kind not in ("commands", "bans", "joinleave"):
+            for ch_obj in guild.text_channels:
+                if ch_obj.name.lower() in AUTO_CHANNELS["server"]:
+                    return ch_obj
+
+        return None
+
+    async def send(self, guild, kind, embed: discord.Embed, file: discord.File | None = None, view: discord.ui.View | None = None):
         ch = await self.channel_for(guild, kind)
         if ch:
             embed.timestamp = embed.timestamp or discord.utils.utcnow()
+            kwargs = {"embed": embed}
+            if file:
+                kwargs["file"] = file
+            if view:
+                kwargs["view"] = view
             try:
-                await ch.send(embed=embed, file=file) if file else await ch.send(embed=embed)
+                await ch.send(**kwargs)
             except discord.HTTPException:
                 pass
 
@@ -43,14 +134,14 @@ class Logging(commands.Cog):
         """View logging channels"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "logs")
         embed = discord.Embed(title="Logging", color=Colors.main,
-                              description="\n".join(f"**{t}**: {f'<#{cfg[t]}>' if cfg.get(t) else 'off'}" for t in TYPES))
+                              description="\n".join(f"**{t}**: {f'<#{cfg[t]}>' if cfg.get(t) else 'auto'}" for t in TYPES))
         embed.set_footer(text=f"{ctx.clean_prefix}log set <type|all> #channel")
         await ctx.send(embed=embed)
 
     @log.command(name="set")
     @has_perms(manage_guild=True)
     async def log_set(self, ctx: Context, kind: str, channel: discord.TextChannel = None):
-        """Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = off)"""
+        """Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = auto/off)"""
         kind = kind.lower()
         kinds = TYPES if kind == "all" else (kind,)
         if any(k not in TYPES for k in kinds):
@@ -59,7 +150,55 @@ class Logging(commands.Cog):
         for k in kinds:
             cfg[k] = channel.id if channel else None
         await self.bot.db.set_config(ctx.guild.id, "logs", cfg)
-        await ctx.approve(f"**{kind}** logs → {channel.mention}" if channel else f"Disabled **{kind}** logs")
+        await ctx.approve(f"**{kind}** logs → {channel.mention}" if channel else f"Reset **{kind}** logs to auto")
+
+    # ------------------------------------------------------------ command-logs
+    @commands.Cog.listener()
+    async def on_command_completion(self, ctx: Context):
+        if not ctx.guild or ctx.author.bot:
+            return
+        ch = await self.channel_for(ctx.guild, "commands")
+        if not ch:
+            return
+
+        cfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
+        from core import perms as _perms
+        is_dev = await self.bot.is_owner(ctx.author)
+        is_owner = ctx.author.id == ctx.guild.owner_id
+        pl_label = _perms.label(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
+
+        if is_dev:
+            perm_str = "Bot Dev"
+            granted_by = "Bot Developer"
+        elif is_owner:
+            perm_str = "Server Owner"
+            granted_by = "Server Owner"
+        elif _perms.user_key(cfg, ctx.author.id):
+            perm_str = pl_label or "Staff"
+            granted_by = "Permissions attached to user"
+        elif ctx.author.guild_permissions.administrator:
+            perm_str = "Admin"
+            admin_roles = [r for r in ctx.author.roles if r.permissions.administrator and not r.is_default()]
+            granted_by = admin_roles[-1].mention if admin_roles else "Administrator permission"
+        elif ctx.author.guild_permissions.manage_guild or ctx.author.guild_permissions.manage_messages:
+            perm_str = "Staff"
+            staff_roles = [r for r in ctx.author.roles if (r.permissions.manage_guild or r.permissions.manage_messages) and not r.is_default()]
+            granted_by = staff_roles[-1].mention if staff_roles else "Staff role"
+        else:
+            perm_str = "Member"
+            granted_by = "Default server permissions"
+
+        e = discord.Embed(color=Colors.blurple)
+        e.set_author(name=ctx.author.name, icon_url=ctx.author.display_avatar.url)
+        e.add_field(name="Command", value=f"```{ctx.message.content[:500]}```", inline=False)
+        e.add_field(name="Channel", value=ctx.channel.mention, inline=True)
+        e.add_field(name="Permission", value=perm_str, inline=True)
+        e.add_field(name="Granted By", value=granted_by, inline=True)
+        e.set_footer(text=f"User ID: {ctx.author.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        try:
+            await ch.send(embed=e)
+        except discord.HTTPException:
+            pass
 
     # ------------------------------------------------------------ messages
     @commands.Cog.listener()
@@ -92,23 +231,105 @@ class Logging(commands.Cog):
         e.set_footer(text=f"User {a.author.id}")
         await self.send(a.guild, "messages", e)
 
-    # ------------------------------------------------------------ members
+    # ------------------------------------------------------------ join-logs
     @commands.Cog.listener()
     async def on_member_join(self, m: discord.Member):
-        e = discord.Embed(color=Colors.success, description=f"{m.mention} joined\nCreated {ts(m.created_at)}")
-        e.set_author(name=str(m), icon_url=m.display_avatar.url)
-        e.set_footer(text=f"ID {m.id} • member #{m.guild.member_count}")
-        await self.send(m.guild, "joinleave", e)
+        ch = await self.channel_for(m.guild, "joinleave")
+        if not ch:
+            return
+        days = (discord.utils.utcnow() - m.created_at).days
+        e = discord.Embed(color=Colors.mint)
+        e.set_author(name=m.name, icon_url=m.display_avatar.url)
+        e.title = "Member Joined"
+        e.add_field(name="User", value=m.mention, inline=True)
+        e.add_field(name="Account Age", value=f"{days} days", inline=True)
+        e.add_field(name="Account Created", value=m.created_at.strftime("%B %d, %Y"), inline=True)
+        e.add_field(name="Invite Used", value="Unknown", inline=False)
+        e.set_footer(text=f"User ID: {m.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        try:
+            await ch.send(embed=e)
+        except discord.HTTPException:
+            pass
 
     @commands.Cog.listener()
     async def on_member_remove(self, m: discord.Member):
-        roles = ", ".join(r.mention for r in m.roles[1:][::-1]) or "none"
-        e = discord.Embed(color=Colors.error, description=f"{m.mention} left\nJoined {ts(m.joined_at) if m.joined_at else '?'}")
-        e.add_field(name="Roles", value=shorten(roles))
-        e.set_author(name=str(m), icon_url=m.display_avatar.url)
-        e.set_footer(text=f"ID {m.id}")
-        await self.send(m.guild, "joinleave", e)
+        ch = await self.channel_for(m.guild, "joinleave")
+        if not ch:
+            return
+        roles = [r.mention for r in m.roles[1:][::-1]]
+        e = discord.Embed(color=Colors.error)
+        e.set_author(name=m.name, icon_url=m.display_avatar.url)
+        e.title = "Member Left"
+        e.add_field(name="User", value=m.mention, inline=True)
+        e.add_field(name="Roles Had", value=shorten(" ".join(roles) or "None", 1000), inline=False)
+        e.set_footer(text=f"User ID: {m.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        try:
+            await ch.send(embed=e)
+        except discord.HTTPException:
+            pass
 
+    # ------------------------------------------------------------ bans
+    @commands.Cog.listener()
+    async def on_member_ban(self, g: discord.Guild, u: discord.User | discord.Member):
+        ch = await self.channel_for(g, "bans")
+        if not ch:
+            return
+        mod_name = "Unknown"
+        mod_id = 0
+        reason = "No reason provided"
+        try:
+            async for entry in g.audit_logs(limit=3, action=discord.AuditLogAction.ban):
+                if entry.target and entry.target.id == u.id:
+                    mod_name = entry.user.name
+                    mod_id = entry.user.id
+                    reason = entry.reason or "No reason provided"
+                    break
+        except Exception:
+            pass
+
+        e = discord.Embed(color=Colors.error)
+        e.set_author(name=f"{u.name} - Banned", icon_url=u.display_avatar.url)
+        e.add_field(name="User", value=f"{u.mention} ( {u.id} )", inline=True)
+        e.add_field(name="Moderator (via bot)", value=f"{mod_name} ( {mod_id} )" if mod_id else mod_name, inline=True)
+        e.add_field(name="Reason", value=reason, inline=False)
+        e.set_footer(text=f"User ID: {u.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        view = BanLogView(g.id, u.id, is_banned=True)
+        try:
+            await ch.send(embed=e, view=view)
+        except discord.HTTPException:
+            pass
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, g: discord.Guild, u: discord.User):
+        ch = await self.channel_for(g, "bans")
+        if not ch:
+            return
+        mod_name = "Unknown"
+        mod_id = 0
+        reason = "No reason provided"
+        try:
+            async for entry in g.audit_logs(limit=3, action=discord.AuditLogAction.unban):
+                if entry.target and entry.target.id == u.id:
+                    mod_name = entry.user.name
+                    mod_id = entry.user.id
+                    reason = entry.reason or "No reason provided"
+                    break
+        except Exception:
+            pass
+
+        e = discord.Embed(color=Colors.mint)
+        e.set_author(name=f"{u.name} - Unbanned", icon_url=u.display_avatar.url)
+        e.add_field(name="User", value=f"{u.mention} ( {u.id} )", inline=True)
+        e.add_field(name="Moderator (via bot)", value=f"{mod_name} ( {mod_id} )" if mod_id else mod_name, inline=True)
+        e.add_field(name="Reason", value=reason, inline=False)
+        e.set_footer(text=f"User ID: {u.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        view = BanLogView(g.id, u.id, is_banned=False)
+        try:
+            await ch.send(embed=e, view=view)
+        except discord.HTTPException:
+            pass
+
+    # ------------------------------------------------------------ member updates
     @commands.Cog.listener()
     async def on_member_update(self, b: discord.Member, a: discord.Member):
         if b.nick != a.nick:
@@ -126,14 +347,6 @@ class Logging(commands.Cog):
         if b.timed_out_until != a.timed_out_until and a.timed_out_until:
             await self.send(a.guild, "members", discord.Embed(color=Colors.warn,
                             description=f"{a.mention} timed out until {ts(a.timed_out_until, 'f')}"))
-
-    @commands.Cog.listener()
-    async def on_member_ban(self, g, u):
-        await self.send(g, "members", discord.Embed(color=Colors.error, description=f"🔨 **{u}** (`{u.id}`) was banned"))
-
-    @commands.Cog.listener()
-    async def on_member_unban(self, g, u):
-        await self.send(g, "members", discord.Embed(color=Colors.success, description=f"**{u}** (`{u.id}`) was unbanned"))
 
     # ------------------------------------------------------------ roles / channels / server
     @commands.Cog.listener()

@@ -264,7 +264,7 @@ _Log server events to channels_
 | Command | Description | Permission |
 |---|---|---|
 | `log` (logs) | View logging channels | manage guild |
-| `log set <kind> [channel]` | Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = off) | manage guild |
+| `log set <kind> [channel]` | Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = auto/off) | manage guild |
 
 ## 🔨 Moderation
 _Keep your server in line_

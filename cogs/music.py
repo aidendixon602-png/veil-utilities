@@ -104,6 +104,8 @@ class Music(commands.Cog):
                 if node.status is not wavelink.NodeStatus.DISCONNECTED:
                     continue
                 try:
+                    if hasattr(node, "_session") and node._session and not node._session.closed:
+                        await node._session.close()
                     await node.close(eject=True)
                 except Exception:
                     pass
@@ -279,6 +281,18 @@ class Music(commands.Cog):
             self.node_watchdog.cancel()
         for t in self._alone_tasks.values():
             t.cancel()
+        if wavelink is not None:
+            for node in list(wavelink.Pool.nodes.values()):
+                try:
+                    if hasattr(node, "_session") and node._session and not node._session.closed:
+                        await node._session.close()
+                    await node.close(eject=True)
+                except Exception:
+                    pass
+            try:
+                await wavelink.Pool.close()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------ commands
     @commands.command(aliases=["p"])

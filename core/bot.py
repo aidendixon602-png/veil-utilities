@@ -115,6 +115,23 @@ class Veil(commands.AutoShardedBot):
                 await session.close()
         await self.db.close()
 
+    async def update_dynamic_status(self):
+        try:
+            users = sum(g.member_count or 0 for g in self.guilds)
+            guilds = len(self.guilds)
+            status_template = settings.status
+            if not status_template or status_template == "veil utilities | ,help":
+                text = f"Guarding {users:,} users across {guilds} guilds • Watching over the community"
+            else:
+                try:
+                    text = status_template.format(users=users, guilds=guilds)
+                except Exception:
+                    text = status_template
+            activity = discord.CustomActivity(name=text)
+            await self.change_presence(activity=activity)
+        except Exception:
+            pass
+
     async def on_ready(self):
         commands_total = sum(1 for _ in self.walk_commands())
         log.info("──────────────────────────────────────────")
@@ -122,6 +139,7 @@ class Veil(commands.AutoShardedBot):
         log.info(" %s · %d guilds · %d commands", self.user, len(self.guilds), commands_total)
         log.info(" prefix %s · %shelp for the menu", self.default_prefix, self.default_prefix)
         log.info("──────────────────────────────────────────")
+        await self.update_dynamic_status()
 
     # ------------------------------------------------------------- prefixes
     async def _get_prefix(self, bot, message: discord.Message):
@@ -177,6 +195,10 @@ class Veil(commands.AutoShardedBot):
     async def on_guild_join(self, guild: discord.Guild):
         if guild.id in self.blacklist:
             await guild.leave()
+        await self.update_dynamic_status()
+
+    async def on_guild_remove(self, guild: discord.Guild):
+        await self.update_dynamic_status()
 
     # ------------------------------------------------------------- checks
     async def _global_check(self, ctx: Context) -> bool:

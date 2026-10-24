@@ -158,3 +158,34 @@ def test_bot_channels_restriction():
 
     with pytest.raises(UserError, match="restricted to <#555>"):
         asyncio.run(bot._global_check(ctx))
+
+
+def test_logging_channel_auto_detection():
+    from cogs.logging import Logging
+    bot = Veil()
+    cog = Logging(bot)
+    bot.db = SimpleNamespace(
+        get_config=AsyncMock(return_value={}),  # no explicit config
+    )
+    ch_join = SimpleNamespace(id=1, name="join-logs", __class__=discord.TextChannel)
+    ch_bans = SimpleNamespace(id=2, name="bans", __class__=discord.TextChannel)
+    ch_cmd = SimpleNamespace(id=3, name="command-logs", __class__=discord.TextChannel)
+    ch_gen = SimpleNamespace(id=4, name="veil-utilities-logging", __class__=discord.TextChannel)
+    guild = SimpleNamespace(id=10, text_channels=[ch_join, ch_bans, ch_cmd, ch_gen], get_channel=lambda cid: None)
+
+    assert asyncio.run(cog.channel_for(guild, "joinleave")) == ch_join
+    assert asyncio.run(cog.channel_for(guild, "bans")) == ch_bans
+    assert asyncio.run(cog.channel_for(guild, "commands")) == ch_cmd
+    assert asyncio.run(cog.channel_for(guild, "server")) == ch_gen
+
+
+def test_ban_log_view_toggle():
+    from cogs.logging import BanLogView
+    view = BanLogView(guild_id=1, user_id=123, is_banned=True)
+    assert view.toggle_btn.label == "Unban"
+    assert view.toggle_btn.style == discord.ButtonStyle.success
+
+    view.is_banned = False
+    view._sync()
+    assert view.toggle_btn.label == "Reban"
+    assert view.toggle_btn.style == discord.ButtonStyle.danger

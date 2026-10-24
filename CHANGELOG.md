@@ -18,7 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Staff Notes System (`notes`)** — Dedicated staff notes for members (`,notes <member>`, `,notes add`, `,notes clear`).
 - **Permission Levels Redesign** — Compact, single-card embed for `,permlevels` replacing oversized multiple fields, added `,perm` alias so `,perm add <member> <level>` works directly, and added staff protection.
 - **Interactive Snipe Pagination** — Added `[◀ Prev]` and `[Next ▶]` button controls to cycle through recently deleted messages.
-- `tests/test_midtown_redesign.py` — 8 new unit tests covering the Midtown-style help menu, staff-only checks, channel restrictions, and perm aliases (166 tests total).
+- **Midtown Utilities Channel Logging** — Auto-detects and formats event logging for dedicated channels:
+  - `#command-logs`: Logs every executed command with user, code-block command, channel, permission level, and granted-by attribution.
+  - `#join-logs`: Formats Member Joined (account age, creation date, invite used) and Member Left (roles had).
+  - `#bans`: Formats bans and unbans with persistent, interactive `[Unban]` (green) and `[Reban]` (red) buttons.
+  - `#veil-utilities-logging`: Auto-detected channel for general server, role, channel, and message updates.
+- **Dynamic Presence Activity** — Custom status dynamically displaying `Guarding {users:,} users across {guilds} guilds • Watching over the community` matching Midtown's profile presence.
+- **Lavalink Connection Cleanup** — Cleanly close wavelink node sessions and pool connections on shutdown/unload, fixing `Unclosed client session` and `Unclosed connector` asyncio warnings.
+- `tests/test_midtown_redesign.py` — expanded to 10 unit tests (168 tests total).
 
 ### Fixed
 
