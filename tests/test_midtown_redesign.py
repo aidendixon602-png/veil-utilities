@@ -319,3 +319,13 @@ def test_bot_developer_builtin_logging():
         perms.BOT_DEVELOPERS.remove(55555)
 
 
+def test_unassigned_member_gets_no_bot_perm():
+    from core import perms
+    # User with Discord admin permissions but NO bot perm rank assigned
+    u = SimpleNamespace(id=7777, roles=[], guild_permissions=SimpleNamespace(administrator=True))
+    name, source, rank = perms.member_level_info({}, u)
+    assert name is None
+    assert source is None
+    assert rank == 0
+
+

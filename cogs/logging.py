@@ -286,20 +286,12 @@ class Logging(commands.Cog):
         if is_dev:
             perm_str = "Bot Developer"
             granted_by = "Built-in"
-        elif is_owner:
-            perm_str = "Server Owner"
-            granted_by = "Built-in"
         elif pl_name and pl_granted_by:
             perm_str = pl_name
             granted_by = pl_granted_by
-        elif ctx.author.guild_permissions.administrator:
-            perm_str = "Admin"
-            admin_roles = [r for r in ctx.author.roles if r.permissions.administrator and not r.is_default()]
-            granted_by = admin_roles[-1].mention if admin_roles else "Built-in"
-        elif ctx.author.guild_permissions.manage_guild or ctx.author.guild_permissions.manage_messages:
-            perm_str = "Staff"
-            staff_roles = [r for r in ctx.author.roles if (r.permissions.manage_guild or r.permissions.manage_messages) and not r.is_default()]
-            granted_by = staff_roles[-1].mention if staff_roles else "Built-in"
+        elif is_owner:
+            perm_str = "Server Owner"
+            granted_by = "Built-in"
         else:
             perm_str = "None"
             granted_by = "-"

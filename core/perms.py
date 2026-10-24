@@ -221,12 +221,6 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
     if best_info and best_role:
         return best_info["name"], best_role.mention, best_rank
 
-    # 4. Real Discord administrator fallback
-    if getattr(member, "guild_permissions", None) and member.guild_permissions.administrator:
-        admin_roles = [r for r in getattr(member, "roles", []) if r.permissions.administrator and not r.is_default()]
-        source = admin_roles[-1].mention if admin_roles else "Built-in"
-        return "Admin", source, ADMIN_RANK
-
     return None, None, 0
 
 
