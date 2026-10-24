@@ -4,7 +4,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
-from core.utils import Context, UserError, chunk_embeds, has_perms, is_server_owner
+from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, is_server_owner
 
 VALID_PERMS = sorted(p for p, _ in discord.Permissions.all())
 
@@ -113,21 +113,35 @@ class Settings(commands.Cog):
         await ctx.paginate(chunk_embeds("Ignored", lines))
 
     # ---------------------------------------------------------- disable
-    @commands.command(aliases=["disablecmd"])
+    @commands.group(aliases=["disablecmd", "dcmd"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def disablecommand(self, ctx: Context, *, command: str):
-        """Disable a command for non-admins"""
+        """Disable a command for non-admins (`dcmd list` to see what's disabled)"""
         cmd = self.bot.get_command(command)
-        if not cmd or cmd.cog_name in ("Settings", "Owner"):
+        if not cmd or cmd.cog_name in ("Settings", "Owner", "Authorization"):
             raise UserError("That command can't be disabled")
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         s.setdefault("disabled", [])
-        if cmd.qualified_name not in s["disabled"]:
-            s["disabled"].append(cmd.qualified_name)
+        if cmd.qualified_name in s["disabled"]:
+            raise UserError(f"`{cmd.qualified_name}` is already disabled")
+        s["disabled"].append(cmd.qualified_name)
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"Disabled `{cmd.qualified_name}`")
+        await ctx.approve(f"`{cmd.qualified_name}` has been disabled.")
 
-    @commands.command(aliases=["enablecmd"])
+    @disablecommand.command(name="list")
+    @has_perms(manage_guild=True)
+    async def disable_list(self, ctx: Context):
+        """List disabled commands"""
+        s = await self.bot.db.get_config(ctx.guild.id, "settings")
+        disabled = sorted(s.get("disabled", []))
+        if not disabled:
+            return await ctx.warn("No commands are disabled.")
+        embed = discord.Embed(title="Disabled Commands", color=Colors.main,
+                              description="\n".join(f"`{c}`" for c in disabled))
+        embed.set_footer(text=f"{len(disabled)} disabled")
+        await ctx.send(embed=embed)
+
+    @commands.command(aliases=["enablecmd", "ecmd"])
     @has_perms(manage_guild=True)
     async def enablecommand(self, ctx: Context, *, command: str):
         """Re-enable a disabled command"""
@@ -138,7 +152,7 @@ class Settings(commands.Cog):
             raise UserError(f"`{name}` isn't disabled")
         s["disabled"].remove(name)
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"Enabled `{name}`")
+        await ctx.approve(f"`{name}` has been re-enabled.")
 
     # ---------------------------------------------------------- modlog
     @commands.command()

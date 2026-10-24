@@ -1,6 +1,6 @@
 # Command reference
 
-371 commands. Default prefix `,`. `<required>` `[optional]`.
+372 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -358,8 +358,9 @@ _Configure how the bot behaves in your server_
 | `alias add <shortcut> <command>` | Add an alias, e.g. `alias add b ban` or `alias add hi say hello` | manage guild |
 | `alias list` | List aliases | manage guild |
 | `alias remove <shortcut>` (delete, del) | Remove an alias | manage guild |
-| `disablecommand <command>` (disablecmd) | Disable a command for non-admins | manage guild |
-| `enablecommand <command>` (enablecmd) | Re-enable a disabled command | manage guild |
+| `disablecommand <command>` (disablecmd, dcmd) | Disable a command for non-admins (`dcmd list` to see what's disabled) | manage guild |
+| `disablecommand list` | List disabled commands | manage guild |
+| `enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
 | `fakepermissions` (fp, fakeperms) | Give roles permissions that only work through the bot — no dangerous Discord perms needed |  |
 | `fakepermissions grant <role> <permissions>` (add) | Grant fake permissions, e.g. `fp grant @Mods ban_members, kick_members` |  |
 | `fakepermissions list` | List fake permissions |  |

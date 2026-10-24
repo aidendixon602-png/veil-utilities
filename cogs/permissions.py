@@ -41,6 +41,9 @@ class Permissions(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         key = perms.resolve_key(cfg, level)
         if not key:
+            reserved = perms.is_reserved(level)
+            if reserved:
+                raise UserError(f"**{reserved}** is automatic — it can't be assigned with this command")
             opts = human_join(["`" + d["name"] + "`" for d in perms.all_levels(cfg).values()], "or")
             raise UserError(f"Unknown level. Options: {opts}")
         info = perms.all_levels(cfg)[key]
@@ -127,7 +130,9 @@ class Permissions(commands.Cog):
         for key in cfg.get("users", {}).values():
             counts[key] = counts.get(key, 0) + 1
         e = discord.Embed(title="Permission levels", color=Colors.main,
-                          description="Assign with `" + ctx.clean_prefix + "uperm add <member> <level>`")
+                          description="Highest to lowest. Assign with `" + ctx.clean_prefix + "uperm add <member> <level>`")
+        for name, rank in sorted(((n, r) for n, r in perms.RESERVED.values()), key=lambda x: x[1], reverse=True):
+            e.add_field(name=f"{name} · rank {rank}", value="automatic — not assignable", inline=False)
         for key, info in levels:
             grants = "all permissions" if "administrator" in info["perms"] else \
                 (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
