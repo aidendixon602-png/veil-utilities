@@ -281,17 +281,11 @@ class Logging(commands.Cog):
         from core import perms as _perms
         is_dev = await self.bot.is_owner(ctx.author)
         is_owner = ctx.author.id == ctx.guild.owner_id
-        pl_label = _perms.label(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
+        pl_name, pl_granted_by, _ = _perms.member_level_info(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
 
-        if is_dev:
-            perm_str = "Bot Dev"
-            granted_by = "Bot Developer"
-        elif is_owner:
-            perm_str = "Server Owner"
-            granted_by = "Server Owner"
-        elif _perms.user_key(cfg, ctx.author.id):
-            perm_str = pl_label or "Staff"
-            granted_by = "Permissions attached to user"
+        if pl_name and pl_granted_by:
+            perm_str = pl_name
+            granted_by = pl_granted_by
         elif ctx.author.guild_permissions.administrator:
             perm_str = "Admin"
             admin_roles = [r for r in ctx.author.roles if r.permissions.administrator and not r.is_default()]

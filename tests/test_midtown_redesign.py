@@ -252,3 +252,35 @@ def test_default_log_channels_auto_creation():
     assert "command-logs" in created_names
     assert "veil-utilities-logging" in created_names
 
+
+def test_role_based_permlevels():
+    from core import perms
+    cfg = {
+        "users": {"123": "admin"},
+        "roles": {"456": "mod", "789": "headadmin"},
+    }
+    user_direct = SimpleNamespace(id=123, roles=[])
+    name, source, rank = perms.member_level_info(cfg, user_direct)
+    assert name == "Admin"
+    assert source == "Permissions attached to user"
+    assert rank == 3
+
+    role_mock1 = SimpleNamespace(id=456, mention="<@&456>")
+    role_mock2 = SimpleNamespace(id=789, mention="<@&789>")
+    user_with_roles = SimpleNamespace(id=999, roles=[role_mock1, role_mock2])
+    name, source, rank = perms.member_level_info(cfg, user_with_roles)
+    # Highest role should win (Head Admin > Mod)
+    assert name == "Head Admin"
+    assert source == "<@&789>"
+    assert rank == 4
+
+
+def test_botperms_command_registered():
+    bot = Veil()
+    asyncio.run(bot.load_extension("cogs.permissions"))
+    cmd = bot.get_command("botperms")
+    assert cmd is not None
+    assert "botpermissions" in cmd.aliases
+    assert "botperm" in cmd.aliases
+
+

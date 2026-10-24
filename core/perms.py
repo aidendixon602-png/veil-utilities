@@ -75,35 +75,85 @@ def user_key(cfg: dict, user_id: int) -> str | None:
     return (cfg.get("users") or {}).get(str(user_id))
 
 
-def level_perms(cfg: dict, user_id: int) -> set[str]:
-    key = user_key(cfg, user_id)
-    lv = all_levels(cfg).get(key) if key else None
-    return set(lv["perms"]) if lv else set()
+def role_key(cfg: dict, role_id: int) -> str | None:
+    return (cfg.get("roles") or {}).get(str(role_id))
+
+
+def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = False, is_dev: bool = False) -> tuple[str | None, str | None, int]:
+    """Resolve a member's effective permission level, source, and numeric rank.
+
+    Returns:
+        (level_name, granted_by, rank)
+        e.g. ("Supreme Leader", "Permissions attached to user", 7)
+             ("Admin", "@HR | Branch Management", 3)
+    """
+    if is_dev:
+        return "Bot Dev", "Bot Developer", DEV_RANK
+    if is_owner:
+        return "Server Owner", "Server Owner", OWNER_RANK
+
+    levels = all_levels(cfg)
+
+    # 1. User-specific assignment takes top precedence
+    ukey = user_key(cfg, getattr(member, "id", 0))
+    if ukey and ukey in levels:
+        info = levels[ukey]
+        return info["name"], "Permissions attached to user", info["rank"]
+
+    # 2. Check roles attached to member, selecting the highest-ranking level
+    roles_cfg = cfg.get("roles") or {}
+    best_info = None
+    best_role = None
+    best_rank = 0
+    for r in getattr(member, "roles", []):
+        rkey = roles_cfg.get(str(r.id))
+        if rkey and rkey in levels:
+            r_info = levels[rkey]
+            if r_info["rank"] > best_rank:
+                best_rank = r_info["rank"]
+                best_info = r_info
+                best_role = r
+
+    if best_info and best_role:
+        return best_info["name"], best_role.mention, best_rank
+
+    # 3. Real Discord administrator fallback
+    if getattr(member, "guild_permissions", None) and member.guild_permissions.administrator:
+        admin_roles = [r for r in getattr(member, "roles", []) if r.permissions.administrator and not r.is_default()]
+        source = admin_roles[-1].mention if admin_roles else "Administrator permission"
+        return "Admin", source, ADMIN_RANK
+
+    return None, None, 0
+
+
+def level_perms(cfg: dict, member_or_id: discord.Member | int) -> set[str]:
+    levels = all_levels(cfg)
+    if isinstance(member_or_id, int):
+        key = user_key(cfg, member_or_id)
+        lv = levels.get(key) if key else None
+        return set(lv["perms"]) if lv else set()
+
+    # discord.Member: check both user and role assignments
+    name, source, rank = member_level_info(cfg, member_or_id)
+    if not name:
+        return set()
+    for lv in levels.values():
+        if lv["name"] == name:
+            return set(lv["perms"])
+    return set()
 
 
 def rank_of(cfg: dict, member: discord.Member, *, is_owner: bool = False, is_dev: bool = False,
             has_admin: bool = False) -> int:
-    if is_dev:
-        return DEV_RANK
-    if is_owner:
-        return OWNER_RANK
+    name, source, rank = member_level_info(cfg, member, is_owner=is_owner, is_dev=is_dev)
+    if rank > 0:
+        return rank
     if has_admin:
         return ADMIN_RANK
-    key = user_key(cfg, member.id)
-    lv = all_levels(cfg).get(key) if key else None
-    return lv["rank"] if lv else 0
+    return 0
 
 
 def label(cfg: dict, member: discord.Member, *, is_owner: bool = False, is_dev: bool = False) -> str | None:
     """A short title for the response footer, or None to omit."""
-    if is_dev:
-        return "Bot Dev"
-    if is_owner:
-        return "Server Owner"
-    key = user_key(cfg, member.id)
-    lv = all_levels(cfg).get(key) if key else None
-    if lv:
-        return lv["name"]
-    if getattr(member, "guild_permissions", None) and member.guild_permissions.administrator:
-        return "Server Admin"
-    return None
+    name, source, rank = member_level_info(cfg, member, is_owner=is_owner, is_dev=is_dev)
+    return name

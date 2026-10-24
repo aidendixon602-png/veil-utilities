@@ -1,6 +1,6 @@
 # Command reference
 
-422 commands. Default prefix `,`. `<required>` `[optional]`.
+423 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -379,15 +379,16 @@ _Assign named permission levels to members_
 
 | Command | Description | Permission |
 |---|---|---|
+| `botperms` (botpermissions, botperm) | View the bot's Discord permissions in this server and channel |  |
 | `permlevels` (plevels, plvl) | View the permission levels available in this server | manage messages |
 | `permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) |  |
 | `permlevels rank <key> <rank>` | Change a level's rank (server owner) |  |
 | `permlevels rename <key> <name>` | Rename a level (server owner) |  |
-| `userperm` (perm, uperm, ups) | Manage members' permission levels |  |
-| `userperm add <member> <level>` (set, give) | Assign a permission level to a member | administrator |
-| `userperm check [member]` (view, info) | Check a member's permission level and what it grants |  |
-| `userperm list` (all) | List members with a permission level | administrator |
-| `userperm remove <member>` (rem, delete, unset) | Remove a member's permission level | administrator |
+| `userperm` (perm, perms, uperm, ups) | Manage members' and roles' permission levels. Shows levels if no subcommand given. |  |
+| `userperm add <target> <level>` (set, give) | Assign a permission level to a member or a role | administrator |
+| `userperm check [target]` (view, info) | Check a member's or role's permission level and what it grants |  |
+| `userperm list` (all) | List members and roles with a permission level | administrator |
+| `userperm remove <target>` (rem, delete, unset) | Remove a member's or role's permission level | administrator |
 | `userperm remove deleted` | Purge permission levels for members who left the server | administrator |
 
 ## ⚙️ Settings
