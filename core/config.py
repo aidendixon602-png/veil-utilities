@@ -150,6 +150,9 @@ class Settings:
     twitch_client_secret: str | None
     rsshub_url: str
 
+    # network / proxy (bypasses datacenter or hosting IP rate limits)
+    proxy: str | None = None
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
         r = _Reader(dict(os.environ) if env is None else env)
@@ -183,6 +186,7 @@ class Settings:
             twitch_client_id=r.str("TWITCH_CLIENT_ID"),
             twitch_client_secret=r.str("TWITCH_CLIENT_SECRET"),
             rsshub_url=r.url("RSSHUB_URL", "https://rsshub.app"),
+            proxy=r.str("DISCORD_PROXY") or r.str("HTTPS_PROXY") or r.str("HTTP_PROXY"),
         )
         if len(settings.prefix) > 10:
             r.problems.append("PREFIX can be at most 10 characters")

@@ -116,6 +116,7 @@ async def run_bot() -> bool:
 
 
 def main() -> None:
+    rate_limit_backoff = 60
     while True:
         try:
             should_restart = asyncio.run(run_bot())
@@ -125,9 +126,43 @@ def main() -> None:
             log.info(" Internal restart requested — re-initializing in 1s…")
             log.info("──────────────────────────────────────────")
             time.sleep(1)
+            rate_limit_backoff = 60
         except KeyboardInterrupt:
             break
-        except Exception:
+        except Exception as exc:
+            import discord
+
+            is_429 = False
+            curr = exc
+            while curr:
+                if isinstance(curr, discord.HTTPException) and getattr(curr, "status", None) == 429:
+                    is_429 = True
+                    break
+                curr = getattr(curr, "__cause__", None) or getattr(curr, "__context__", None)
+
+            if not is_429 and ("429" in str(exc) and "global rate limits" in str(exc)):
+                is_429 = True
+
+            if is_429:
+                log.warning("═" * 70)
+                log.warning(" [RATE LIMIT] Discord Cloudflare Edge Block (HTTP 429)")
+                log.warning(" Discord temporarily blocked API requests from this server's IP address")
+                log.warning(" ('exceeding global rate limits'). This happens on shared hosting")
+                log.warning(" nodes (Wispbyte/Pterodactyl) when other bots share the IP or after restarts.")
+                log.warning(" Keeping process alive to prevent Wispbyte crash loops and allow cooldown.")
+                log.warning(" Waiting %ds before reconnecting. Cooldown usually clears in 10-15m.", rate_limit_backoff)
+                log.warning(" [TIP] To bypass immediately without waiting: configure DISCORD_PROXY in .env")
+                log.warning("═" * 70)
+                wait_left = rate_limit_backoff
+                while wait_left > 0:
+                    step = min(15, wait_left)
+                    time.sleep(step)
+                    wait_left -= step
+                    if wait_left > 0:
+                        log.info(" Rate limit cooldown: %ds remaining until reconnect retry...", wait_left)
+                rate_limit_backoff = min(300, rate_limit_backoff + 60)
+                continue
+
             log.exception("Unexpected error in main loop")
             break
 

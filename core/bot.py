@@ -88,6 +88,7 @@ class Veil(commands.AutoShardedBot):
             activity=discord.Activity(type=discord.ActivityType.watching, name=settings.status),
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
+            proxy=settings.proxy,
         )
         self.default_prefix = settings.prefix
         from core.db import create_database

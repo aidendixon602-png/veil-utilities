@@ -128,7 +128,7 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
     music_status = "Lavalink (Public Nodes)" if settings.music_enabled else "Disabled"
     ai_status = f"{settings.ai_model or 'Auto'} ({'Key Set' if settings.ai_api_key else 'Public Tier'})"
 
-    return [
+    diag = [
         ("Bot Runtime:", f"Python {platform.python_version()} ({platform.system()} {platform.machine()})"),
         ("Discord API:", f"discord.py v{discord.__version__}"),
         ("Command Prefix:", f"{settings.prefix} (Default)"),
@@ -139,6 +139,9 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
         ("Antinuke Shield:", f"Armed & Active (Dev Alerts: {'Enabled' if settings.antinuke_dev_alerts else 'Disabled'})"),
         ("AI Subsystem:", ai_status),
     ]
+    if getattr(settings, "proxy", None):
+        diag.append(("Network Proxy:", "Configured (Active)"))
+    return diag
 
 
 def get_ready_diagnostics(bot: Veil) -> list[tuple[str, str]]:

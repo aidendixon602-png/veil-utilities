@@ -81,3 +81,11 @@ def test_token_cleanup_and_music_switches():
     assert multi.lavalink_uri == "http://a:1,https://b:2"
     with pytest.raises(ConfigError):
         Settings.from_env({"LAVALINK_URI": "a:1"})
+
+
+def test_proxy_setting_is_parsed():
+    assert Settings.from_env({}).proxy is None
+    assert Settings.from_env({"DISCORD_PROXY": "http://127.0.0.1:8080"}).proxy == "http://127.0.0.1:8080"
+    assert Settings.from_env({"HTTPS_PROXY": "http://proxy.host:8080"}).proxy == "http://proxy.host:8080"
+
+
