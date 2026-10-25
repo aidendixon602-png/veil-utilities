@@ -896,6 +896,8 @@ class Moderation(commands.Cog):
         unauthorized = []
         authorized_with_roles = []
         for m in list(ctx.guild.members):
+            if getattr(m, "id", None) == getattr(ctx.guild.me, "id", None):
+                continue
             held = [r for r in getattr(m, "roles", []) if r.id in b_roles]
             if held:
                 if self._is_role_authorized(ctx.guild, m, cfg):
