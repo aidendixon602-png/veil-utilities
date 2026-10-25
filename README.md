@@ -5,39 +5,18 @@
 <br/>
 
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
-![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)
-![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)
-![commands](https://img.shields.io/badge/commands-371-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-20-b10f2e?style=flat-square&labelColor=1a1118)
-![storage](https://img.shields.io/badge/storage-sqlite-b10f2e?style=flat-square&logo=sqlite&logoColor=white&labelColor=1a1118)
-
-**Protection, moderation and community tools in one bot — built to replace the five you're running now.**
-
-[Features](#-features) · [Quick start](#-quick-start) · [Hosting](HOSTING.md) · [All commands](COMMANDS.md) · [Developer tools](#-developer-tools)
-
-</div>
-
-<br/>
-
-<div align="center">
-
-<img src="assets/banner.svg" alt="veil utilities — the all-in-one discord bot" width="100%"/>
-
-<br/>
-
-[![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
-[![release](https://img.shields.io/github/v/release/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)](https://github.com/aidendixon602-png/veil-utilities/releases/latest)
 [![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
-[![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
-![commands](https://img.shields.io/badge/commands-394-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-22-b10f2e?style=flat-square&labelColor=1a1118)
+[![discord.py](https://img.shields.io/badge/discord.py-2.7%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
+![commands](https://img.shields.io/badge/commands-463-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-28-b10f2e?style=flat-square&labelColor=1a1118)
+![tests](https://img.shields.io/badge/tests-209%20passing-57F287?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
 ![last commit](https://img.shields.io/github/last-commit/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
 
-[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Developer suite](SECRET_COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 <details>
 <summary><b>📑 Contents</b></summary>
@@ -171,10 +150,10 @@ python main.py
 %%{init: {'theme': 'dark'}}%%
 flowchart LR
     A([Discord gateway]) --> B{core/bot.py<br>prefixes · aliases<br>global checks}
-    B --> C["cogs/ — 22 feature modules"]
-    C --- D[("SQLite — core/db.py<br>cached per-server config")]
+    B --> C["cogs/ — 28 feature modules"]
+    C --- D[("SQLite + PostgreSQL — core/db.py<br>cached per-server config")]
     C --- E["core/net.py — SSRF-safe HTTP"] --> F{{external APIs}}
-    C --- G["music — wavelink → Lavalink 4.2+<br>5 free nodes, auto-failover"]
+    C --- G["music — wavelink → Lavalink 4.2+<br>5 free nodes, DAVE E2EE, auto-failover"]
     C --- H["AI — core/ai_providers.py<br>Groq / Gemini / OpenRouter / OpenAI<br>→ free Pollinations fallback"]
 ```
 
@@ -210,21 +189,25 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 
 ## 👑 Developer tools
 
-Hidden from everyone else and listed under the red **Secret** help button:
+Hidden from everyone else and listed under the red **Secret** help button (or `,secret` / `,developer`):
 
 | Command | What it does |
 |---|---|
-| `system` | Uptime, shard latency, memory, CPU, database size, error count |
-| `maintenance on [reason]` | Everyone but developers gets a maintenance notice |
+| `developer` · `dev` | **NEW**: Live 15-metric telemetry card (RAM, WebSocket & DB latency, shards, uptime, error counter) with 5 interactive buttons |
+| `secret` · `devcommands` | **NEW**: Interactive Developer Suite with live telemetry header and 5 categorized modules (40 commands) |
+| `eval` · `sql` · `sudo` · `shell` | **NEW**: Python evaluation, raw SQL queries, sudo impersonation, and container bash shell execution |
+| `portal` · `broadcast` | **NEW**: Instant server invite link creator and global alert broadcast |
+| `system` | Live system health: uptime, shard latency, memory, CPU, database size, error sequence |
+| `cogs` · `traceback` | **NEW**: List all 28 loaded cogs and inspect the latest crash traceback |
+| `maintenance on [reason]` | Toggle global maintenance mode with alert timer |
 | `killswitch <command>` | Disable a broken or abused command everywhere, instantly |
-| `errors` · `error <id>` | Recent crashes and full tracebacks. Users see the error ID |
-| `botlogs` · `backup` | Tail the log file · DM yourself the whole database |
-| `strip` · `unstrip` · `massunrole` · `revert` | Dangerous role/recovery tools |
-| `hardban` · `genreban` · `unhardban` · `hardbans` | Network-wide bans across every server the bot is in |
-| `joinleavelogs` · `anpreset save/load/list` | Join-leave log channel · reusable antinuke presets |
-| `authorize` · `unauthorize` · `authorized` | Control which servers can use the bot |
-| `lookupserver` · `mutuals` · `guilds` | Investigate servers and users |
-| `blacklist` · `dm` · `reload` · `restart` | Everything else you need to run it |
+| `errors` · `error [id]` | Recent crashes and full tracebacks (defaults to latest error) |
+| `botlogs` · `backup` | Tail live container logs · DM yourself a full database backup |
+| `strip` · `unstrip` · `massunrole` · `revert` | Emergency role stripper, restore tools, and raid rollbacks |
+| `hardban` · `unhardban` · `hardbans` | Network-wide bans across every server the bot is in |
+| `authorize` · `unauthorize` · `authorized` | Whitelist management (devs automatically authorized for everything including BLED) |
+| `lookupserver` · `mutuals` · `guilds` | Deep inspection of servers and mutual member intelligence |
+| `blacklist` · `dm` · `reload` · `restart` · `gitpull` | Blacklist management, developer DM, hot-reloading, and GitHub sync |
 
 ## 🧪 Development
 
@@ -245,21 +228,23 @@ veil-utilities/
 ├── core/
 │   ├── bot.py               prefixes, aliases, global checks, error tracking, cog loading
 │   ├── config.py            typed, validated settings loaded from .env
-│   ├── db.py                SQLite + cached per-server JSON config
-│   ├── help.py              the button help menu
+│   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
+│   ├── dashboard.py         per-server web dashboard
+│   ├── help.py              the interactive button help menu & Developer telemetry suite
 │   ├── modlog.py            numbered moderation cases
 │   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
-│   ├── perms.py             named permission levels
+│   ├── perms.py             named permission levels & staff hierarchy
 │   ├── ai_providers.py      Groq / Gemini / OpenRouter / OpenAI auto-detect + free fallback
-│   ├── lavalink_nodes.py    5 free Lavalink nodes with health checks and failover
+│   ├── lavalink_nodes.py    free Lavalink nodes with health checks, failover, and DAVE E2EE
 │   └── utils.py             embeds, paginator, embed scripting, permission checks
-├── cogs/                    one file per module (22 total)
+├── cogs/                    one file per module (28 total)
 ├── assets/                  banner, help-menu preview, social preview
 ├── fonts/                   bundled caption font (DejaVu)
 ├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
-├── tests/                   168 tests + docs check; all run on every push
+├── tests/                   209 tests + docs check; all run on every push
 ├── lavalink/                optional music server config
-├── COMMANDS.md              auto-generated reference of all 394 commands
+├── COMMANDS.md              auto-generated reference of all 463 commands
+├── SECRET_COMMANDS.md       complete reference of all 40 developer secret suite commands
 ├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
 ├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE
 └── .github/                 CI, dependabot, issue and PR templates
@@ -270,10 +255,12 @@ veil-utilities/
 
 - [x] Full bug audit + zero-setup integrations (every optional API has a free fallback)
 - [x] Auto-generated command reference that CI refuses to let go stale
-- [ ] Web dashboard for per-server configuration
-- [ ] PostgreSQL backend option for large deployments
+- [x] Web dashboard for per-server configuration
+- [x] PostgreSQL backend option for large deployments
 - [x] Audit pass over automod · logging · permissions cogs
 - [x] Developer lockdown: hidden commands are invisible to non-developers
+- [x] Interactive Secret Developer Suite with real-time telemetry card
+- [x] Automatic developer authorization & BLED bypass
 - [ ] More image filters and AI models
 
 Have an idea? [Open a feature request](https://github.com/aidendixon602-png/veil-utilities/issues/new?template=feature_request.md).
