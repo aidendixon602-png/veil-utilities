@@ -365,11 +365,38 @@ class Logging(commands.Cog):
     async def on_message_delete(self, m: discord.Message):
         if not m.guild or m.author.bot:
             return
-        e = discord.Embed(color=Colors.error, description=f"**Message deleted in {m.channel.mention}**\n{shorten(m.content or '*no text*', 3900)}")
-        e.set_author(name=str(m.author), icon_url=m.author.display_avatar.url)
+        e = discord.Embed(color=Colors.error)
+        channel_name = getattr(m.channel, "name", "unknown-channel")
+        e.set_author(name=f"Message Deleted — #{channel_name}", icon_url=m.author.display_avatar.url)
+        e.set_thumbnail(url=m.author.display_avatar.url)
+        e.add_field(name="Author", value=f"{m.author.mention} (`{m.author.name}` • `{m.author.id}`)", inline=True)
+        e.add_field(name="Channel", value=m.channel.mention, inline=True)
+
+        actor_str = None
+        try:
+            me = getattr(m.guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in m.guild.audit_logs(limit=4, action=discord.AuditLogAction.message_delete):
+                    if getattr(entry.target, "id", None) == m.author.id:
+                        delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
+                        if delta < 10:
+                            actor_str = f"{entry.user.mention} (`{entry.user.name}`)"
+                            break
+        except Exception:
+            pass
+
+        if actor_str:
+            e.add_field(name="Deleted By", value=actor_str, inline=True)
+
+        content = m.content or "*No text content (embed or attachment only)*"
+        e.add_field(name="Content", value=shorten(content, 1024), inline=False)
         if m.attachments:
-            e.add_field(name="Attachments", value="\n".join(a.filename for a in m.attachments)[:1024])
-        e.set_footer(text=f"User {m.author.id} • Message {m.id}")
+            att_list = "\n".join(f"• [`{a.filename}`]({a.url})" for a in m.attachments)[:1024]
+            e.add_field(name=f"Attachments ({len(m.attachments)})", value=att_list, inline=False)
+
+        now = discord.utils.utcnow()
+        e.set_footer(text=f"Author ID: {m.author.id} • Message ID: {m.id} • Today at {now.strftime('%I:%M %p')}")
+        e.timestamp = now
         await self.send(m.guild, "messages", e)
 
     @commands.Cog.listener()
@@ -378,17 +405,26 @@ class Logging(commands.Cog):
             return
         body = "\n".join(f"[{m.created_at:%Y-%m-%d %H:%M}] {m.author}: {m.content}" for m in sorted(messages, key=lambda x: x.id))
         e = discord.Embed(color=Colors.error, description=f"**{len(messages)} messages bulk deleted in {messages[0].channel.mention}**")
+        now = discord.utils.utcnow()
+        e.set_footer(text=f"{len(messages)} messages • Today at {now.strftime('%I:%M %p')}")
+        e.timestamp = now
         await self.send(messages[0].guild, "messages", e, discord.File(io.BytesIO(body.encode()), "messages.txt"))
 
     @commands.Cog.listener()
     async def on_message_edit(self, b: discord.Message, a: discord.Message):
         if not a.guild or a.author.bot or b.content == a.content:
             return
-        e = discord.Embed(color=Colors.warn, description=f"**Message edited in {a.channel.mention}** [jump]({a.jump_url})")
-        e.add_field(name="Before", value=shorten(b.content or "*empty*"), inline=False)
-        e.add_field(name="After", value=shorten(a.content or "*empty*"), inline=False)
-        e.set_author(name=str(a.author), icon_url=a.author.display_avatar.url)
-        e.set_footer(text=f"User {a.author.id}")
+        e = discord.Embed(color=Colors.warn)
+        channel_name = getattr(a.channel, "name", "unknown-channel")
+        e.set_author(name=f"Message Edited — #{channel_name}", icon_url=a.author.display_avatar.url)
+        e.set_thumbnail(url=a.author.display_avatar.url)
+        e.add_field(name="Author", value=f"{a.author.mention} (`{a.author.name}`)", inline=True)
+        e.add_field(name="Channel", value=f"{a.channel.mention} • [Jump to Message]({a.jump_url})", inline=True)
+        e.add_field(name="Before", value=shorten(b.content or "*Empty message*", 1024), inline=False)
+        e.add_field(name="After", value=shorten(a.content or "*Empty message*", 1024), inline=False)
+        now = discord.utils.utcnow()
+        e.set_footer(text=f"Author ID: {a.author.id} • Message ID: {a.id} • Today at {now.strftime('%I:%M %p')}")
+        e.timestamp = now
         await self.send(a.guild, "messages", e)
 
     # ------------------------------------------------------------ join-logs
@@ -397,15 +433,26 @@ class Logging(commands.Cog):
         ch = await self.channel_for(m.guild, "joinleave")
         if not ch:
             return
-        days = (discord.utils.utcnow() - m.created_at).days
+        now = discord.utils.utcnow()
+        age_days = (now - m.created_at).days
         e = discord.Embed(color=Colors.mint)
-        e.set_author(name=m.name, icon_url=m.display_avatar.url)
-        e.title = "Member Joined"
-        e.add_field(name="User", value=m.mention, inline=True)
-        e.add_field(name="Account Age", value=f"{days} days", inline=True)
-        e.add_field(name="Account Created", value=m.created_at.strftime("%B %d, %Y"), inline=True)
-        e.add_field(name="Invite Used", value="Unknown", inline=False)
-        e.set_footer(text=f"User ID: {m.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.set_author(name=f"Member Joined — {m.display_name}", icon_url=m.display_avatar.url)
+        e.set_thumbnail(url=m.display_avatar.url)
+        e.add_field(name="User", value=f"{m.mention} (`{m.name}` • `{m.id}`)", inline=True)
+
+        member_count = getattr(m.guild, "member_count", None)
+        if member_count:
+            e.add_field(name="Member Count", value=f"#{member_count}", inline=True)
+
+        created_ts = int(m.created_at.timestamp())
+        account_age_val = f"<t:{created_ts}:R>\n(<t:{created_ts}:D>)"
+        if age_days < 7:
+            account_age_val += "\n⚠️ *New account (< 7 days)*"
+        e.add_field(name="Account Created", value=account_age_val, inline=True)
+
+        guild_icon = m.guild.icon.url if m.guild.icon else None
+        e.set_footer(text=f"User ID: {m.id} • Today at {now.strftime('%I:%M %p')}", icon_url=guild_icon)
+        e.timestamp = now
         try:
             await ch.send(embed=e)
         except discord.HTTPException:
@@ -416,13 +463,55 @@ class Logging(commands.Cog):
         ch = await self.channel_for(m.guild, "joinleave")
         if not ch:
             return
-        roles = [r.mention for r in m.roles[1:][::-1]]
-        e = discord.Embed(color=Colors.error)
-        e.set_author(name=m.name, icon_url=m.display_avatar.url)
-        e.title = "Member Left"
-        e.add_field(name="User", value=m.mention, inline=True)
-        e.add_field(name="Roles Had", value=shorten(" ".join(roles) or "None", 1000), inline=False)
-        e.set_footer(text=f"User ID: {m.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+
+        now = discord.utils.utcnow()
+        kicked_by = None
+        kick_reason = None
+        try:
+            me = getattr(m.guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in m.guild.audit_logs(limit=4, action=discord.AuditLogAction.kick):
+                    if getattr(entry.target, "id", None) == m.id:
+                        delta = (now - entry.created_at).total_seconds()
+                        if delta < 15:
+                            kicked_by = entry.user
+                            kick_reason = entry.reason
+                            break
+        except Exception:
+            pass
+
+        if kicked_by:
+            color = Colors.warn
+            title = f"Member Kicked — {m.display_name}"
+        else:
+            color = Colors.error
+            title = f"Member Left — {m.display_name}"
+
+        e = discord.Embed(color=color)
+        e.set_author(name=title, icon_url=m.display_avatar.url)
+        e.set_thumbnail(url=m.display_avatar.url)
+        e.add_field(name="User", value=f"{m.mention} (`{m.name}` • `{m.id}`)", inline=True)
+
+        member_count = getattr(m.guild, "member_count", None)
+        if member_count:
+            e.add_field(name="Member Count", value=f"#{member_count}", inline=True)
+
+        if kicked_by:
+            e.add_field(name="Moderator", value=f"{kicked_by.mention} (`{kicked_by.name}`)", inline=True)
+            if kick_reason:
+                e.add_field(name="Reason", value=shorten(kick_reason, 500), inline=False)
+
+        user_roles = [r for r in m.roles if not r.is_default()]
+        if user_roles:
+            if len(user_roles) <= 8:
+                role_val = "\n".join(f"• {r.mention} (`{r.name}`)" for r in reversed(user_roles))
+            else:
+                role_val = ", ".join(r.mention for r in reversed(user_roles))
+            e.add_field(name=f"Roles Had ({len(user_roles)})", value=shorten(role_val, 1024), inline=False)
+
+        guild_icon = m.guild.icon.url if m.guild.icon else None
+        e.set_footer(text=f"User ID: {m.id} • Today at {now.strftime('%I:%M %p')}", icon_url=guild_icon)
+        e.timestamp = now
         try:
             await ch.send(embed=e)
         except discord.HTTPException:
@@ -434,25 +523,35 @@ class Logging(commands.Cog):
         ch = await self.channel_for(g, "bans")
         if not ch:
             return
-        mod_name = "Unknown"
-        mod_id = 0
+        mod_str = "Automatic / Discord API"
         reason = "No reason provided"
         try:
-            async for entry in g.audit_logs(limit=3, action=discord.AuditLogAction.ban):
-                if entry.target and entry.target.id == u.id:
-                    mod_name = entry.user.name
-                    mod_id = entry.user.id
-                    reason = entry.reason or "No reason provided"
-                    break
+            me = getattr(g, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in g.audit_logs(limit=4, action=discord.AuditLogAction.ban):
+                    if getattr(entry.target, "id", None) == u.id:
+                        delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
+                        if delta < 20:
+                            mod = entry.user
+                            if getattr(mod, "bot", False):
+                                mod_str = f"🤖 {mod.mention} (`{mod.name}`)"
+                            else:
+                                mod_str = f"{mod.mention} (`{mod.name}` • `{mod.id}`)"
+                            reason = entry.reason or "No reason provided"
+                            break
         except Exception:
             pass
 
+        now = discord.utils.utcnow()
         e = discord.Embed(color=Colors.error)
-        e.set_author(name=f"{u.name} - Banned", icon_url=u.display_avatar.url)
-        e.add_field(name="User", value=f"{u.mention} ( {u.id} )", inline=True)
-        e.add_field(name="Moderator (via bot)", value=f"{mod_name} ( {mod_id} )" if mod_id else mod_name, inline=True)
-        e.add_field(name="Reason", value=reason, inline=False)
-        e.set_footer(text=f"User ID: {u.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.set_author(name=f"Member Banned — {u.name}", icon_url=u.display_avatar.url)
+        e.set_thumbnail(url=u.display_avatar.url)
+        e.add_field(name="User", value=f"{u.mention} (`{u.name}` • `{u.id}`)", inline=True)
+        e.add_field(name="Moderator", value=mod_str, inline=True)
+        e.add_field(name="Reason", value=shorten(reason, 500), inline=False)
+        guild_icon = g.icon.url if g.icon else None
+        e.set_footer(text=f"User ID: {u.id} • Today at {now.strftime('%I:%M %p')}", icon_url=guild_icon)
+        e.timestamp = now
         view = BanLogView(g.id, u.id, is_banned=True)
         try:
             await ch.send(embed=e, view=view)
@@ -464,25 +563,35 @@ class Logging(commands.Cog):
         ch = await self.channel_for(g, "bans")
         if not ch:
             return
-        mod_name = "Unknown"
-        mod_id = 0
+        mod_str = "Automatic / Discord API"
         reason = "No reason provided"
         try:
-            async for entry in g.audit_logs(limit=3, action=discord.AuditLogAction.unban):
-                if entry.target and entry.target.id == u.id:
-                    mod_name = entry.user.name
-                    mod_id = entry.user.id
-                    reason = entry.reason or "No reason provided"
-                    break
+            me = getattr(g, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in g.audit_logs(limit=4, action=discord.AuditLogAction.unban):
+                    if getattr(entry.target, "id", None) == u.id:
+                        delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
+                        if delta < 20:
+                            mod = entry.user
+                            if getattr(mod, "bot", False):
+                                mod_str = f"🤖 {mod.mention} (`{mod.name}`)"
+                            else:
+                                mod_str = f"{mod.mention} (`{mod.name}` • `{mod.id}`)"
+                            reason = entry.reason or "No reason provided"
+                            break
         except Exception:
             pass
 
+        now = discord.utils.utcnow()
         e = discord.Embed(color=Colors.mint)
-        e.set_author(name=f"{u.name} - Unbanned", icon_url=u.display_avatar.url)
-        e.add_field(name="User", value=f"{u.mention} ( {u.id} )", inline=True)
-        e.add_field(name="Moderator (via bot)", value=f"{mod_name} ( {mod_id} )" if mod_id else mod_name, inline=True)
-        e.add_field(name="Reason", value=reason, inline=False)
-        e.set_footer(text=f"User ID: {u.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.set_author(name=f"Member Unbanned — {u.name}", icon_url=u.display_avatar.url)
+        e.set_thumbnail(url=u.display_avatar.url)
+        e.add_field(name="User", value=f"{u.mention} (`{u.name}` • `{u.id}`)", inline=True)
+        e.add_field(name="Moderator", value=mod_str, inline=True)
+        e.add_field(name="Reason", value=shorten(reason, 500), inline=False)
+        guild_icon = g.icon.url if g.icon else None
+        e.set_footer(text=f"User ID: {u.id} • Today at {now.strftime('%I:%M %p')}", icon_url=guild_icon)
+        e.timestamp = now
         view = BanLogView(g.id, u.id, is_banned=False)
         try:
             await ch.send(embed=e, view=view)
