@@ -371,11 +371,50 @@ class Owner(commands.Cog):
                 failed.append(f"{ext}: {e}")
         await (ctx.warn("\n".join(failed)) if failed else ctx.approve(f"Reloaded {len(exts)} module(s)"))
 
+    @commands.command(hidden=True, aliases=["presence", "statusstate"])
+    async def setpresence(self, ctx: Context, status: str, *, text: str = None):
+        """Change the bot's presence status (dnd, online, idle, invisible) and optional text: `,presence dnd`"""
+        STATUS_MAP = {
+            "online": discord.Status.online,
+            "dnd": discord.Status.dnd,
+            "do_not_disturb": discord.Status.dnd,
+            "idle": discord.Status.idle,
+            "invisible": discord.Status.invisible,
+            "offline": discord.Status.invisible,
+        }
+        status_clean = status.lower()
+        if status_clean not in STATUS_MAP:
+            full_text = status + (f" {text}" if text else "")
+            await self.bot.change_presence(status=self.bot.presence_status, activity=discord.CustomActivity(name=full_text))
+            return await ctx.approve(f"Status activity updated to: `{full_text}`")
+
+        self.bot.presence_status = STATUS_MAP[status_clean]
+        g = await self.bot.db.get_config(0, "global")
+        g["presence_status"] = status_clean
+        await self.bot.db.set_config(0, "global", g)
+
+        if text:
+            activity = discord.CustomActivity(name=text)
+        else:
+            activity = getattr(self.bot, "activity", None) or discord.CustomActivity(name=f"Guarding {len(self.bot.guilds)} guilds")
+
+        await self.bot.change_presence(status=self.bot.presence_status, activity=activity)
+        await ctx.approve(f"Bot presence updated to **{status_clean.upper()}** (persisted across restarts).")
+
     @commands.command(hidden=True)
-    async def setstatus(self, ctx: Context, *, text: str):
-        """Change the bot's status text"""
-        await self.bot.change_presence(activity=discord.CustomActivity(name=text))
-        await ctx.approve("Status updated")
+    async def setstatus(self, ctx: Context, *, arg: str):
+        """Change the bot's status text or presence: `,setstatus dnd` or `,setstatus Watching the server`"""
+        STATUS_MAP = {
+            "online": discord.Status.online,
+            "dnd": discord.Status.dnd,
+            "idle": discord.Status.idle,
+            "invisible": discord.Status.invisible,
+        }
+        if arg.lower() in STATUS_MAP:
+            await self.setpresence(ctx, arg)
+        else:
+            await self.bot.change_presence(status=self.bot.presence_status, activity=discord.CustomActivity(name=arg))
+            await ctx.approve(f"Status activity updated to: `{arg}`")
 
     @commands.command(hidden=True, aliases=["reboot"])
     async def restart(self, ctx: Context, seconds: int = 3):

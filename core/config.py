@@ -115,6 +115,7 @@ class Settings:
     # general
     prefix: str
     status: str
+    status_type: str
     db_path: str
     low_memory: bool
     database_url: str | None
@@ -158,6 +159,7 @@ class Settings:
             owner_ids=r.snowflakes("OWNER_IDS"),
             prefix=r.str("PREFIX", ","),
             status=r.str("STATUS", "veil utilities | ,help"),
+            status_type=r.str("BOT_STATUS", r.str("STATUS_TYPE", "online")).lower(),
             db_path=r.str("DB_PATH", "veil.db"),
             low_memory=r.bool("LOW_MEMORY", False),
             database_url=r.str("DATABASE_URL"),

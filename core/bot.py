@@ -64,6 +64,16 @@ def intent_plans():
 class Veil(commands.AutoShardedBot):
     def __init__(self, intents: discord.Intents | None = None):
         owners = set(settings.owner_ids)
+        status_name = (getattr(settings, "status_type", None) or "online").lower()
+        STATUS_MAP = {
+            "online": discord.Status.online,
+            "dnd": discord.Status.dnd,
+            "do_not_disturb": discord.Status.dnd,
+            "idle": discord.Status.idle,
+            "invisible": discord.Status.invisible,
+            "offline": discord.Status.invisible,
+        }
+        self.presence_status = STATUS_MAP.get(status_name, discord.Status.online)
         super().__init__(
             command_prefix=self._get_prefix,
             intents=intents or discord.Intents.all(),
@@ -72,6 +82,7 @@ class Veil(commands.AutoShardedBot):
             strip_after_prefix=True,
             owner_ids=owners or None,
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, replied_user=False),
+            status=self.presence_status,
             activity=discord.Activity(type=discord.ActivityType.watching, name=settings.status),
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
@@ -107,6 +118,17 @@ class Veil(commands.AutoShardedBot):
         self.blacklist = {r["id"] for r in await self.db.fetchall("SELECT id FROM blacklist")}
         self.authorized = {r["guild_id"] for r in await self.db.fetchall("SELECT guild_id FROM authorized")}
         g = await self.db.get_config(0, "global")
+        persisted_status = g.get("presence_status")
+        STATUS_MAP = {
+            "online": discord.Status.online,
+            "dnd": discord.Status.dnd,
+            "do_not_disturb": discord.Status.dnd,
+            "idle": discord.Status.idle,
+            "invisible": discord.Status.invisible,
+            "offline": discord.Status.invisible,
+        }
+        if persisted_status and persisted_status in STATUS_MAP:
+            self.presence_status = STATUS_MAP[persisted_status]
         self.maintenance = g.get("maintenance")
         self.maintenance_until = g.get("maintenance_until")
         self._maintenance_channel_id = g.get("maintenance_channel_id")
@@ -144,7 +166,7 @@ class Veil(commands.AutoShardedBot):
                 except Exception:
                     text = status_template
             activity = discord.CustomActivity(name=text)
-            await self.change_presence(activity=activity)
+            await self.change_presence(status=self.presence_status, activity=activity)
         except Exception:
             pass
 
