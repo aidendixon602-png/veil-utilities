@@ -7,9 +7,9 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.7%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
-![commands](https://img.shields.io/badge/commands-463-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-473-b10f2e?style=flat-square&labelColor=1a1118)
 ![modules](https://img.shields.io/badge/modules-28-b10f2e?style=flat-square&labelColor=1a1118)
-![tests](https://img.shields.io/badge/tests-209%20passing-57F287?style=flat-square&labelColor=1a1118)
+![tests](https://img.shields.io/badge/tests-216%20passing-57F287?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
 ![last commit](https://img.shields.io/github/last-commit/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)
@@ -241,9 +241,9 @@ veil-utilities/
 ├── assets/                  banner, help-menu preview, social preview
 ├── fonts/                   bundled caption font (DejaVu)
 ├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
-├── tests/                   209 tests + docs check; all run on every push
+├── tests/                   216 tests + docs check; all run on every push
 ├── lavalink/                optional music server config
-├── COMMANDS.md              auto-generated reference of all 463 commands
+├── COMMANDS.md              auto-generated reference of all 473 commands
 ├── SECRET_COMMANDS.md       complete reference of all 40 developer secret suite commands
 ├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
 ├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE

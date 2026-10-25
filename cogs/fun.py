@@ -181,6 +181,59 @@ class Fun(commands.Cog):
             url = (await r.json())["message"]
         await ctx.send(embed=discord.Embed(color=Colors.main).set_image(url=url))
 
+    @commands.command(aliases=["dadjoke", "pun"])
+    async def joke(self, ctx: Context):
+        """Get a random dad joke or pun"""
+        headers = {"Accept": "application/json", "User-Agent": "VeilUtilities/1.0"}
+        async with self.bot.session.get("https://icanhazdadjoke.com/", headers=headers) as r:
+            if r.status != 200:
+                raise UserError("Couldn't think of a joke right now, try again in a second!")
+            data = await r.json(content_type=None)
+        joke_text = data.get("joke", "I couldn't think of a joke right now!")
+        e = discord.Embed(
+            title="😂 Random Joke",
+            description=f"*{joke_text}*",
+            color=Colors.main
+        )
+        e.set_footer(text="icanhazdadjoke.com")
+        await ctx.send(embed=e)
+
+    @commands.command(name="redditmeme", aliases=["dankmeme", "rmeme"])
+    async def redditmeme(self, ctx: Context):
+        """Fetch a random trending meme from Reddit"""
+        async with self.bot.session.get("https://meme-api.com/gimme", headers={"User-Agent": "VeilUtilities/1.0"}) as r:
+            if r.status != 200:
+                raise UserError("Meme stream is temporarily unavailable, try again in a moment!")
+            data = await r.json(content_type=None)
+        title = data.get("title", "Random Meme")
+        post_link = data.get("postLink", "https://reddit.com")
+        img_url = data.get("url")
+        subreddit = data.get("subreddit", "memes")
+        ups = data.get("ups", 0)
+
+        e = discord.Embed(title=title, url=post_link, color=Colors.main)
+        if img_url:
+            e.set_image(url=img_url)
+        e.set_footer(text=f"r/{subreddit} • 👍 {ups:,}")
+        await ctx.send(embed=e)
+
+    @commands.command(name="advice", aliases=["tip", "wisdom"])
+    async def advice(self, ctx: Context):
+        """Receive random daily advice and wisdom"""
+        async with self.bot.session.get("https://api.adviceslip.com/advice", headers={"User-Agent": "VeilUtilities/1.0"}) as r:
+            if r.status != 200:
+                raise UserError("Advice service is busy, try again in a moment!")
+            data = await r.json(content_type=None)
+        slip = data.get("slip", {})
+        advice_text = slip.get("advice", "Always treat others the way you want to be treated.")
+        e = discord.Embed(
+            title="💡 Words of Wisdom",
+            description=f"\"{advice_text}\"",
+            color=Colors.main
+        )
+        e.set_footer(text="Advice Slip API")
+        await ctx.send(embed=e)
+
     # ------------------------------------------------------------ interactions
     async def _interact(self, ctx: Context, action: str, member: discord.Member | None):
         try:

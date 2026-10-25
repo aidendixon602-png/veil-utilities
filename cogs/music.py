@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import cast
+import urllib.parse
 
 import discord
 from discord.ext import commands, tasks
@@ -428,6 +430,73 @@ class Music(commands.Cog):
         pct = player.position / t.length if t.length else 0
         e.add_field(name="Progress", value=f"`{fmt_ms(player.position)}` {'▬' * int(pct * 15)}🔘{'▬' * (15 - int(pct * 15))} `{fmt_ms(t.length)}`")
         await ctx.send(embed=e)
+
+    @commands.command(name="lyrics", aliases=["ly", "songlyrics"])
+    async def lyrics(self, ctx: Context, *, query: str = None):
+        """Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track)"""
+        title = query
+        artist = ""
+
+        if not title:
+            player = await self.player(ctx, listen_only=True)
+            if player and player.current:
+                title = player.current.title
+                artist = player.current.author or ""
+            else:
+                raise UserError("Nothing is playing in voice. Please provide a song name: `,lyrics <song>`")
+
+        clean_title = re.sub(r"\(.*?\)|\[.*?\]", "", title).strip()
+        quoted = urllib.parse.quote(clean_title)
+        url = f"https://lrclib.net/api/search?q={quoted}"
+
+        try:
+            async with self.bot.session.get(url, headers={"User-Agent": "VeilUtilities/1.0"}) as resp:
+                if resp.status != 200:
+                    raise UserError(f"Could not find lyrics for `{clean_title}`.")
+                data = await resp.json(content_type=None)
+        except Exception:
+            raise UserError(f"Lyrics service didn't respond, try again in a moment.")
+
+        if not data or not isinstance(data, list):
+            raise UserError(f"No lyrics found for `{clean_title}`.")
+
+        track = data[0]
+        plain_lyrics = track.get("plainLyrics")
+        if not plain_lyrics:
+            raise UserError(f"No lyrics text available for `{track.get('trackName', clean_title)}`.")
+
+        track_name = track.get("trackName", clean_title)
+        artist_name = track.get("artistName", artist or "Unknown Artist")
+        album_name = track.get("albumName", "")
+
+        chunks = []
+        lines = plain_lyrics.split("\n\n")
+        current_chunk = ""
+        for block in lines:
+            if len(current_chunk) + len(block) + 2 > 1800:
+                chunks.append(current_chunk.strip())
+                current_chunk = block + "\n\n"
+            else:
+                current_chunk += block + "\n\n"
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+
+        pages = []
+        for i, chunk in enumerate(chunks):
+            e = discord.Embed(
+                title=f"🎵 {track_name} — {artist_name}",
+                description=f"```fix\n{chunk}\n```",
+                color=Colors.main
+            )
+            if album_name:
+                e.add_field(name="Album", value=album_name, inline=True)
+            if len(chunks) > 1:
+                e.set_footer(text=f"Page {i + 1}/{len(chunks)} • lrclib.net")
+            else:
+                e.set_footer(text="lrclib.net • Open Lyrics Database")
+            pages.append(e)
+
+        await ctx.paginate(pages)
 
     @commands.command(aliases=["vol", "v"])
     async def volume(self, ctx: Context, volume: int):

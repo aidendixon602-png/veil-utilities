@@ -69,9 +69,9 @@ class Integrations(commands.Cog):
         self.bot = bot
         self.lastfm_key = settings.lastfm_api_key
 
-    async def get_json(self, url: str, **params):
+    async def get_json(self, url: str, headers: dict | None = None, **params):
         try:
-            async with self.bot.session.get(url, params=params or None,
+            async with self.bot.session.get(url, params=params or None, headers=headers or None,
                                             timeout=aiohttp.ClientTimeout(total=20)) as r:
                 if r.status == 404:
                     raise UserError("Nothing found")
@@ -267,60 +267,268 @@ class Integrations(commands.Cog):
         await ctx.paginate(chunk_embeds(f"Who knows {artist} in {ctx.guild.name}", lines))
 
     # ================================================================ lookups
-    @commands.command(aliases=["ud", "define"])
+    @commands.command(aliases=["ud"])
     async def urban(self, ctx: Context, *, term: str):
-        """Urban Dictionary definitions"""
+        """Urban Dictionary definitions and slang"""
         data = await self.get_json("https://api.urbandictionary.com/v0/define", term=term)
         defs = data.get("list", [])
         if not defs:
-            raise UserError("No definitions found")
+            raise UserError(f"No Urban Dictionary definitions found for `{term}`.")
         pages = []
         for d in defs[:10]:
-            e = discord.Embed(title=d["word"], url=d["permalink"], color=Colors.main,
-                              description=shorten(d["definition"].replace("[", "").replace("]", ""), 2000))
+            clean_def = d["definition"].replace("[", "").replace("]", "").strip()
+            e = discord.Embed(
+                title=f"📚 {d['word']}",
+                url=d["permalink"],
+                color=Colors.main,
+                description=shorten(clean_def, 2000)
+            )
             if d.get("example"):
-                e.add_field(name="Example", value=shorten(d["example"].replace("[", "").replace("]", "")), inline=False)
-            e.set_footer(text=f"👍 {d['thumbs_up']} • 👎 {d['thumbs_down']}")
+                clean_ex = d["example"].replace("[", "").replace("]", "").strip()
+                e.add_field(name="Example", value=f"*{shorten(clean_ex, 1000)}*", inline=False)
+            
+            up = d.get("thumbs_up", 0)
+            down = d.get("thumbs_down", 0)
+            total = up + down
+            ratio = f"{round((up / total) * 100)}%" if total > 0 else "—"
+            author = d.get("author") or "Anonymous"
+            e.set_footer(text=f"By {author} • 👍 {up:,} ({ratio}) • 👎 {down:,}")
             pages.append(e)
         await ctx.paginate(pages)
 
+    @commands.command(aliases=["dictionary", "dict"])
+    async def define(self, ctx: Context, *, word: str):
+        """English dictionary definitions, phonetics, and usage examples: `define serendipity`"""
+        word_clean = word.strip().lower()
+        quoted = urllib.parse.quote(word_clean)
+        try:
+            data = await self.get_json(f"https://api.dictionaryapi.dev/api/v2/entries/en/{quoted}")
+        except UserError:
+            raise UserError(f"No dictionary definition found for `{word}`.")
+
+        if not isinstance(data, list) or not data:
+            raise UserError(f"No dictionary definition found for `{word}`.")
+
+        entry = data[0]
+        title_word = entry.get("word", word_clean).capitalize()
+        phonetic = entry.get("phonetic") or ""
+        if not phonetic:
+            for p in entry.get("phonetics", []):
+                if p.get("text"):
+                    phonetic = p["text"]
+                    break
+
+        e = discord.Embed(
+            title=f"📖 {title_word} {f'`{phonetic}`' if phonetic else ''}".strip(),
+            color=Colors.main
+        )
+
+        meanings = entry.get("meanings", [])
+        for m in meanings[:4]:
+            part = m.get("partOfSpeech", "definition").capitalize()
+            defs = m.get("definitions", [])
+            lines = []
+            for i, d in enumerate(defs[:2], 1):
+                def_text = d.get("definition", "").strip()
+                ex = d.get("example")
+                if ex:
+                    lines.append(f"**{i}.** {def_text}\n   ↳ *\"{ex}\"*")
+                else:
+                    lines.append(f"**{i}.** {def_text}")
+            if lines:
+                e.add_field(name=f"**{part}**", value="\n".join(lines), inline=False)
+
+        synonyms = []
+        for m in meanings:
+            for s in m.get("synonyms", []):
+                if s not in synonyms:
+                    synonyms.append(s)
+        if synonyms:
+            e.add_field(name="Synonyms", value=", ".join(synonyms[:8]), inline=False)
+
+        e.set_footer(text="Free English Dictionary API")
+        await ctx.send(embed=e)
+
+    @commands.command(aliases=["currency", "exchange"])
+    async def convert(self, ctx: Context, amount: float, from_curr: str, to_curr: str):
+        """Convert currencies with live European Central Bank exchange rates: `convert 100 USD EUR`"""
+        from_c = from_curr.upper()
+        to_c = to_curr.upper()
+        if from_c == to_c:
+            return await ctx.neutral(f"**{amount:,.2f} {from_c}** is equal to **{amount:,.2f} {to_c}**.")
+
+        try:
+            data = await self.get_json("https://api.frankfurter.app/latest", amount=amount, from_curr=from_c, to=to_c)
+        except Exception:
+            raise UserError(f"Could not convert `{from_c}` to `{to_c}`. Supported currencies: USD, EUR, GBP, JPY, CAD, AUD, CHF, etc.")
+
+        rates = data.get("rates", {})
+        if to_c not in rates:
+            raise UserError(f"Unsupported target currency `{to_c}`.")
+
+        converted = rates[to_c]
+        rate = converted / amount if amount != 0 else 0
+        inverse = 1 / rate if rate != 0 else 0
+
+        e = discord.Embed(
+            title=f"💱 Currency Conversion: {from_c} ➔ {to_c}",
+            color=Colors.success
+        )
+        e.add_field(name=f"Amount ({from_c})", value=f"**{amount:,.2f} {from_c}**")
+        e.add_field(name=f"Converted ({to_c})", value=f"**{converted:,.2f} {to_c}**")
+        e.add_field(name="Exchange Rates", value=f"1 {from_c} = `{rate:.4f} {to_c}`\n1 {to_c} = `{inverse:.4f} {from_c}`", inline=False)
+        e.set_footer(text=f"Official European Central Bank rates • {data.get('date', 'today')}")
+        await ctx.send(embed=e)
+
+    @commands.command(aliases=["ip", "geoip"])
+    async def ipinfo(self, ctx: Context, query: str):
+        """IP address and domain geolocation intelligence: `ipinfo 1.1.1.1`"""
+        clean_target = query.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
+        data = await self.get_json(f"http://ip-api.com/json/{urllib.parse.quote(clean_target)}",
+                                   fields="status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query")
+        if data.get("status") != "success":
+            raise UserError(f"Failed to lookup IP `{clean_target}`: {data.get('message', 'invalid query')}")
+
+        ip_addr = data.get("query", clean_target)
+        country = data.get("country", "Unknown")
+        code = data.get("countryCode", "").lower()
+        flag = "".join(chr(127397 + ord(c)) for c in code.upper()) if len(code) == 2 else "🌐"
+
+        e = discord.Embed(title=f"{flag} Network Intelligence: {ip_addr}", color=Colors.main)
+        e.add_field(name="Location", value=f"{data.get('city', '—')}, {data.get('regionName', '—')}\n{country} ({code.upper()})")
+        e.add_field(name="ISP / Provider", value=f"{data.get('isp', '—')}\n*{data.get('org', '—')}*")
+        e.add_field(name="ASN", value=f"`{data.get('as', '—')}`")
+        e.add_field(name="Timezone", value=f"`{data.get('timezone', '—')}`")
+        e.add_field(name="ZIP / Postal", value=f"`{data.get('zip', '—')}`")
+        e.add_field(name="Coordinates", value=f"`{data.get('lat', 0):.4f}, {data.get('lon', 0):.4f}`")
+        e.set_footer(text="Veil Network Intelligence • ip-api.com")
+        await ctx.send(embed=e)
+
+    @commands.command(name="pypi", aliases=["pythonpkg", "pip"])
+    async def pypi(self, ctx: Context, package: str):
+        """Python package lookup on PyPI: `pypi discord.py`"""
+        quoted = urllib.parse.quote(package.strip().lower())
+        try:
+            data = await self.get_json(f"https://pypi.org/pypi/{quoted}/json")
+        except UserError:
+            raise UserError(f"Package `{package}` was not found on PyPI.")
+
+        info = data.get("info", {})
+        name = info.get("name", package)
+        version = info.get("version", "—")
+        summary = info.get("summary") or "No description provided."
+        author = info.get("author") or info.get("maintainer") or "Unknown"
+        license_name = info.get("license") or "Not specified"
+        url = info.get("project_url") or info.get("package_url") or f"https://pypi.org/project/{name}/"
+
+        e = discord.Embed(title=f"🐍 PyPI: {name} v{version}", url=url, color=0x3776AB, description=shorten(summary, 2000))
+        e.add_field(name="Installation", value=f"```bash\npip install {name}\n```", inline=False)
+        e.add_field(name="Author", value=author)
+        e.add_field(name="License", value=shorten(license_name, 50))
+        if info.get("requires_python"):
+            e.add_field(name="Python Req", value=f"`{info['requires_python']}`")
+        e.set_footer(text="Official Python Package Index (PyPI)")
+        await ctx.send(embed=e)
+
+    @commands.command(name="npm", aliases=["nodejs", "npmpkg"])
+    async def npm(self, ctx: Context, package: str):
+        """Node.js package lookup on NPM: `npm express`"""
+        quoted = urllib.parse.quote(package.strip().lower())
+        try:
+            data = await self.get_json(f"https://registry.npmjs.org/{quoted}")
+        except UserError:
+            raise UserError(f"Package `{package}` was not found on NPM registry.")
+
+        dist_tags = data.get("dist-tags", {})
+        latest_ver = dist_tags.get("latest") or "latest"
+        versions = data.get("versions", {})
+        ver_info = versions.get(latest_ver, {})
+
+        name = data.get("name", package)
+        desc = data.get("description") or ver_info.get("description") or "No description provided."
+        author_data = data.get("author") or ver_info.get("author") or {}
+        author_name = author_data.get("name") if isinstance(author_data, dict) else str(author_data) or "Unknown"
+        license_name = ver_info.get("license") or data.get("license") or "Not specified"
+
+        e = discord.Embed(title=f"📦 NPM: {name} v{latest_ver}", url=f"https://www.npmjs.com/package/{name}", color=0xCB3837, description=shorten(desc, 2000))
+        e.add_field(name="Installation", value=f"```bash\nnpm install {name}\n```", inline=False)
+        e.add_field(name="Author", value=author_name)
+        e.add_field(name="License", value=str(license_name))
+        e.set_footer(text="Official Node Package Manager (NPM)")
+        await ctx.send(embed=e)
+
+    @commands.command(name="qr", aliases=["qrcode"])
+    async def qr(self, ctx: Context, *, text_or_url: str):
+        """Generate a scannable QR code for text or a URL: `qr https://discord.gg`"""
+        encoded = urllib.parse.quote(text_or_url)
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=350x350&data={encoded}&margin=10"
+        e = discord.Embed(title="📱 QR Code Generator", color=Colors.main)
+        e.set_image(url=qr_url)
+        e.description = f"**Data:**\n`{shorten(text_or_url, 500)}`"
+        e.set_footer(text="Scan with your phone's camera • Veil Utilities")
+        await ctx.send(embed=e)
+
     @commands.command()
     async def weather(self, ctx: Context, *, location: str):
-        """Current weather anywhere"""
+        """Current weather anywhere with full forecast metrics: `weather Tokyo`"""
         geo = await self.get_json("https://geocoding-api.open-meteo.com/v1/search", name=location, count=1)
         if not geo.get("results"):
-            raise UserError("Location not found")
+            raise UserError(f"Location `{location}` not found.")
         g = geo["results"][0]
-        w = await self.get_json("https://api.open-meteo.com/v1/forecast", latitude=g["latitude"], longitude=g["longitude"],
-                                current="temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code",
-                                daily="temperature_2m_max,temperature_2m_min", timezone="auto", forecast_days=1)
+        w = await self.get_json(
+            "https://api.open-meteo.com/v1/forecast",
+            latitude=g["latitude"],
+            longitude=g["longitude"],
+            current="temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,weather_code,uv_index",
+            daily="temperature_2m_max,temperature_2m_min,sunrise,sunset",
+            timezone="auto",
+            forecast_days=1
+        )
         c = w["current"]
         cond = WEATHER_CODES.get(c.get("weather_code"), "🌡️ Unknown")
         tc = c["temperature_2m"]
-        e = discord.Embed(color=Colors.main, title=f"{g['name']}, {g.get('admin1', '')} {g.get('country_code', '')}".strip(),
-                          description=f"**{cond}**")
-        e.add_field(name="Temperature", value=f"{tc:.0f}°C / {tc * 9 / 5 + 32:.0f}°F")
-        fl, hi, lo = c["apparent_temperature"], w["daily"]["temperature_2m_max"][0], w["daily"]["temperature_2m_min"][0]
-        e.add_field(name="Feels like", value=f"{fl:.0f}°C / {fl * 9 / 5 + 32:.0f}°F")
+        fl = c.get("apparent_temperature", tc)
+        hi = w["daily"]["temperature_2m_max"][0]
+        lo = w["daily"]["temperature_2m_min"][0]
+        wind_kmh = c.get("wind_speed_10m", 0)
+        wind_mph = wind_kmh / 1.60934
+        gust_kmh = c.get("wind_gusts_10m", wind_kmh)
+        gust_mph = gust_kmh / 1.60934
+        uv = c.get("uv_index", "—")
+
+        loc_title = f"{g['name']}, {g.get('admin1', '')} {g.get('country_code', '')}".strip()
+        e = discord.Embed(color=Colors.main, title=f"🌦️ Weather: {loc_title}", description=f"### {cond}")
+        e.add_field(name="Temperature", value=f"**{tc:.1f}°C** / **{tc * 9 / 5 + 32:.1f}°F**")
+        e.add_field(name="Feels Like", value=f"{fl:.1f}°C / {fl * 9 / 5 + 32:.1f}°F")
         e.add_field(name="High / Low", value=f"{hi:.0f}° / {lo:.0f}°C ({hi * 9 / 5 + 32:.0f}° / {lo * 9 / 5 + 32:.0f}°F)")
         e.add_field(name="Humidity", value=f"{c['relative_humidity_2m']}%")
-        e.add_field(name="Wind", value=f"{c['wind_speed_10m']:.0f} km/h / {c['wind_speed_10m'] / 1.609:.0f} mph")
+        e.add_field(name="Wind Speed", value=f"{wind_kmh:.0f} km/h ({wind_mph:.0f} mph)")
+        e.add_field(name="Wind Gusts", value=f"{gust_kmh:.0f} km/h ({gust_mph:.0f} mph)")
+        e.add_field(name="UV Index", value=f"{uv}")
+        e.add_field(name="Coordinates", value=f"`{g['latitude']:.2f}, {g['longitude']:.2f}`")
+        e.add_field(name="Timezone", value=f"`{w.get('timezone', 'UTC')}`")
+        e.set_footer(text="Open-Meteo Global Forecasting")
         await ctx.send(embed=e)
 
     @commands.group(aliases=["gh"], invoke_without_command=True)
     async def github(self, ctx: Context, username: str):
-        """GitHub profile lookup"""
+        """GitHub profile lookup with full details: `github torvalds`"""
         u = await self.get_json(f"https://api.github.com/users/{urllib.parse.quote(username)}")
-        e = discord.Embed(color=Colors.neutral, title=u.get("name") or u["login"], url=u["html_url"], description=u.get("bio"))
+        e = discord.Embed(color=Colors.neutral, title=u.get("name") or u["login"], url=u["html_url"], description=u.get("bio") or "*No bio provided.*")
         e.set_thumbnail(url=u["avatar_url"])
-        e.add_field(name="Repos", value=f"{u['public_repos']:,}")
+        e.add_field(name="Repositories", value=f"**{u['public_repos']:,}** public")
         e.add_field(name="Followers", value=f"{u['followers']:,}")
         e.add_field(name="Following", value=f"{u['following']:,}")
         if u.get("company"):
             e.add_field(name="Company", value=u["company"])
         if u.get("location"):
             e.add_field(name="Location", value=u["location"])
+        if u.get("blog"):
+            e.add_field(name="Website", value=f"[{u['blog']}]({u['blog'] if u['blog'].startswith('http') else 'https://' + u['blog']})")
+        if u.get("twitter_username"):
+            e.add_field(name="X / Twitter", value=f"@{u['twitter_username']}")
         e.add_field(name="Joined", value=ts(iso_time(u["created_at"])))
+        e.set_footer(text="Official GitHub API")
         await ctx.send(embed=e)
 
     @github.command(name="repo")
@@ -329,49 +537,83 @@ class Integrations(commands.Cog):
         if repo.count("/") != 1:
             raise UserError("Use the format `owner/name`, e.g. `gh repo discord/discord-api-docs`")
         r = await self.get_json(f"https://api.github.com/repos/{urllib.parse.quote(repo.strip('/'), safe='/')}")
-        e = discord.Embed(color=Colors.neutral, title=r["full_name"], url=r["html_url"], description=r.get("description"))
+        e = discord.Embed(color=Colors.neutral, title=r["full_name"], url=r["html_url"], description=r.get("description") or "*No description provided.*")
         e.add_field(name="⭐ Stars", value=f"{r['stargazers_count']:,}")
         e.add_field(name="🍴 Forks", value=f"{r['forks_count']:,}")
         e.add_field(name="Issues", value=f"{r['open_issues_count']:,}")
         e.add_field(name="Language", value=r.get("language") or "—")
         e.add_field(name="License", value=(r.get("license") or {}).get("spdx_id") or "—")
+        e.add_field(name="Default Branch", value=f"`{r.get('default_branch', 'main')}`")
         e.set_thumbnail(url=r["owner"]["avatar_url"])
+        e.set_footer(text="Official GitHub API")
         await ctx.send(embed=e)
 
     @commands.command(aliases=["price", "coin"])
     async def crypto(self, ctx: Context, coin: str = "bitcoin", currency: str = "usd"):
-        """Crypto price (by name or symbol)"""
+        """Crypto price, market cap, and 24h metrics: `crypto btc usd`"""
         currency = currency.lower()
         search = await self.get_json("https://api.coingecko.com/api/v3/search", query=coin)
         if not search.get("coins"):
-            raise UserError("Coin not found")
+            raise UserError(f"Cryptocurrency `{coin}` not found.")
         exact = [c for c in search["coins"] if c.get("symbol", "").lower() == coin.lower()]
         c = (exact or search["coins"])[0]
         data = await self.get_json("https://api.coingecko.com/api/v3/simple/price", ids=c["id"], vs_currencies=currency,
-                                   include_24hr_change="true", include_market_cap="true")
+                                   include_24hr_change="true", include_24hr_vol="true", include_market_cap="true")
         d = data.get(c["id"], {})
         if currency not in d:
-            raise UserError("Unsupported currency")
+            raise UserError(f"Unsupported fiat/crypto currency `{currency}`.")
         change = d.get(f"{currency}_24h_change") or 0
-        e = discord.Embed(color=Colors.success if change >= 0 else Colors.error, title=f"{c['name']} ({c['symbol']})")
-        e.add_field(name="Price", value=f"{d[currency]:,.8g} {currency.upper()}")
-        e.add_field(name="24h", value=f"{'📈' if change >= 0 else '📉'} {change:+.2f}%")
-        if d.get(f"{currency}_market_cap"):
-            e.add_field(name="Market cap", value=f"{d[f'{currency}_market_cap']:,.0f}")
+        price = d[currency]
+        vol = d.get(f"{currency}_24h_vol")
+        mcap = d.get(f"{currency}_market_cap")
+        rank = c.get("market_cap_rank")
+
+        color = Colors.success if change >= 0 else Colors.error
+        change_icon = "📈" if change >= 0 else "📉"
+        e = discord.Embed(
+            color=color,
+            title=f"{c['name']} ({c['symbol'].upper()})",
+            description=f"### **{price:,.8g} {currency.upper()}** ({change_icon} `{change:+.2f}%` 24h)"
+        )
+        if rank:
+            e.add_field(name="Market Rank", value=f"#{rank}")
+        if mcap:
+            e.add_field(name="Market Cap", value=f"{mcap:,.0f} {currency.upper()}")
+        if vol:
+            e.add_field(name="24h Volume", value=f"{vol:,.0f} {currency.upper()}")
         if c.get("large"):
             e.set_thumbnail(url=c["large"])
+        e.set_footer(text="CoinGecko Market Data")
         await ctx.send(embed=e)
 
     @commands.command(aliases=["mcserver", "mc_status"])
     async def minecraft(self, ctx: Context, address: str):
-        """Java server status"""
+        """Minecraft server status (Java & Bedrock): `minecraft hypixel.net`"""
         address = address.strip().removeprefix("https://").removeprefix("http://").strip("/")
         quoted = urllib.parse.quote(address, safe=":")
         d = await self.get_json(f"https://api.mcsrvstat.us/3/{quoted}")
         if not d.get("online"):
-            raise UserError(f"`{address}` is offline")
-        e = discord.Embed(color=Colors.success, title=shorten(address, 200),
-                          description="\n".join(d.get("motd", {}).get("clean", []))[:1000] or None)
+            raise UserError(f"Minecraft server `{address}` is currently offline or unreachable.")
+        motd_lines = d.get("motd", {}).get("clean", [])
+        motd_text = "\n".join(motd_lines).strip() or "No MOTD provided."
+        players_online = d.get("players", {}).get("online", 0)
+        players_max = d.get("players", {}).get("max", 0)
+        version = d.get("version", "Unknown")
+        protocol = d.get("protocol", {}).get("version", "—")
+        software = d.get("software", "Vanilla / Custom")
+
+        e = discord.Embed(color=Colors.success, title=f"⛏️ Minecraft Server: {address}",
+                          description=f"```\n{shorten(motd_text, 1000)}\n```")
+        e.add_field(name="Status", value="🟢 Online")
+        e.add_field(name="Players", value=f"**{players_online:,}** / {players_max:,}")
+        e.add_field(name="Version", value=f"`{version}`")
+        e.add_field(name="Software", value=f"`{software}`")
+        e.add_field(name="Protocol", value=f"`{protocol}`")
+        if d.get("ip"):
+            e.add_field(name="Direct IP", value=f"`{d['ip']}:{d.get('port', 25565)}`")
+        e.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{quoted}")
+        e.set_footer(text="mcsrvstat.us Minecraft API")
+        await ctx.send(embed=e)
         e.add_field(name="Players", value=f"{d['players']['online']}/{d['players']['max']}")
         e.add_field(name="Version", value=d.get("version", "?"))
         e.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{quoted}")
