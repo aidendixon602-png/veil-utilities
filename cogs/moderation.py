@@ -881,12 +881,6 @@ class Moderation(commands.Cog):
         await ctx.paginate(chunk_embeds("Blacklisted roles", lines, numbered=False))
 
     async def _scan_guild_bled(self, ctx: Context, cfg: dict, b_roles: set[int]):
-        if hasattr(ctx.guild, "chunk") and not getattr(ctx.guild, "chunked", True):
-            try:
-                await ctx.guild.chunk()
-            except Exception:
-                pass
-
         if not b_roles:
             embed = discord.Embed(
                 title="Role Blacklist Check",
