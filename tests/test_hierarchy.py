@@ -202,6 +202,21 @@ class TestPermissionHierarchy:
         assert levels["mod"][1] == 2
         assert levels["helper"][1] == 1
 
+        # Supreme Leader has administrator
+        assert "administrator" in levels["supremeleader"][2]
+        # Overseer has executive oversight without administrator
+        assert "administrator" not in levels["overseer"][2]
+        assert "mute_members" in levels["overseer"][2]
+        assert "manage_guild" in levels["overseer"][2]
+        # Bot Manager has bot management suite without administrator
+        assert "administrator" not in levels["botmanager"][2]
+        assert "view_audit_log" in levels["botmanager"][2]
+        assert "manage_events" in levels["botmanager"][2]
+        # All three tiers have distinct, non-identical permission sets
+        assert set(levels["botmanager"][2]) != set(levels["overseer"][2])
+        assert set(levels["overseer"][2]) != set(levels["supremeleader"][2])
+        assert set(levels["botmanager"][2]) != set(levels["supremeleader"][2])
+
     def test_requires_uperm_checks(self):
         import asyncio
         from core.utils import requires_uperm, UserError

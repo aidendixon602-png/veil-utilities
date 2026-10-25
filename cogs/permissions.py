@@ -231,8 +231,14 @@ class Permissions(commands.Cog):
             all_entries.append((order_map.get(name, 0), f"`rank {rank}` **{name}** — automatic (not assignable)"))
 
         for key, info in levels:
-            grants = "all permissions" if "administrator" in info["perms"] else \
-                (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
+            if "administrator" in info["perms"]:
+                grants = "all bot permissions + administrator"
+            elif key == "overseer":
+                grants = "executive oversight (all staff & voice perms, no administrator)"
+            elif key == "botmanager":
+                grants = "bot management suite & audit logs"
+            else:
+                grants = (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
             ucnt = user_counts.get(key, 0)
             rcnt = role_counts.get(key, 0)
             parts = []

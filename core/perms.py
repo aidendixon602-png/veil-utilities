@@ -132,8 +132,13 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                         "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
                                         "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "botmanager":    ("Bot Manager", 5, ["administrator"] + ALL_BOT_PERMS),
-    "overseer":      ("Overseer", 6, ["administrator"] + ALL_BOT_PERMS),
+    "botmanager":    ("Bot Manager", 5, [
+        "manage_messages", "kick_members", "ban_members", "moderate_members",
+        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+        "manage_webhooks", "manage_expressions", "manage_events", "manage_threads",
+        "mention_everyone", "view_audit_log", "create_instant_invite",
+    ]),
+    "overseer":      ("Overseer", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
     "supremeleader": ("Supreme Leader", 7, ["administrator"] + ALL_BOT_PERMS),
 }
 
