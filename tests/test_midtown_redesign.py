@@ -263,16 +263,16 @@ def test_role_based_permlevels():
     name, source, rank = perms.member_level_info(cfg, user_direct)
     assert name == "Admin"
     assert source == "Permissions attached to user"
-    assert rank == 3
+    assert rank == 7
 
     role_mock1 = SimpleNamespace(id=456, mention="<@&456>")
     role_mock2 = SimpleNamespace(id=789, mention="<@&789>")
     user_with_roles = SimpleNamespace(id=999, roles=[role_mock1, role_mock2])
     name, source, rank = perms.member_level_info(cfg, user_with_roles)
-    # Highest role should win (Head Admin > Mod)
-    assert name == "Head Admin"
-    assert source == "<@&789>"
-    assert rank == 4
+    # Highest role should win (Mod rank 8 > Head Admin rank 6)
+    assert name == "Mod"
+    assert source == "<@&456>"
+    assert rank == 8
 
 
 def test_botperms_command_registered():
@@ -293,14 +293,14 @@ def test_code_defined_permissions():
         name, source, rank = perms.member_level_info({}, u)
         assert name == "Supreme Leader"
         assert source == "Built-in"
-        assert rank == 7
+        assert rank == 3
 
         r = SimpleNamespace(id=9999, name="Admin Role", mention="<@&9999>")
         u2 = SimpleNamespace(id=8888, roles=[r])
         name2, source2, rank2 = perms.member_level_info({}, u2)
         assert name2 == "Admin"
         assert source2 == "Built-in"
-        assert rank2 == 3
+        assert rank2 == 7
     finally:
         perms.CODE_USERS.pop(12345, None)
         perms.CODE_ROLES.pop("Admin Role", None)

@@ -222,11 +222,11 @@ class Permissions(commands.Cog):
         for r_id_or_name, key in perms.CODE_ROLES.items():
             role_counts[key] = role_counts.get(key, 0) + 1
 
-        lines = [f"Highest to lowest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
-        for name, rank in sorted(((n, r) for n, r in perms.RESERVED.values()), key=lambda x: x[1], reverse=True):
+        lines = [f"Lowest to highest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
+        for name, rank in sorted(((n, r) for n, r in perms.RESERVED.values()), key=lambda x: x[1]):
             lines.append(f"`rank {rank}` **{name}** — automatic (not assignable)")
 
-        for key, info in levels:
+        for key, info in sorted(levels, key=lambda kv: kv[1]["rank"]):
             grants = "all permissions" if "administrator" in info["perms"] else \
                 (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
             ucnt = user_counts.get(key, 0)
