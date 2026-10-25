@@ -365,15 +365,16 @@ class Veil(commands.AutoShardedBot):
             return True
         if await self.is_owner(ctx.author):
             return True
-        perms = ctx.author.guild_permissions
-        if perms.administrator or perms.manage_guild or perms.manage_messages or perms.moderate_members:
-            return True
-        from core import perms as _perms
+
         pl_cfg = await self.db.get_config(ctx.guild.id, "permlevels")
         if _perms.rank_of(pl_cfg, ctx.author) >= 1:
             return True
         fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
-        if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in ctx.author.roles):
+        if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in getattr(ctx.author, "roles", [])):
+            return True
+
+        perms = ctx.author.guild_permissions
+        if perms.administrator or perms.manage_guild:
             return True
         return False
 

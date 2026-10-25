@@ -423,3 +423,49 @@ def test_dev_automatic_authorization(bot):
             await Moderation.jail.callback(mod_cog, non_dev_ctx, dev_member)
 
     asyncio.run(_run())
+
+
+def test_strict_roleblacklist_uperm_gating(bot):
+    async def _run():
+        guild = _mock_guild(123)
+        mod_cog = Moderation(bot)
+        target = _mock_member(777)
+        bot._storage[(123, "roleblacklist")] = {"roles": [888], "authorized": []}
+        bot._storage[(123, "permlevels")] = {
+            "users": {
+                "200": "admin",      # rank 3 (Admin)
+                "300": "headadmin",  # rank 4 (Head Admin)
+            }
+        }
+
+        # 1. Random user with raw Discord manage_roles but NO uperm rank (rank 0)
+        unranked_author = _mock_member(100)
+        unranked_author.guild = guild
+        ctx_unranked = _mock_context(bot, guild, unranked_author)
+        with pytest.raises(UserError, match=r"Head Admin.*uperm"):
+            await mod_cog._do_rbl_authorize(ctx_unranked, target)
+
+        # 2. Admin rank (rank 3) lacks Head Admin rank (rank 4) -> BLOCKED from authorizing
+        admin_author = _mock_member(200)
+        admin_author.guild = guild
+        ctx_admin = _mock_context(bot, guild, admin_author)
+        with pytest.raises(UserError, match=r"Head Admin.*uperm"):
+            await mod_cog._do_rbl_authorize(ctx_admin, target)
+
+        # 3. Head Admin rank (rank 4) -> SUCCEEDS
+        headadmin_author = _mock_member(300)
+        headadmin_author.guild = guild
+        ctx_headadmin = _mock_context(bot, guild, headadmin_author)
+        await mod_cog._do_rbl_authorize(ctx_headadmin, target)
+        assert 777 in bot._storage[(123, "roleblacklist")]["authorized"]
+
+        # 4. Server Owner -> SUCCEEDS
+        owner_author = _mock_member(guild.owner_id)
+        owner_author.guild = guild
+        ctx_owner = _mock_context(bot, guild, owner_author)
+        target2 = _mock_member(8888)
+        await mod_cog._do_rbl_authorize(ctx_owner, target2)
+        assert 8888 in bot._storage[(123, "roleblacklist")]["authorized"]
+
+    asyncio.run(_run())
+

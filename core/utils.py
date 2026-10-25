@@ -412,25 +412,46 @@ async def send_script(dest: discord.abc.Messageable, script: str, variables: dic
 
 # ---------------------------------------------------------------- checks
 async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
-    """Permissions the author lacks, after counting owner, admin, fake permissions and perm levels."""
+    """Strict bot permission enforcement:
+    1. Bot developers always bypass all permission checks.
+    2. Server owner always has full guild authority.
+    3. If permlevels are configured, permissions are strictly checked against
+       the member's assigned bot perm rank (uperm) and fakeperms. Discord native permissions
+       do NOT bypass unless the guild has never configured permlevels.
+    """
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
     if _perms.is_bot_developer(ctx.author, bot):
         return []
+    if ctx.guild and ctx.author.id == ctx.guild.owner_id:
+        return []
+
+    pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and ctx.bot) else {}
+    fake = await ctx.bot.db.get_config(ctx.guild.id, "fakeperms") if (ctx.guild and ctx.bot) else {}
+
+    granted: set[str] = set()
+    granted.update(_perms.level_perms(pl_cfg, ctx.author))
+    for role in getattr(ctx.author, "roles", []):
+        granted.update(fake.get(str(role.id), []))
+
+    if "administrator" in granted:
+        return []
+
+    # If the user has assigned bot permissions, check if the required permissions are covered
+    if granted:
+        return [k for k, v in perms.items() if v and k not in granted]
+
+    # For guilds that use permlevels (custom bot rank setup in database):
+    # Members without an assigned bot rank cannot run protected commands
+    guild_has_uperms = bool(pl_cfg.get("users") or pl_cfg.get("roles"))
+    if guild_has_uperms:
+        return [k for k, v in perms.items() if v]
+
+    # Fallback to Discord permissions ONLY when the guild has not set up any permlevels in db
     p = ctx.channel.permissions_for(ctx.author)
     if p.administrator:
         return []
-    missing = [k for k, v in perms.items() if getattr(p, k, None) != v]
-    if not missing:
-        return []
-    fake = await ctx.bot.db.get_config(ctx.guild.id, "fakeperms")
-    granted: set[str] = set()
-    for role in ctx.author.roles:
-        granted.update(fake.get(str(role.id), []))
-    granted.update(_perms.level_perms(await ctx.bot.db.get_config(ctx.guild.id, "permlevels"), ctx.author))
-    if "administrator" in granted:
-        return []
-    return [m for m in missing if m not in granted]
+    return [k for k, v in perms.items() if getattr(p, k, None) != v]
 
 
 def has_perms(**perms: bool):
