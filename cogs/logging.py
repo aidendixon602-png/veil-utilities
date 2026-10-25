@@ -1,6 +1,7 @@
 """Server event logging with Midtown Utilities-style join logs, bans, and command logging."""
 from __future__ import annotations
 
+import asyncio
 import io
 
 import discord
@@ -97,6 +98,8 @@ class Logging(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._role_update_tasks: dict[tuple[int, int], asyncio.Task] = {}
+        self._role_update_states: dict[tuple[int, int], tuple[discord.Member, discord.Member]] = {}
 
     async def ensure_default_channels(self, guild: discord.Guild) -> list[discord.TextChannel]:
         """Automatically create the default logging channels if they do not exist."""
@@ -486,84 +489,388 @@ class Logging(commands.Cog):
         except discord.HTTPException:
             pass
 
-    # ------------------------------------------------------------ member updates
+    # ------------------------------------------------------------ member updates & roles
+    async def _build_role_update_embed(
+        self,
+        member: discord.Member,
+        added_roles: list[discord.Role],
+        removed_roles: list[discord.Role],
+    ) -> discord.Embed:
+        if added_roles and not removed_roles:
+            color = Colors.success
+            action_title = "Roles Added"
+        elif removed_roles and not added_roles:
+            color = Colors.error
+            action_title = "Roles Removed"
+        else:
+            color = Colors.blurple
+            action_title = "Roles Updated"
+
+        actor_str = "Automatic / Discord API"
+        reason_str = None
+        guild = member.guild
+        try:
+            me = getattr(guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=6, action=discord.AuditLogAction.member_role_update):
+                    if getattr(entry.target, "id", None) == member.id:
+                        delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
+                        if delta < 15:
+                            actor = entry.user
+                            if getattr(actor, "bot", False):
+                                actor_str = f"🤖 {actor.mention} (`{actor.name}`)"
+                            else:
+                                actor_str = f"{actor.mention} (`{actor.name}` • `{actor.id}`)"
+                            reason_str = entry.reason
+                            break
+        except Exception:
+            pass
+
+        e = discord.Embed(color=color)
+        e.set_author(name=f"{action_title} — {member.display_name}", icon_url=member.display_avatar.url)
+        e.set_thumbnail(url=member.display_avatar.url)
+
+        e.add_field(name="User", value=f"{member.mention} (`{member.name}`)", inline=True)
+        e.add_field(name="Responsible Actor", value=actor_str, inline=True)
+
+        def format_roles(roles: list[discord.Role]) -> str:
+            if not roles:
+                return "None"
+            if len(roles) <= 8:
+                return "\n".join(f"• {r.mention} (`{r.name}`)" for r in roles)[:1024]
+            return ", ".join(r.mention for r in roles)[:1024]
+
+        if added_roles:
+            e.add_field(
+                name=f"➕ Added ({len(added_roles)})",
+                value=format_roles(added_roles),
+                inline=False,
+            )
+        if removed_roles:
+            e.add_field(
+                name=f"➖ Removed ({len(removed_roles)})",
+                value=format_roles(removed_roles),
+                inline=False,
+            )
+
+        if reason_str:
+            e.add_field(name="Reason", value=shorten(reason_str, 500), inline=False)
+
+        now_str = discord.utils.utcnow().strftime("%I:%M %p")
+        guild_icon = guild.icon.url if guild.icon else None
+        e.set_footer(text=f"User ID: {member.id} • Today at {now_str}", icon_url=guild_icon)
+        e.timestamp = discord.utils.utcnow()
+        return e
+
     @commands.Cog.listener()
     async def on_member_update(self, b: discord.Member, a: discord.Member):
         if b.nick != a.nick:
-            e = discord.Embed(color=Colors.neutral, description=f"{a.mention} nickname: `{b.nick}` → `{a.nick}`")
+            old_nick = b.nick or "None (Username)"
+            new_nick = a.nick or "None (Reset)"
+            e = discord.Embed(color=Colors.blurple)
+            e.set_author(name=f"Nickname Changed — {a.display_name}", icon_url=a.display_avatar.url)
+            e.set_thumbnail(url=a.display_avatar.url)
+            e.add_field(name="User", value=f"{a.mention} (`{a.name}`)", inline=True)
+
+            actor_str = "Automatic / Discord API"
+            try:
+                me = getattr(a.guild, "me", None)
+                if me and getattr(me.guild_permissions, "view_audit_log", False):
+                    async for entry in a.guild.audit_logs(limit=4, action=discord.AuditLogAction.member_update):
+                        if getattr(entry.target, "id", None) == a.id:
+                            delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
+                            if delta < 15:
+                                actor = entry.user
+                                actor_str = f"{actor.mention} (`{actor.name}`)"
+                                break
+            except Exception:
+                pass
+
+            e.add_field(name="Action By", value=actor_str, inline=True)
+            e.add_field(name="Before", value=f"`{old_nick}`", inline=True)
+            e.add_field(name="After", value=f"`{new_nick}`", inline=True)
+            e.set_footer(text=f"User ID: {a.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+            e.timestamp = discord.utils.utcnow()
             await self.send(a.guild, "members", e)
+
         if b.roles != a.roles:
-            added = [r.mention for r in a.roles if r not in b.roles]
-            removed = [r.mention for r in b.roles if r not in a.roles]
-            e = discord.Embed(color=Colors.neutral, description=f"**Roles updated for {a.mention}**")
-            if added:
-                e.add_field(name="Added", value=", ".join(added)[:1024])
-            if removed:
-                e.add_field(name="Removed", value=", ".join(removed)[:1024])
-            await self.send(a.guild, "roles", e)
-        if b.timed_out_until != a.timed_out_until and a.timed_out_until:
-            await self.send(a.guild, "members", discord.Embed(color=Colors.warn,
-                            description=f"{a.mention} timed out until {ts(a.timed_out_until, 'f')}"))
+            key = (a.guild.id, a.id)
+            if key in self._role_update_states:
+                initial_b, _ = self._role_update_states[key]
+                self._role_update_states[key] = (initial_b, a)
+            else:
+                self._role_update_states[key] = (b, a)
+
+            # Cancel previous debounced task if still waiting
+            task = self._role_update_tasks.get(key)
+            if task and not task.done():
+                task.cancel()
+
+            async def _debounced_role_dispatch(g_id: int, u_id: int):
+                try:
+                    await asyncio.sleep(1.2)
+                except asyncio.CancelledError:
+                    return
+                state = self._role_update_states.pop(key, None)
+                self._role_update_tasks.pop(key, None)
+                if not state:
+                    return
+                first_before, last_after = state
+                net_added = [r for r in last_after.roles if r not in first_before.roles]
+                net_removed = [r for r in first_before.roles if r not in last_after.roles]
+                if not net_added and not net_removed:
+                    return
+
+                embed = await self._build_role_update_embed(last_after, net_added, net_removed)
+                await self.send(last_after.guild, "roles", embed)
+
+            self._role_update_tasks[key] = asyncio.create_task(_debounced_role_dispatch(a.guild.id, a.id))
+
+        if b.timed_out_until != a.timed_out_until:
+            now = discord.utils.utcnow()
+            if a.timed_out_until and a.timed_out_until > now:
+                e = discord.Embed(color=Colors.warn)
+                e.set_author(name=f"Member Timed Out — {a.display_name}", icon_url=a.display_avatar.url)
+                e.set_thumbnail(url=a.display_avatar.url)
+                e.add_field(name="User", value=f"{a.mention} (`{a.name}`)", inline=True)
+
+                actor_str = "Automatic / Automod"
+                reason_str = None
+                try:
+                    me = getattr(a.guild, "me", None)
+                    if me and getattr(me.guild_permissions, "view_audit_log", False):
+                        async for entry in a.guild.audit_logs(limit=4, action=discord.AuditLogAction.member_update):
+                            if getattr(entry.target, "id", None) == a.id:
+                                delta = (now - entry.created_at).total_seconds()
+                                if delta < 15:
+                                    actor_str = f"{entry.user.mention} (`{entry.user.name}`)"
+                                    reason_str = entry.reason
+                                    break
+                except Exception:
+                    pass
+
+                e.add_field(name="Moderator", value=actor_str, inline=True)
+                e.add_field(name="Expires", value=f"{ts(a.timed_out_until, 'R')} ({ts(a.timed_out_until, 'f')})", inline=False)
+                if reason_str:
+                    e.add_field(name="Reason", value=shorten(reason_str, 500), inline=False)
+                e.set_footer(text=f"User ID: {a.id} • {now.strftime('%I:%M %p')}")
+                e.timestamp = now
+                await self.send(a.guild, "members", e)
+            elif b.timed_out_until and (not a.timed_out_until or a.timed_out_until <= now):
+                e = discord.Embed(color=Colors.mint)
+                e.set_author(name=f"Timeout Removed — {a.display_name}", icon_url=a.display_avatar.url)
+                e.set_thumbnail(url=a.display_avatar.url)
+                e.add_field(name="User", value=f"{a.mention} (`{a.name}`)", inline=True)
+                e.set_footer(text=f"User ID: {a.id} • {now.strftime('%I:%M %p')}")
+                e.timestamp = now
+                await self.send(a.guild, "members", e)
 
     # ------------------------------------------------------------ roles / channels / server
     @commands.Cog.listener()
-    async def on_guild_role_create(self, r):
-        await self.send(r.guild, "roles", discord.Embed(color=Colors.success, description=f"Role created: {r.mention}"))
+    async def on_guild_role_create(self, r: discord.Role):
+        guild = r.guild
+        icon_url = guild.icon.url if guild.icon else None
+        e = discord.Embed(color=r.color if r.color.value else Colors.success)
+        e.set_author(name="Role Created", icon_url=icon_url)
+        e.add_field(name="Role", value=f"{r.mention} (`{r.name}`)", inline=True)
+        e.add_field(name="Role ID", value=f"`{r.id}`", inline=True)
+        hex_color = f"#{r.color.value:06X}" if r.color.value else "Default"
+        e.add_field(name="Color", value=f"`{hex_color}`", inline=True)
+
+        actor_str = "Automatic / Integration"
+        try:
+            me = getattr(guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=4, action=discord.AuditLogAction.role_create):
+                    if getattr(entry.target, "id", None) == r.id:
+                        actor = entry.user
+                        actor_str = f"{actor.mention} (`{actor.name}`)"
+                        break
+        except Exception:
+            pass
+
+        e.add_field(name="Created By", value=actor_str, inline=True)
+        e.set_footer(text=f"Role ID: {r.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(guild, "roles", e)
 
     @commands.Cog.listener()
-    async def on_guild_role_delete(self, r):
-        await self.send(r.guild, "roles", discord.Embed(color=Colors.error, description=f"Role deleted: **{r.name}**"))
+    async def on_guild_role_delete(self, r: discord.Role):
+        guild = r.guild
+        icon_url = guild.icon.url if guild.icon else None
+        e = discord.Embed(color=Colors.error)
+        e.set_author(name="Role Deleted", icon_url=icon_url)
+        e.add_field(name="Role Name", value=f"**@{r.name}**", inline=True)
+        e.add_field(name="Role ID", value=f"`{r.id}`", inline=True)
+
+        actor_str = "Automatic / Integration"
+        try:
+            me = getattr(guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=4, action=discord.AuditLogAction.role_delete):
+                    if getattr(entry.target, "id", None) == r.id:
+                        actor = entry.user
+                        actor_str = f"{actor.mention} (`{actor.name}`)"
+                        break
+        except Exception:
+            pass
+
+        e.add_field(name="Deleted By", value=actor_str, inline=True)
+        e.set_footer(text=f"Role ID: {r.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(guild, "roles", e)
 
     @commands.Cog.listener()
-    async def on_guild_role_update(self, b, a):
+    async def on_guild_role_update(self, b: discord.Role, a: discord.Role):
         changes = []
         if b.name != a.name:
-            changes.append(f"name `{b.name}` → `{a.name}`")
-        if b.permissions != a.permissions:
-            gained = [p for p, v in a.permissions if v and not getattr(b.permissions, p)]
-            lost = [p for p, v in b.permissions if v and not getattr(a.permissions, p)]
-            if gained:
-                changes.append("+ " + ", ".join(gained))
-            if lost:
-                changes.append("- " + ", ".join(lost))
+            changes.append(f"• **Name:** `{b.name}` → `{a.name}`")
         if b.color != a.color:
-            changes.append(f"color `{b.color}` → `{a.color}`")
-        if changes:
-            await self.send(a.guild, "roles", discord.Embed(color=Colors.neutral,
-                            description=f"**Role updated: {a.mention}**\n" + "\n".join(changes)))
+            b_hex = f"#{b.color.value:06X}" if b.color.value else "Default"
+            a_hex = f"#{a.color.value:06X}" if a.color.value else "Default"
+            changes.append(f"• **Color:** `{b_hex}` → `{a_hex}`")
+        if b.hoist != a.hoist:
+            changes.append(f"• **Hoisted:** `{'Yes' if a.hoist else 'No'}`")
+        if b.mentionable != a.mentionable:
+            changes.append(f"• **Mentionable:** `{'Yes' if a.mentionable else 'No'}`")
+        if b.permissions != a.permissions:
+            gained = [p.replace('_', ' ') for p, v in a.permissions if v and not getattr(b.permissions, p)]
+            lost = [p.replace('_', ' ') for p, v in b.permissions if v and not getattr(a.permissions, p)]
+            if gained:
+                changes.append(f"• **Permissions Added:** {', '.join(f'`{p}`' for p in gained)}")
+            if lost:
+                changes.append(f"• **Permissions Removed:** {', '.join(f'`{p}`' for p in lost)}")
+        if not changes:
+            return
+
+        guild = a.guild
+        icon_url = guild.icon.url if guild.icon else None
+        e = discord.Embed(color=a.color if a.color.value else Colors.blurple)
+        e.set_author(name=f"Role Updated — @{a.name}", icon_url=icon_url)
+        e.add_field(name="Role", value=f"{a.mention} (`{a.id}`)", inline=True)
+
+        actor_str = "Automatic / Integration"
+        try:
+            me = getattr(guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=4, action=discord.AuditLogAction.role_update):
+                    if getattr(entry.target, "id", None) == a.id:
+                        actor = entry.user
+                        actor_str = f"{actor.mention} (`{actor.name}`)"
+                        break
+        except Exception:
+            pass
+
+        e.add_field(name="Updated By", value=actor_str, inline=True)
+        e.add_field(name="Changes", value="\n".join(changes)[:1024], inline=False)
+        e.set_footer(text=f"Role ID: {a.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(guild, "roles", e)
 
     @commands.Cog.listener()
-    async def on_guild_channel_create(self, c):
-        await self.send(c.guild, "channels", discord.Embed(color=Colors.success, description=f"Channel created: {c.mention}"))
+    async def on_guild_channel_create(self, c: discord.abc.GuildChannel):
+        guild = c.guild
+        icon_url = guild.icon.url if guild.icon else None
+        e = discord.Embed(color=Colors.success)
+        e.set_author(name="Channel Created", icon_url=icon_url)
+        e.add_field(name="Channel", value=f"{c.mention} (`#{c.name}`)", inline=True)
+        category_name = c.category.name if getattr(c, "category", None) else "None"
+        e.add_field(name="Category", value=category_name, inline=True)
+
+        actor_str = "Automatic / Integration"
+        try:
+            me = getattr(guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=4, action=discord.AuditLogAction.channel_create):
+                    if getattr(entry.target, "id", None) == c.id:
+                        actor = entry.user
+                        actor_str = f"{actor.mention} (`{actor.name}`)"
+                        break
+        except Exception:
+            pass
+
+        e.add_field(name="Created By", value=actor_str, inline=True)
+        e.set_footer(text=f"Channel ID: {c.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(guild, "channels", e)
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, c):
-        await self.send(c.guild, "channels", discord.Embed(color=Colors.error, description=f"Channel deleted: **#{c.name}**"))
+    async def on_guild_channel_delete(self, c: discord.abc.GuildChannel):
+        guild = c.guild
+        icon_url = guild.icon.url if guild.icon else None
+        e = discord.Embed(color=Colors.error)
+        e.set_author(name="Channel Deleted", icon_url=icon_url)
+        e.add_field(name="Channel Name", value=f"**#{c.name}**", inline=True)
+        category_name = c.category.name if getattr(c, "category", None) else "None"
+        e.add_field(name="Category", value=category_name, inline=True)
+
+        actor_str = "Automatic / Integration"
+        try:
+            me = getattr(guild, "me", None)
+            if me and getattr(me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=4, action=discord.AuditLogAction.channel_delete):
+                    if getattr(entry.target, "id", None) == c.id:
+                        actor = entry.user
+                        actor_str = f"{actor.mention} (`{actor.name}`)"
+                        break
+        except Exception:
+            pass
+
+        e.add_field(name="Deleted By", value=actor_str, inline=True)
+        e.set_footer(text=f"Channel ID: {c.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(guild, "channels", e)
 
     @commands.Cog.listener()
     async def on_guild_update(self, b: discord.Guild, a: discord.Guild):
         changes = []
         if b.name != a.name:
-            changes.append(f"name `{b.name}` → `{a.name}`")
+            changes.append(f"• **Server Name:** `{b.name}` → `{a.name}`")
         if b.vanity_url_code != a.vanity_url_code:
-            changes.append(f"vanity `{b.vanity_url_code}` → `{a.vanity_url_code}`")
+            changes.append(f"• **Vanity URL:** `discord.gg/{b.vanity_url_code}` → `discord.gg/{a.vanity_url_code}`")
         if b.icon != a.icon:
-            changes.append("icon changed")
-        if changes:
-            await self.send(a, "server", discord.Embed(color=Colors.neutral, description="**Server updated**\n" + "\n".join(changes)))
+            changes.append("• **Server Icon Updated**")
+        if b.banner != a.banner:
+            changes.append("• **Server Banner Updated**")
+        if not changes:
+            return
+
+        icon_url = a.icon.url if a.icon else None
+        e = discord.Embed(color=Colors.blurple)
+        e.set_author(name="Server Settings Updated", icon_url=icon_url)
+        if icon_url:
+            e.set_thumbnail(url=icon_url)
+        e.add_field(name="Changes", value="\n".join(changes), inline=False)
+        e.set_footer(text=f"Server ID: {a.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(a, "server", e)
 
     # ------------------------------------------------------------ voice
     @commands.Cog.listener()
     async def on_voice_state_update(self, m: discord.Member, b: discord.VoiceState, a: discord.VoiceState):
         if b.channel == a.channel:
             return
-        if not b.channel:
-            d = f"{m.mention} joined {a.channel.mention}"
-        elif not a.channel:
-            d = f"{m.mention} left {b.channel.mention}"
+        if not b.channel and a.channel:
+            color = Colors.success
+            action = "Voice Channel Joined"
+            desc = f"{m.mention} joined {a.channel.mention}"
+        elif b.channel and not a.channel:
+            color = Colors.error
+            action = "Voice Channel Left"
+            desc = f"{m.mention} left {b.channel.mention}"
         else:
-            d = f"{m.mention} moved {b.channel.mention} → {a.channel.mention}"
-        await self.send(m.guild, "voice", discord.Embed(color=Colors.neutral, description=d))
+            color = Colors.blurple
+            action = "Voice Channel Moved"
+            desc = f"{m.mention} moved from {b.channel.mention} ➔ {a.channel.mention}"
+
+        e = discord.Embed(color=color)
+        e.set_author(name=f"{m.display_name} — {action}", icon_url=m.display_avatar.url)
+        e.set_thumbnail(url=m.display_avatar.url)
+        e.description = desc
+        e.add_field(name="User", value=f"{m.mention} (`{m.name}`)", inline=True)
+        e.set_footer(text=f"User ID: {m.id} • {discord.utils.utcnow().strftime('%I:%M %p')}")
+        e.timestamp = discord.utils.utcnow()
+        await self.send(m.guild, "voice", e)
 
 
 async def setup(bot):

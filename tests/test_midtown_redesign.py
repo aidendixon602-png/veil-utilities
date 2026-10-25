@@ -329,3 +329,45 @@ def test_unassigned_member_gets_no_bot_perm():
     assert rank == 0
 
 
+def test_role_update_embed_styling():
+    from cogs.logging import Logging
+    cog = Logging(SimpleNamespace())
+
+    guild = SimpleNamespace(
+        id=1,
+        icon=None,
+        me=SimpleNamespace(guild_permissions=SimpleNamespace(view_audit_log=False)),
+    )
+    member = SimpleNamespace(
+        id=123,
+        name="ham6600y",
+        display_name="Jacob",
+        mention="<@123>",
+        display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatar.png"),
+        guild=guild,
+    )
+    role_added = SimpleNamespace(id=456, name="Bloxlink Bypass", mention="<@&456>")
+    role_removed = SimpleNamespace(id=789, name="Old Role", mention="<@&789>")
+
+    # Test added only -> Colors.success
+    embed_add = asyncio.run(cog._build_role_update_embed(member, [role_added], []))
+    assert embed_add.color.value == Colors.success
+    assert "Roles Added" in embed_add.author.name
+    assert "Jacob" in embed_add.author.name
+    assert any(f.name.startswith("➕ Added") for f in embed_add.fields)
+
+    # Test removed only -> Colors.error
+    embed_rem = asyncio.run(cog._build_role_update_embed(member, [], [role_removed]))
+    assert embed_rem.color.value == Colors.error
+    assert "Roles Removed" in embed_rem.author.name
+    assert any(f.name.startswith("➖ Removed") for f in embed_rem.fields)
+
+    # Test mixed -> Colors.blurple
+    embed_mixed = asyncio.run(cog._build_role_update_embed(member, [role_added], [role_removed]))
+    assert embed_mixed.color.value == Colors.blurple
+    assert "Roles Updated" in embed_mixed.author.name
+    assert any(f.name.startswith("➕ Added") for f in embed_mixed.fields)
+    assert any(f.name.startswith("➖ Removed") for f in embed_mixed.fields)
+
+
+
