@@ -391,5 +391,216 @@ def test_dynamic_presence_rotation():
     assert "veil utilities" in act2.name
 
 
+def test_dynamic_category_filtering_by_rank():
+    all_cats = {
+        "Utility": [], "Music": [], "Moderation": [], "Roles": [], "Permissions": [],
+        "Antinuke": [], "Automod": [], "Server": [], "VoiceMaster": [], "Community": []
+    }
+
+    # 1. Unranked / regular user (rank 0)
+    view_unranked = HelpView(_help(), all_cats, author_rank=0, is_owner=False)
+    unranked_labels = [b.label for b in view_unranked.children if isinstance(b, CategoryButton)]
+    assert set(unranked_labels) == {"Utility", "Music", "VoiceMaster", "Community"}
+    assert "Moderation" not in unranked_labels
+    assert "Roles" not in unranked_labels
+    assert "Permissions" not in unranked_labels
+    assert "Antinuke" not in unranked_labels
+    assert "Automod" not in unranked_labels
+    assert "Server" not in unranked_labels
+    assert "Developer" not in unranked_labels
+    assert "Secret" not in unranked_labels
+
+    # 2. Helper (rank 1)
+    view_helper = HelpView(_help(), all_cats, author_rank=1, is_owner=False)
+    helper_labels = [b.label for b in view_helper.children if isinstance(b, CategoryButton)]
+    assert "Moderation" in helper_labels
+    assert "Roles" not in helper_labels
+    assert "Permissions" not in helper_labels
+    assert "Antinuke" not in helper_labels
+
+    # 3. Admin (rank 3)
+    view_admin = HelpView(_help(), all_cats, author_rank=3, is_owner=False)
+    admin_labels = [b.label for b in view_admin.children if isinstance(b, CategoryButton)]
+    assert "Moderation" in admin_labels
+    assert "Roles" in admin_labels
+    assert "Automod" in admin_labels
+    assert "Server" in admin_labels
+    assert "Permissions" not in admin_labels
+    assert "Antinuke" not in admin_labels
+    assert "Developer" not in admin_labels
+
+    # 4. Head Admin (rank 4)
+    view_headadmin = HelpView(_help(), all_cats, author_rank=4, is_owner=False)
+    headadmin_labels = [b.label for b in view_headadmin.children if isinstance(b, CategoryButton)]
+    assert "Permissions" in headadmin_labels
+    assert "Antinuke" in headadmin_labels
+    assert "Developer" not in headadmin_labels
+    assert "Secret" not in headadmin_labels
+
+    # 5. Bot Developer / Owner (is_owner=True)
+    view_owner = HelpView(_help(), all_cats, is_owner=True)
+    owner_labels = [b.label for b in view_owner.children if isinstance(b, CategoryButton)]
+    assert "Developer" in owner_labels
+    assert "Secret" in owner_labels
+    assert "Permissions" in owner_labels
+    assert "Antinuke" in owner_labels
+
+
+def test_command_category_and_rank_resolution():
+    from core.help import category_for_command, min_rank_for_command
+    from cogs.moderation import Moderation
+
+    bot = Veil()
+    mod_cog = Moderation(bot)
+    asyncio.run(bot.add_cog(mod_cog))
+
+    # Public command
+    dummy_pub = SimpleNamespace(name="ping", qualified_name="ping", cog_name="Utility", callback=lambda: None)
+    assert category_for_command(dummy_pub, bot) == "Utility"
+    assert min_rank_for_command(dummy_pub, bot) == 0
+
+    # Moderation commands with uperm
+    ban_cmd = mod_cog.ban
+    assert category_for_command(ban_cmd, bot) == "Moderation"
+    assert min_rank_for_command(ban_cmd, bot) == 3  # Admin (rank 3)
+
+    kick_cmd = mod_cog.kick
+    assert min_rank_for_command(kick_cmd, bot) == 2  # Mod (rank 2)
+
+    purge_cmd = mod_cog.purge
+    assert min_rank_for_command(purge_cmd, bot) == 1  # Helper (rank 1)
+
+
+def test_moderation_uperm_predicates():
+    from cogs.moderation import Moderation
+
+    bot = Veil()
+    mod_cog = Moderation(bot)
+
+    # Test ban requires admin uperm
+    ban_predicate = next(c for c in mod_cog.ban.checks if getattr(c, "__name__", "") == "predicate")
+
+    ctx_regular = SimpleNamespace(
+        guild=SimpleNamespace(id=1, owner_id=100),
+        author=SimpleNamespace(id=999, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+        bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
+    )
+    with pytest.raises(UserError, match="user permission"):
+        asyncio.run(ban_predicate(ctx_regular))
+
+    # Helper fails ban
+    cfg_helper = {"users": {"200": "helper"}}
+    ctx_helper = SimpleNamespace(
+        guild=SimpleNamespace(id=1, owner_id=100),
+        author=SimpleNamespace(id=200, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+        bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value=cfg_helper)))
+    )
+    with pytest.raises(UserError, match="user permission"):
+        asyncio.run(ban_predicate(ctx_helper))
+
+    # Admin passes ban
+    cfg_admin = {"users": {"300": "admin"}}
+    ctx_admin = SimpleNamespace(
+        guild=SimpleNamespace(id=1, owner_id=100),
+        author=SimpleNamespace(id=300, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+        bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value=cfg_admin)))
+    )
+    assert asyncio.run(ban_predicate(ctx_admin)) is True
+
+
+def test_direct_help_lookup_permission_gating():
+    from core.help import Help
+    from cogs.moderation import Moderation
+
+    bot = Veil()
+    mod_cog = Moderation(bot)
+    asyncio.run(bot.add_cog(mod_cog))
+    bot.db = SimpleNamespace(get_config=AsyncMock(return_value={}))
+
+    h = Help()
+    sent_errors = []
+    sent_embeds = []
+
+    async def mock_error(msg):
+        sent_errors.append(msg)
+
+    async def mock_send(embed=None, **kwargs):
+        if embed:
+            sent_embeds.append(embed)
+
+    h.send_error_message = mock_error
+
+    # Context for unranked member (Joachim)
+    ctx_unranked = SimpleNamespace(
+        guild=SimpleNamespace(id=1, owner_id=100),
+        author=SimpleNamespace(id=999, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+        bot=bot,
+        clean_prefix=",",
+        send=mock_send,
+    )
+    h.context = ctx_unranked
+
+    # 1. Unranked runs `,help moderation`
+    sent_errors.clear()
+    asyncio.run(h.command_callback(ctx_unranked, command="moderation"))
+    assert len(sent_errors) == 1
+    assert 'No command or category called "moderation" found.' in sent_errors[0]
+
+    # 2. Unranked runs `,help ban`
+    sent_errors.clear()
+    asyncio.run(h.send_command_help(mod_cog.ban))
+    assert len(sent_errors) == 1
+    assert 'No command called "ban" found.' in sent_errors[0]
+
+    # 3. Context for Admin member (rank 3)
+    bot.db.get_config = AsyncMock(return_value={"users": {"300": "admin"}})
+    ctx_admin = SimpleNamespace(
+        guild=SimpleNamespace(id=1, owner_id=100),
+        author=SimpleNamespace(id=300, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+        bot=bot,
+        clean_prefix=",",
+        send=mock_send,
+    )
+    h.context = ctx_admin
+
+    # Admin runs `,help ban` -> passes and sends embed
+    sent_errors.clear()
+    sent_embeds.clear()
+    asyncio.run(h.send_command_help(mod_cog.ban))
+    assert len(sent_errors) == 0
+    assert len(sent_embeds) == 1
+    assert sent_embeds[0].title == "ban"
+
+
+def test_all_moderation_actions_have_uperm_checks():
+    from cogs.moderation import Moderation
+
+    bot = Veil()
+    mod_cog = Moderation(bot)
+
+    checked_commands = [
+        ("ban", "admin"),
+        ("unban", "admin"),
+        ("softban", "admin"),
+        ("massban", "admin"),
+        ("masskick", "admin"),
+        ("kick", "mod"),
+        ("timeout", "mod"),
+        ("untimeout", "mod"),
+        ("warn", "mod"),
+        ("clearwarns", "mod"),
+        ("delwarn", "mod"),
+        ("purge", "helper"),
+        ("botclear", "helper"),
+    ]
+
+    for cmd_name, expected_level in checked_commands:
+        cmd = getattr(mod_cog, cmd_name)
+        perms_list = getattr(cmd.callback, "__veil_perms__", [])
+        assert any(f"uperm: {expected_level}" in p for p in perms_list), f"Command {cmd_name} missing uperm: {expected_level}"
+
+
+
+
 
 

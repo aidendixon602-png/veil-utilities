@@ -11,7 +11,7 @@ import time
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, OwnedView, fmt_duration, shorten
+from core.utils import Colors, Context, OwnedView, fmt_duration, shorten
 
 _CACHED_COMMIT: str | None = None
 
@@ -49,6 +49,54 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
 ]
 
 PAGE_SIZE = 15
+
+CATEGORY_MIN_RANKS: dict[str, int] = {
+    "Utility": 0,       # Public
+    "Music": 0,         # Public
+    "VoiceMaster": 0,   # Public
+    "Community": 0,     # Public
+    "Moderation": 1,    # Helper+ (rank 1)
+    "Roles": 3,         # Admin+ (rank 3)
+    "Automod": 3,       # Admin+ (rank 3)
+    "Server": 3,        # Admin+ (rank 3)
+    "Antinuke": 4,      # Head Admin+ (rank 4)
+    "Permissions": 4,   # Head Admin+ (rank 4)
+}
+
+
+def category_for_command(cmd: commands.Command, bot: commands.Bot | None = None) -> str:
+    """Find which category a command belongs to."""
+    name = getattr(cmd, "name", "")
+    qname = getattr(cmd, "qualified_name", "")
+    for label, cogs, extra in CATEGORIES:
+        if name in extra or qname in extra:
+            return label
+        cog_name = getattr(cmd, "cog_name", None)
+        if not cog_name and bot is not None and hasattr(bot, "get_command"):
+            bot_cmd = bot.get_command(name) or bot.get_command(qname)
+            if bot_cmd:
+                cog_name = getattr(bot_cmd, "cog_name", None)
+        if cog_name and cog_name in cogs:
+            return label
+    if getattr(cmd, "cog_name", None) in HIDDEN_COGS:
+        return "Developer"
+    return "Community"
+
+
+def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None) -> int:
+    """Return the minimum rank required to view help for this command."""
+    cat = category_for_command(cmd, bot)
+    cat_rank = CATEGORY_MIN_RANKS.get(cat, 0)
+    callback = getattr(cmd, "callback", cmd)
+    perms_list = getattr(callback, "__veil_perms__", [])
+    uperm_rank = 0
+    for p in perms_list:
+        if isinstance(p, str) and p.startswith("uperm:"):
+            lvl = p.split(":", 1)[1].strip().lower()
+            from core.perms import PRESETS
+            if lvl in PRESETS:
+                uperm_rank = max(uperm_rank, PRESETS[lvl][1])
+    return max(cat_rank, uperm_rank)
 
 SECRET_CATEGORIES = {
     "security": {
@@ -208,11 +256,12 @@ class NextButton(discord.ui.Button["HelpView"]):
 
 
 class HelpView(OwnedView):
-    def __init__(self, help_cmd: "Help", categories: dict[str, list[commands.Command]], start: str | None = None, is_owner: bool = False):
+    def __init__(self, help_cmd: "Help", categories: dict[str, list[commands.Command]], start: str | None = None, is_owner: bool = False, author_rank: int = 0):
         super().__init__(help_cmd.context.author.id, timeout=180)
         self.help_cmd, self.categories = help_cmd, categories
         self.current = start
         self.is_owner = is_owner
+        self.author_rank = author_rank
         self.page = 0
         self.message: discord.Message | None = None
         self._build_items()
@@ -220,18 +269,31 @@ class HelpView(OwnedView):
     def _build_items(self):
         self.clear_items()
         if self.current is None:
-            # Home overview: show 2 rows of clean category buttons
-            labels = [c[0] for c in CATEGORIES if c[0] in self.categories]
-            for i, label in enumerate(labels[:10]):
+            # Home overview: show only categories the author has permission to see!
+            labels = []
+            for c in CATEGORIES:
+                label = c[0]
+                if label not in self.categories:
+                    continue
+                min_rank = CATEGORY_MIN_RANKS.get(label, 0)
+                if self.is_owner or self.author_rank >= min_rank:
+                    labels.append(label)
+
+            for i, label in enumerate(labels[:15]):
                 self.add_item(CategoryButton(label, row=i // 5))
             if self.is_owner:
-                self.add_item(CategoryButton("Developer", row=2, style=discord.ButtonStyle.secondary))
-                self.add_item(CategoryButton("Secret", row=2, style=discord.ButtonStyle.danger))
+                dev_row = (len(labels) + 4) // 5
+                self.add_item(CategoryButton("Developer", row=dev_row, style=discord.ButtonStyle.secondary))
+                self.add_item(CategoryButton("Secret", row=dev_row, style=discord.ButtonStyle.danger))
         else:
             # Category view: Back button + pagination if needed
             self.add_item(BackButton(row=0))
             if self.current not in ("Developer", "Secret"):
-                cmds = self.categories.get(self.current, [])
+                bot = getattr(getattr(self.help_cmd, "context", None), "bot", None)
+                cmds = [
+                    c for c in self.categories.get(self.current, [])
+                    if self.is_owner or self.author_rank >= min_rank_for_command(c, bot)
+                ]
                 total_pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
                 if total_pages > 1:
                     prev_btn = PrevButton(row=0)
@@ -249,23 +311,46 @@ class HelpView(OwnedView):
         await it.response.edit_message(embed=embed, view=self)
 
     async def show_category(self, it: discord.Interaction, label: str):
-        self.current = label
-        self.page = 0
         if label.lower() in ("dev", "developer"):
+            if not self.is_owner:
+                return await it.response.send_message("🔒 This category is restricted to bot developers.", ephemeral=True)
+            self.current = label
+            self.page = 0
             view = DeveloperView(self.help_cmd, it.user.id)
             embed = await self.help_cmd.developer_embed()
             await it.response.edit_message(embed=embed, view=view)
+            return
         elif label.lower() == "secret":
+            if not self.is_owner:
+                return await it.response.send_message("🔒 This category is restricted to bot developers.", ephemeral=True)
+            self.current = label
+            self.page = 0
             view = SecretHelpView(self.help_cmd.context, help_cmd=self.help_cmd)
             embed = view.get_embed()
             await it.response.edit_message(embed=embed, view=view)
-        else:
-            self._build_items()
-            embed = self.help_cmd.category_embed(label, self.categories.get(label, []), self.page)
-            await it.response.edit_message(embed=embed, view=self)
+            return
+
+        min_rank = CATEGORY_MIN_RANKS.get(label, 0)
+        if not self.is_owner and self.author_rank < min_rank:
+            return await it.response.send_message("🔒 You do not have permission to view this category.", ephemeral=True)
+
+        self.current = label
+        self.page = 0
+        self._build_items()
+        bot = getattr(getattr(self.help_cmd, "context", None), "bot", None)
+        cmds = [
+            c for c in self.categories.get(label, [])
+            if self.is_owner or self.author_rank >= min_rank_for_command(c, bot)
+        ]
+        embed = self.help_cmd.category_embed(label, cmds, self.page)
+        await it.response.edit_message(embed=embed, view=self)
 
     async def change_page(self, it: discord.Interaction, delta: int):
-        cmds = self.categories.get(self.current, [])
+        bot = getattr(getattr(self.help_cmd, "context", None), "bot", None)
+        cmds = [
+            c for c in self.categories.get(self.current, [])
+            if self.is_owner or self.author_rank >= min_rank_for_command(c, bot)
+        ]
         total_pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
         self.page = max(0, min(total_pages - 1, self.page + delta))
         self._build_items()
@@ -754,23 +839,54 @@ class Help(commands.HelpCommand):
         view = SecretHelpView(self.context, help_cmd=self)
         return view.get_embed()
 
+    async def is_owner_check(self) -> bool:
+        from core import perms as _perms
+        bot = getattr(self.context, "bot", None)
+        author = getattr(self.context, "author", None)
+        if not author:
+            return False
+        if _perms.is_bot_developer(author, bot):
+            return True
+        if bot:
+            try:
+                if await bot.is_owner(author):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    async def get_author_rank(self) -> int:
+        from core import perms as _perms
+        if await self.is_owner_check():
+            return _perms.DEV_RANK
+        guild = getattr(self.context, "guild", None)
+        author = getattr(self.context, "author", None)
+        if not author:
+            return 0
+        if guild and getattr(guild, "owner_id", None) == getattr(author, "id", None):
+            return _perms.OWNER_RANK
+        bot = getattr(self.context, "bot", None)
+        if guild and bot and getattr(bot, "db", None):
+            try:
+                cfg = await bot.db.get_config(guild.id, "permlevels")
+                return _perms.rank_of(cfg, author, is_owner=False, is_dev=False, has_admin=False)
+            except Exception:
+                return 0
+        return 0
+
     async def show_home_interaction(self, it: discord.Interaction):
         categories = category_commands(self.context.bot)
-        is_owner = await self.context.bot.is_owner(self.context.author)
-        from core import perms as _perms
-        if not is_owner and _perms.is_bot_developer(self.context.author, self.context.bot):
-            is_owner = True
-        view = HelpView(self, categories, None, is_owner=is_owner)
+        is_owner = await self.is_owner_check()
+        author_rank = await self.get_author_rank()
+        view = HelpView(self, categories, None, is_owner=is_owner, author_rank=author_rank)
         embed = self.home_embed()
         await it.response.edit_message(embed=embed, view=view)
 
     # ------------------------------------------------------------ entry points
     async def open_menu(self, start: str | None = None):
         categories = category_commands(self.context.bot)
-        is_owner = await self.context.bot.is_owner(self.context.author)
-        from core import perms as _perms
-        if not is_owner and _perms.is_bot_developer(self.context.author, self.context.bot):
-            is_owner = True
+        is_owner = await self.is_owner_check()
+        author_rank = await self.get_author_rank()
 
         if start is not None and start.lower() == "secret" and is_owner:
             view = SecretHelpView(self.context, help_cmd=self)
@@ -778,16 +894,26 @@ class Help(commands.HelpCommand):
             view.message = await self.context.send(embed=embed, view=view)
             return
 
-        view = HelpView(self, categories, start, is_owner=is_owner)
-        if start is None:
-            embed = self.home_embed()
-        elif start in categories:
-            embed = self.category_embed(start, categories[start], 0)
-        elif start.lower() in ("dev", "developer") and is_owner:
+        if start is not None and start.lower() in ("dev", "developer") and is_owner:
             view = DeveloperView(self, self.context.author.id)
             embed = await self.developer_embed()
             view.message = await self.context.send(embed=embed, view=view)
             return
+
+        if start is not None:
+            min_rank = CATEGORY_MIN_RANKS.get(start, 0)
+            if not is_owner and author_rank < min_rank:
+                return await self.send_error_message(f'No command or category called "{start}" found.')
+
+        view = HelpView(self, categories, start, is_owner=is_owner, author_rank=author_rank)
+        if start is None:
+            embed = self.home_embed()
+        elif start in categories:
+            cmds = [
+                c for c in categories[start]
+                if is_owner or author_rank >= min_rank_for_command(c, self.context.bot)
+            ]
+            embed = self.category_embed(start, cmds, 0)
         else:
             embed = self.home_embed()
         view.message = await self.context.send(embed=embed, view=view)
@@ -795,20 +921,23 @@ class Help(commands.HelpCommand):
     async def command_callback(self, ctx, /, *, command: str | None = None):
         if command:
             wanted = command.lower().strip()
+            is_owner = await self.is_owner_check()
+            author_rank = await self.get_author_rank()
             for label, _, _ in CATEGORIES:
                 if wanted == label.lower():
+                    min_rank = CATEGORY_MIN_RANKS.get(label, 0)
+                    if not is_owner and author_rank < min_rank:
+                        return await self.send_error_message(f'No command or category called "{command}" found.')
                     if not ctx.bot.get_command(wanted):
                         await self.prepare_help_command(ctx, command)
                         return await self.open_menu(label)
             if wanted in ("dev", "developer"):
-                from core import perms as _perms
-                if await ctx.bot.is_owner(ctx.author) or _perms.is_bot_developer(ctx.author, ctx.bot):
+                if is_owner:
                     await self.prepare_help_command(ctx, command)
                     return await self.open_menu("developer")
                 return await self.send_error_message("No command or category called that")
             if wanted == "secret":
-                from core import perms as _perms
-                if await ctx.bot.is_owner(ctx.author) or _perms.is_bot_developer(ctx.author, ctx.bot):
+                if is_owner:
                     await self.prepare_help_command(ctx, command)
                     return await self.open_menu("secret")
                 return await self.send_error_message("No command or category called that")
@@ -821,6 +950,12 @@ class Help(commands.HelpCommand):
         label = next((l for l, cogs, _ in CATEGORIES if cog.qualified_name in cogs), None)
         if cog.qualified_name in HIDDEN_COGS:
             return await self.send_error_message("No command or category called that")
+        if label:
+            min_rank = CATEGORY_MIN_RANKS.get(label, 0)
+            is_owner = await self.is_owner_check()
+            author_rank = await self.get_author_rank()
+            if not is_owner and author_rank < min_rank:
+                return await self.send_error_message("No command or category called that")
         await self.open_menu(label)
 
     def command_embed(self, cmd: commands.Command):
@@ -838,17 +973,31 @@ class Help(commands.HelpCommand):
         return e
 
     async def send_command_help(self, cmd):
-        if (cmd.hidden or any(p.hidden for p in cmd.parents)) \
-                and not await self.context.bot.is_owner(self.context.author):
+        is_owner = await self.is_owner_check()
+        if (cmd.hidden or any(p.hidden for p in cmd.parents)) and not is_owner:
             return await self.send_error_message(f'No command called "{cmd.name}" found.')
+        if not is_owner:
+            author_rank = await self.get_author_rank()
+            req_rank = min_rank_for_command(cmd, getattr(self.context, "bot", None))
+            if author_rank < req_rank:
+                return await self.send_error_message(f'No command called "{cmd.name}" found.')
         await self.context.send(embed=self.command_embed(cmd))
 
     async def send_group_help(self, group: commands.Group):
-        if (group.hidden or any(p.hidden for p in group.parents)) \
-                and not await self.context.bot.is_owner(self.context.author):
+        is_owner = await self.is_owner_check()
+        if (group.hidden or any(p.hidden for p in group.parents)) and not is_owner:
             return await self.send_error_message(f'No command called "{group.name}" found.')
+        author_rank = 0 if is_owner else await self.get_author_rank()
+        if not is_owner:
+            req_rank = min_rank_for_command(group, getattr(self.context, "bot", None))
+            if author_rank < req_rank:
+                return await self.send_error_message(f'No command called "{group.name}" found.')
         embed = self.command_embed(group)
-        subs = sorted((c for c in group.walk_commands() if not c.hidden), key=lambda c: c.qualified_name)
+        bot = getattr(self.context, "bot", None)
+        subs = sorted(
+            (c for c in group.walk_commands() if not c.hidden and (is_owner or author_rank >= min_rank_for_command(c, bot))),
+            key=lambda c: c.qualified_name
+        )
         if subs:
             lines = [f"`{c.qualified_name} {c.signature}`".replace(" `", "`") + f" — {c.short_doc or ''}"
                      for c in subs]

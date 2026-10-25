@@ -5,7 +5,7 @@ import discord
 from discord.ext import commands
 
 from core import perms
-from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, human_join, is_server_owner
+from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, human_join, is_server_owner, requires_uperm
 
 
 class Permissions(commands.Cog):
@@ -25,7 +25,7 @@ class Permissions(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         return perms.rank_of(cfg, ctx.author, is_owner=ctx.author.id == ctx.guild.owner_id,
                              is_dev=perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author),
-                             has_admin=ctx.author.guild_permissions.administrator)
+                             has_admin=False)
 
     # ============================================================ userperm
     @commands.group(aliases=["perm", "perms", "uperm", "ups"], invoke_without_command=True)
@@ -35,6 +35,7 @@ class Permissions(commands.Cog):
         await self.permlevels(ctx)
 
     @userperm.command(name="add", aliases=["set", "give"])
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     async def up_add(self, ctx: Context, target: discord.Member | discord.Role, *, level: str):
         """Assign a permission level to a member or a role"""
@@ -56,7 +57,7 @@ class Permissions(commands.Cog):
                 raise UserError(f"{target.mention} is a Bot Developer with built-in supreme permissions.")
             target_current = perms.rank_of(cfg, target, is_owner=target.id == ctx.guild.owner_id,
                                            is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
-                                           has_admin=target.guild_permissions.administrator)
+                                           has_admin=False)
             if ctx.author.id != ctx.guild.owner_id and not (perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)):
                 if info["rank"] >= actor:
                     raise UserError("You can't assign a level equal to or above your own")
@@ -83,6 +84,7 @@ class Permissions(commands.Cog):
             await ctx.approve(f"Set {target.mention}'s permission level to **{info['name']}**.")
 
     @userperm.group(name="remove", aliases=["rem", "delete", "unset"], invoke_without_command=True)
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     async def up_remove(self, ctx: Context, target: discord.Member | discord.Role):
         """Remove a member's or role's permission level"""
@@ -94,7 +96,7 @@ class Permissions(commands.Cog):
                 raise UserError(f"{target.mention} has no direct permission level")
             target_rank = perms.rank_of(cfg, target, is_owner=target.id == ctx.guild.owner_id,
                                         is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
-                                        has_admin=target.guild_permissions.administrator)
+                                        has_admin=False)
             if ctx.author.id != ctx.guild.owner_id and not (perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)) and target_rank >= actor:
                 raise UserError(f"You can't change {target.mention}, they rank at or above you")
             users.pop(str(target.id))
@@ -111,6 +113,7 @@ class Permissions(commands.Cog):
             await ctx.approve(f"Removed {target.mention}'s permission level.")
 
     @up_remove.command(name="deleted")
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     async def up_remove_deleted(self, ctx: Context):
         """Purge permission levels for members who left the server"""

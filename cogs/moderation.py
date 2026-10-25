@@ -17,7 +17,7 @@ if not hasattr(_cu, "check_role_assignable"):
     except Exception:
         pass
 
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, OwnedView, UserError, antinuke_guard, check_hierarchy,
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm)
 
@@ -225,6 +225,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ bans
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def ban(self, ctx: Context, user: discord.Member | discord.User, *, reason: str = None):
@@ -242,6 +243,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Banned **{user}** • case `#{num}`")
 
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def unban(self, ctx: Context, user: discord.User, *, reason: str = None):
@@ -258,6 +260,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Unbanned **{user}** • case `#{num}`")
 
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def softban(self, ctx: Context, member: discord.Member, *, reason: str = None):
@@ -270,6 +273,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Softbanned **{member}** • case `#{num}`")
 
     @commands.command(aliases=["banrecent"])
+    @requires_uperm("admin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(ban_members=True)
     async def massban(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
@@ -291,8 +295,37 @@ class Moderation(commands.Cog):
         await create_case(self.bot, ctx.guild, "massban", ctx.author, ctx.author, f"{len(result.banned)} users: {reason}")
         await ctx.approve(f"Banned **{len(result.banned)}** members ({len(result.failed)} failed)")
 
+    @commands.command(aliases=["kickrecent"])
+    @requires_uperm("admin")
+    @has_perms(kick_members=True)
+    @commands.bot_has_permissions(kick_members=True)
+    async def masskick(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
+        """Kick everyone who joined in the last N minutes (raid cleanup)"""
+        if not 1 <= minutes <= 10080:
+            raise UserError("Minutes must be between 1 and 10080 (one week)")
+        cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
+        is_owner = ctx.author.id == ctx.guild.owner_id
+        targets = [m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
+                   and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
+                   and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)]
+        if not targets:
+            raise UserError("Nobody joined in that window")
+        if not await ctx.confirm(f"Kick **{len(targets)}** members who joined in the last {minutes} minutes?"):
+            return await ctx.neutral("Cancelled")
+        await antinuke_guard(ctx, "kick", len(targets))
+        done, failed = 0, 0
+        for m in targets:
+            try:
+                await m.kick(reason=f"masskick by {ctx.author}: {reason}")
+                done += 1
+            except discord.HTTPException:
+                failed += 1
+        await create_case(self.bot, ctx.guild, "masskick", ctx.author, ctx.author, f"{done} users: {reason}")
+        await ctx.approve(f"Kicked **{done}** members ({failed} failed)")
+
     # ================================================================ kick / timeout
     @commands.command()
+    @requires_uperm("mod")
     @has_perms(kick_members=True)
     @commands.bot_has_permissions(kick_members=True)
     async def kick(self, ctx: Context, member: discord.Member, *, reason: str = None):
@@ -305,6 +338,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Kicked **{member}** • case `#{num}`")
 
     @commands.command(aliases=["mute", "to", "tmute"])
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(moderate_members=True)
     async def timeout(self, ctx: Context, member: discord.Member, duration: Optional[Duration] = None, *, reason: str = None):
@@ -321,6 +355,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Timed out **{member}** for **{human}** • case `#{num}`")
 
     @commands.group(aliases=["unmute", "untime", "uto"], invoke_without_command=True)
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     async def untimeout(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Remove a timeout (use `untimeout all` for everyone)"""
@@ -332,6 +367,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"{member.mention}'s timeout has been removed.")
 
     @untimeout.command(name="all")
+    @requires_uperm("admin")
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(moderate_members=True)
     async def untimeout_all(self, ctx: Context, *, reason: str = None):
@@ -350,6 +386,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ warns
     @commands.command()
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     async def warn(self, ctx: Context, member: discord.Member, *, reason: str = "No reason provided"):
         """Warn a member. Auto-punishments can be set with `warnpunish`"""
@@ -380,6 +417,7 @@ class Moderation(commands.Cog):
                 pass
 
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(administrator=True)
     async def warnpunish(self, ctx: Context, warnings: int, action: str, duration: Duration = None):
         """Auto-punish at N warnings: `warnpunish 3 timeout 1h`, `warnpunish 5 ban`, `warnpunish 3 none`"""
@@ -406,6 +444,7 @@ class Moderation(commands.Cog):
         await ctx.paginate(chunk_embeds(f"Warnings for {member}", lines, 5, numbered=False))
 
     @commands.command(aliases=["clearwarnings"])
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     async def clearwarns(self, ctx: Context, member: discord.Member | discord.User):
         """Clear all of a member's warnings"""
@@ -417,6 +456,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Cleared **{cur.rowcount}** warning(s) for **{member}**")
 
     @commands.command(aliases=["unwarn"])
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     async def delwarn(self, ctx: Context, warn_id: int):
         """Delete a single warning by ID"""
@@ -493,6 +533,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Purged **{len(deleted)}** messages", delete_after=4)
 
     @commands.group(aliases=["clear", "c", "prune"], invoke_without_command=True)
+    @requires_uperm("helper")
     @has_perms(manage_messages=True)
     @commands.bot_has_permissions(manage_messages=True)
     async def purge(self, ctx: Context, amount: int, member: discord.Member = None):
@@ -556,6 +597,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Purged **{len(deleted)}** messages", delete_after=4)
 
     @commands.command(aliases=["bc"])
+    @requires_uperm("helper")
     @has_perms(manage_messages=True)
     async def botclear(self, ctx: Context, amount: int = 100):
         """Delete bot messages and command invocations"""
@@ -564,6 +606,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ channels
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(manage_channels=True)
     async def lock(self, ctx: Context, channel: discord.TextChannel = None, *, reason: str = None):
         """Prevent @everyone from sending messages"""
@@ -576,6 +619,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Locked {channel.mention}")
 
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(manage_channels=True)
     async def unlock(self, ctx: Context, channel: discord.TextChannel = None, *, reason: str = None):
         """Allow @everyone to send messages again"""
@@ -588,6 +632,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Unlocked {channel.mention}")
 
     @commands.command()
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def lockdown(self, ctx: Context, *, reason: str = "lockdown"):
@@ -610,6 +655,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Locked **{locked}** channels")
 
     @commands.command()
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def unlockdown(self, ctx: Context):
@@ -627,6 +673,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Unlocked **{n}** channels")
 
     @commands.command()
+    @requires_uperm("admin")
     @has_perms(manage_channels=True)
     async def hide(self, ctx: Context, channel: discord.abc.GuildChannel = None):
         """Hide a channel from @everyone"""
@@ -637,6 +684,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Hid {channel.mention}")
 
     @commands.command(aliases=["reveal"])
+    @requires_uperm("admin")
     @has_perms(manage_channels=True)
     async def unhide(self, ctx: Context, channel: discord.abc.GuildChannel = None):
         """Reveal a hidden channel"""
@@ -647,6 +695,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Revealed {channel.mention}")
 
     @commands.command(aliases=["sm"])
+    @requires_uperm("admin")
     @has_perms(manage_channels=True)
     async def slowmode(self, ctx: Context, delay: str = "0", channel: discord.TextChannel = None):
         """Set slowmode (e.g. `10s`, `5m`, `0` to disable)"""
@@ -658,6 +707,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Slowmode in {channel.mention} set to **{fmt_duration(secs)}**" if secs else f"Disabled slowmode in {channel.mention}")
 
     @commands.command()
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(manage_channels=True)
     async def nuke(self, ctx: Context):
@@ -696,6 +746,7 @@ class Moderation(commands.Cog):
         return member, role
 
     @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True)
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
@@ -745,6 +796,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Removed {role.mention} from {member.mention}")
 
     @role.command(name="add")
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role_add(self, ctx: Context, arg1: str, *, arg2: str):
@@ -752,6 +804,7 @@ class Moderation(commands.Cog):
         await self._do_role_add(ctx, arg1, arg2)
 
     @role.command(name="remove", aliases=["rem", "del"])
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role_remove(self, ctx: Context, arg1: str, *, arg2: str):
@@ -759,6 +812,7 @@ class Moderation(commands.Cog):
         await self._do_role_remove(ctx, arg1, arg2)
 
     @commands.command(name="addrole", aliases=["giverole"])
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_addrole(self, ctx: Context, arg1: str, *, arg2: str):
@@ -766,6 +820,7 @@ class Moderation(commands.Cog):
         await self._do_role_add(ctx, arg1, arg2)
 
     @commands.command(name="removerole", aliases=["takerole"])
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_removerole(self, ctx: Context, arg1: str, *, arg2: str):
@@ -776,6 +831,7 @@ class Moderation(commands.Cog):
         return await is_role_blacklisted(guild_id, role_id, self.bot.db)
 
     @role.command(name="create")
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def role_create(self, ctx: Context, *, name: str):
         """Create a role"""
@@ -784,6 +840,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Created {r.mention}")
 
     @role.command(name="delete")
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def role_delete(self, ctx: Context, *, role: discord.Role):
         """Delete a role"""
@@ -793,6 +850,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Deleted **{role.name}**")
 
     @role.command(name="color", aliases=["colour"])
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def role_color(self, ctx: Context, role: discord.Role, color: discord.Color):
         """Change a role's color"""
@@ -801,6 +859,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Changed {role.mention}'s color to `{color}`")
 
     @role.command(name="rename")
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def role_rename(self, ctx: Context, role: discord.Role, *, name: str):
         """Rename a role"""
@@ -809,6 +868,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Renamed role to {role.mention}")
 
     @role.command(name="hoist")
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def role_hoist(self, ctx: Context, *, role: discord.Role):
         """Toggle showing a role separately"""
@@ -837,6 +897,7 @@ class Moderation(commands.Cog):
                                                        f"{'to' if add else 'from'} **{done}** members"))
 
     @role.command(name="all")
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_all(self, ctx: Context, action: str, *, role: discord.Role):
@@ -844,6 +905,7 @@ class Moderation(commands.Cog):
         await self._mass_role(ctx, role, action.lower() == "add", lambda m: True)
 
     @role.command(name="humans")
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_humans(self, ctx: Context, action: str, *, role: discord.Role):
@@ -851,6 +913,7 @@ class Moderation(commands.Cog):
         await self._mass_role(ctx, role, action.lower() == "add", lambda m: not m.bot)
 
     @role.command(name="bots")
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_bots(self, ctx: Context, action: str, *, role: discord.Role):
@@ -858,6 +921,7 @@ class Moderation(commands.Cog):
         await self._mass_role(ctx, role, action.lower() == "add", lambda m: m.bot)
 
     @commands.command()
+    @requires_uperm("headadmin")
     @has_perms(administrator=True)
     async def stripstaff(self, ctx: Context, member: discord.Member):
         """Remove every role with dangerous permissions from a member"""
@@ -1308,6 +1372,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ nicknames
     @commands.command(aliases=["nick"])
+    @requires_uperm("mod")
     @has_perms(manage_nicknames=True)
     async def nickname(self, ctx: Context, member: discord.Member, *, nickname: str = None):
         """Change (or reset) a member's nickname"""
@@ -1317,6 +1382,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"{'Set' if nickname else 'Reset'} {member.mention}'s nickname")
 
     @commands.command(aliases=["fn", "forcenick"])
+    @requires_uperm("mod")
     @has_perms(manage_nicknames=True)
     async def forcenickname(self, ctx: Context, member: discord.Member, *, nickname: str = None):
         """Lock a member's nickname (omit nickname to unlock)"""
@@ -1383,6 +1449,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ jail
     @commands.group(invoke_without_command=True)
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def jail(self, ctx: Context, member: discord.Member, *, reason: str = None):
@@ -1409,6 +1476,7 @@ class Moderation(commands.Cog):
             await ch.send(f"{member.mention}, you've been jailed. Reason: {reason or 'No reason provided'}")
 
     @jail.command(name="setup")
+    @requires_uperm("admin")
     @has_perms(administrator=True)
     async def jail_setup(self, ctx: Context):
         """Create the jail role and channel"""
@@ -1430,6 +1498,7 @@ class Moderation(commands.Cog):
                                            description=f"✅ Jail ready: {role.mention} in {channel.mention}"))
 
     @jail.command(name="list")
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     async def jail_list(self, ctx: Context):
         """List jailed members"""
@@ -1437,6 +1506,7 @@ class Moderation(commands.Cog):
         await ctx.paginate(chunk_embeds("Jailed", [f"<@{u}>" for u in cfg.get("jailed", {})]))
 
     @commands.command()
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     async def unjail(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Release a member and give back their roles"""
@@ -1491,6 +1561,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ quarantine
     @commands.command(aliases=["isolate", "freeze"])
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def quarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Quarantined by staff"):
@@ -1534,6 +1605,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Quarantined **{member}** • case `#{num}` (stripped **{len(removed)}** role(s))")
 
     @commands.command(aliases=["unfreeze", "release"])
+    @requires_uperm("mod")
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def unquarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Released by staff"):
@@ -1554,7 +1626,7 @@ class Moderation(commands.Cog):
         cleaned = [r for r in member.roles if r != q_role and r.id not in b_roles] + restore_roles
         await member.edit(roles=list(dict.fromkeys(cleaned)), reason=f"Unquarantined by {ctx.author}: {reason}")
         await self.bot.db.set_config(ctx.guild.id, "quarantine", cfg)
-        num = await create_case(self.bot, ctx.guild, "unquarantine", member, ctx.author, reason)
+        await create_case(self.bot, ctx.guild, "unquarantine", member, ctx.author, reason)
         await ctx.approve(f"Released **{member}** from quarantine • restored **{len(restore_roles)}** role(s)")
 
     # ================================================================ security scan
@@ -1648,7 +1720,7 @@ class Moderation(commands.Cog):
             checks["Bot Hierarchy Position"] = "🟢 Good"
         else:
             score -= 10
-            findings.append(f"🟡 **WARNING**: Veil Utilities' role is below many server roles. Drag my role higher so I can protect your server.")
+            findings.append("🟡 **WARNING**: Veil Utilities' role is below many server roles. Drag my role higher so I can protect your server.")
             checks["Bot Hierarchy Position"] = "🔴 Too Low"
 
         score = max(0, min(100, score))
