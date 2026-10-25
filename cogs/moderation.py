@@ -9,6 +9,14 @@ import discord
 from discord.ext import commands
 
 from core.modlog import case_line, create_case, dm_target
+import core.utils as _cu
+import importlib
+if not hasattr(_cu, "check_role_assignable"):
+    try:
+        importlib.reload(_cu)
+    except Exception:
+        pass
+
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, OwnedView, UserError, antinuke_guard, check_hierarchy,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts)

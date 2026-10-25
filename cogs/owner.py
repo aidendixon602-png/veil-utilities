@@ -340,6 +340,16 @@ class Owner(commands.Cog):
         except Exception as e:
             return await msg.edit(content=f"❌ Failed to git pull: `{e}`")
 
+        # Reload core helper modules in memory first
+        import importlib
+        import sys
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith("core."):
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
+
         # Reload all extensions
         reloaded = []
         failed = []
@@ -365,6 +375,14 @@ class Owner(commands.Cog):
     @commands.command(hidden=True, aliases=["rl"])
     async def reload(self, ctx: Context, *extensions: str):
         """Reload modules without restarting (all if none given)"""
+        import importlib
+        import sys
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith("core."):
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
         exts = [f"cogs.{e}" if not e.startswith("cogs.") else e for e in extensions] or list(self.bot.extensions)
         failed = []
         for ext in exts:
