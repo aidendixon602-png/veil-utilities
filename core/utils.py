@@ -408,7 +408,8 @@ async def send_script(dest: discord.abc.Messageable, script: str, variables: dic
 async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     """Permissions the author lacks, after counting owner, admin, fake permissions and perm levels."""
     from core import perms as _perms
-    if await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS:
+    bot = getattr(ctx, "bot", None)
+    if _perms.is_bot_developer(ctx.author, bot):
         return []
     p = ctx.channel.permissions_for(ctx.author)
     if p.administrator:
@@ -452,8 +453,15 @@ def has_perms(**perms: bool):
 def is_developer():
     async def predicate(ctx: Context):
         from core import perms as _perms
-        if await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS:
+        bot = getattr(ctx, "bot", None)
+        if _perms.is_bot_developer(ctx.author, bot):
             return True
+        if bot:
+            try:
+                if await bot.is_owner(ctx.author):
+                    return True
+            except Exception:
+                pass
         raise UserError("This command is restricted to the bot's developers")
     return commands.check(predicate)
 
@@ -461,7 +469,10 @@ def is_developer():
 def is_server_owner():
     async def predicate(ctx: Context):
         from core import perms as _perms
-        if ctx.guild and (ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS):
+        bot = getattr(ctx, "bot", None)
+        if _perms.is_bot_developer(ctx.author, bot):
+            return True
+        if ctx.guild and ctx.author.id == ctx.guild.owner_id:
             return True
         raise UserError("Only the **server owner** can use this command")
     return commands.check(predicate)
@@ -471,12 +482,22 @@ async def antinuke_admin(ctx: Context) -> bool:
     if ctx.guild is None:  # subcommands don't inherit the group's guild_only() when invoke_without_command=True
         raise commands.NoPrivateMessage()
     from core import perms as _perms
-    if ctx.author.id == ctx.guild.owner_id or await ctx.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS:
+    bot = getattr(ctx, "bot", None)
+    if _perms.is_bot_developer(ctx.author, bot) or ctx.author.id == ctx.guild.owner_id:
         return True
-    cfg = await ctx.bot.db.get_config(ctx.guild.id, "antinuke")
+    if bot:
+        try:
+            if await bot.is_owner(ctx.author):
+                return True
+        except Exception:
+            pass
+    db = getattr(bot, "db", None)
+    if not db:
+        return False
+    cfg = await db.get_config(ctx.guild.id, "antinuke")
     if ctx.author.id in cfg.get("admins", []):
         return True
-    pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels")
+    pl_cfg = await db.get_config(ctx.guild.id, "permlevels")
     name, source, rank = _perms.member_level_info(pl_cfg, ctx.author)
     if name in ("Supreme Leader", "Bot Developer", "Server Owner") or rank >= 7:
         return True
@@ -485,32 +506,42 @@ async def antinuke_admin(ctx: Context) -> bool:
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
     """Call right before a destructive action done through the bot (see Antinuke.guard). Raises UserError to block."""
-    cog = ctx.bot.get_cog("Antinuke")
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
+    if _perms.is_bot_developer(ctx.author, bot):
+        return  # Developers are immune to antinuke guard triggers
+    cog = bot.get_cog("Antinuke") if bot else None
     if cog is not None and ctx.guild is not None:
         await cog.guard(ctx, module, amount)
 
 
 def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
     if target.id == ctx.author.id:
         raise UserError(f"You can't {action} yourself")
+    if _perms.is_bot_developer(target, bot):
+        raise UserError(f"You can't {action} a bot developer")
     if target.id == ctx.guild.owner_id:
         raise UserError(f"You can't {action} the server owner")
-    if ctx.bot.owner_ids and target.id in ctx.bot.owner_ids:
-        raise UserError(f"You can't {action} a bot developer")
     if target == ctx.guild.me:
         raise UserError(f"I can't {action} myself")
-    if ctx.author.id != ctx.guild.owner_id and target.top_role >= ctx.author.top_role:
+    is_dev = _perms.is_bot_developer(ctx.author, bot)
+    if not is_dev and ctx.author.id != ctx.guild.owner_id and target.top_role >= ctx.author.top_role:
         raise UserError(f"You can't {action} {target.mention}, their top role is equal or higher than yours")
     if target.top_role >= ctx.guild.me.top_role:
         raise UserError(f"I can't {action} {target.mention}, their top role is above mine")
 
 
 def check_role(ctx: Context, role: discord.Role) -> None:
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
+    is_dev = _perms.is_bot_developer(ctx.author, bot)
     if role.is_default() or role.managed:
         raise UserError(f"{role.mention} can't be assigned")
     if role >= ctx.guild.me.top_role:
         raise UserError(f"{role.mention} is above my top role")
-    if ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role:
+    if not is_dev and ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role:
         raise UserError(f"{role.mention} is above or equal to your top role")
 
 
@@ -523,10 +554,13 @@ async def is_role_blacklisted(guild_id: int, role_id: int, db) -> bool:
 async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
     """Validate that a role can be assigned: checks roleblacklist (BLED), hierarchy, and manageability.
 
-    Enforces that NOBODY can assign a blacklisted (bled) role through any bot command.
+    Devs are automatically authorized for everything including blacklisted roles.
     """
-    if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
-        raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
+    if not _perms.is_bot_developer(ctx.author, bot):
+        if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
+            raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")
     check_role(ctx, role)
 
 

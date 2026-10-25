@@ -252,8 +252,7 @@ class Antinuke(commands.Cog):
     async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
         from core import perms as _perms
         return (user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", [])
-                or user_id in cfg.get("admins", []) or await self.bot.is_owner(discord.Object(user_id))
-                or user_id in _perms.BOT_DEVELOPERS)
+                or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot))
 
     async def guard(self, ctx: Context, module: str, amount: int = 1) -> None:
         """Count a destructive action done *through the bot* against the member who ran the command.
@@ -1003,6 +1002,9 @@ class Antinuke(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if member.bot:
+            return
+        from core import perms as _perms
+        if _perms.is_bot_developer(member.id, self.bot):
             return
         cfg = await self.bot.db.get_config(member.guild.id, "antiraid")
         if not cfg or member.id in cfg.get("whitelist", []):

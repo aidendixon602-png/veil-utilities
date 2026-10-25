@@ -284,15 +284,27 @@ class Veil(commands.AutoShardedBot):
         return ctx
 
     def is_authorized(self, guild_id: int | None) -> bool:
-        return guild_id is None or not self.auth_required or guild_id in self.authorized
+        if guild_id is None or not self.auth_required or guild_id in self.authorized:
+            return True
+        guild = self.get_guild(guild_id)
+        if guild:
+            from core import perms as _perms
+            if _perms.is_bot_developer(guild.owner_id, self):
+                return True
+        return False
 
     async def _may_run_commands(self, message: discord.Message) -> bool:
         """Gate shared by new and edited messages (blacklist + server authorization)."""
-        if message.author.bot or message.author.id in self.blacklist:
+        if message.author.bot:
+            return False
+        from core import perms as _perms
+        if _perms.is_bot_developer(message.author, self):
+            return True  # Devs are automatically authorized for everything including blacklists!
+        if message.author.id in self.blacklist:
             return False
         if message.guild and message.guild.id in self.blacklist:
             return False
-        if message.guild and not self.is_authorized(message.guild.id) and not await self.is_owner(message.author):
+        if message.guild and not self.is_authorized(message.guild.id):
             return False
         return True
 

@@ -377,3 +377,49 @@ def test_antighostping_detection(bot):
         assert target.mention in embed.fields[2].value
 
     asyncio.run(_run())
+
+
+def test_dev_automatic_authorization(bot):
+    async def _run():
+        from core import perms
+        dev_id = 888123
+        perms.BOT_DEVELOPERS.append(dev_id)
+
+        guild = _mock_guild(123)
+        dev_member = _mock_member(dev_id)
+        dev_member.guild = guild
+        regular_member = _mock_member(444555)
+        regular_member.guild = guild
+
+        bot._storage[(123, "roleblacklist")] = {"roles": [501, 502], "authorized": []}
+
+        mod_cog = Moderation(bot)
+        rbl_cfg = bot._storage[(123, "roleblacklist")]
+
+        # Dev is automatically authorized
+        assert mod_cog._is_role_authorized(guild, dev_member, rbl_cfg) is True
+        # Regular member is not authorized
+        assert mod_cog._is_role_authorized(guild, regular_member, rbl_cfg) is False
+
+        # Dev can assign blacklisted role via check_role_assignable
+        blacklisted_role = _mock_role(501, "BledRole", pos=10)
+        guild.me.top_role = _mock_role(999, "BotTopRole", pos=100)
+        dev_ctx = _mock_context(bot, guild=guild, author=dev_member)
+
+        # Dev check_role_assignable succeeds without raising
+        await check_role_assignable(dev_ctx, blacklisted_role)
+
+        # Non-dev check_role_assignable raises UserError
+        non_dev_ctx = _mock_context(bot, guild=guild, author=regular_member)
+        with pytest.raises(UserError, match="blacklisted"):
+            await check_role_assignable(non_dev_ctx, blacklisted_role)
+
+        # Bot Developer cannot be quarantined
+        with pytest.raises(UserError, match="cannot quarantine a bot developer"):
+            await Moderation.quarantine.callback(mod_cog, non_dev_ctx, dev_member)
+
+        # Bot Developer cannot be jailed
+        with pytest.raises(UserError, match="cannot jail a bot developer"):
+            await Moderation.jail.callback(mod_cog, non_dev_ctx, dev_member)
+
+    asyncio.run(_run())

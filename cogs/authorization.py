@@ -20,14 +20,23 @@ log = logging.getLogger("veil.auth")
 
 
 async def developers(bot) -> set[int]:
+    from core import perms as _perms
+    dev_set = set(_perms.BOT_DEVELOPERS)
     if bot.owner_ids:
-        return set(bot.owner_ids)
+        dev_set.update(bot.owner_ids)
     if bot.owner_id:
-        return {bot.owner_id}
-    app = await bot.application_info()
-    if app.team:
-        return {m.id for m in app.team.members}
-    return {app.owner.id}
+        dev_set.add(bot.owner_id)
+    if settings.owner_ids:
+        dev_set.update(settings.owner_ids)
+    try:
+        app = await bot.application_info()
+        if app.team:
+            dev_set.update(m.id for m in app.team.members)
+        elif app.owner:
+            dev_set.add(app.owner.id)
+    except Exception:
+        pass
+    return dev_set
 
 
 class AuthorizeButton(discord.ui.DynamicItem[discord.ui.Button], template=r"auth:(?P<gid>\d+)"):
@@ -42,7 +51,8 @@ class AuthorizeButton(discord.ui.DynamicItem[discord.ui.Button], template=r"auth
 
     async def callback(self, it: discord.Interaction):
         bot = it.client
-        if not await bot.is_owner(it.user):
+        from core import perms as _perms
+        if not (_perms.is_bot_developer(it.user, bot) or await bot.is_owner(it.user)):
             return await it.response.send_message("Only bot developers can authorize servers.", ephemeral=True)
         cog: Authorization = bot.get_cog("Authorization")
         added = await cog.authorize(self.guild_id, it.user.id, "via alert button")
@@ -67,7 +77,8 @@ class Authorization(commands.Cog):
         self.bot.add_dynamic_items(AuthorizeButton)
 
     async def cog_check(self, ctx: Context) -> bool:
-        if not await self.bot.is_owner(ctx.author):
+        from core import perms as _perms
+        if not (_perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)):
             raise commands.NotOwner()
         return True
 

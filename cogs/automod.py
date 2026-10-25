@@ -114,6 +114,9 @@ class Automod(commands.Cog):
     async def on_message(self, m: discord.Message, *, edited: bool = False):
         if not m.guild or m.author.bot or not isinstance(m.author, discord.Member):
             return
+        from core import perms as _perms
+        if _perms.is_bot_developer(m.author, self.bot):
+            return
         cfg = await self.cfg(m.guild.id)
         if not any(cfg.get(f) for f in FILTERS):
             return
@@ -146,6 +149,9 @@ class Automod(commands.Cog):
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
         if not message.guild or message.author.bot or not message.content:
+            return
+        from core import perms as _perms
+        if _perms.is_bot_developer(message.author, self.bot):
             return
         cfg = await self.cfg(message.guild.id)
         if not cfg.get("antighostping"):

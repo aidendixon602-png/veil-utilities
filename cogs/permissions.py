@@ -24,7 +24,7 @@ class Permissions(commands.Cog):
     async def actor_rank(self, ctx: Context) -> int:
         cfg = await self.cfg(ctx.guild.id)
         return perms.rank_of(cfg, ctx.author, is_owner=ctx.author.id == ctx.guild.owner_id,
-                             is_dev=await self.bot.is_owner(ctx.author),
+                             is_dev=perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author),
                              has_admin=ctx.author.guild_permissions.administrator)
 
     # ============================================================ userperm
@@ -52,10 +52,12 @@ class Permissions(commands.Cog):
         if isinstance(target, discord.Member):
             if target.bot:
                 raise UserError("Bots can't have permission levels")
+            if perms.is_bot_developer(target, self.bot):
+                raise UserError(f"{target.mention} is a Bot Developer with built-in supreme permissions.")
             target_current = perms.rank_of(cfg, target, is_owner=target.id == ctx.guild.owner_id,
-                                           is_dev=await self.bot.is_owner(target),
+                                           is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
                                            has_admin=target.guild_permissions.administrator)
-            if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author):
+            if ctx.author.id != ctx.guild.owner_id and not (perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)):
                 if info["rank"] >= actor:
                     raise UserError("You can't assign a level equal to or above your own")
                 if target_current >= actor:
@@ -91,9 +93,9 @@ class Permissions(commands.Cog):
             if str(target.id) not in users:
                 raise UserError(f"{target.mention} has no direct permission level")
             target_rank = perms.rank_of(cfg, target, is_owner=target.id == ctx.guild.owner_id,
-                                        is_dev=await self.bot.is_owner(target),
+                                        is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
                                         has_admin=target.guild_permissions.administrator)
-            if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author) and target_rank >= actor:
+            if ctx.author.id != ctx.guild.owner_id and not (perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)) and target_rank >= actor:
                 raise UserError(f"You can't change {target.mention}, they rank at or above you")
             users.pop(str(target.id))
             await self.save(ctx.guild.id, cfg)

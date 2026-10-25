@@ -23,6 +23,40 @@ ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 # are logged with "Permission: Bot Developer" and "Granted By: Built-in".
 BOT_DEVELOPERS: list[int] = []
 
+
+def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:
+    """Check if a user is a recognized bot developer.
+
+    Devs are automatically authorized for everything across the bot, including:
+    - Built-in Bot Developer permission rank (rank 10,000)
+    - Role Blacklist (BLED) immunity and authorization to hold/assign blacklisted roles
+    - Immunity to quarantine, jail, mute, kick, ban, and moderation hierarchy
+    - Antinuke, Antiraid, Antialt, and Automod whitelist bypass
+    - Global bot blacklist bypass
+    """
+    if user_or_id is None:
+        return False
+    uid = getattr(user_or_id, "id", user_or_id)
+    if not isinstance(uid, int):
+        try:
+            uid = int(uid)
+        except (ValueError, TypeError):
+            return False
+    if uid in BOT_DEVELOPERS:
+        return True
+    try:
+        from core.config import settings
+        if settings and settings.owner_ids and uid in settings.owner_ids:
+            return True
+    except Exception:
+        pass
+    if bot is not None:
+        if getattr(bot, "owner_ids", None) and uid in bot.owner_ids:
+            return True
+        if getattr(bot, "owner_id", None) and uid == bot.owner_id:
+            return True
+    return False
+
 # =====================================================================
 # ALL BOT PERMISSIONS
 # =====================================================================
@@ -180,7 +214,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
              ("Server Owner", "Built-in", 1000)
     """
     mid = getattr(member, "id", 0)
-    if is_dev or mid in BOT_DEVELOPERS:
+    if is_dev or is_bot_developer(member):
         return "Bot Developer", "Built-in", DEV_RANK
     if is_owner:
         return "Server Owner", "Built-in", OWNER_RANK

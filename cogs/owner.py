@@ -299,6 +299,9 @@ class Owner(commands.Cog):
     @commands.command(hidden=True)
     async def blacklist(self, ctx: Context, target_id: int, *, reason: str = None):
         """Toggle blacklisting a user or server ID (blacklisted servers are left immediately)"""
+        from core import perms as _perms
+        if _perms.is_bot_developer(target_id, self.bot):
+            raise UserError("Cannot blacklist a bot developer.")
         if target_id in self.bot.blacklist:
             self.bot.blacklist.discard(target_id)
             await self.bot.db.execute("DELETE FROM blacklist WHERE id=?", target_id)

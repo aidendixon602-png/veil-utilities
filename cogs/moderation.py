@@ -56,6 +56,13 @@ class SingleMemberBledView(discord.ui.View):
             child.disabled = True
 
         embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
+        from core import perms as _perms
+        if _perms.is_bot_developer(self.target, self.cog.bot):
+            embed.color = Colors.error
+            embed.description = "⚠️ Cannot strip roles from a bot developer."
+            embed.set_footer(text="Veil Utilities • Developer Immunity")
+            return await interaction.response.edit_message(embed=embed, view=self)
+
         embed.color = Colors.gold
         embed.set_footer(text="Veil Utilities • Stripping roles in progress...")
         await interaction.response.edit_message(embed=embed, view=self)
@@ -156,7 +163,10 @@ class GuildBledView(discord.ui.View):
         top_pos = getattr(getattr(self.ctx.guild.me, "top_role", None), "position", 999999)
         done = 0
         removed = 0
+        from core import perms as _perms
         for m, roles in self.unauthorized:
+            if _perms.is_bot_developer(m, self.cog.bot):
+                continue
             valid = [r for r in roles if getattr(r, "position", 0) < top_pos]
             if valid:
                 try:
@@ -851,7 +861,7 @@ class Moderation(commands.Cog):
     def _is_role_authorized(self, guild: discord.Guild, member: discord.Member, cfg: dict) -> bool:
         from core import perms as _perms
         mid = getattr(member, "id", 0)
-        if mid == getattr(guild, "owner_id", None) or mid in _perms.BOT_DEVELOPERS:
+        if _perms.is_bot_developer(mid, self.bot) or mid == getattr(guild, "owner_id", None):
             return True
         auth_list = cfg.get("authorized", [])
         if mid in auth_list:
@@ -1126,6 +1136,11 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     async def rbl_unauthorize(self, ctx: Context, target: discord.Member | discord.Role):
         """Revoke a member's or role's authorization to bypass the role blacklist"""
+        from core import perms as _perms
+        if _perms.is_bot_developer(target, self.bot):
+            raise UserError(f"{target.mention} is a bot developer and is automatically authorized for everything.")
+        if target.id == ctx.guild.owner_id:
+            raise UserError(f"{target.mention} is the server owner and cannot be unauthorized.")
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         auth = cfg.setdefault("authorized", [])
         if target.id not in auth:
@@ -1140,9 +1155,7 @@ class Moderation(commands.Cog):
         """View members and roles authorized to bypass the role blacklist"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         auth = cfg.get("authorized", [])
-        if not auth:
-            return await ctx.neutral("No members or roles are currently authorized to bypass the role blacklist.")
-        lines = []
+        lines = ["*Bot Developers and Server Owner are automatically authorized for all roles.*"]
         for tid in auth:
             m = ctx.guild.get_member(tid)
             r = ctx.guild.get_role(tid)
@@ -1278,6 +1291,9 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def jail(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Jail a member: strips their roles and confines them to #jail"""
+        from core import perms as _perms
+        if _perms.is_bot_developer(member, self.bot):
+            raise UserError("You cannot jail a bot developer.")
         cfg = await self._cfg(ctx.guild.id, "jail")
         role = ctx.guild.get_role(cfg.get("role", 0))
         if not role:
@@ -1383,6 +1399,9 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def quarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Quarantined by staff"):
         """Instantly isolate a suspected raider or malicious member, stripping their roles"""
+        from core import perms as _perms
+        if _perms.is_bot_developer(member, self.bot):
+            raise UserError("You cannot quarantine a bot developer.")
         check_hierarchy(ctx, member, "quarantine")
         cfg = await self._cfg(ctx.guild.id, "quarantine")
         if str(member.id) in cfg.get("quarantined", {}):

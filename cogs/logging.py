@@ -318,7 +318,7 @@ class Logging(commands.Cog):
 
         cfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
         from core import perms as _perms
-        is_dev = await self.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS
+        is_dev = _perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)
         is_owner = ctx.author.id == ctx.guild.owner_id
         pl_name, pl_granted_by, _ = _perms.member_level_info(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
 
