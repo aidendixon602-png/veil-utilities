@@ -18,8 +18,6 @@ PUBLIC_NODES: tuple[tuple[str, str], ...] = (
     ("https://lavalink.nazha.online:443", "nazhafreelava"),
     ("https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
     ("https://lava4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
-    ("https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
-    ("http://lava2.kasawa.pro:2334", "youshallnotpass"),
 )
 
 

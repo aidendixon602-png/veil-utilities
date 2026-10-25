@@ -249,7 +249,7 @@ class Music(commands.Cog):
             author = getattr(track, "author", "").replace(" - Topic", "").strip()
             query = f"{title} {author}".strip()
             try:
-                fb_tracks = await wavelink.Playable.search(query, source="scsearch", node=getattr(player, "node", None))
+                fb_tracks = await self.search(query)
                 if fb_tracks:
                     fb = fb_tracks[0]
                     fb.extras = getattr(track, "extras", None)
@@ -261,7 +261,7 @@ class Music(commands.Cog):
                         ))
                     return await player.play(fb)
             except Exception as e:
-                log.debug("Auto fallback to SoundCloud failed: %r", e)
+                log.debug("Auto fallback failed: %r", e)
 
         if home:
             try:
