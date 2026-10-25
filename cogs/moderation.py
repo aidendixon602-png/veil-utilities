@@ -897,10 +897,12 @@ class Moderation(commands.Cog):
         roles.append(role.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
 
-        # Strip from current members if any currently hold it
+        # Strip from current members if any currently hold it (skipping authorized members & devs)
         top_pos = getattr(getattr(ctx.guild.me, "top_role", None), "position", 999999)
         if ctx.guild.me.guild_permissions.manage_roles and getattr(role, "position", 0) < top_pos:
             for member in list(ctx.guild.members):
+                if self._is_role_authorized(ctx.guild, member, cfg):
+                    continue
                 if role in getattr(member, "roles", []):
                     try:
                         await member.remove_roles(role, reason=f"Role blacklisted by {ctx.author}")
@@ -1530,11 +1532,10 @@ class Moderation(commands.Cog):
         rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = rbl_cfg.get("roles", [])
         if b_roles:
-            auth_set = set(rbl_cfg.get("authorized", []))
             unauth_holders = [
                 m for m in ctx.guild.members
-                if m.id not in auth_set and not any(r.id in auth_set for r in m.roles)
-                and any(r.id in b_roles for r in m.roles)
+                if not self._is_role_authorized(ctx.guild, m, rbl_cfg)
+                and any(r.id in b_roles for r in getattr(m, "roles", []))
             ]
             if unauth_holders:
                 score -= 15
