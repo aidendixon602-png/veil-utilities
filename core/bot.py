@@ -77,7 +77,9 @@ class Veil(commands.AutoShardedBot):
             max_messages=1000 if settings.low_memory else 5000,
         )
         self.default_prefix = settings.prefix
-        self.db = Database(settings.db_path)
+        from core.db import create_database
+        db_target = getattr(settings, "database_url", None) or settings.db_path
+        self.db = create_database(db_target)
         self.session: aiohttp.ClientSession | None = None
         # for URLs supplied by users: refuses private/internal addresses (see core/net.py)
         self.public_session: aiohttp.ClientSession | None = None
@@ -117,6 +119,11 @@ class Veil(commands.AutoShardedBot):
         self.add_check(self._global_check)
 
     async def close(self) -> None:
+        if hasattr(self, "dashboard") and self.dashboard:
+            try:
+                await self.dashboard.stop()
+            except Exception:
+                pass
         # disconnect from Discord first so no new events try to use the session/database while they close
         await super().close()
         for session in (self.session, self.public_session):
@@ -150,6 +157,14 @@ class Veil(commands.AutoShardedBot):
         log.info("──────────────────────────────────────────")
         await self.update_dynamic_status()
         await self.check_restart_notification()
+
+        try:
+            from core.dashboard import DashboardServer
+            port = int(os.environ.get("DASHBOARD_PORT", os.environ.get("PORT", 8080)))
+            self.dashboard = DashboardServer(self, port=port)
+            await self.dashboard.start()
+        except Exception as e:
+            log.warning("Could not start dashboard: %s", e)
 
     async def check_restart_notification(self):
         state_file = ".restart_state.json"

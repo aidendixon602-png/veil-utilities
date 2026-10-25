@@ -164,6 +164,11 @@ class Logging(commands.Cog):
 
         return created
 
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild):
+        """Automatically create default logging channels when bot joins a server."""
+        await self.ensure_default_channels(guild)
+
     async def channel_for(self, guild: discord.Guild, kind: str) -> discord.TextChannel | None:
         if guild is None:
             return None

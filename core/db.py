@@ -161,3 +161,104 @@ class Database:
                 "INSERT INTO selfprefix VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET prefix=excluded.prefix",
                 user_id, prefix,
             )
+
+
+class PostgresDatabase:
+    """Production-grade PostgreSQL backend option suitable for large multi-guild deployments."""
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+        self.pool = None
+        self._cache: dict[tuple[int, str], Any] = {}
+        self._prefix_cache: dict[int, str | None] = {}
+
+    async def connect(self) -> None:
+        try:
+            import asyncpg
+            self.pool = await asyncpg.create_pool(self.dsn)
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS config (
+                        guild_id BIGINT NOT NULL,
+                        module TEXT NOT NULL,
+                        data TEXT NOT NULL,
+                        PRIMARY KEY (guild_id, module)
+                    );
+                    CREATE TABLE IF NOT EXISTS selfprefix (
+                        user_id BIGINT PRIMARY KEY,
+                        prefix TEXT NOT NULL
+                    );
+                """)
+        except ImportError:
+            raise RuntimeError("asyncpg is required for PostgreSQL backend: pip install asyncpg")
+
+    async def close(self) -> None:
+        if self.pool:
+            await self.pool.close()
+            self.pool = None
+
+    async def execute(self, query: str, *args):
+        # Convert ? to $1, $2 for postgres syntax
+        pg_query = query
+        for i in range(len(args)):
+            pg_query = pg_query.replace("?", f"${i+1}", 1)
+        async with self.pool.acquire() as conn:
+            return await conn.execute(pg_query, *args)
+
+    async def fetchone(self, query: str, *args):
+        pg_query = query
+        for i in range(len(args)):
+            pg_query = pg_query.replace("?", f"${i+1}", 1)
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(pg_query, *args)
+
+    async def fetchall(self, query: str, *args):
+        pg_query = query
+        for i in range(len(args)):
+            pg_query = pg_query.replace("?", f"${i+1}", 1)
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(pg_query, *args)
+
+    async def get_config(self, guild_id: int, module: str, default: Any = None) -> Any:
+        key = (guild_id, module)
+        if key in self._cache:
+            return self._cache[key]
+        row = await self.fetchone("SELECT data FROM config WHERE guild_id=? AND module=?", guild_id, module)
+        if row:
+            data = json.loads(row["data"])
+        else:
+            data = json.loads(json.dumps(default)) if default is not None else {}
+        self._cache[key] = data
+        return data
+
+    async def set_config(self, guild_id: int, module: str, data: Any) -> None:
+        self._cache[(guild_id, module)] = data
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO config (guild_id, module, data) VALUES ($1, $2, $3)
+                ON CONFLICT (guild_id, module) DO UPDATE SET data = EXCLUDED.data
+            """, guild_id, module, json.dumps(data))
+
+    async def get_selfprefix(self, user_id: int) -> str | None:
+        if user_id in self._prefix_cache:
+            return self._prefix_cache[user_id]
+        row = await self.fetchone("SELECT prefix FROM selfprefix WHERE user_id=?", user_id)
+        self._prefix_cache[user_id] = row["prefix"] if row else None
+        return self._prefix_cache[user_id]
+
+    async def set_selfprefix(self, user_id: int, prefix: str | None) -> None:
+        self._prefix_cache[user_id] = prefix
+        if prefix is None:
+            await self.execute("DELETE FROM selfprefix WHERE user_id=?", user_id)
+        else:
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO selfprefix (user_id, prefix) VALUES ($1, $2)
+                    ON CONFLICT (user_id) DO UPDATE SET prefix = EXCLUDED.prefix
+                """, user_id, prefix)
+
+
+def create_database(path_or_url: str) -> Database | PostgresDatabase:
+    """Factory creating SQLite Database or PostgreSQL PostgresDatabase based on connection URI."""
+    if path_or_url.startswith(("postgres://", "postgresql://")):
+        return PostgresDatabase(path_or_url)
+    return Database(path_or_url)

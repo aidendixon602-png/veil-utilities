@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import discord
 
-DEV_RANK = 1
-OWNER_RANK = 2
-ADMIN_RANK = 7  # a real Discord administrator with no assigned level
+DEV_RANK = 10_000
+OWNER_RANK = 1_000
+ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 
 # =====================================================================
 # BOT DEVELOPERS (Editable directly in this file)
@@ -73,44 +73,52 @@ ALL_BOT_PERMS: list[str] = [
 # Permissions assigned here are built through the bot code and logged
 # with "Granted By: Built-in".
 #
-# CODE_USERS: Map user IDs (int or str) to level keys (e.g. "supremeleader", "admin", "mod", "helper")
-# Example:
-#   CODE_USERS = {
-#       123456789012345678: "supremeleader",
-#   }
-CODE_USERS: dict[int | str, str] = {}
+# CODE_USERS: Map user IDs (int or str) to level keys
+CODE_USERS: dict[int | str, str] = {
+    1277709272041394187: "supremeleader",
+}
 
 # CODE_ROLES: Map role IDs (int or str) or exact role names (str) to level keys
-# Example:
-#   CODE_ROLES = {
-#       "Admin": "admin",
-#       "Moderator": "mod",
-#       123456789012345678: "helper",
-#   }
-CODE_ROLES: dict[int | str, str] = {}
+CODE_ROLES: dict[int | str, str] = {
+    "HR | Branch Management": "admin",
+    "Office of Lilz": "helper",
+}
 
 # =====================================================================
-# BOT PERMISSION RANKS (Lowest to Highest: Bot Dev -> Helper)
+# BOT PERMISSION RANKS
 # =====================================================================
 # key -> (display name, rank, granted bot-permissions). Assignable with `perm add` / `uperm add`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
-    "supremeleader": ("Supreme Leader", 3, ["administrator"] + ALL_BOT_PERMS),
-    "botmanager":    ("Bot Manager", 4, ["administrator"] + ALL_BOT_PERMS),
-    "overseer":      ("Overseer", 5, ["administrator"] + ALL_BOT_PERMS),
-    "headadmin":     ("Head Admin", 6, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+    "helper":        ("Helper", 1, ["manage_messages"]),
+    "mod":           ("Mod", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                    "manage_nicknames", "manage_roles", "manage_channels"]),
+    "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                         "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
                                         "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "admin":         ("Admin", 7, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                                    "manage_nicknames", "manage_roles", "manage_channels"]),
-    "mod":           ("Mod", 8, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
-    "helper":        ("Helper", 9, ["manage_messages"]),
+    "botmanager":    ("Bot Manager", 5, ["administrator"] + ALL_BOT_PERMS),
+    "overseer":      ("Overseer", 6, ["administrator"] + ALL_BOT_PERMS),
+    "supremeleader": ("Supreme Leader", 7, ["administrator"] + ALL_BOT_PERMS),
 }
 
 # Shown in the level list but handed out automatically, never via `perm add` / `uperm add`
 RESERVED: dict[str, tuple[str, int]] = {
-    "botdev":      ("Bot Developer", DEV_RANK),
     "serverowner": ("Server Owner", OWNER_RANK),
+    "botdev":      ("Bot Developer", DEV_RANK),
 }
+
+# Permission hierarchy display order (lowest to highest)
+HIERARCHY_ORDER: list[str] = [
+    "Bot Developer",
+    "Server Owner",
+    "Supreme Leader",
+    "Bot Manager",
+    "Overseer",
+    "Head Admin",
+    "Admin",
+    "Mod",
+    "Helper",
+]
 
 
 def all_levels(cfg: dict) -> dict[str, dict]:

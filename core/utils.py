@@ -477,7 +477,7 @@ async def antinuke_admin(ctx: Context) -> bool:
         return True
     pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels")
     name, source, rank = _perms.member_level_info(pl_cfg, ctx.author)
-    if name in ("Supreme Leader", "Bot Developer", "Server Owner"):
+    if name in ("Supreme Leader", "Bot Developer", "Server Owner") or rank >= 7:
         return True
     raise UserError("Only the **server owner**, **Supreme Leader**, or an **antinuke admin** can use this")
 

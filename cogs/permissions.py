@@ -223,10 +223,12 @@ class Permissions(commands.Cog):
             role_counts[key] = role_counts.get(key, 0) + 1
 
         lines = [f"Lowest to highest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
-        for name, rank in sorted(((n, r) for n, r in perms.RESERVED.values()), key=lambda x: x[1]):
-            lines.append(f"`rank {rank}` **{name}** — automatic (not assignable)")
+        order_map = {name: i for i, name in enumerate(perms.HIERARCHY_ORDER)}
+        all_entries = []
+        for name, rank in perms.RESERVED.values():
+            all_entries.append((order_map.get(name, 0), f"`rank {rank}` **{name}** — automatic (not assignable)"))
 
-        for key, info in sorted(levels, key=lambda kv: kv[1]["rank"]):
+        for key, info in levels:
             grants = "all permissions" if "administrator" in info["perms"] else \
                 (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
             ucnt = user_counts.get(key, 0)
@@ -236,7 +238,12 @@ class Permissions(commands.Cog):
             if rcnt:
                 parts.append(f"**{rcnt}** role{'s' if rcnt != 1 else ''}")
             count_str = " • ".join(parts)
-            lines.append(f"`rank {info['rank']}` **{info['name']}** (`{key}`) — {grants} • {count_str}")
+            line = f"`rank {info['rank']}` **{info['name']}** (`{key}`) — {grants} • {count_str}"
+            all_entries.append((order_map.get(info["name"], 99), line))
+
+        all_entries.sort(key=lambda x: x[0])
+        for _, line in all_entries:
+            lines.append(line)
 
         e = discord.Embed(
             title="Permission levels",
