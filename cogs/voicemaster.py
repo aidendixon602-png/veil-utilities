@@ -4,7 +4,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, has_perms
+from core.utils import Colors, Context, UserError, has_perms, check_role, is_dangerous, antinuke_guard
 
 
 def vm_embed(desc: str, color=Colors.main):
@@ -192,10 +192,12 @@ class VoiceMaster(commands.Cog):
             await self.bot.db.execute("DELETE FROM vm_channels WHERE channel_id=?", vc.id)
             return
         if role:
-            try:
-                await member.add_roles(role, reason="VoiceMaster role")
-            except discord.HTTPException:
-                pass
+            b_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
+            if role.id not in b_cfg.get("roles", []):
+                try:
+                    await member.add_roles(role, reason="VoiceMaster role")
+                except discord.HTTPException:
+                    pass
 
     # ------------------------------------------------------------ setup
     @commands.group(aliases=["vm"], invoke_without_command=True)
@@ -265,6 +267,13 @@ class VoiceMaster(commands.Cog):
     async def vm_defaultrole(self, ctx: Context, role: discord.Role = None):
         """Role given to members who create a channel"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "voicemaster")
+        if role:
+            check_role(ctx, role)
+            b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+            if role.id in b_cfg.get("roles", []):
+                raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
+            if is_dangerous(role.permissions):
+                await antinuke_guard(ctx, "permissions")
         cfg["role"] = role.id if role else None
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
         await ctx.approve(f"Default role: {role.mention if role else 'none'}")

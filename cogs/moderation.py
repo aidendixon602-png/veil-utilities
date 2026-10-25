@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from core.modlog import case_line, create_case, dm_target
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, OwnedView, UserError, antinuke_guard, check_hierarchy,
-                        check_role, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
+                        check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts)
 
 URL = re.compile(r"https?://\S+", re.I)
@@ -620,11 +620,11 @@ class Moderation(commands.Cog):
             raise UserError(f"Member `{arg2}` not found.")
         return member, role
 
-    @commands.group(aliases=["r"], invoke_without_command=True)
+    @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True)
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
-        """Toggle a role on a member: `,role @User @Role` or `,role @Role @User`"""
+        """Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`)"""
         if not arg2:
             raise UserError(f"Usage: `{ctx.clean_prefix}role <member> <role>` or `{ctx.clean_prefix}role add/remove <member> <role>`")
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
@@ -633,8 +633,7 @@ class Moderation(commands.Cog):
             await member.remove_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Removed {role.mention} from {member.mention}")
         else:
-            if await self._blacklisted(ctx.guild.id, role.id):
-                raise UserError(f"{role.mention} is blacklisted and can't be assigned")
+            await check_role_assignable(ctx, role)
             if is_dangerous(role.permissions):
                 await antinuke_guard(ctx, "permissions")
             await member.add_roles(role, reason=f"by {ctx.author}")
@@ -642,9 +641,7 @@ class Moderation(commands.Cog):
 
     async def _do_role_add(self, ctx: Context, arg1: str, arg2: str):
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
-        check_role(ctx, role)
-        if await self._blacklisted(ctx.guild.id, role.id):
-            raise UserError(f"{role.mention} is blacklisted and can't be assigned")
+        await check_role_assignable(ctx, role)
         if role in member.roles:
             raise UserError(f"{member.mention} already has {role.mention}")
         if is_dangerous(role.permissions):
@@ -689,8 +686,7 @@ class Moderation(commands.Cog):
         await self._do_role_remove(ctx, arg1, arg2)
 
     async def _blacklisted(self, guild_id: int, role_id: int) -> bool:
-        cfg = await self.bot.db.get_config(guild_id, "roleblacklist")
-        return role_id in cfg.get("roles", [])
+        return await is_role_blacklisted(guild_id, role_id, self.bot.db)
 
     @role.command(name="create")
     @has_perms(manage_roles=True)
@@ -734,9 +730,10 @@ class Moderation(commands.Cog):
         await ctx.approve(f"{role.mention} is {'now' if not role.hoist else 'no longer'} hoisted")
 
     async def _mass_role(self, ctx: Context, role: discord.Role, add: bool, which):
-        check_role(ctx, role)
-        if add and await self._blacklisted(ctx.guild.id, role.id):
-            raise UserError(f"{role.mention} is blacklisted and can't be assigned")
+        if add:
+            await check_role_assignable(ctx, role)
+        else:
+            check_role(ctx, role)
         targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))]
         if not targets:
             raise UserError("Nobody to update")
@@ -1278,7 +1275,9 @@ class Moderation(commands.Cog):
         saved = cfg.get("jailed", {}).pop(str(member.id), None)
         if saved is None:
             raise UserError(f"{member.mention} isn't jailed")
-        roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role]
+        rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        b_roles = set(rbl.get("roles", []))
+        roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and r.id not in b_roles]
         jail_role = ctx.guild.get_role(cfg.get("role", 0))
         new = [r for r in member.roles if r != jail_role] + roles
         await member.edit(roles=list(dict.fromkeys(new)), reason=f"unjailed by {ctx.author}: {reason}")
@@ -1310,6 +1309,207 @@ class Moderation(commands.Cog):
                         await member.remove_roles(*to_remove, reason="Veil: Role is blacklisted")
                     except discord.HTTPException:
                         pass
+
+        # re-apply quarantine if member rejoins
+        q_cfg = await self._cfg(member.guild.id, "quarantine")
+        if str(member.id) in q_cfg.get("quarantined", {}):
+            q_role = member.guild.get_role(q_cfg.get("role", 0))
+            if q_role and member.guild.me.guild_permissions.manage_roles:
+                try:
+                    await member.add_roles(q_role, reason="rejoined while quarantined")
+                except discord.HTTPException:
+                    pass
+
+    # ================================================================ quarantine
+    @commands.command(aliases=["isolate", "freeze"])
+    @has_perms(moderate_members=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def quarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Quarantined by staff"):
+        """Instantly isolate a suspected raider or malicious member, stripping their roles"""
+        check_hierarchy(ctx, member, "quarantine")
+        cfg = await self._cfg(ctx.guild.id, "quarantine")
+        if str(member.id) in cfg.get("quarantined", {}):
+            raise UserError(f"{member.mention} is already quarantined")
+
+        keep = [r for r in member.roles if r.managed or r.is_default() or r >= ctx.guild.me.top_role]
+        removed = [r.id for r in member.roles if r not in keep]
+
+        q_role = ctx.guild.get_role(cfg.get("role", 0))
+        if not q_role:
+            q_role = discord.utils.get(ctx.guild.roles, name="Quarantined")
+            if not q_role and ctx.guild.me.guild_permissions.manage_roles:
+                try:
+                    q_role = await ctx.guild.create_role(
+                        name="Quarantined",
+                        color=discord.Color.dark_gray(),
+                        reason="Veil Security: Quarantine role setup"
+                    )
+                    for ch in ctx.guild.channels:
+                        try:
+                            await ch.set_permissions(q_role, send_messages=False, add_reactions=False, speak=False, connect=False)
+                        except discord.HTTPException:
+                            pass
+                except discord.HTTPException:
+                    q_role = None
+
+        new_roles = keep + ([q_role] if q_role else [])
+        await member.edit(roles=new_roles, reason=f"Quarantined by {ctx.author}: {reason}")
+        cfg.setdefault("quarantined", {})[str(member.id)] = removed
+        if q_role:
+            cfg["role"] = q_role.id
+        await self.bot.db.set_config(ctx.guild.id, "quarantine", cfg)
+        num = await create_case(self.bot, ctx.guild, "quarantine", member, ctx.author, reason)
+        await ctx.approve(f"Quarantined **{member}** • case `#{num}` (stripped **{len(removed)}** role(s))")
+
+    @commands.command(aliases=["unfreeze", "release"])
+    @has_perms(moderate_members=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def unquarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Released by staff"):
+        """Release a member from quarantine and safely restore non-blacklisted roles"""
+        cfg = await self._cfg(ctx.guild.id, "quarantine")
+        saved = cfg.get("quarantined", {}).pop(str(member.id), None)
+        if saved is None:
+            raise UserError(f"{member.mention} is not currently quarantined")
+
+        b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        b_roles = set(b_cfg.get("roles", []))
+
+        restore_roles = [
+            r for r in (ctx.guild.get_role(i) for i in saved)
+            if r and r < ctx.guild.me.top_role and r.id not in b_roles
+        ]
+        q_role = ctx.guild.get_role(cfg.get("role", 0))
+        cleaned = [r for r in member.roles if r != q_role and r.id not in b_roles] + restore_roles
+        await member.edit(roles=list(dict.fromkeys(cleaned)), reason=f"Unquarantined by {ctx.author}: {reason}")
+        await self.bot.db.set_config(ctx.guild.id, "quarantine", cfg)
+        num = await create_case(self.bot, ctx.guild, "unquarantine", member, ctx.author, reason)
+        await ctx.approve(f"Released **{member}** from quarantine • restored **{len(restore_roles)}** role(s)")
+
+    # ================================================================ security scan
+    @commands.command(aliases=["secscan", "auditsec", "serveraudit"])
+    @has_perms(manage_guild=True)
+    async def security(self, ctx: Context):
+        """Run a comprehensive security audit of this Discord server"""
+        msg = await ctx.neutral("🔍 Analyzing server security configuration, attack vectors, and role health…")
+
+        score = 100
+        findings: list[str] = []
+        checks: dict[str, str] = {}
+
+        # 1. @everyone role dangerous permissions check
+        everyone = ctx.guild.default_role
+        danger_in_everyone = [p for p in DANGEROUS_PERMS if getattr(everyone.permissions, p, False)]
+        if danger_in_everyone:
+            score -= 30
+            names = ", ".join(f"`{p}`" for p in danger_in_everyone)
+            findings.append(f"🔴 **CRITICAL**: `@everyone` has dangerous permissions: {names}")
+            checks["Default Role (@everyone)"] = "🔴 Vulnerable"
+        else:
+            checks["Default Role (@everyone)"] = "🟢 Safe (No admin/mod perms)"
+
+        # 2. Antinuke Shield check
+        an_cfg = await self.bot.db.get_config(ctx.guild.id, "antinuke")
+        if an_cfg.get("enabled", True):
+            preset = an_cfg.get("preset", "normal")
+            checks["Antinuke Engine"] = f"🟢 Armed (`{preset.title()}` Preset)"
+        else:
+            score -= 20
+            findings.append("🟡 **WARNING**: Antinuke is currently disabled")
+            checks["Antinuke Engine"] = "🔴 Disabled"
+
+        # 3. Role Blacklist (BLED) check
+        rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        b_roles = rbl_cfg.get("roles", [])
+        if b_roles:
+            auth_set = set(rbl_cfg.get("authorized", []))
+            unauth_holders = [
+                m for m in ctx.guild.members
+                if m.id not in auth_set and not any(r.id in auth_set for r in m.roles)
+                and any(r.id in b_roles for r in m.roles)
+            ]
+            if unauth_holders:
+                score -= 15
+                findings.append(f"🔴 **VULNERABILITY**: **{len(unauth_holders)}** unauthorized member(s) hold blacklisted roles! Run `{ctx.clean_prefix}stripbled`.")
+                checks["Role Blacklist (BLED)"] = f"🟡 Active ({len(b_roles)} roles), {len(unauth_holders)} unauthorized"
+            else:
+                checks["Role Blacklist (BLED)"] = f"🟢 Clean ({len(b_roles)} protected role(s), 0 violations)"
+        else:
+            score -= 10
+            findings.append(f"🟡 **RECOMMENDATION**: No blacklisted roles set. Run `{ctx.clean_prefix}roleblacklist add` to lock dangerous roles.")
+            checks["Role Blacklist (BLED)"] = "⚪ Unconfigured"
+
+        # 4. Automod Shield check
+        am_cfg = await self.bot.db.get_config(ctx.guild.id, "automod")
+        am_active = sum(1 for f in ("invites", "links", "spam", "words", "massmention") if am_cfg.get(f))
+        if am_active >= 3:
+            checks["Automod Shield"] = f"🟢 Active ({am_active} filters running)"
+        elif am_active > 0:
+            checks["Automod Shield"] = f"🟡 Partial ({am_active} filter active)"
+        else:
+            score -= 10
+            findings.append(f"🟡 **RECOMMENDATION**: Automod filters are off. Run `{ctx.clean_prefix}filter invites true`.")
+            checks["Automod Shield"] = "⚪ Inactive"
+
+        # 5. Anti-Raid & Anti-Alt protection check
+        ar_cfg = await self.bot.db.get_config(ctx.guild.id, "antiraid")
+        if ar_cfg.get("massjoin") or ar_cfg.get("age"):
+            checks["Anti-Raid / Anti-Alt"] = "🟢 Enabled"
+        else:
+            score -= 5
+            findings.append(f"🟡 **RECOMMENDATION**: Configure `{ctx.clean_prefix}antiraid massjoin` and `{ctx.clean_prefix}antialt minage`.")
+            checks["Anti-Raid / Anti-Alt"] = "⚪ Off"
+
+        # 6. Default Logging coverage
+        log_cfg = await self.bot.db.get_config(ctx.guild.id, "logging")
+        has_logging = bool(log_cfg)
+        veil_log = discord.utils.get(ctx.guild.text_channels, name="veil-utilities-logging")
+        if has_logging or veil_log:
+            checks["Audit Trail & Logs"] = f"🟢 Active ({'#veil-utilities-logging' if veil_log else 'Configured'})"
+        else:
+            score -= 10
+            findings.append(f"🟡 **RECOMMENDATION**: Run `{ctx.clean_prefix}setuplogs` to automatically create dedicated security log channels.")
+            checks["Audit Trail & Logs"] = "🔴 No Log Channels"
+
+        # 7. Bot Hierarchy Position
+        if ctx.guild.me.top_role.position == len(ctx.guild.roles) - 1:
+            checks["Bot Hierarchy Position"] = "🟢 Optimal (Top of server roles)"
+        elif ctx.guild.me.top_role.position > len(ctx.guild.roles) // 2:
+            checks["Bot Hierarchy Position"] = "🟢 Good"
+        else:
+            score -= 10
+            findings.append(f"🟡 **WARNING**: Veil Utilities' role is below many server roles. Drag my role higher so I can protect your server.")
+            checks["Bot Hierarchy Position"] = "🔴 Too Low"
+
+        score = max(0, min(100, score))
+        if score >= 95:
+            grade, color = "S+ (Fortress)", Colors.mint
+        elif score >= 85:
+            grade, color = "A (Secure)", Colors.success
+        elif score >= 70:
+            grade, color = "B (Moderate)", Colors.warn
+        elif score >= 50:
+            grade, color = "C (At Risk)", Colors.orange
+        else:
+            grade, color = "F (Vulnerable)", Colors.error
+
+        embed = discord.Embed(
+            title=f"🛡️ Security Health Audit — {ctx.guild.name}",
+            color=color,
+            description=f"**Overall Security Rating**: `{grade}` • **Score**: `{score}/100`"
+        )
+        embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+
+        sys_lines = [f"• **{k}**: {v}" for k, v in checks.items()]
+        embed.add_field(name="System Telemetry & Controls", value="\n".join(sys_lines), inline=False)
+
+        if findings:
+            embed.add_field(name="Security Findings & Advisories", value="\n".join(findings[:10]), inline=False)
+        else:
+            embed.add_field(name="Security Findings & Advisories", value="✅ **No security vulnerabilities found! Your server defenses are hardened.**", inline=False)
+
+        embed.set_footer(text=f"Veil Utilities Security Engine • {len(ctx.guild.members)} members scanned")
+        embed.timestamp = discord.utils.utcnow()
+        await msg.edit(embed=embed)
 
 
 async def setup(bot):

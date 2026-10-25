@@ -19,6 +19,7 @@ class Colors:
     mint = 0x57F287
     success = 0x43B581
     warn = 0xFAA61A
+    orange = 0xE67E22
     error = 0xF04747
     neutral = 0x2B2D31
 
@@ -511,6 +512,22 @@ def check_role(ctx: Context, role: discord.Role) -> None:
         raise UserError(f"{role.mention} is above my top role")
     if ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role:
         raise UserError(f"{role.mention} is above or equal to your top role")
+
+
+async def is_role_blacklisted(guild_id: int, role_id: int, db) -> bool:
+    """Check if a role is blacklisted (bled) in the guild configuration."""
+    cfg = await db.get_config(guild_id, "roleblacklist")
+    return role_id in cfg.get("roles", [])
+
+
+async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
+    """Validate that a role can be assigned: checks roleblacklist (BLED), hierarchy, and manageability.
+
+    Enforces that NOBODY can assign a blacklisted (bled) role through any bot command.
+    """
+    if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
+        raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
+    check_role(ctx, role)
 
 
 DANGEROUS_PERMS = (

@@ -54,7 +54,9 @@ class DevTools(commands.Cog):
         saved = cfg.pop(str(member.id), None)
         if not saved:
             raise UserError(f"{member.mention} wasn't stripped")
-        roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and not r.managed]
+        b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        b_roles = set(b_cfg.get("roles", []))
+        roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and not r.managed and r.id not in b_roles]
         if roles:
             await member.add_roles(*roles, reason=f"unstrip by {ctx.author}")
         await self.bot.db.set_config(ctx.guild.id, "strips", cfg)

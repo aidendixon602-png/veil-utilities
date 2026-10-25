@@ -86,9 +86,11 @@ class Levels(commands.Cog):
                 await send_script(dest, cfg["message"], build_vars(member, member.guild, dest, {"level": str(level)}))
             except discord.HTTPException:
                 pass
-        rewards = {int(k): v for k, v in cfg.get("roles", {}).items()}
+        b_cfg = await self.bot.db.get_config(member.guild.id, "roleblacklist")
+        b_roles = set(b_cfg.get("roles", []))
+        rewards = {int(k): v for k, v in cfg.get("roles", {}).items() if v not in b_roles}
         earned = [member.guild.get_role(r) for lvl, r in rewards.items() if lvl <= level]
-        earned = [r for r in earned if r and r < member.guild.me.top_role]
+        earned = [r for r in earned if r and r < member.guild.me.top_role and r.id not in b_roles]
         if not earned:
             return
         try:
@@ -232,6 +234,9 @@ class Levels(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         if role:
             check_role(ctx, role)
+            b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+            if role.id in b_cfg.get("roles", []):
+                raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
             if is_dangerous(role.permissions):  # anyone could earn staff powers by chatting
                 await antinuke_guard(ctx, "permissions")
             cfg["roles"][str(level)] = role.id

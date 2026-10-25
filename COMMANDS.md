@@ -1,6 +1,6 @@
 # Command reference
 
-437 commands. Default prefix `,`. `<required>` `[optional]`.
+449 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -21,6 +21,11 @@ _Stop rogue admins and raids before they wreck your server_
 
 | Command | Description | Permission |
 |---|---|---|
+| `antialt` (alt, antialts) | Configure Anti-Alt security to screen newly created burner accounts | administrator |
+| `antialt action <action>` (punish, punishment) | Set action for alt accounts: `kick`, `ban` or `timeout` | administrator |
+| `antialt avatar <state>` | Toggle blocking accounts without custom avatars: `antialt avatar on/off` | administrator |
+| `antialt minage [days=0]` (age, days) | Set minimum account age in days before joining is allowed (0 to disable) | administrator |
+| `antialt whitelist <user>` (allow, trust) | Whitelist an alt account so it can join without being blocked | administrator |
 | `antinuke` (an) | View antinuke rules and status overview |  |
 | `antinuke admin <member>` | Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted |  |
 | `antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
@@ -64,6 +69,10 @@ _Automatic chat filters_
 
 | Command | Description | Permission |
 |---|---|---|
+| `antighostping` (ghostping, antighost) | Configure anti-ghostping detection to catch deleted mentions | manage guild |
+| `antighostping channel [channel]` | Set channel where ghostping alerts are posted (omit for same channel) | manage guild |
+| `antighostping off` (disable) | Disable anti-ghostping detection | manage guild |
+| `antighostping on` (enable) | Enable anti-ghostping detection | manage guild |
 | `filter` (automod, am) | View automod filters | manage guild |
 | `filter action <action> [seconds=60]` | What happens on a violation: `delete` or `timeout <seconds>` | manage guild |
 | `filter allowlink <domain>` | Toggle a domain allowed through the link filter (e.g. youtube.com) | manage guild |
@@ -325,10 +334,11 @@ _Keep your server in line_
 | `purge invites [amount=100]` | Delete messages containing invites | manage messages |
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
+| `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members |
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `removerole <arg1> <arg2>` (takerole) | Remove a role from a member: `,removerole @User @Role` | manage roles |
-| `role <arg1> [arg2]` (r) | Toggle a role on a member: `,role @User @Role` or `,role @Role @User` | manage roles |
+| `role <arg1> [arg2]` (r, changerole, cr) | Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`) | manage roles |
 | `role add <arg1> <arg2>` | Add a role to a member: `,role add @User @Role` | manage roles |
 | `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator |
 | `role bots <action> <role>` | Add/remove a role for all bots | administrator |
@@ -349,6 +359,7 @@ _Keep your server in line_
 | `roleblacklist strip` (purge, clean) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
 | `roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles |
 | `roles` (rolelist) | List every role in the server, highest first |  |
+| `security` (secscan, auditsec, serveraudit) | Run a comprehensive security audit of this Discord server | manage guild |
 | `slowmode [delay=0] [channel]` (sm) | Set slowmode (e.g. `10s`, `5m`, `0` to disable) | manage channels |
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members |
 | `stripbled` (purgebled, rblstrip, roleblstrip) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
@@ -359,6 +370,7 @@ _Keep your server in line_
 | `unjail <member> [reason]` | Release a member and give back their roles | moderate members |
 | `unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels |
 | `unlockdown` | Unlock every text channel | administrator |
+| `unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine and safely restore non-blacklisted roles | manage roles, moderate members |
 | `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout (use `untimeout all` for everyone) | moderate members |
 | `untimeout all [reason]` | Remove timeouts from every timed-out member | moderate members |
 | `warn <member> [reason=No reason provided]` | Warn a member. Auto-punishments can be set with `warnpunish` | moderate members |

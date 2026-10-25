@@ -948,6 +948,58 @@ class Antinuke(commands.Cog):
         await self.bot.db.set_config(ctx.guild.id, "antiraid", cfg)
         await ctx.approve(f"Toggled antiraid whitelist for **{user}**")
 
+    # ================================================================ antialt
+    @commands.group(name="antialt", aliases=["alt", "antialts"], invoke_without_command=True)
+    @has_perms(administrator=True)
+    async def antialt(self, ctx: Context):
+        """Configure Anti-Alt security to screen newly created burner accounts"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "antiraid")
+        embed = discord.Embed(title="🛡️ Anti-Alt Account Protection", color=Colors.main)
+        age = cfg.get("age")
+        embed.add_field(name="Minimum Account Age", value=f"`< {age} day(s)`" if age else "`Off`", inline=True)
+        embed.add_field(name="Require Avatar", value="`Enabled`" if cfg.get("avatar") else "`Disabled`", inline=True)
+        embed.add_field(name="Enforcement Action", value=f"`{cfg.get('punishment', 'kick').title()}`", inline=True)
+        embed.add_field(name="Whitelisted Users", value=f"`{len(cfg.get('whitelist', []))} account(s)`", inline=True)
+        embed.set_footer(text=f"Configure with {ctx.clean_prefix}antialt minage <days> or {ctx.clean_prefix}antialt action <kick|ban|timeout>")
+        await ctx.send(embed=embed)
+
+    @antialt.command(name="minage", aliases=["age", "days"])
+    @has_perms(administrator=True)
+    async def aa_minage(self, ctx: Context, days: int = 0):
+        """Set minimum account age in days before joining is allowed (0 to disable)"""
+        await self._ar_set(ctx, "age", days or None, f"Anti-Alt minimum account age: **<{days} days**" if days else "Anti-Alt age filter disabled")
+
+    @antialt.command(name="action", aliases=["punish", "punishment"])
+    @has_perms(administrator=True)
+    async def aa_action(self, ctx: Context, action: str):
+        """Set action for alt accounts: `kick`, `ban` or `timeout`"""
+        action = action.lower()
+        if action not in ("kick", "ban", "timeout"):
+            raise UserError("Action must be `kick`, `ban` or `timeout`")
+        await self._ar_set(ctx, "punishment", action, f"Anti-Alt action set to **{action}**")
+
+    @antialt.command(name="avatar")
+    @has_perms(administrator=True)
+    async def aa_avatar(self, ctx: Context, state: str):
+        """Toggle blocking accounts without custom avatars: `antialt avatar on/off`"""
+        on = state.lower() in ("on", "true", "enable", "yes")
+        await self._ar_set(ctx, "avatar", on or None, f"Anti-Alt avatar requirement **{'enabled' if on else 'disabled'}**")
+
+    @antialt.command(name="whitelist", aliases=["allow", "trust"])
+    @has_perms(administrator=True)
+    async def aa_whitelist(self, ctx: Context, user: discord.User):
+        """Whitelist an alt account so it can join without being blocked"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "antiraid")
+        wl = cfg.setdefault("whitelist", [])
+        if user.id in wl:
+            wl.remove(user.id)
+            msg = f"Removed **{user}** from Anti-Alt whitelist"
+        else:
+            wl.append(user.id)
+            msg = f"Whitelisted **{user}** from Anti-Alt checks"
+        await self.bot.db.set_config(ctx.guild.id, "antiraid", cfg)
+        await ctx.approve(msg)
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if member.bot:

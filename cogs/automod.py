@@ -12,7 +12,7 @@ import discord
 import regex
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, chunk_embeds, has_perms
+from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, shorten
 
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/[\w-]+", re.I)
 URL = re.compile(r"https?://\S+|www\.\S+", re.I)
@@ -143,7 +143,81 @@ class Automod(commands.Cog):
         if before.content != after.content:
             await self.on_message(after, edited=True)  # edits shouldn't count toward the spam limit
 
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        if not message.guild or message.author.bot or not message.content:
+            return
+        cfg = await self.cfg(message.guild.id)
+        if not cfg.get("antighostping"):
+            return
+        mentions = [m for m in message.mentions if not m.bot and m != message.author]
+        role_mentions = [r for r in message.role_mentions]
+        if not mentions and not role_mentions:
+            return
+        now_ts = discord.utils.utcnow()
+        if (now_ts - message.created_at).total_seconds() > 180:
+            return
+
+        target_str = ", ".join([m.mention for m in mentions] + [r.mention for r in role_mentions])
+        embed = discord.Embed(
+            title="👻 Ghostping Detected",
+            color=Colors.warn,
+            timestamp=now_ts
+        )
+        embed.add_field(name="Author", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
+        embed.add_field(name="Channel", value=message.channel.mention, inline=True)
+        embed.add_field(name="Target(s)", value=target_str, inline=False)
+        embed.add_field(name="Deleted Content", value=shorten(message.content, 1000) or "—", inline=False)
+        embed.set_footer(text="Veil Security • Anti-Ghostping")
+
+        dest = message.guild.get_channel(cfg.get("ghostping_channel") or 0) or message.channel
+        try:
+            await dest.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
     # ---------------------------------------------------------------- commands
+    @commands.group(name="antighostping", aliases=["ghostping", "antighost"], invoke_without_command=True)
+    @has_perms(manage_guild=True)
+    async def antighostping(self, ctx: Context):
+        """Configure anti-ghostping detection to catch deleted mentions"""
+        cfg = await self.cfg(ctx.guild.id)
+        state = "on" if cfg.get("antighostping") else "off"
+        ch_id = cfg.get("ghostping_channel")
+        ch_str = f"<#{ch_id}>" if ch_id else "same channel"
+        embed = discord.Embed(title="👻 Anti-Ghostping Protection", color=Colors.main)
+        embed.add_field(name="Status", value=f"`{state}`", inline=True)
+        embed.add_field(name="Alert Channel", value=ch_str, inline=True)
+        embed.set_footer(text=f"Toggle with {ctx.clean_prefix}antighostping on/off")
+        await ctx.send(embed=embed)
+
+    @antighostping.command(name="on", aliases=["enable"])
+    @has_perms(manage_guild=True)
+    async def agp_on(self, ctx: Context):
+        """Enable anti-ghostping detection"""
+        cfg = await self.cfg(ctx.guild.id)
+        cfg["antighostping"] = True
+        await self.save(ctx.guild.id, cfg)
+        await ctx.approve("Anti-Ghostping detection enabled")
+
+    @antighostping.command(name="off", aliases=["disable"])
+    @has_perms(manage_guild=True)
+    async def agp_off(self, ctx: Context):
+        """Disable anti-ghostping detection"""
+        cfg = await self.cfg(ctx.guild.id)
+        cfg["antighostping"] = False
+        await self.save(ctx.guild.id, cfg)
+        await ctx.approve("Anti-Ghostping detection disabled")
+
+    @antighostping.command(name="channel")
+    @has_perms(manage_guild=True)
+    async def agp_channel(self, ctx: Context, channel: discord.TextChannel = None):
+        """Set channel where ghostping alerts are posted (omit for same channel)"""
+        cfg = await self.cfg(ctx.guild.id)
+        cfg["ghostping_channel"] = channel.id if channel else None
+        await self.save(ctx.guild.id, cfg)
+        await ctx.approve(f"Ghostping alerts will be sent to {channel.mention if channel else 'the channel where the ping occurred'}")
+
     @commands.group(aliases=["automod", "am"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def filter(self, ctx: Context):
