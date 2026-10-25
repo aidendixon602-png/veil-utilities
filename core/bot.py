@@ -360,6 +360,9 @@ class Veil(commands.AutoShardedBot):
             return False
         if ctx.author.id == ctx.guild.owner_id:
             return True
+        from core import perms as _perms
+        if _perms.is_bot_developer(ctx.author, self):
+            return True
         if await self.is_owner(ctx.author):
             return True
         perms = ctx.author.guild_permissions
