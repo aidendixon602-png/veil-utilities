@@ -267,38 +267,44 @@ def test_roleblacklist_enforcement():
         await cog.on_member_update(before, after)
         after.remove_roles.assert_awaited_once_with(blacklisted_role, reason="Veil: Role is blacklisted")
 
-        # 2. May run commands gate blocks user with blacklisted role
+        # 2. May run commands allows members to run commands (not blocked by server roles)
         msg_user_with_role = SimpleNamespace(
             author=SimpleNamespace(id=123, bot=False, roles=[normal_role, blacklisted_role]),
             guild=guild,
         )
         can_run = await Veil._may_run_commands(bot, msg_user_with_role)
-        assert can_run is False
-
-        # User without blacklisted role can run commands
-        msg_normal = SimpleNamespace(
-            author=SimpleNamespace(id=456, bot=False, roles=[normal_role]),
-            guild=guild,
-        )
-        can_run_normal = await Veil._may_run_commands(bot, msg_normal)
-        assert can_run_normal is True
+        assert can_run is True
 
         # 3. rbl_check tests
         ctx = SimpleNamespace(
+            bot=bot,
             guild=guild,
             author=SimpleNamespace(id=9999),
             clean_prefix=",",
             send=AsyncMock(),
         )
 
-        # Check clean member -> Authorized embed
         clean_member = SimpleNamespace(
             id=456,
+            name="cleanuser",
+            nick=None,
             mention="<@456>",
             roles=[normal_role],
             display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
         )
-        await cog.rbl_check.callback(cog, ctx, clean_member)
+        bled_member = SimpleNamespace(
+            id=123,
+            name="bleduser",
+            nick=None,
+            mention="<@123>",
+            roles=[normal_role, blacklisted_role],
+            display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
+        )
+        guild.members = [clean_member, bled_member]
+        guild.get_member = lambda uid: clean_member if uid == 456 else (bled_member if uid == 123 else None)
+
+        # Check clean member -> Authorized embed
+        await cog._do_rbl_check(ctx, str(clean_member.id))
         assert ctx.send.await_count == 1
         call_kwargs = ctx.send.call_args[1]
         sent_embed = call_kwargs.get("embed")
@@ -306,20 +312,22 @@ def test_roleblacklist_enforcement():
         assert "✅" in sent_embed.description
 
         # Check member with blacklisted role -> Unauthorized embed with interactive View
-        bled_member = SimpleNamespace(
-            id=123,
-            mention="<@123>",
-            roles=[normal_role, blacklisted_role],
-            display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
-        )
         ctx.send.reset_mock()
-        await cog.rbl_check.callback(cog, ctx, bled_member)
+        await cog._do_rbl_check(ctx, str(bled_member.id))
         assert ctx.send.await_count == 1
         call_kwargs = ctx.send.call_args[1]
         sent_embed = call_kwargs.get("embed")
         sent_view = call_kwargs.get("view")
         assert "Unauthorized" in sent_embed.description
         assert sent_view is not None  # Offers Strip Roles and Authorize buttons
+
+        # Also test cmd_checkbled directly without arguments
+        ctx.send.reset_mock()
+        ctx.author = clean_member
+        await cog.cmd_checkbled.callback(cog, ctx)
+        assert ctx.send.await_count == 1
+        sent_embed = ctx.send.call_args[1].get("embed")
+        assert "Authorized" in sent_embed.description
 
     run(_run)
 

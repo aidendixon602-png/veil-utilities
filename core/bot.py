@@ -253,16 +253,6 @@ class Veil(commands.AutoShardedBot):
             return False
         if message.guild and not self.is_authorized(message.guild.id) and not await self.is_owner(message.author):
             return False
-        if message.guild and hasattr(message.author, "roles"):
-            from core import perms as _perms
-            mid = getattr(message.author, "id", None)
-            if not (mid == getattr(message.guild, "owner_id", None) or mid in _perms.BOT_DEVELOPERS):
-                rbl = await self.db.get_config(message.guild.id, "roleblacklist")
-                auth = rbl.get("authorized", [])
-                if mid not in auth and not any(getattr(r, "id", None) in auth for r in getattr(message.author, "roles", [])):
-                    b_ids = set(rbl.get("roles", []))
-                    if b_ids and any(getattr(r, "id", None) in b_ids for r in message.author.roles):
-                        return False
         return True
 
     async def on_message(self, message: discord.Message):

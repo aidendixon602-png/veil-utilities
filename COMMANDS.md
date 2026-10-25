@@ -301,7 +301,7 @@ _Keep your server in line_
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
-| `checkbled [target]` (checkbl, scanbl, bledcheck) | Check a user or the whole server for members with BLED (blacklisted) roles | manage roles |
+| `checkbled [target]` (checkbl, scanbl, bledcheck) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
 | `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members |
 | `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members |
 | `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames |
@@ -343,7 +343,7 @@ _Keep your server in line_
 | `roleblacklist add <role>` | Blacklist a role | manage roles |
 | `roleblacklist authorize <target>` (auth, whitelist, allow) | Authorize a member or role to bypass the role blacklist | manage roles |
 | `roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles |
-| `roleblacklist check [target]` (scan, audit, search) | Check a user or the whole server for members with BLED (blacklisted) roles | manage roles |
+| `roleblacklist check [target]` (scan, audit, search) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
 | `roleblacklist list` | View blacklisted roles | manage roles |
 | `roleblacklist remove <role>` (rem, delete) | Unblacklist a role, or `remove deleted` to purge deleted roles | manage roles |
 | `roleblacklist strip` (purge, clean) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
