@@ -118,7 +118,7 @@ ACTION_MAP = {
     A.role_delete: "roledelete", A.role_create: "rolecreate",
     A.webhook_create: "webhook", A.emoji_delete: "emoji", A.sticker_delete: "emoji",
     A.bot_add: "botadd", A.guild_update: "serverupdate",
-    A.role_update: "permissions", A.member_role_update: "permissions",
+    A.role_update: "permissions",
     A.overwrite_create: "permissions", A.overwrite_update: "permissions",
     A.member_update: "timeout", A.unban: "unban",
     A.invite_create: "roleinvite",
@@ -252,8 +252,24 @@ class Antinuke(commands.Cog):
     # ================================================================ bot-command guard
     async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
         from core import perms as _perms
-        return (user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", [])
-                or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot))
+        if user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", []) \
+                or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot):
+            return True
+        try:
+            rbl_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
+            if user_id in rbl_cfg.get("authorized", []):
+                return True
+        except Exception:
+            pass
+        member = guild.get_member(user_id)
+        if member:
+            try:
+                perm_cfg = await self.bot.db.get_config(guild.id, "permlevels")
+                if _perms.rank_of(perm_cfg, member) >= 3:
+                    return True
+            except Exception:
+                pass
+        return False
 
     async def guard(self, ctx: Context, module: str, amount: int = 1) -> None:
         """Count a destructive action done *through the bot* against the member who ran the command.
@@ -330,8 +346,8 @@ class Antinuke(commands.Cog):
         default_pun = rule_def["punishment"] if rule_def else "ban"
         default_win = rule_def["window"] if rule_def else 60
         if module == "permissions":
-            # Giving administrator role or dangerous permissions must strictly strip the role, never default to ban!
-            punishment = mod.get("punishment") or "strip"
+            # Giving administrator role or dangerous permissions must strictly strip the role, NEVER ban!
+            punishment = "strip"
         else:
             punishment = mod.get("punishment") or cfg.get("punishment", default_pun)
         window = mod.get("window") or cfg.get("window", default_win)
@@ -420,7 +436,7 @@ class Antinuke(commands.Cog):
                 done.append("⚠️ could not punish — attacker is above my role")
             elif punishment == "kick":
                 await actor.kick(reason=reason); done.append("kicked the attacker")
-            elif punishment == "strip":
+            elif punishment == "strip" or module == "permissions":
                 roles = [r for r in getattr(actor, "roles", []) if is_dangerous(getattr(r, "permissions", None)) and not getattr(r, "managed", False)]
                 if roles:
                     await actor.remove_roles(*roles, reason=reason)
@@ -431,7 +447,7 @@ class Antinuke(commands.Cog):
             done.append(f"⚠️ punishment failed ({e.status})")
 
         outcome = {"ban": "Ban", "kick": "Kick", "strip": "Strip"}.get(punishment, punishment.title())
-        if actor is None:
+        if actor is None and module != "permissions":
             outcome = "Ban (not in server)"
         reverted = [d for d in done if not d.endswith("attacker") and not d.startswith("⚠️")
                     and "staff roles" not in d]
