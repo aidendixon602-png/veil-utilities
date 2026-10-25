@@ -186,7 +186,7 @@ class Permissions(commands.Cog):
         e.set_author(name=f"{target}", icon_url=target.display_avatar.url)
         name, source, rank = perms.member_level_info(cfg, target,
                                                       is_owner=target.id == ctx.guild.owner_id,
-                                                      is_dev=await self.bot.is_owner(target))
+                                                      is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target))
         if not name:
             e.description = f"{target.mention} has no permission level."
         else:
@@ -224,7 +224,7 @@ class Permissions(commands.Cog):
         for r_id_or_name, key in perms.CODE_ROLES.items():
             role_counts[key] = role_counts.get(key, 0) + 1
 
-        lines = [f"Lowest to highest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
+        lines = [f"Highest to lowest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
         order_map = {name: i for i, name in enumerate(perms.HIERARCHY_ORDER)}
         all_entries = []
         for name, rank in perms.RESERVED.values():

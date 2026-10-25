@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands
 
 from core.config import settings
-from core.utils import Colors, Context, UserError, chunk_embeds, shorten, ts
+from core.utils import Colors, Context, UserError, chunk_embeds, shorten, ts, requires_uperm
 
 LASTFM = "https://ws.audioscrobbler.com/2.0/"
 LASTFM_NOIMAGE = "2a96cbd8b46e442fc41c2b86b821562f"  # Last.fm's grey star placeholder
@@ -115,6 +115,7 @@ class Integrations(commands.Cog):
         return row["username"]
 
     @commands.group(aliases=["lf", "fm"], invoke_without_command=True)
+    @requires_uperm()
     async def lastfm(self, ctx: Context, member: discord.Member = None):
         """Show what you're listening to (same as `np`)"""
         await self.nowplaying(ctx, member)
@@ -134,6 +135,7 @@ class Integrations(commands.Cog):
         await ctx.approve("Unlinked Last.fm")
 
     @commands.command(aliases=["np", "nowplay"])
+    @requires_uperm()
     async def nowplaying(self, ctx: Context, member: discord.Member = None):
         """Your current/last Last.fm track"""
         user = await self.lf_user(ctx, member)
@@ -268,6 +270,7 @@ class Integrations(commands.Cog):
 
     # ================================================================ lookups
     @commands.command(aliases=["ud"])
+    @requires_uperm()
     async def urban(self, ctx: Context, *, term: str):
         """Urban Dictionary definitions and slang"""
         data = await self.get_json("https://api.urbandictionary.com/v0/define", term=term)
@@ -297,6 +300,7 @@ class Integrations(commands.Cog):
         await ctx.paginate(pages)
 
     @commands.command(aliases=["dictionary", "dict"])
+    @requires_uperm()
     async def define(self, ctx: Context, *, word: str):
         """English dictionary definitions, phonetics, and usage examples: `define serendipity`"""
         word_clean = word.strip().lower()
@@ -350,6 +354,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(aliases=["currency", "exchange"])
+    @requires_uperm()
     async def convert(self, ctx: Context, amount: float, from_curr: str, to_curr: str):
         """Convert currencies with live European Central Bank exchange rates: `convert 100 USD EUR`"""
         from_c = from_curr.upper()
@@ -381,6 +386,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(aliases=["ip", "geoip"])
+    @requires_uperm()
     async def ipinfo(self, ctx: Context, query: str):
         """IP address and domain geolocation intelligence: `ipinfo 1.1.1.1`"""
         clean_target = query.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
@@ -405,6 +411,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(name="pypi", aliases=["pythonpkg", "pip"])
+    @requires_uperm()
     async def pypi(self, ctx: Context, package: str):
         """Python package lookup on PyPI: `pypi discord.py`"""
         quoted = urllib.parse.quote(package.strip().lower())
@@ -431,6 +438,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(name="npm", aliases=["nodejs", "npmpkg"])
+    @requires_uperm()
     async def npm(self, ctx: Context, package: str):
         """Node.js package lookup on NPM: `npm express`"""
         quoted = urllib.parse.quote(package.strip().lower())
@@ -458,6 +466,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(name="qr", aliases=["qrcode"])
+    @requires_uperm()
     async def qr(self, ctx: Context, *, text_or_url: str):
         """Generate a scannable QR code for text or a URL: `qr https://discord.gg`"""
         encoded = urllib.parse.quote(text_or_url)
@@ -469,6 +478,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command()
+    @requires_uperm()
     async def weather(self, ctx: Context, *, location: str):
         """Current weather anywhere with full forecast metrics: `weather Tokyo`"""
         geo = await self.get_json("https://geocoding-api.open-meteo.com/v1/search", name=location, count=1)
@@ -511,6 +521,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.group(aliases=["gh"], invoke_without_command=True)
+    @requires_uperm()
     async def github(self, ctx: Context, username: str):
         """GitHub profile lookup with full details: `github torvalds`"""
         u = await self.get_json(f"https://api.github.com/users/{urllib.parse.quote(username)}")
@@ -532,6 +543,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @github.command(name="repo")
+    @requires_uperm()
     async def gh_repo(self, ctx: Context, repo: str):
         """Repository lookup: `gh repo owner/name`"""
         if repo.count("/") != 1:
@@ -549,6 +561,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(aliases=["price", "coin"])
+    @requires_uperm()
     async def crypto(self, ctx: Context, coin: str = "bitcoin", currency: str = "usd"):
         """Crypto price, market cap, and 24h metrics: `crypto btc usd`"""
         currency = currency.lower()
@@ -587,6 +600,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(aliases=["mcserver", "mc_status"])
+    @requires_uperm()
     async def minecraft(self, ctx: Context, address: str):
         """Minecraft server status (Java & Bedrock): `minecraft hypixel.net`"""
         address = address.strip().removeprefix("https://").removeprefix("http://").strip("/")
@@ -614,12 +628,9 @@ class Integrations(commands.Cog):
         e.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{quoted}")
         e.set_footer(text="mcsrvstat.us Minecraft API")
         await ctx.send(embed=e)
-        e.add_field(name="Players", value=f"{d['players']['online']}/{d['players']['max']}")
-        e.add_field(name="Version", value=d.get("version", "?"))
-        e.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{quoted}")
-        await ctx.send(embed=e)
 
     @commands.command(aliases=["rblx"])
+    @requires_uperm()
     async def roblox(self, ctx: Context, username: str):
         """Roblox profile lookup"""
         try:
@@ -653,6 +664,7 @@ class Integrations(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(aliases=["tr"])
+    @requires_uperm()
     async def translate(self, ctx: Context, language: str, *, text: str = None):
         """Translate text (or reply to a message): `translate es hello`"""
         if text is None and ctx.message.reference and isinstance(ctx.message.reference.resolved, discord.Message):
@@ -724,6 +736,7 @@ class Integrations(commands.Cog):
         return fallback
 
     @commands.command(aliases=["wiki"])
+    @requires_uperm()
     async def wikipedia(self, ctx: Context, *, query: str):
         """Wikipedia summary"""
         s = await self.get_json("https://en.wikipedia.org/w/api.php", action="opensearch", search=query, limit=1, format="json")

@@ -484,6 +484,66 @@ def is_server_owner():
     return commands.check(predicate)
 
 
+def requires_uperm(min_level_or_func="helper"):
+    """Check that the author has at least the specified user permission (uperm) rank,
+    or is the server owner, a bot developer, or a server administrator.
+
+    Usage:
+      @requires_uperm
+      @requires_uperm()
+      @requires_uperm("mod")
+    """
+    min_level = "helper"
+    func_to_decorate = None
+    if callable(min_level_or_func):
+        func_to_decorate = min_level_or_func
+    elif isinstance(min_level_or_func, str):
+        min_level = min_level_or_func
+
+    def decorator(func):
+        async def predicate(ctx: Context) -> bool:
+            if ctx.guild is None:
+                raise commands.NoPrivateMessage()
+            from core import perms as _perms
+            bot = getattr(ctx, "bot", None)
+            if _perms.is_bot_developer(ctx.author, bot):
+                return True
+            if getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None):
+                return True
+            if getattr(getattr(ctx.author, "guild_permissions", None), "administrator", False):
+                return True
+            db = getattr(getattr(ctx, "bot", None), "db", None)
+            cfg = await db.get_config(ctx.guild.id, "permlevels") if db else {}
+            author_rank = _perms.rank_of(
+                cfg,
+                ctx.author,
+                is_owner=(getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None)),
+                is_dev=_perms.is_bot_developer(ctx.author, bot),
+                has_admin=getattr(getattr(ctx.author, "guild_permissions", None), "administrator", False),
+            )
+            levels = _perms.all_levels(cfg)
+            target_info = levels.get(min_level.lower())
+            min_rank = target_info["rank"] if target_info else 1
+            if author_rank < min_rank:
+                raise UserError(f"🔒 This command requires a **user permission** (`uperm` {min_level.title()}+) to use.")
+            return True
+
+        pred = commands.check(predicate)
+        func = pred(func)
+        extras = getattr(func, "__veil_perms__", [])
+        func.__veil_perms__ = extras + [f"uperm: {min_level}"]
+        return func
+
+    if func_to_decorate is not None:
+        return decorator(func_to_decorate)
+    return decorator
+
+
+requires_level = requires_uperm
+requires_perm = requires_uperm
+has_uperm = requires_uperm
+
+
 async def antinuke_admin(ctx: Context) -> bool:
     if ctx.guild is None:  # subcommands don't inherit the group's guild_only() when invoke_without_command=True
         raise commands.NoPrivateMessage()

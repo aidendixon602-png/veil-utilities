@@ -166,7 +166,7 @@ _Games and silly commands_
 | Command | Description | Permission |
 |---|---|---|
 | `8ball <question>` (8b) | Ask the magic 8-ball |  |
-| `advice` (tip, wisdom) | Receive random daily advice and wisdom |  |
+| `advice` (tip, wisdom) | Receive random daily advice and wisdom | uperm: helper |
 | `bite <ctx> [member]` | Bite someone |  |
 | `cat` | Random cat |  |
 | `choose <options>` (pick) | Pick between options: `choose pizza, tacos, sushi` |  |
@@ -178,13 +178,13 @@ _Games and silly commands_
 | `handhold <ctx> [member]` | Handhold someone |  |
 | `highfive <ctx> [member]` | Highfive someone |  |
 | `hug <ctx> [member]` | Hug someone |  |
-| `joke` (dadjoke, pun) | Get a random dad joke or pun |  |
+| `joke` (dadjoke, pun) | Get a random dad joke or pun | uperm: helper |
 | `kiss <ctx> [member]` | Kiss someone |  |
 | `pat <ctx> [member]` | Pat someone |  |
 | `peck <ctx> [member]` | Peck someone |  |
 | `poke <ctx> [member]` | Poke someone |  |
 | `punch <ctx> [member]` | Punch someone |  |
-| `redditmeme` (dankmeme, rmeme) | Fetch a random trending meme from Reddit |  |
+| `redditmeme` (dankmeme, rmeme) | Fetch a random trending meme from Reddit | uperm: helper |
 | `reverse <text>` | Reverse text |  |
 | `roll [dice=1d6]` (dice) | Roll dice: `roll 2d20`, `roll 100` |  |
 | `rps <choice>` | Rock paper scissors |  |
@@ -249,13 +249,13 @@ _Look things up across the web_
 
 | Command | Description | Permission |
 |---|---|---|
-| `convert <amount> <from_curr> <to_curr>` (currency, exchange) | Convert currencies with live European Central Bank exchange rates: `convert 100 USD EUR` |  |
-| `crypto [coin=bitcoin] [currency=usd]` (price, coin) | Crypto price, market cap, and 24h metrics: `crypto btc usd` |  |
-| `define <word>` (dictionary, dict) | English dictionary definitions, phonetics, and usage examples: `define serendipity` |  |
-| `github <username>` (gh) | GitHub profile lookup with full details: `github torvalds` |  |
-| `github repo <repo>` | Repository lookup: `gh repo owner/name` |  |
-| `ipinfo <query>` (ip, geoip) | IP address and domain geolocation intelligence: `ipinfo 1.1.1.1` |  |
-| `lastfm [member]` (lf, fm) | Show what you're listening to (same as `np`) |  |
+| `convert <amount> <from_curr> <to_curr>` (currency, exchange) | Convert currencies with live European Central Bank exchange rates: `convert 100 USD EUR` | uperm: helper |
+| `crypto [coin=bitcoin] [currency=usd]` (price, coin) | Crypto price, market cap, and 24h metrics: `crypto btc usd` | uperm: helper |
+| `define <word>` (dictionary, dict) | English dictionary definitions, phonetics, and usage examples: `define serendipity` | uperm: helper |
+| `github <username>` (gh) | GitHub profile lookup with full details: `github torvalds` | uperm: helper |
+| `github repo <repo>` | Repository lookup: `gh repo owner/name` | uperm: helper |
+| `ipinfo <query>` (ip, geoip) | IP address and domain geolocation intelligence: `ipinfo 1.1.1.1` | uperm: helper |
+| `lastfm [member]` (lf, fm) | Show what you're listening to (same as `np`) | uperm: helper |
 | `lastfm profile [member]` (user) | Last.fm profile |  |
 | `lastfm reactions [emojis...]` | Set the reactions added to now-playing embeds (none to disable) | manage guild |
 | `lastfm recent [member]` (rt) | Recent tracks |  |
@@ -265,16 +265,16 @@ _Look things up across the web_
 | `lastfm toptracks [period=all] [member]` (tt) | Top tracks |  |
 | `lastfm unlink` (logout) | Unlink Last.fm |  |
 | `lastfm whoknows [artist]` (wk) | Who in this server listens to an artist the most |  |
-| `minecraft <address>` (mcserver, mc_status) | Minecraft server status (Java & Bedrock): `minecraft hypixel.net` |  |
-| `nowplaying [member]` (np, nowplay) | Your current/last Last.fm track |  |
-| `npm <package>` (nodejs, npmpkg) | Node.js package lookup on NPM: `npm express` |  |
-| `pypi <package>` (pythonpkg, pip) | Python package lookup on PyPI: `pypi discord.py` |  |
-| `qr <text_or_url>` (qrcode) | Generate a scannable QR code for text or a URL: `qr https://discord.gg` |  |
-| `roblox <username>` (rblx) | Roblox profile lookup |  |
-| `translate <language> [text]` (tr) | Translate text (or reply to a message): `translate es hello` |  |
-| `urban <term>` (ud) | Urban Dictionary definitions and slang |  |
-| `weather <location>` | Current weather anywhere with full forecast metrics: `weather Tokyo` |  |
-| `wikipedia <query>` (wiki) | Wikipedia summary |  |
+| `minecraft <address>` (mcserver, mc_status) | Minecraft server status (Java & Bedrock): `minecraft hypixel.net` | uperm: helper |
+| `nowplaying [member]` (np, nowplay) | Your current/last Last.fm track | uperm: helper |
+| `npm <package>` (nodejs, npmpkg) | Node.js package lookup on NPM: `npm express` | uperm: helper |
+| `pypi <package>` (pythonpkg, pip) | Python package lookup on PyPI: `pypi discord.py` | uperm: helper |
+| `qr <text_or_url>` (qrcode) | Generate a scannable QR code for text or a URL: `qr https://discord.gg` | uperm: helper |
+| `roblox <username>` (rblx) | Roblox profile lookup | uperm: helper |
+| `translate <language> [text]` (tr) | Translate text (or reply to a message): `translate es hello` | uperm: helper |
+| `urban <term>` (ud) | Urban Dictionary definitions and slang | uperm: helper |
+| `weather <location>` | Current weather anywhere with full forecast metrics: `weather Tokyo` | uperm: helper |
+| `wikipedia <query>` (wiki) | Wikipedia summary | uperm: helper |
 
 ## 📈 Levels
 _Reward activity with XP and roles_
@@ -399,7 +399,7 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `deafen` (deaf, undeafen) | Toggle whether the bot is deafened in the voice channel |  |
 | `djrole [role]` | Set the DJ role (needed to pause/stop/volume/etc.), or no role to let everyone control music | manage guild |
 | `loop [mode=track]` | Loop mode: track, queue or off |  |
-| `lyrics [query]` (ly, songlyrics) | Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track) |  |
+| `lyrics [query]` (ly, songlyrics) | Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track) | uperm: helper |
 | `pause` | Pause |  |
 | `play <query>` (p) | Play a song or playlist (URL or search) |  |
 | `queue` (q) | Show the queue |  |

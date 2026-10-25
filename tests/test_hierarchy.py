@@ -159,3 +159,99 @@ class TestRestart:
         assert "maintenance" in err_text
         assert "remaining" in err_text
         assert "<t:" in err_text
+
+
+class TestPermissionHierarchy:
+    def test_hierarchy_order_and_ranks(self):
+        from core import perms
+
+        expected_keys = [
+            "botdev",
+            "serverowner",
+            "supremeleader",
+            "overseer",
+            "botmanager",
+            "headadmin",
+            "admin",
+            "mod",
+            "helper",
+        ]
+        assert perms.HIERARCHY_KEYS == expected_keys
+
+        expected_display = [
+            "Bot Developer",
+            "Server Owner",
+            "Supreme Leader",
+            "Overseer",
+            "Bot Manager",
+            "Head Admin",
+            "Admin",
+            "Mod",
+            "Helper",
+        ]
+        assert perms.HIERARCHY_ORDER == expected_display
+
+        # Overseer (rank 6) must be higher than Bot Manager (rank 5)
+        levels = perms.PRESETS
+        assert levels["overseer"][1] > levels["botmanager"][1]
+        assert levels["overseer"][1] == 6
+        assert levels["botmanager"][1] == 5
+        assert levels["supremeleader"][1] == 7
+        assert levels["headadmin"][1] == 4
+        assert levels["admin"][1] == 3
+        assert levels["mod"][1] == 2
+        assert levels["helper"][1] == 1
+
+    def test_requires_uperm_checks(self):
+        import asyncio
+        from core.utils import requires_uperm, UserError
+        from unittest.mock import AsyncMock
+
+        @requires_uperm("helper")
+        async def dummy_cmd(ctx):
+            pass
+
+        predicate = dummy_cmd.__commands_checks__[0]
+
+        # 1. Dev passes
+        ctx_dev = SimpleNamespace(
+            guild=SimpleNamespace(id=1, owner_id=100),
+            author=SimpleNamespace(id=1277709272041394187, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+            bot=SimpleNamespace(owner_ids=frozenset({1277709272041394187}), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
+        )
+        assert asyncio.run(predicate(ctx_dev)) is True
+
+        # 2. Server Owner passes
+        ctx_owner = SimpleNamespace(
+            guild=SimpleNamespace(id=1, owner_id=100),
+            author=SimpleNamespace(id=100, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+            bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
+        )
+        assert asyncio.run(predicate(ctx_owner)) is True
+
+        # 3. Member with uperm passes
+        cfg_with_helper = {"users": {"200": "helper"}}
+        ctx_helper = SimpleNamespace(
+            guild=SimpleNamespace(id=1, owner_id=100),
+            author=SimpleNamespace(id=200, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+            bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value=cfg_with_helper)))
+        )
+        assert asyncio.run(predicate(ctx_helper)) is True
+
+        # 4. Member without uperm fails
+        ctx_stranger = SimpleNamespace(
+            guild=SimpleNamespace(id=1, owner_id=100),
+            author=SimpleNamespace(id=999, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+            bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
+        )
+        with pytest.raises(UserError, match="user permission"):
+            asyncio.run(predicate(ctx_stranger))
+
+        # 5. Member with helper fails command requiring mod
+        @requires_uperm("mod")
+        async def mod_cmd(ctx):
+            pass
+        mod_predicate = mod_cmd.__commands_checks__[0]
+        with pytest.raises(UserError, match="user permission"):
+            asyncio.run(mod_predicate(ctx_helper))
+

@@ -8,7 +8,7 @@ import re
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, has_perms
+from core.utils import Colors, Context, UserError, has_perms, requires_uperm
 
 ACTIONS = {
     "hug": "hugs", "kiss": "kisses", "pat": "pats", "slap": "slaps", "cuddle": "cuddles", "poke": "pokes",
@@ -182,6 +182,7 @@ class Fun(commands.Cog):
         await ctx.send(embed=discord.Embed(color=Colors.main).set_image(url=url))
 
     @commands.command(aliases=["dadjoke", "pun"])
+    @requires_uperm()
     async def joke(self, ctx: Context):
         """Get a random dad joke or pun"""
         headers = {"Accept": "application/json", "User-Agent": "VeilUtilities/1.0"}
@@ -199,6 +200,7 @@ class Fun(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(name="redditmeme", aliases=["dankmeme", "rmeme"])
+    @requires_uperm()
     async def redditmeme(self, ctx: Context):
         """Fetch a random trending meme from Reddit"""
         async with self.bot.session.get("https://meme-api.com/gimme", headers={"User-Agent": "VeilUtilities/1.0"}) as r:
@@ -218,6 +220,7 @@ class Fun(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(name="advice", aliases=["tip", "wisdom"])
+    @requires_uperm()
     async def advice(self, ctx: Context):
         """Receive random daily advice and wisdom"""
         async with self.bot.session.get("https://api.adviceslip.com/advice", headers={"User-Agent": "VeilUtilities/1.0"}) as r:

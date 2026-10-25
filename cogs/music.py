@@ -15,7 +15,7 @@ from discord.ext import commands, tasks
 
 from core.config import settings
 from core.lavalink_nodes import resolve_nodes
-from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, missing_perms, shorten
+from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, missing_perms, shorten, requires_uperm
 
 try:
     import wavelink
@@ -432,6 +432,7 @@ class Music(commands.Cog):
         await ctx.send(embed=e)
 
     @commands.command(name="lyrics", aliases=["ly", "songlyrics"])
+    @requires_uperm()
     async def lyrics(self, ctx: Context, *, query: str = None):
         """Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track)"""
         title = query

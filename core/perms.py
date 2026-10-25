@@ -143,17 +143,30 @@ RESERVED: dict[str, tuple[str, int]] = {
     "botdev":      ("Bot Developer", DEV_RANK),
 }
 
-# Permission hierarchy display order (lowest to highest)
+# Permission hierarchy display order (highest to lowest)
 HIERARCHY_ORDER: list[str] = [
     "Bot Developer",
     "Server Owner",
     "Supreme Leader",
-    "Bot Manager",
     "Overseer",
+    "Bot Manager",
     "Head Admin",
     "Admin",
     "Mod",
     "Helper",
+]
+
+# Permission hierarchy keys (highest to lowest)
+HIERARCHY_KEYS: list[str] = [
+    "botdev",
+    "serverowner",
+    "supremeleader",
+    "overseer",
+    "botmanager",
+    "headadmin",
+    "admin",
+    "mod",
+    "helper",
 ]
 
 

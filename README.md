@@ -9,7 +9,7 @@
 [![discord.py](https://img.shields.io/badge/discord.py-2.7%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
 ![commands](https://img.shields.io/badge/commands-473-b10f2e?style=flat-square&labelColor=1a1118)
 ![modules](https://img.shields.io/badge/modules-28-b10f2e?style=flat-square&labelColor=1a1118)
-![tests](https://img.shields.io/badge/tests-216%20passing-57F287?style=flat-square&labelColor=1a1118)
+![tests](https://img.shields.io/badge/tests-218%20passing-57F287?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
 ![last commit](https://img.shields.io/github/last-commit/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)
