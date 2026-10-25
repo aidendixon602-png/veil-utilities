@@ -1,14 +1,19 @@
 # ================================================================
 # Full Wispbyte / Pterodactyl Startup Commands
 # ================================================================
-# Copy and paste ONE of the single-line commands below into your
-# Wispbyte panel under the "Startup" tab -> "Startup Command" field.
+# Copy and paste the single-line command below into your Wispbyte panel
+# under the "Startup" tab -> "Startup Command" field.
 
 # ----------------------------------------------------------------
-# OPTION 1: Auto-Pull Latest Code from GitHub + Boot (Recommended)
-# Pulls latest updates on every restart so your server stays current:
+# OPTION 1: Force-Sync with GitHub + Boot (Recommended)
+# Overwrites local cache with the exact latest GitHub commit on every boot:
 # ----------------------------------------------------------------
-cd /home/container && git pull origin main 2>/dev/null; if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+cd /home/container && git fetch origin main && git reset --hard origin/main && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+
+# ----------------------------------------------------------------
+# OPTION 2: Fast Force-Sync (Skips pip check if packages already installed):
+# ----------------------------------------------------------------
+cd /home/container && git fetch origin main && git reset --hard origin/main && python main.py
 
 # ----------------------------------------------------------------
 # OPTION 2: Standard layout (files directly in /home/container)
