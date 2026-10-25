@@ -132,7 +132,7 @@ class Music(commands.Cog):
         if not nodes:
             raise UserError("The music server is offline right now, try again in a minute")
         is_url = query.startswith(("http://", "https://"))
-        sources = [None] if is_url else ["ytmsearch", "scsearch", "ytsearch"]
+        sources = [None] if is_url else ["scsearch", "ytmsearch", "ytsearch"]
         for node in nodes[:3]:
             for source in sources:
                 try:
@@ -176,13 +176,13 @@ class Music(commands.Cog):
         if channel.user_limit and len(channel.members) >= channel.user_limit and not me.move_members:
             raise UserError(f"{channel.mention} is full")
         try:
-            player = await channel.connect(cls=wavelink.Player, self_deaf=True, timeout=15)
+            player = await channel.connect(cls=wavelink.Player, self_deaf=False, timeout=15)
         except (asyncio.TimeoutError, discord.ClientException):
             raise UserError("I couldn't join your voice channel, try again") from None
         except Exception as e:  # wavelink.InvalidNodeException etc. when Lavalink is down
             log.warning("Voice connect failed: %r", e)
             raise UserError("The music server is offline right now, try again later") from None
-        player.autoplay = wavelink.AutoPlayMode.partial
+        player.autoplay = wavelink.AutoPlayMode.disabled
         player.home = ctx.channel  # type: ignore[attr-defined]
         return player
 
@@ -239,12 +239,35 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, payload):
         log.warning("Lavalink track exception on %s: %s", getattr(payload.player, "guild", None), getattr(payload, "exception", None))
-        home = getattr(payload.player, "home", None)
+        player = getattr(payload, "player", None)
+        track = getattr(payload, "track", None)
+        home = getattr(player, "home", None) if player else None
+
+        # Automatic fallback to SoundCloud if YouTube blocks playback
+        if player and track and getattr(track, "title", None) and not getattr(track, "_fallback_tried", False):
+            title = getattr(track, "title", "")
+            author = getattr(track, "author", "").replace(" - Topic", "").strip()
+            query = f"{title} {author}".strip()
+            try:
+                fb_tracks = await wavelink.Playable.search(query, source="scsearch", node=getattr(player, "node", None))
+                if fb_tracks:
+                    fb = fb_tracks[0]
+                    fb.extras = getattr(track, "extras", None)
+                    fb._fallback_tried = True
+                    if home:
+                        await home.send(embed=discord.Embed(
+                            color=Colors.mint,
+                            description=f"🔄 YouTube restricted playback for **{title}**. Automatically streaming from **SoundCloud**: [{fb.title}]({fb.uri})"
+                        ))
+                    return await player.play(fb)
+            except Exception as e:
+                log.debug("Auto fallback to SoundCloud failed: %r", e)
+
         if home:
             try:
                 await home.send(embed=discord.Embed(
                     color=Colors.warn,
-                    description="⚠️ Playback failed on this track (YouTube restricted on this node). Try a SoundCloud link or different query."
+                    description="⚠️ Playback failed on this track (YouTube restricted on this node). Try playing by song title or using a SoundCloud link."
                 ))
             except discord.HTTPException:
                 pass
@@ -515,6 +538,18 @@ class Music(commands.Cog):
         await self.bot.db.set_config(ctx.guild.id, "music", cfg)
         await ctx.approve(f"DJ role set to {role.mention}. Others can still `play`, vote to `skip`, "
                           "and remove their own tracks")
+
+    @commands.command(aliases=["deaf", "undeafen"])
+    async def deafen(self, ctx: Context):
+        """Toggle whether the bot is deafened in the voice channel"""
+        player = await self.player(ctx)
+        is_deaf = getattr(ctx.guild.me.voice, "self_deaf", False) if ctx.guild.me.voice else False
+        new_state = not is_deaf
+        try:
+            await ctx.guild.change_voice_state(channel=player.channel, self_deaf=new_state)
+            await ctx.approve(f"Bot is now **{'deafened' if new_state else 'undeafened'}** in voice.")
+        except Exception as e:
+            await ctx.warn(f"Could not change deafen state: {e}")
 
 
 async def setup(bot):

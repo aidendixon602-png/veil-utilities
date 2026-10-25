@@ -1,6 +1,6 @@
 # Command reference
 
-452 commands. Default prefix `,`. `<required>` `[optional]`.
+453 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -387,6 +387,7 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `audiofilter [preset]` (preset, fx) | Audio presets: nightcore, vaporwave, bassboost, 8d, slowed, karaoke, clear |  |
 | `autoplay <state>` | Keep playing recommended songs when the queue ends |  |
 | `clearqueue` | Clear the queue |  |
+| `deafen` (deaf, undeafen) | Toggle whether the bot is deafened in the voice channel |  |
 | `djrole [role]` | Set the DJ role (needed to pause/stop/volume/etc.), or no role to let everyone control music | manage guild |
 | `loop [mode=track]` | Loop mode: track, queue or off |  |
 | `pause` | Pause |  |
