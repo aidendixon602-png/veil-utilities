@@ -68,6 +68,9 @@ class Permissions(commands.Cog):
                 raise UserError("You can't assign a permission level to @everyone")
             if target.managed:
                 raise UserError("You can't assign a permission level to an integrated bot role")
+            rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+            if target.id in rbl.get("roles", []):
+                raise UserError(f"{target.mention} is blacklisted and cannot be assigned a permission level")
             if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author):
                 if info["rank"] >= actor:
                     raise UserError("You can't assign a level equal to or above your own")

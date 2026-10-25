@@ -1,6 +1,6 @@
 # Command reference
 
-425 commands. Default prefix `,`. `<required>` `[optional]`.
+429 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -297,6 +297,7 @@ _Keep your server in line_
 | Command | Description | Permission |
 |---|---|---|
 | `addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
+| `addrole <arg1> <arg2>` (giverole) | Add a role to a member: `,addrole @User @Role` | manage roles |
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
@@ -325,7 +326,9 @@ _Keep your server in line_
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
-| `role <member> <role>` (r) | Toggle a role on a member | manage roles |
+| `removerole <arg1> <arg2>` (takerole) | Remove a role from a member: `,removerole @User @Role` | manage roles |
+| `role <arg1> [arg2]` (r) | Toggle a role on a member: `,role @User @Role` or `,role @Role @User` | manage roles |
+| `role add <arg1> <arg2>` | Add a role to a member: `,role add @User @Role` | manage roles |
 | `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator |
 | `role bots <action> <role>` | Add/remove a role for all bots | administrator |
 | `role color <role> <color>` (colour) | Change a role's color | manage roles |
@@ -333,6 +336,7 @@ _Keep your server in line_
 | `role delete <role>` | Delete a role | manage roles |
 | `role hoist <role>` | Toggle showing a role separately | manage roles |
 | `role humans <action> <role>` | Add/remove a role for all humans | administrator |
+| `role remove <arg1> <arg2>` (rem, del) | Remove a role from a member: `,role remove @User @Role` | manage roles |
 | `role rename <role> <name>` | Rename a role | manage roles |
 | `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles |
 | `roleblacklist add <role>` | Blacklist a role | manage roles |

@@ -1,11 +1,12 @@
 """Unit tests for Midtown Antinuke Status embed, rules configuration, presets, and anti-spam rate limiting."""
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from cogs.antinuke import Antinuke, PRESETS, parse_timeframe
+from cogs.moderation import Moderation
 from core.bot import Veil
 from core.db import Database
 from core.utils import Colors, Ignored, UserError
@@ -222,3 +223,65 @@ def test_command_anti_spam_cooldown():
             allowed = await bot._global_check(ctx_staff)
             assert allowed is True
     run(_run)
+
+
+def test_roleblacklist_enforcement():
+    async def _run():
+        bot = MagicMock()
+        bot.db = MagicMock()
+        bot.db.get_config = AsyncMock(return_value={"roles": [999]})
+        bot.is_owner = AsyncMock(return_value=False)
+        bot.blacklist = set()
+        bot.auth_required = False
+
+        cog = Moderation(bot)
+
+        # 1. on_member_update strips blacklisted role
+        blacklisted_role = SimpleNamespace(id=999, name="Forbidden")
+        normal_role = SimpleNamespace(id=111, name="Member")
+
+        top_me = SimpleNamespace(position=20)
+        blacklisted_role.__lt__ = lambda self, other: True
+        normal_role.__lt__ = lambda self, other: True
+
+        me = SimpleNamespace(
+            top_role=top_me,
+            guild_permissions=SimpleNamespace(manage_roles=True),
+        )
+        guild = SimpleNamespace(id=1, owner_id=9999, me=me, members=[])
+
+        before = SimpleNamespace(
+            id=123,
+            guild=guild,
+            nick="test",
+            roles=[normal_role],
+        )
+        after = SimpleNamespace(
+            id=123,
+            guild=guild,
+            nick="test",
+            roles=[normal_role, blacklisted_role],
+            remove_roles=AsyncMock(),
+        )
+
+        await cog.on_member_update(before, after)
+        after.remove_roles.assert_awaited_once_with(blacklisted_role, reason="Veil: Role is blacklisted")
+
+        # 2. May run commands gate blocks user with blacklisted role
+        msg_user_with_role = SimpleNamespace(
+            author=SimpleNamespace(id=123, bot=False, roles=[normal_role, blacklisted_role]),
+            guild=guild,
+        )
+        can_run = await Veil._may_run_commands(bot, msg_user_with_role)
+        assert can_run is False
+
+        # User without blacklisted role can run commands
+        msg_normal = SimpleNamespace(
+            author=SimpleNamespace(id=456, bot=False, roles=[normal_role]),
+            guild=guild,
+        )
+        can_run_normal = await Veil._may_run_commands(bot, msg_normal)
+        assert can_run_normal is True
+
+    run(_run)
+

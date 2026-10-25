@@ -475,11 +475,38 @@ class Moderation(commands.Cog):
         await new.send(embed=discord.Embed(description=f"💥 Channel nuked by {ctx.author.mention}", color=Colors.main))
 
     # ================================================================ roles
+    async def _resolve_member_role(self, ctx: Context, arg1: str, arg2: str) -> tuple[discord.Member, discord.Role]:
+        member = None
+        try:
+            member = await commands.MemberConverter().convert(ctx, arg1)
+        except commands.BadArgument:
+            pass
+
+        if member:
+            try:
+                role = await commands.RoleConverter().convert(ctx, arg2)
+            except commands.BadArgument:
+                raise UserError(f"Role `{arg2}` not found.")
+            return member, role
+
+        try:
+            role = await commands.RoleConverter().convert(ctx, arg1)
+        except commands.BadArgument:
+            raise UserError(f"Member `{arg1}` not found.")
+        try:
+            member = await commands.MemberConverter().convert(ctx, arg2)
+        except commands.BadArgument:
+            raise UserError(f"Member `{arg2}` not found.")
+        return member, role
+
     @commands.group(aliases=["r"], invoke_without_command=True)
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
-    async def role(self, ctx: Context, member: discord.Member, *, role: discord.Role):
-        """Toggle a role on a member"""
+    async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
+        """Toggle a role on a member: `,role @User @Role` or `,role @Role @User`"""
+        if not arg2:
+            raise UserError(f"Usage: `{ctx.clean_prefix}role <member> <role>` or `{ctx.clean_prefix}role add/remove <member> <role>`")
+        member, role = await self._resolve_member_role(ctx, arg1, arg2)
         check_role(ctx, role)
         if role in member.roles:
             await member.remove_roles(role, reason=f"by {ctx.author}")
@@ -491,6 +518,48 @@ class Moderation(commands.Cog):
                 await antinuke_guard(ctx, "permissions")
             await member.add_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Added {role.mention} to {member.mention}")
+
+    @role.command(name="add")
+    @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def role_add(self, ctx: Context, arg1: str, *, arg2: str):
+        """Add a role to a member: `,role add @User @Role`"""
+        member, role = await self._resolve_member_role(ctx, arg1, arg2)
+        check_role(ctx, role)
+        if await self._blacklisted(ctx.guild.id, role.id):
+            raise UserError(f"{role.mention} is blacklisted and can't be assigned")
+        if role in member.roles:
+            raise UserError(f"{member.mention} already has {role.mention}")
+        if is_dangerous(role.permissions):
+            await antinuke_guard(ctx, "permissions")
+        await member.add_roles(role, reason=f"by {ctx.author}")
+        await ctx.approve(f"Added {role.mention} to {member.mention}")
+
+    @role.command(name="remove", aliases=["rem", "del"])
+    @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def role_remove(self, ctx: Context, arg1: str, *, arg2: str):
+        """Remove a role from a member: `,role remove @User @Role`"""
+        member, role = await self._resolve_member_role(ctx, arg1, arg2)
+        check_role(ctx, role)
+        if role not in member.roles:
+            raise UserError(f"{member.mention} doesn't have {role.mention}")
+        await member.remove_roles(role, reason=f"by {ctx.author}")
+        await ctx.approve(f"Removed {role.mention} from {member.mention}")
+
+    @commands.command(name="addrole", aliases=["giverole"])
+    @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def cmd_addrole(self, ctx: Context, arg1: str, *, arg2: str):
+        """Add a role to a member: `,addrole @User @Role`"""
+        await self.role_add(ctx, arg1, arg2=arg2)
+
+    @commands.command(name="removerole", aliases=["takerole"])
+    @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def cmd_removerole(self, ctx: Context, arg1: str, *, arg2: str):
+        """Remove a role from a member: `,removerole @User @Role`"""
+        await self.role_remove(ctx, arg1, arg2=arg2)
 
     async def _blacklisted(self, guild_id: int, role_id: int) -> bool:
         cfg = await self.bot.db.get_config(guild_id, "roleblacklist")
@@ -614,6 +683,23 @@ class Moderation(commands.Cog):
             raise UserError(f"{role.mention} is already blacklisted")
         roles.append(role.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+
+        # Strip from current members if any currently hold it
+        top_pos = getattr(getattr(ctx.guild.me, "top_role", None), "position", 999999)
+        if ctx.guild.me.guild_permissions.manage_roles and getattr(role, "position", 0) < top_pos:
+            for member in list(ctx.guild.members):
+                if role in getattr(member, "roles", []):
+                    try:
+                        await member.remove_roles(role, reason=f"Role blacklisted by {ctx.author}")
+                    except discord.HTTPException:
+                        pass
+
+        # Purge from permlevels if present
+        pcfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
+        if "roles" in pcfg and str(role.id) in pcfg["roles"]:
+            del pcfg["roles"][str(role.id)]
+            await self.bot.db.set_config(ctx.guild.id, "permlevels", pcfg)
+
         await ctx.approve(f"{role.mention} has been blacklisted.")
 
     @roleblacklist.command(name="remove", aliases=["rem", "delete"])
@@ -629,19 +715,30 @@ class Moderation(commands.Cog):
             cfg["roles"] = [rid for rid in roles if rid not in gone]
             await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
             return await ctx.approve(f"Removed **{len(gone)}** deleted role(s) from the blacklist.")
-        resolved = await commands.RoleConverter().convert(ctx, role)
-        if resolved.id not in roles:
-            raise UserError(f"{resolved.mention} isn't blacklisted")
-        roles.remove(resolved.id)
+
+        if role.isdigit() and int(role) in roles:
+            rid = int(role)
+            resolved_mention = f"<@&{rid}>"
+        else:
+            resolved = await commands.RoleConverter().convert(ctx, role)
+            rid = resolved.id
+            resolved_mention = resolved.mention
+
+        if rid not in roles:
+            raise UserError(f"{resolved_mention} isn't blacklisted")
+        roles.remove(rid)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"{resolved.mention} has been unblacklisted.")
+        await ctx.approve(f"{resolved_mention} has been unblacklisted.")
 
     @roleblacklist.command(name="list")
     @has_perms(manage_roles=True)
     async def rbl_list(self, ctx: Context):
         """View blacklisted roles"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-        lines = [f"<@&{rid}> (`{rid}`)" for rid in cfg.get("roles", [])]
+        roles = cfg.get("roles", [])
+        if not roles:
+            return await ctx.neutral("No roles are currently blacklisted in this server.")
+        lines = [f"<@&{rid}> (`{rid}`)" for rid in roles]
         await ctx.paginate(chunk_embeds("Blacklisted roles", lines, numbered=False))
 
     # ================================================================ permissions across all roles
@@ -738,15 +835,28 @@ class Moderation(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        if before.nick == after.nick:
-            return
-        fn = await self._cfg(after.guild.id, "forcenick")
-        forced = fn.get(str(after.id))
-        if forced and after.nick != forced:
-            try:
-                await after.edit(nick=forced, reason="forced nickname")
-            except discord.HTTPException:
-                pass
+        if before.nick != after.nick:
+            fn = await self._cfg(after.guild.id, "forcenick")
+            forced = fn.get(str(after.id))
+            if forced and after.nick != forced:
+                try:
+                    await after.edit(nick=forced, reason="forced nickname")
+                except discord.HTTPException:
+                    pass
+
+        # Role blacklist enforcement: immediately strip forbidden roles if assigned
+        if before.roles != after.roles:
+            added = [r for r in after.roles if r not in before.roles]
+            if added:
+                cfg = await self.bot.db.get_config(after.guild.id, "roleblacklist")
+                b_ids = set(cfg.get("roles", []))
+                top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
+                to_strip = [r for r in added if r.id in b_ids and getattr(r, "position", 0) < top_pos]
+                if to_strip and after.guild.me.guild_permissions.manage_roles:
+                    try:
+                        await after.remove_roles(*to_strip, reason="Veil: Role is blacklisted")
+                    except discord.HTTPException:
+                        pass
 
     # ================================================================ jail
     @commands.group(invoke_without_command=True)
@@ -825,6 +935,18 @@ class Moderation(commands.Cog):
             if role:
                 try:
                     await member.add_roles(role, reason="rejoined while jailed")
+                except discord.HTTPException:
+                    pass
+
+        # strip any blacklisted roles if member rejoins or has them
+        rbl = await self._cfg(member.guild.id, "roleblacklist")
+        b_roles = set(rbl.get("roles", []))
+        top_pos = getattr(getattr(member.guild.me, "top_role", None), "position", 999999)
+        if b_roles and member.guild.me.guild_permissions.manage_roles:
+            to_remove = [r for r in getattr(member, "roles", []) if r.id in b_roles and getattr(r, "position", 0) < top_pos]
+            if to_remove:
+                try:
+                    await member.remove_roles(*to_remove, reason="Veil: Role is blacklisted")
                 except discord.HTTPException:
                     pass
 

@@ -194,7 +194,10 @@ class Config(commands.Cog):
         await self._greet_send(member, "welcome")
         ar = await self.get(member.guild.id, "autorole")
         ids = ar.get("bots" if member.bot else "humans", []) + ar.get("all", [])
-        roles = [r for r in (member.guild.get_role(i) for i in ids) if r and r < member.guild.me.top_role]
+        rbl = await self.get(member.guild.id, "roleblacklist")
+        b_roles = set(rbl.get("roles", []))
+        roles = [r for r in (member.guild.get_role(i) for i in ids)
+                 if r and r < member.guild.me.top_role and r.id not in b_roles]
         if roles:
             await asyncio.sleep(ar.get("delay", 0))
             try:
@@ -236,6 +239,9 @@ class Config(commands.Cog):
 
     async def _ar(self, ctx, bucket, role: discord.Role):
         check_role(ctx, role)
+        rbl = await self.get(ctx.guild.id, "roleblacklist")
+        if role.id in rbl.get("roles", []):
+            raise UserError(f"{role.mention} is blacklisted and cannot be added to autoroles")
         ar = await self.get(ctx.guild.id, "autorole")
         lst = ar.setdefault(bucket, [])
         if role.id in lst:
