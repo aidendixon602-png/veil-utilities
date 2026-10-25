@@ -59,14 +59,14 @@ def test_category_embed_formatting():
     cmd2 = SimpleNamespace(name="serverinfo", signature="", short_doc="Server stats", aliases=["si"])
     embed = h.category_embed("Utility", [cmd1, cmd2], page=0)
 
-    assert embed.title == "Utility"
-    assert embed.color.value == Colors.mint
-    assert "`,userinfo [user]` - show profile info" in embed.description
-    assert "`,serverinfo` - server stats" in embed.description
+    assert "Utility" in embed.title
+    assert embed.color.value == Colors.main
+    assert "**`,userinfo`** `[user]` — Show profile info." in embed.description
+    assert "**`,serverinfo`** — Server stats." in embed.description
     assert "**Aliases:**" in embed.description
-    assert "`userinfo` -> `ui` `info`" in embed.description
-    assert "`serverinfo` -> `si`" in embed.description
-    assert "prefix: ," in embed.description
+    assert "`userinfo` ➔ `ui`, `info`" in embed.description
+    assert "`serverinfo` ➔ `si`" in embed.description
+    assert "Page 1 of 1 • 2 commands • Midtown Events Department" in embed.footer.text
 
 
 def test_perm_alias_on_userperm():

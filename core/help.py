@@ -261,6 +261,21 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Secret": "🔑",
 }
 
+CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "Utility": "Essential server utilities, user & guild lookups, AFK, and snipe tools.",
+    "Music": "High-fidelity Lavalink streaming, Spotify support, queues & audio filters.",
+    "Moderation": "Strict staff enforcement, mutes, kicks, bans, warnings & purge controls.",
+    "Roles": "Reaction roles, autoroles, vanity rewards, and role blacklist enforcement.",
+    "Permissions": "Veil uperm hierarchy, staff restrictions, and rank assignment.",
+    "Antinuke": "Zero-trust real-time server protection, anti-raid, and permission stripping.",
+    "Automod": "Intelligent automated moderation, anti-spam, and message filtering.",
+    "Server": "Guild configuration, welcome presets, log channels, and prefixes.",
+    "VoiceMaster": "Dynamic temporary voice channels, voice locks, and VC management.",
+    "Community": "Interactive support tickets, leveling system, AI chat, giveaways & fun.",
+    "Developer": "Developer diagnostics, system telemetry, and maintenance controls.",
+    "Secret": "Master security operations, credential health, and network-wide defense.",
+}
+
 
 class CategoryButton(discord.ui.Button["HelpView"]):
     def __init__(self, label: str, row: int, style: discord.ButtonStyle = discord.ButtonStyle.secondary, emoji: str | None = None):
@@ -282,7 +297,7 @@ class BackButton(discord.ui.Button["HelpView"]):
 
 class PrevButton(discord.ui.Button["HelpView"]):
     def __init__(self, row: int = 0):
-        super().__init__(emoji="◀", style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label="Prev", emoji="◀", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.change_page(it, -1)
@@ -290,7 +305,7 @@ class PrevButton(discord.ui.Button["HelpView"]):
 
 class NextButton(discord.ui.Button["HelpView"]):
     def __init__(self, row: int = 0):
-        super().__init__(emoji="▶", style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label="Next", emoji="▶", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.change_page(it, 1)
@@ -397,10 +412,6 @@ class HelpView(OwnedView):
         self._build_items()
         embed = self.help_cmd.category_embed(self.current, cmds, self.page)
         await _respond_or_edit(it, embed, self)
-        self.page = max(0, min(total_pages - 1, self.page + delta))
-        self._build_items()
-        embed = self.help_cmd.category_embed(self.current, cmds, self.page)
-        await it.response.edit_message(embed=embed, view=self)
 
     async def on_timeout(self):
         for b in self.children:
@@ -873,41 +884,57 @@ class Help(commands.HelpCommand):
 
     def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
         p = self.context.clean_prefix
-        e = discord.Embed(title=label, color=Colors.mint)
+        bot = getattr(self.context, "bot", None)
+        emoji = CATEGORY_EMOJIS.get(label, "📁")
+        desc = CATEGORY_DESCRIPTIONS.get(label, "")
+
+        e = discord.Embed(
+            title=f"{emoji} {label}",
+            color=Colors.main,
+        )
+        if bot and getattr(bot, "user", None):
+            e.set_author(name="Veil Utilities • Midtown Events Department", icon_url=bot.user.display_avatar.url)
+
         total_pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
         page_cmds = cmds[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
 
         lines = []
-        for cmd in page_cmds:
-            sig = f" {cmd.signature.strip()}" if cmd.signature.strip() else ""
-            doc = (cmd.short_doc or "").strip()
-            if doc:
-                doc = doc[0].lower() + doc[1:]
-                doc = doc.rstrip(".")
-            else:
-                doc = "no description"
-            lines.append(f"`{p}{cmd.name}{sig}` - {doc}")
+        if desc:
+            lines.append(f"*{desc}*\n")
+
+        if not page_cmds:
+            lines.append("No commands available in this module.")
+        else:
+            for cmd in page_cmds:
+                sig = f" `{cmd.signature.strip()}`" if cmd.signature.strip() else ""
+                doc = (cmd.short_doc or "").strip()
+                if doc:
+                    doc = doc[0].upper() + doc[1:]
+                    if not doc.endswith((".", "!", "?")):
+                        doc += "."
+                else:
+                    doc = "No description provided."
+                lines.append(f"• **`{p}{cmd.name}`**{sig} — {doc}")
 
         # Aliases section
         aliases_parts = []
         for c in page_cmds:
             if c.aliases:
-                alias_str = " ".join(f"`{a}`" for a in c.aliases)
-                aliases_parts.append(f"`{c.name}` -> {alias_str}")
+                alias_str = ", ".join(f"`{a}`" for a in c.aliases)
+                aliases_parts.append(f"`{c.name}` ➔ {alias_str}")
 
-        body = "\n".join(lines) or "No commands available."
+        body = "\n".join(lines)
         if aliases_parts:
-            aliases_text = " · ".join(aliases_parts)
-            body += f"\n\n**Aliases:** {aliases_text}\nprefix: {p}"
-        else:
-            body += f"\n\nprefix: {p}"
+            aliases_text = " • ".join(aliases_parts)
+            body += f"\n\n> 💬 **Aliases:** {aliases_text}"
+
+        body += f"\n\n*Use `{p}help <command>` for detailed syntax and subcommands.*"
 
         if len(body) > 4000:
             body = body[:3990].rsplit("\n", 1)[0] + "\n…"
         e.description = body
 
-        if total_pages > 1:
-            e.set_footer(text=f"Page {page + 1}/{total_pages} • {len(cmds)} commands")
+        e.set_footer(text=f"Page {page + 1} of {total_pages} • {len(cmds)} commands • Midtown Events Department")
         return e
 
     async def developer_embed(self) -> discord.Embed:
@@ -1208,16 +1235,29 @@ class Help(commands.HelpCommand):
 
     def command_embed(self, cmd: commands.Command):
         p = self.context.clean_prefix
-        e = discord.Embed(color=Colors.blurple)
-        e.title = cmd.qualified_name
-        e.description = cmd.help or cmd.short_doc or "No description"
-        e.add_field(name="Usage", value=f"```{usage(p, cmd)}```", inline=False)
+        bot = getattr(self.context, "bot", None)
+        e = discord.Embed(
+            title=cmd.qualified_name,
+            color=Colors.main,
+            description=cmd.help or cmd.short_doc or "No description provided.",
+        )
+        if bot and getattr(bot, "user", None):
+            e.set_author(name="Veil Utilities • Command Details", icon_url=bot.user.display_avatar.url)
+
+        e.add_field(name="Syntax", value=f"```{usage(p, cmd)}```", inline=False)
         if cmd.aliases:
-            e.add_field(name="Aliases", value=", ".join(f"`{a}`" for a in cmd.aliases))
+            e.add_field(name="Aliases", value=" • ".join(f"`{a}`" for a in cmd.aliases), inline=True)
         perms = perms_of(cmd)
         if perms:
-            e.add_field(name="Permissions", value=", ".join(f"`{x.replace('_', ' ')}`" for x in perms))
-        e.set_footer(text="<required> [optional]")
+            e.add_field(name="Required Permissions", value=", ".join(f"`{x.replace('_', ' ')}`" for x in perms), inline=True)
+
+        req_rank = min_rank_for_command(cmd, bot)
+        if req_rank > 0:
+            from core.perms import PRESETS
+            rank_name = next((k for k, v in PRESETS.items() if v[1] == req_rank), f"Rank {req_rank}")
+            e.add_field(name="Staff Rank", value=f"🔒 `{rank_name.title()}` (Rank {req_rank}+)", inline=True)
+
+        e.set_footer(text=f"Syntax: <required> • [optional] • Prefix: {p}")
         return e
 
     async def send_command_help(self, cmd):
@@ -1247,8 +1287,11 @@ class Help(commands.HelpCommand):
             key=lambda c: c.qualified_name
         )
         if subs:
-            lines = [f"`{c.qualified_name} {c.signature}`".replace(" `", "`") + f" — {c.short_doc or ''}"
-                     for c in subs]
+            lines = [
+                f"• **`{c.qualified_name}`** `{c.signature.strip()}` — {c.short_doc or 'No description'}"
+                if c.signature.strip() else f"• **`{c.qualified_name}`** — {c.short_doc or 'No description'}"
+                for c in subs
+            ]
             chunks, cur = [], ""
             for line in lines:
                 if len(cur) + len(line) + 1 > 1000:
