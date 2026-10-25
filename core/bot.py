@@ -12,7 +12,7 @@ import traceback
 
 import aiohttp
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from core.config import settings
 from core.db import Database
@@ -150,8 +150,12 @@ class Veil(commands.AutoShardedBot):
             except Exception:
                 log.exception("Failed to load %s", ext)
         self.add_check(self._global_check)
+        if not self.presence_rotator.is_running():
+            self.presence_rotator.start()
 
     async def close(self) -> None:
+        if hasattr(self, "presence_rotator") and self.presence_rotator.is_running():
+            self.presence_rotator.cancel()
         if hasattr(self, "dashboard") and self.dashboard:
             try:
                 await self.dashboard.stop()
@@ -164,16 +168,32 @@ class Veil(commands.AutoShardedBot):
                 await session.close()
         await self.db.close()
 
+    @tasks.loop(minutes=1.5)
+    async def presence_rotator(self):
+        await self.update_dynamic_status()
+
+    @presence_rotator.before_loop
+    async def before_presence_rotator(self):
+        await self.wait_until_ready()
+
     async def update_dynamic_status(self):
         try:
             users = sum(g.member_count or 0 for g in self.guilds)
             guilds = len(self.guilds)
             status_template = settings.status
-            if not status_template or status_template == "veil utilities | ,help":
-                text = f"Guarding {users:,} users across {guilds} guilds • Watching over the community"
+            if not status_template or status_template in ("veil utilities | ,help", "default"):
+                statuses = [
+                    f"🛡️ Midtown Events Department • {self.default_prefix}help",
+                    f"⚡ veil utilities • {users:,} members",
+                    f"🔒 Zero-Trust Security • {guilds} guilds",
+                    f"✨ Protecting Midtown Community • {self.default_prefix}help",
+                ]
+                idx = getattr(self, "_presence_index", 0)
+                text = statuses[idx % len(statuses)]
+                self._presence_index = idx + 1
             else:
                 try:
-                    text = status_template.format(users=users, guilds=guilds)
+                    text = status_template.format(users=users, guilds=guilds, prefix=self.default_prefix)
                 except Exception:
                     text = status_template
             activity = discord.CustomActivity(name=text)

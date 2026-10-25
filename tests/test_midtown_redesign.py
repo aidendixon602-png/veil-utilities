@@ -370,4 +370,26 @@ def test_role_update_embed_styling():
     assert any(f.name.startswith("➖ Removed") for f in embed_mixed.fields)
 
 
+def test_dynamic_presence_rotation():
+    bot = Veil()
+    bot.change_presence = AsyncMock()
+    bot.default_prefix = ","
+    guild_mock = SimpleNamespace(id=1, member_count=100)
+    bot._guilds = {1: guild_mock}
+
+    # First rotation call
+    asyncio.run(bot.update_dynamic_status())
+    bot.change_presence.assert_called_once()
+    act1 = bot.change_presence.call_args[1]["activity"]
+    assert "Midtown Events Department" in act1.name
+
+    # Second rotation call
+    bot.change_presence.reset_mock()
+    asyncio.run(bot.update_dynamic_status())
+    bot.change_presence.assert_called_once()
+    act2 = bot.change_presence.call_args[1]["activity"]
+    assert "veil utilities" in act2.name
+
+
+
 
