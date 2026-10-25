@@ -301,7 +301,7 @@ _Keep your server in line_
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
-| `checkbled [target]` (checkbl, scanbl, bledcheck) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
+| `checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
 | `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members |
 | `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members |
 | `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames |

@@ -321,13 +321,22 @@ def test_roleblacklist_enforcement():
         assert "Unauthorized" in sent_embed.description
         assert sent_view is not None  # Offers Strip Roles and Authorize buttons
 
-        # Also test cmd_checkbled directly without arguments
+        # Also test cmd_checkbled directly without arguments (server scan)
         ctx.send.reset_mock()
-        ctx.author = clean_member
         await cog.cmd_checkbled.callback(cog, ctx)
         assert ctx.send.await_count == 1
         sent_embed = ctx.send.call_args[1].get("embed")
-        assert "Authorized" in sent_embed.description
+        sent_view = ctx.send.call_args[1].get("view")
+        assert "Unauthorized" in sent_embed.description
+        assert sent_view is not None  # Offers Strip All and Authorize All
+
+        # Server scan when all members are clean
+        guild.members = [clean_member]
+        ctx.send.reset_mock()
+        await cog.cmd_checkbled.callback(cog, ctx)
+        assert ctx.send.await_count == 1
+        sent_embed = ctx.send.call_args[1].get("embed")
+        assert "All Members Authorized" in sent_embed.description
 
     run(_run)
 

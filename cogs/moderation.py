@@ -18,22 +18,20 @@ INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", r
 
 
 # ==================================================================== role blacklist views
-class SingleMemberBledView(OwnedView):
+class SingleMemberBledView(discord.ui.View):
     def __init__(self, cog, ctx: Context, target: discord.Member, roles_to_strip: list[discord.Role]):
-        super().__init__(ctx.author.id)
+        super().__init__(timeout=180)
         self.cog = cog
         self.ctx = ctx
         self.target = target
         self.roles_to_strip = roles_to_strip
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
-        if not await super().interaction_check(it):
-            return False
         from core import perms as _perms
         is_staff = (
-            it.user.guild_permissions.manage_roles
-            or it.user.guild_permissions.administrator
-            or it.user.id == it.guild.owner_id
+            getattr(getattr(it.user, "guild_permissions", None), "manage_roles", False)
+            or getattr(getattr(it.user, "guild_permissions", None), "administrator", False)
+            or it.user.id == getattr(it.guild, "owner_id", None)
             or it.user.id in _perms.BOT_DEVELOPERS
         )
         if not is_staff:
@@ -55,7 +53,7 @@ class SingleMemberBledView(OwnedView):
         for child in self.children:
             child.disabled = True
         embed = interaction.message.embeds[0]
-        embed.color = Colors.success
+        embed.color = Colors.mint
         embed.description = f"✅ **Stripped Roles**\n\nSuccessfully removed **{len(valid)}** blacklisted role(s) from {self.target.mention}."
         embed.set_footer(text="Veil Utilities • Roles Stripped")
         await interaction.response.edit_message(embed=embed, view=self)
@@ -77,21 +75,19 @@ class SingleMemberBledView(OwnedView):
         await interaction.response.edit_message(embed=embed, view=self)
 
 
-class GuildBledView(OwnedView):
+class GuildBledView(discord.ui.View):
     def __init__(self, cog, ctx: Context, unauthorized: list[tuple[discord.Member, list[discord.Role]]]):
-        super().__init__(ctx.author.id)
+        super().__init__(timeout=180)
         self.cog = cog
         self.ctx = ctx
         self.unauthorized = unauthorized
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
-        if not await super().interaction_check(it):
-            return False
         from core import perms as _perms
         is_staff = (
-            it.user.guild_permissions.manage_roles
-            or it.user.guild_permissions.administrator
-            or it.user.id == it.guild.owner_id
+            getattr(getattr(it.user, "guild_permissions", None), "manage_roles", False)
+            or getattr(getattr(it.user, "guild_permissions", None), "administrator", False)
+            or it.user.id == getattr(it.guild, "owner_id", None)
             or it.user.id in _perms.BOT_DEVELOPERS
         )
         if not is_staff:
@@ -885,12 +881,20 @@ class Moderation(commands.Cog):
         await ctx.paginate(chunk_embeds("Blacklisted roles", lines, numbered=False))
 
     async def _scan_guild_bled(self, ctx: Context, cfg: dict, b_roles: set[int]):
+        if hasattr(ctx.guild, "chunk") and not getattr(ctx.guild, "chunked", True):
+            try:
+                await ctx.guild.chunk()
+            except Exception:
+                pass
+
         if not b_roles:
             embed = discord.Embed(
                 title="Role Blacklist Check",
                 color=Colors.mint,
                 description="✅ **All Members Authorized**\n\nNo roles are blacklisted in this server. All members are authorized."
             )
+            embed.add_field(name="Blacklisted Roles", value="0", inline=True)
+            embed.add_field(name="Members Scanned", value=str(len(ctx.guild.members)), inline=True)
             embed.set_footer(text="Veil Utilities • Authorized")
             embed.timestamp = discord.utils.utcnow()
             return await ctx.send(embed=embed)
@@ -937,61 +941,44 @@ class Moderation(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = set(cfg.get("roles", []))
 
-        # Check if user wants a full server scan
-        if target and target.lower() in ("all", "server", "guild", "everyone"):
+        # When scanning the whole server (run ,checkbled without arguments, or with 'all'/'server')
+        if not target or target.strip().lower() in ("all", "server", "guild", "everyone"):
             return await self._scan_guild_bled(ctx, cfg, b_roles)
 
-        # Resolve member: if no target provided, check the command author!
+        target = target.strip()
         member = None
-        if target is None:
-            member = ctx.author
-        else:
-            if target.isdigit() and hasattr(ctx.guild, "get_member"):
-                member = ctx.guild.get_member(int(target))
-            if not member:
-                try:
-                    member = await commands.MemberConverter().convert(ctx, target)
-                except (commands.BadArgument, AttributeError):
-                    pass
-            if not member and target.isdigit() and hasattr(ctx.guild, "fetch_member"):
-                try:
-                    member = await ctx.guild.fetch_member(int(target))
-                except (discord.HTTPException, AttributeError):
-                    pass
-            if not member:
-                t_lower = target.lower()
-                for m in getattr(ctx.guild, "members", []):
-                    if getattr(m, "name", "").lower() == t_lower or (getattr(m, "nick", None) and m.nick.lower() == t_lower):
-                        member = m
-                        break
+        if target.isdigit() and hasattr(ctx.guild, "get_member"):
+            member = ctx.guild.get_member(int(target))
+        if not member:
+            try:
+                member = await commands.MemberConverter().convert(ctx, target)
+            except (commands.BadArgument, AttributeError):
+                pass
+        if not member and target.isdigit() and hasattr(ctx.guild, "fetch_member"):
+            try:
+                member = await ctx.guild.fetch_member(int(target))
+            except (discord.HTTPException, AttributeError):
+                pass
+        if not member:
+            t_lower = target.lower()
+            for m in getattr(ctx.guild, "members", []):
+                if getattr(m, "name", "").lower() == t_lower or (getattr(m, "nick", None) and m.nick.lower() == t_lower):
+                    member = m
+                    break
 
         if not member:
-            return await ctx.warn(f"I couldn't find a member matching `{target}`. To scan the entire server, run `{ctx.clean_prefix}checkbled all`.")
-
-        # Check if server has no blacklisted roles
-        if not b_roles:
-            embed = discord.Embed(
-                title="Role Blacklist Check",
-                color=Colors.mint,
-                description=f"✅ **Authorized**\n\nNo roles are blacklisted in this server. {member.mention} is **Authorized**."
-            )
-            embed.set_author(name=f"{member}", icon_url=getattr(member.display_avatar, "url", None))
-            embed.set_footer(text="Veil Utilities • Authorized")
-            embed.timestamp = discord.utils.utcnow()
-            return await ctx.send(embed=embed)
+            return await ctx.warn(f"I couldn't find a member matching `{target}`. Run `{ctx.clean_prefix}checkbled` without arguments to scan the whole server.")
 
         held = [r for r in getattr(member, "roles", []) if r.id in b_roles]
         is_auth = self._is_role_authorized(ctx.guild, member, cfg)
 
-        if not held:
+        if not b_roles or not held:
             embed = discord.Embed(
                 title="Role Blacklist Check",
                 color=Colors.mint,
-                description=f"✅ **Authorized**\n\n{member.mention} is **Authorized**. No blacklisted roles detected."
+                description=f"✅ **Authorized**\n\n{member.mention} is authorized. They do not hold any blacklisted roles."
             )
             embed.set_author(name=f"{member}", icon_url=getattr(member.display_avatar, "url", None))
-            embed.add_field(name="Blacklisted Roles Monitored", value=str(len(b_roles)), inline=True)
-            embed.add_field(name="Server Scan", value=f"Run `{ctx.clean_prefix}checkbled all` to scan everyone", inline=True)
             embed.set_footer(text="Veil Utilities • Authorized")
             embed.timestamp = discord.utils.utcnow()
             return await ctx.send(embed=embed)
@@ -1001,7 +988,7 @@ class Moderation(commands.Cog):
                 title="Role Blacklist Check",
                 color=Colors.mint,
                 description=f"✅ **Authorized (Bypass)**\n\n{member.mention} is authorized to hold blacklisted roles:\n"
-                            + "\n".join(f"• {getattr(r, 'mention', f'<@&{r.id}>')} (`{r.id}`)" for r in held)
+                            + "\n".join(f"• {getattr(r, 'mention', f'<@&{r.id}>')}" for r in held)
             )
             embed.set_author(name=f"{member}", icon_url=getattr(member.display_avatar, "url", None))
             embed.set_footer(text="Veil Utilities • Authorized")
@@ -1013,7 +1000,7 @@ class Moderation(commands.Cog):
             title="Role Blacklist Check",
             color=Colors.error,
             description=f"⚠️ **Unauthorized Member Detected**\n\n{member.mention} is holding **{len(held)}** blacklisted role(s):\n"
-                        + "\n".join(f"• {getattr(r, 'mention', f'<@&{r.id}>')} (`{r.id}`)" for r in held)
+                        + "\n".join(f"• {getattr(r, 'mention', f'<@&{r.id}>')}" for r in held)
         )
         embed.set_author(name=f"{member}", icon_url=getattr(member.display_avatar, "url", None))
         embed.set_footer(text="Veil Utilities • Unauthorized")
@@ -1027,7 +1014,7 @@ class Moderation(commands.Cog):
         """Check a user or the whole server for members with BLED (blacklisted) roles"""
         await self._do_rbl_check(ctx, target)
 
-    @commands.command(name="checkbled", aliases=["checkbl", "scanbl", "bledcheck"])
+    @commands.command(name="checkbled", aliases=["checkbl", "scanbl", "bledcheck", "rblcheck", "roleblcheck"])
     @commands.guild_only()
     async def cmd_checkbled(self, ctx: Context, *, target: str = None):
         """Check a user or the whole server for members with BLED (blacklisted) roles"""
