@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import copy
 import gzip
 import io
 import json
@@ -11,6 +13,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+import traceback
 
 import discord
 from discord.ext import commands
@@ -39,10 +42,11 @@ class Owner(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._last_eval = None
 
     async def cog_check(self, ctx: Context) -> bool:
         from core import perms as _perms
-        if await self.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS or (ctx.guild and ctx.author.id == ctx.guild.owner_id):
+        if await self.bot.is_owner(ctx.author) or _perms.is_bot_developer(ctx.author, self.bot):
             return True
         raise commands.NotOwner()
 
@@ -476,6 +480,229 @@ class Owner(commands.Cog):
         await ctx.approve("Shutting down")
         self.bot._restart_requested = False
         await self.bot.close()
+
+    # ================================================================ power tools
+    @commands.command(name="eval", hidden=True, aliases=["ev", "run", "py"])
+    async def cmd_eval(self, ctx: Context, *, code: str):
+        """Execute arbitrary Python code live inside the bot"""
+        if code.startswith("```") and code.endswith("```"):
+            lines = code.splitlines()
+            code = "\n".join(lines[1:-1]) if len(lines) > 2 else code.strip("`")
+        code = code.strip("` \n")
+
+        env = {
+            "bot": self.bot,
+            "ctx": ctx,
+            "channel": ctx.channel,
+            "author": ctx.author,
+            "guild": ctx.guild,
+            "message": ctx.message,
+            "discord": discord,
+            "commands": commands,
+            "asyncio": asyncio,
+            "os": os,
+            "sys": sys,
+            "time": time,
+            "_": getattr(self, "_last_eval", None),
+        }
+
+        indented = "\n".join(f"    {line}" for line in code.splitlines())
+        body = f"async def _eval_fn():\n{indented}"
+
+        stdout = io.StringIO()
+        t_start = time.perf_counter()
+        try:
+            exec(body, env)
+        except Exception:
+            tb = traceback.format_exc()
+            return await ctx.send(embed=discord.Embed(
+                title="❌ Syntax / Compile Error",
+                description=f"```py\n{tb[-1800:]}```",
+                color=Colors.error,
+            ))
+
+        _eval_fn = env["_eval_fn"]
+        try:
+            with contextlib.redirect_stdout(stdout):
+                ret = await _eval_fn()
+        except Exception:
+            tb = traceback.format_exc()
+            elapsed_ms = (time.perf_counter() - t_start) * 1000
+            e = discord.Embed(
+                title="❌ Execution Error",
+                description=f"```py\n{tb[-1800:]}```",
+                color=Colors.error,
+            )
+            e.set_footer(text=f"⏱️ {elapsed_ms:.1f}ms")
+            return await ctx.send(embed=e)
+
+        elapsed_ms = (time.perf_counter() - t_start) * 1000
+        output = stdout.getvalue()
+        if ret is not None:
+            self._last_eval = ret
+            result_str = repr(ret)
+        elif output:
+            result_str = output.rstrip()
+        else:
+            result_str = "None (No output)"
+
+        if len(result_str) <= 1800:
+            e = discord.Embed(
+                title="✅ Eval Executed",
+                description=f"```py\n{result_str}```",
+                color=Colors.success,
+            )
+            e.set_footer(text=f"⏱️ {elapsed_ms:.2f}ms")
+            await ctx.send(embed=e)
+        else:
+            data = io.BytesIO(result_str.encode("utf-8"))
+            file = discord.File(data, filename="eval_output.txt")
+            await ctx.send(content=f"✅ Output too large for embed (`{len(result_str):,}` chars, ⏱️ {elapsed_ms:.2f}ms):", file=file)
+
+    @commands.command(name="sql", hidden=True, aliases=["db", "query"])
+    async def cmd_sql(self, ctx: Context, *, query: str):
+        """Execute a raw SQL query against the database"""
+        clean_q = query.strip("` \n")
+        if clean_q.lower().startswith("sql"):
+            clean_q = clean_q[3:].strip()
+
+        t_start = time.perf_counter()
+        try:
+            is_select = clean_q.strip().upper().startswith(("SELECT", "PRAGMA", "EXPLAIN"))
+            if is_select:
+                rows = await self.bot.db.fetchall(clean_q)
+                elapsed_ms = (time.perf_counter() - t_start) * 1000
+                if not rows:
+                    return await ctx.approve(f"Query returned **0** rows (⏱️ {elapsed_ms:.1f}ms).")
+                headers = list(rows[0].keys())
+                table_lines = [f"{' | '.join(headers)}", "-" * 50]
+                for r in rows[:25]:
+                    table_lines.append(" | ".join(str(r[h]) for h in headers))
+                result_text = "\n".join(table_lines)
+                if len(rows) > 25:
+                    result_text += f"\n... and {len(rows) - 25} more rows"
+                if len(result_text) <= 1800:
+                    e = discord.Embed(
+                        title=f"SQL Results ({len(rows)} rows)",
+                        description=f"```\n{result_text}```",
+                        color=Colors.success,
+                    )
+                    e.set_footer(text=f"⏱️ {elapsed_ms:.2f}ms")
+                    await ctx.send(embed=e)
+                else:
+                    data = io.BytesIO(result_text.encode("utf-8"))
+                    file = discord.File(data, filename="query_result.txt")
+                    await ctx.send(content=f"✅ `{len(rows)}` rows returned (⏱️ {elapsed_ms:.2f}ms):", file=file)
+            else:
+                await self.bot.db.execute(clean_q)
+                elapsed_ms = (time.perf_counter() - t_start) * 1000
+                await ctx.approve(f"Executed SQL statement successfully (⏱️ {elapsed_ms:.1f}ms).")
+        except Exception as err:
+            elapsed_ms = (time.perf_counter() - t_start) * 1000
+            e = discord.Embed(
+                title="❌ SQL Error",
+                description=f"```\n{err}```",
+                color=Colors.error,
+            )
+            e.set_footer(text=f"⏱️ {elapsed_ms:.1f}ms")
+            await ctx.send(embed=e)
+
+    @commands.command(name="portal", hidden=True, aliases=["getinvite", "invitemaker", "guildinvite"])
+    async def cmd_portal(self, ctx: Context, *, target: str):
+        """Create or fetch an invite to any server the bot is in"""
+        guild = None
+        if target.isdigit():
+            guild = self.bot.get_guild(int(target))
+        if not guild:
+            target_lower = target.lower()
+            guild = discord.utils.find(lambda g: target_lower in g.name.lower(), self.bot.guilds)
+
+        if not guild:
+            raise UserError(f"I am not in a server matching `{target}`.")
+
+        invite_url = None
+        if guild.me.guild_permissions.manage_guild:
+            try:
+                invites = await guild.invites()
+                if invites:
+                    invite_url = invites[0].url
+            except Exception:
+                pass
+
+        if not invite_url:
+            for ch in guild.text_channels:
+                if ch.permissions_for(guild.me).create_instant_invite:
+                    try:
+                        inv = await ch.create_invite(max_age=86400, max_uses=0, reason=f"Developer portal by {ctx.author}")
+                        invite_url = inv.url
+                        break
+                    except Exception:
+                        continue
+
+        owner_str = f"<@{guild.owner_id}> (`{guild.owner_id}`)" if guild.owner_id else "Unknown"
+        e = discord.Embed(title=f"🌐 Server Portal: {guild.name}", color=Colors.main)
+        if guild.icon:
+            e.set_thumbnail(url=guild.icon.url)
+        e.add_field(name="Server ID", value=f"`{guild.id}`")
+        e.add_field(name="Owner", value=owner_str)
+        e.add_field(name="Members", value=f"{guild.member_count:,}")
+        e.add_field(name="Invite Link", value=f"[Click Here to Join]({invite_url})" if invite_url else "❌ Cannot create invite (missing permissions)", inline=False)
+        e.set_footer(text="Veil Utilities • Developer Portal")
+        await ctx.send(embed=e)
+
+    @commands.command(name="sudo", hidden=True, aliases=["runas", "su"])
+    async def cmd_sudo(self, ctx: Context, target: discord.Member, *, command_text: str):
+        """Execute a command as another member (bypassing permissions)"""
+        new_msg = copy.copy(ctx.message)
+        new_msg.author = target
+        prefix = ctx.prefix or self.bot.default_prefix
+        if not command_text.startswith(prefix):
+            new_msg.content = f"{prefix}{command_text}"
+        else:
+            new_msg.content = command_text
+        new_ctx = await self.bot.get_context(new_msg)
+        await self.bot.invoke(new_ctx)
+
+    @commands.command(name="broadcast", hidden=True, aliases=["devbroadcast", "devannounce"])
+    async def cmd_broadcast(self, ctx: Context, *, message: str):
+        """Send an urgent announcement from Veil Developers to all server alert channels"""
+        sent = 0
+        failed = 0
+        embed = discord.Embed(
+            title="📢 Veil Utilities — Developer Announcement",
+            description=message,
+            color=Colors.warn,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text="Official Broadcast • Veil Developers")
+        if self.bot.user:
+            embed.set_thumbnail(url=self.bot.user.display_avatar.url)
+
+        for g in self.bot.guilds:
+            target_ch = g.system_channel
+            if not target_ch or not target_ch.permissions_for(g.me).send_messages:
+                for ch in g.text_channels:
+                    if ch.permissions_for(g.me).send_messages and ch.permissions_for(g.me).embed_links:
+                        target_ch = ch
+                        break
+            if target_ch:
+                try:
+                    await target_ch.send(embed=embed)
+                    sent += 1
+                except Exception:
+                    failed += 1
+            else:
+                failed += 1
+
+        await ctx.approve(f"Broadcast delivered to **{sent}** servers (**{failed}** failed).")
+
+    @commands.command(name="secret", hidden=True, aliases=["devcommands", "secretcommands", "devhelp"])
+    async def cmd_secret(self, ctx: Context, category: str = None):
+        """Open the interactive Secret Developer Commands Suite"""
+        from core.help import SecretHelpView
+        view = SecretHelpView(ctx, initial_category=category)
+        embed = view.get_embed()
+        view.message = await ctx.send(embed=embed, view=view)
 
 
 async def setup(bot):

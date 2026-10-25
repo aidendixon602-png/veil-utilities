@@ -29,6 +29,81 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
 
 PAGE_SIZE = 15
 
+SECRET_CATEGORIES = {
+    "security": {
+        "title": "🛡️ Global Security & Network Defense",
+        "badge": "Security",
+        "desc": "Network-wide bans, raid rollbacks, role stripping, and global bot blacklisting.",
+        "commands": [
+            ("hardban", "<user> [reason]", "Ban a user across every server the bot is in (re-bans on join/unban)"),
+            ("unhardban", "<user>", "Lift a network hardban everywhere"),
+            ("hardbans", "", "List all active network hardbans"),
+            ("blacklist", "<id> [reason]", "Toggle global bot blacklist for a user or server ID"),
+            ("blacklisted", "", "List all blacklisted users and servers"),
+            ("revert", "<user>", "Undo a user's recent destructive bans/channel/role deletes"),
+            ("strip", "<member>", "Strip every role from a member (saved for unstrip)"),
+            ("unstrip", "<member>", "Restore all roles stripped by the strip command"),
+            ("massunrole", "<role> [samerole]", "Remove a role from everyone (samerole wipes perms)"),
+        ],
+    },
+    "licensing": {
+        "title": "🔐 Server Licensing & Portals",
+        "badge": "Licensing",
+        "desc": "Server whitelist management, instant invite portals, and server intelligence.",
+        "commands": [
+            ("authorize", "<guild_id> [note]", "Authorize a server ID to use the bot"),
+            ("unauthorize", "<guild_id>", "Revoke server authorization (forces bot to leave)"),
+            ("authorized", "", "List all authorized servers and notes"),
+            ("portal", "<guild_id / name>", "Create an instant invite to any server the bot is in"),
+            ("guilds", "", "List all servers the bot is in with member counts"),
+            ("lookupserver", "<guild_id>", "Deep inspection of a server's channels, roles, and settings"),
+            ("leaveguild", "<guild_id>", "Remotely force the bot to leave a server"),
+            ("mutuals", "<user>", "Find all mutual servers shared with a user"),
+        ],
+    },
+    "runtime": {
+        "title": "⚙️ Runtime & Process Management",
+        "badge": "Runtime",
+        "desc": "Bot lifecycle, hot-reloading from GitHub, maintenance, and emergency killswitches.",
+        "commands": [
+            ("gitpull", "", "Fetch latest code from GitHub main & hot-reload all cogs live"),
+            ("restart", "[seconds=3]", "In-process graceful restart with automatic reconnection"),
+            ("reload", "[module]", "Reload a specific module or all extensions"),
+            ("shutdown", "", "Safely shut down the bot container process"),
+            ("maintenance", "<on/off> [time] [reason]", "Toggle global maintenance mode with alert timer"),
+            ("killswitch", "<command>", "Instantly disable or re-enable any command bot-wide"),
+            ("setstatus", "<status text>", "Change bot custom activity text and presence"),
+            ("setpresence", "<dnd/online/idle>", "Set Discord presence state"),
+            ("antinukepreset", "<save/apply> [name]", "Save and reuse antinuke configs across servers"),
+        ],
+    },
+    "diagnostics": {
+        "title": "📊 Diagnostics, Telemetry & Logs",
+        "badge": "Diagnostics",
+        "desc": "Real-time bot health, log tailing, error tracebacks, and database backups.",
+        "commands": [
+            ("system", "", "Live system health: memory, uptime, latency, shards, DB size"),
+            ("botlogs", "[lines=50]", "Tail the last N lines of the live bot log file"),
+            ("errors", "", "List recent command exceptions and error IDs since startup"),
+            ("error", "<id>", "Full exception traceback and invocation context for an error ID"),
+            ("backup", "", "DM yourself a full SQLite / PostgreSQL database backup"),
+            ("joinleavelogs", "<channel>", "Direct join/leave/kick events to a dedicated channel"),
+            ("dm", "<user> <message>", "Direct message a user officially from Veil Developers"),
+            ("broadcast", "<message>", "Broadcast an announcement to all server alert channels"),
+        ],
+    },
+    "tools": {
+        "title": "⚡ Developer Power Tools",
+        "badge": "Power Tools",
+        "desc": "Live Python evaluation, raw database querying, and permission impersonation.",
+        "commands": [
+            ("eval", "<code>", "Execute arbitrary Python code live inside the bot (async/await)"),
+            ("sql", "<query>", "Execute a raw SQL query against the database with table results"),
+            ("sudo", "<member> <command>", "Execute a command as another member, bypassing permission gates"),
+        ],
+    },
+}
+
 
 def perms_of(cmd: commands.Command) -> list[str]:
     perms = list(getattr(cmd.callback, "__veil_perms__", []))
@@ -152,14 +227,18 @@ class HelpView(OwnedView):
     async def show_category(self, it: discord.Interaction, label: str):
         self.current = label
         self.page = 0
-        self._build_items()
         if label.lower() in ("dev", "developer"):
+            self._build_items()
             embed = await self.help_cmd.developer_embed()
+            await it.response.edit_message(embed=embed, view=self)
         elif label.lower() == "secret":
-            embed = self.help_cmd.secret_embed()
+            view = SecretHelpView(self.help_cmd.context, help_cmd=self.help_cmd)
+            embed = view.get_embed()
+            await it.response.edit_message(embed=embed, view=view)
         else:
+            self._build_items()
             embed = self.help_cmd.category_embed(label, self.categories.get(label, []), self.page)
-        await it.response.edit_message(embed=embed, view=self)
+            await it.response.edit_message(embed=embed, view=self)
 
     async def change_page(self, it: discord.Interaction, delta: int):
         cmds = self.categories.get(self.current, [])
@@ -177,6 +256,156 @@ class HelpView(OwnedView):
                 await self.message.edit(view=self)
             except discord.HTTPException:
                 pass
+
+
+class SecretCategorySelect(discord.ui.Select["SecretHelpView"]):
+    def __init__(self, current_key: str = "all"):
+        options = [
+            discord.SelectOption(
+                label="Overview & All Commands",
+                value="all",
+                description="Categorized summary of all secret developer commands",
+                emoji="🌟",
+                default=(current_key == "all"),
+            ),
+            discord.SelectOption(
+                label="Global Security & Defense",
+                value="security",
+                description="Hardbans, blacklists, reverts, massunrole, and role strips",
+                emoji="🛡️",
+                default=(current_key == "security"),
+            ),
+            discord.SelectOption(
+                label="Server Licensing & Portals",
+                value="licensing",
+                description="Server authorizations, portals/invites, lookups, and discovery",
+                emoji="🔐",
+                default=(current_key == "licensing"),
+            ),
+            discord.SelectOption(
+                label="Runtime & Process Management",
+                value="runtime",
+                description="Git pull, restarts, reloads, shutdowns, and killswitches",
+                emoji="⚙️",
+                default=(current_key == "runtime"),
+            ),
+            discord.SelectOption(
+                label="Diagnostics, Telemetry & Logs",
+                value="diagnostics",
+                description="Live system health, log tailing, error tracebacks, and backups",
+                emoji="📊",
+                default=(current_key == "diagnostics"),
+            ),
+            discord.SelectOption(
+                label="Developer Power Tools",
+                value="tools",
+                description="Live Python evaluation, raw SQL queries, and sudo execution",
+                emoji="⚡",
+                default=(current_key == "tools"),
+            ),
+        ]
+        super().__init__(placeholder="Select a module to view command signatures...", options=options, row=0)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.switch_category(it, self.values[0])
+
+
+class SecretRefreshButton(discord.ui.Button["SecretHelpView"]):
+    def __init__(self):
+        super().__init__(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.refresh_telemetry(it)
+
+
+class SecretBackButton(discord.ui.Button["SecretHelpView"]):
+    def __init__(self):
+        super().__init__(label="Back", emoji="◀", style=discord.ButtonStyle.secondary, row=1)
+
+    async def callback(self, it: discord.Interaction):
+        if self.view.help_cmd:
+            await self.view.help_cmd.show_home_interaction(it)
+        else:
+            await it.response.send_message("Closed.", ephemeral=True)
+
+
+class SecretHelpView(discord.ui.View):
+    def __init__(self, ctx: Context, help_cmd: Help | None = None, initial_category: str = "all"):
+        super().__init__(timeout=180)
+        self.ctx = ctx
+        self.bot = ctx.bot
+        self.help_cmd = help_cmd
+        self.category = initial_category.lower() if initial_category else "all"
+        self._build_items()
+
+    def _build_items(self):
+        self.clear_items()
+        self.add_item(SecretCategorySelect(current_key=self.category))
+        self.add_item(SecretRefreshButton())
+        if self.help_cmd:
+            self.add_item(SecretBackButton())
+
+    async def interaction_check(self, it: discord.Interaction) -> bool:
+        from core import perms as _perms
+        if await self.bot.is_owner(it.user) or _perms.is_bot_developer(it.user, self.bot):
+            return True
+        await it.response.send_message("❌ This interface is restricted to bot developers.", ephemeral=True)
+        return False
+
+    async def switch_category(self, it: discord.Interaction, cat_key: str):
+        self.category = cat_key
+        self._build_items()
+        embed = self.get_embed()
+        await it.response.edit_message(embed=embed, view=self)
+
+    async def refresh_telemetry(self, it: discord.Interaction):
+        embed = self.get_embed()
+        await it.response.edit_message(embed=embed, view=self)
+
+    def get_embed(self) -> discord.Embed:
+        from cogs.owner import memory_mb
+        from core import perms as _perms
+
+        p = self.ctx.clean_prefix
+        bot = self.bot
+        uptime = fmt_duration(time.time() - getattr(bot, "started_at", time.time()))
+        latency = f"{round(bot.latency * 1000)}ms" if bot.latency is not None and bot.latency > 0 else "—"
+        mem = memory_mb()
+        guilds_count = len(bot.guilds)
+        auth_count = len(getattr(bot, "authorized", set()))
+        dev_mentions = [f"<@{uid}>" for uid in _perms.BOT_DEVELOPERS]
+        devs_str = ", ".join(dev_mentions) if dev_mentions else "None"
+
+        total_cmds = sum(len(c["commands"]) for c in SECRET_CATEGORIES.values())
+
+        if self.category not in SECRET_CATEGORIES:
+            # Overview mode: Telemetry card + all categories grouped
+            e = discord.Embed(title="🔒 Secret Commands — Developer Suite", color=Colors.error)
+            e.description = (
+                f"🟢 **Status**: Online • ⏱️ **Uptime**: {uptime} • 📶 **Ping**: {latency} • 💾 **RAM**: {mem}\n"
+                f"🌐 **Servers**: {guilds_count:,} ({auth_count:,} authorized) • 👑 **Devs**: {devs_str}\n\n"
+                f"*Select a category from the dropdown menu to view full command signatures & arguments.*"
+            )
+            for cat_key, cat_data in SECRET_CATEGORIES.items():
+                cmd_names = [f"`{p}{c[0]}`" for c in cat_data["commands"]]
+                e.add_field(
+                    name=f"{cat_data['title']} ({len(cat_data['commands'])})",
+                    value=" ".join(cmd_names),
+                    inline=False,
+                )
+            e.set_footer(text=f"{total_cmds} commands • developers only • Veil Utilities")
+            return e
+
+        # Detail category mode
+        cat_data = SECRET_CATEGORIES[self.category]
+        e = discord.Embed(title=f"🔒 Secret Commands — {cat_data['badge']}", color=Colors.error)
+        lines = [f"*{cat_data['desc']}*\n"]
+        for name, args, doc in cat_data["commands"]:
+            arg_str = f" `{args}`" if args else ""
+            lines.append(f"• **`{p}{name}`**{arg_str}\n  ↳ {doc}")
+        e.description = "\n".join(lines)
+        e.set_footer(text=f"{len(cat_data['commands'])} commands • {cat_data['badge']} • developers only")
+        return e
 
 
 class Help(commands.HelpCommand):
@@ -253,18 +482,33 @@ class Help(commands.HelpCommand):
         return e
 
     def secret_embed(self) -> discord.Embed:
-        p = self.context.clean_prefix
-        cmds = secret_commands(self.context.bot)
-        e = discord.Embed(title="🔒 Secret Commands", color=Colors.error)
-        lines = [f"`{p}{c.name}` - {c.short_doc or 'developer tool'}" for c in cmds]
-        e.description = "\n".join(lines) or "No secret commands."
-        e.set_footer(text=f"{len(cmds)} commands • developers only")
-        return e
+        view = SecretHelpView(self.context, help_cmd=self)
+        return view.get_embed()
+
+    async def show_home_interaction(self, it: discord.Interaction):
+        categories = category_commands(self.context.bot)
+        is_owner = await self.context.bot.is_owner(self.context.author)
+        from core import perms as _perms
+        if not is_owner and _perms.is_bot_developer(self.context.author, self.context.bot):
+            is_owner = True
+        view = HelpView(self, categories, None, is_owner=is_owner)
+        embed = self.home_embed()
+        await it.response.edit_message(embed=embed, view=view)
 
     # ------------------------------------------------------------ entry points
     async def open_menu(self, start: str | None = None):
         categories = category_commands(self.context.bot)
         is_owner = await self.context.bot.is_owner(self.context.author)
+        from core import perms as _perms
+        if not is_owner and _perms.is_bot_developer(self.context.author, self.context.bot):
+            is_owner = True
+
+        if start is not None and start.lower() == "secret" and is_owner:
+            view = SecretHelpView(self.context, help_cmd=self)
+            embed = view.get_embed()
+            view.message = await self.context.send(embed=embed, view=view)
+            return
+
         view = HelpView(self, categories, start, is_owner=is_owner)
         if start is None:
             embed = self.home_embed()
@@ -272,10 +516,6 @@ class Help(commands.HelpCommand):
             embed = self.category_embed(start, categories[start], 0)
         elif start.lower() in ("dev", "developer") and is_owner:
             embed = await self.developer_embed()
-            view.clear_items()
-            view.add_item(BackButton(row=0))
-        elif start.lower() == "secret" and is_owner:
-            embed = self.secret_embed()
             view.clear_items()
             view.add_item(BackButton(row=0))
         else:
@@ -291,12 +531,14 @@ class Help(commands.HelpCommand):
                         await self.prepare_help_command(ctx, command)
                         return await self.open_menu(label)
             if wanted in ("dev", "developer"):
-                if await ctx.bot.is_owner(ctx.author):
+                from core import perms as _perms
+                if await ctx.bot.is_owner(ctx.author) or _perms.is_bot_developer(ctx.author, ctx.bot):
                     await self.prepare_help_command(ctx, command)
                     return await self.open_menu("developer")
                 return await self.send_error_message("No command or category called that")
             if wanted == "secret":
-                if await ctx.bot.is_owner(ctx.author):
+                from core import perms as _perms
+                if await ctx.bot.is_owner(ctx.author) or _perms.is_bot_developer(ctx.author, ctx.bot):
                     await self.prepare_help_command(ctx, command)
                     return await self.open_menu("secret")
                 return await self.send_error_message("No command or category called that")
