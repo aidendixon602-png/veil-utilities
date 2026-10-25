@@ -443,80 +443,83 @@ class Veil(commands.AutoShardedBot):
 
     # ------------------------------------------------------------- errors
     async def on_command_error(self, ctx: Context, error: commands.CommandError):
-        error = getattr(error, "original", error)
-        if isinstance(error, (commands.CommandNotFound, Ignored)):
-            return
-        if isinstance(error, UserError):
-            err_msg = str(error)
-            del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None
-            return await ctx.warn(err_msg, delete_after=del_after)
-        if isinstance(error, commands.MissingRequiredArgument):
-            return await ctx.send_help(ctx.command)
-        if isinstance(error, commands.MissingPermissions):
-            perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-            return await ctx.warn(f"You're missing {perms} permission")
-        if isinstance(error, commands.BotMissingPermissions):
-            perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-            return await ctx.warn(f"I'm missing {perms} permission")
-        if isinstance(error, commands.NotOwner):
-            return
-        if isinstance(error, commands.NoPrivateMessage):
-            return await ctx.warn("This command can only be used in servers")
-        if isinstance(error, commands.CommandOnCooldown):
-            now = time.monotonic()
-            uid = ctx.author.id
-            if now - self._spam_warned.get(uid, 0.0) > 4.0:
-                self._spam_warned[uid] = now
-                return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=3.5)
-            return
-        if isinstance(error, commands.MaxConcurrencyReached):
-            return await ctx.warn("This command is already running")
-        if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
-            return await ctx.warn(f"I couldn't find a user matching `{error.argument}`")
-        if isinstance(error, commands.RoleNotFound):
-            return await ctx.warn(f"I couldn't find a role matching `{error.argument}`")
-        if isinstance(error, commands.ChannelNotFound):
-            return await ctx.warn(f"I couldn't find a channel matching `{error.argument}`")
-        if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
-                              commands.TooManyArguments)):
-            return await ctx.warn(str(error))
-        if isinstance(error, commands.UserInputError):  # quote errors, bad flags, ...
-            return await ctx.warn(str(error) or "That input isn't valid")
-        if isinstance(error, commands.DisabledCommand):
-            return await ctx.warn("That command is disabled right now")
-        if isinstance(error, commands.CheckFailure):
-            return await ctx.warn(str(error) or "You can't use this command")
-        if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
-            return await ctx.warn("That took too long, try again in a moment")
-        if isinstance(error, discord.Forbidden):
-            return await ctx.warn("I don't have permission to do that (check my role position & permissions)")
-        if isinstance(error, discord.HTTPException):
-            return await ctx.warn(f"Discord rejected that: `{error.text or error.status}`")
-        tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-        log.error("Unhandled error in %s:\n%s", ctx.command, tb)
-        self._error_seq += 1
-        record = {"id": self._error_seq, "command": ctx.command.qualified_name if ctx.command else "?",
-                  "content": ctx.message.content[:300], "user": ctx.author.id,
-                  "guild": ctx.guild.id if ctx.guild else None, "time": time.time(),
-                  "error": f"{type(error).__name__}: {error}", "traceback": tb}
-        self.recent_errors.appendleft(record)
-        # don't echo the exception message itself: it can contain file paths, SQL or other internals.
-        # developers can see the full details with the error ID (and in ERROR_LOG_CHANNEL).
         try:
-            await ctx.send(embed=discord.Embed(
-                color=Colors.error,
-                description=f"❌ Something went wrong running that command (`{type(error).__name__}`). "
-                            f"It has been reported — error ID `{record['id']}`."))
-        except discord.HTTPException:
-            pass
-        channel = self.get_channel(settings.error_log_channel or 0)
-        if channel:
-            e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",
-                              description=f"```py\n{tb[-3900:]}```", timestamp=discord.utils.utcnow())
-            e.add_field(name="Message", value=record["content"] or "—", inline=False)
-            e.add_field(name="User", value=f"<@{record['user']}>")
-            e.add_field(name="Server", value=f"`{record['guild']}`")
+            error = getattr(error, "original", error)
+            if isinstance(error, (commands.CommandNotFound, Ignored)):
+                return
+            if isinstance(error, UserError):
+                err_msg = str(error)
+                del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None
+                return await ctx.warn(err_msg, delete_after=del_after)
+            if isinstance(error, commands.MissingRequiredArgument):
+                return await ctx.send_help(ctx.command)
+            if isinstance(error, commands.MissingPermissions):
+                perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
+                return await ctx.warn(f"You're missing {perms} permission")
+            if isinstance(error, commands.BotMissingPermissions):
+                perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
+                return await ctx.warn(f"I'm missing {perms} permission")
+            if isinstance(error, commands.NotOwner):
+                return
+            if isinstance(error, commands.NoPrivateMessage):
+                return await ctx.warn("This command can only be used in servers")
+            if isinstance(error, commands.CommandOnCooldown):
+                now = time.monotonic()
+                uid = ctx.author.id
+                if now - self._spam_warned.get(uid, 0.0) > 4.0:
+                    self._spam_warned[uid] = now
+                    return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=3.5)
+                return
+            if isinstance(error, commands.MaxConcurrencyReached):
+                return await ctx.warn("This command is already running")
+            if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
+                return await ctx.warn(f"I couldn't find a user matching `{error.argument}`")
+            if isinstance(error, commands.RoleNotFound):
+                return await ctx.warn(f"I couldn't find a role matching `{error.argument}`")
+            if isinstance(error, commands.ChannelNotFound):
+                return await ctx.warn(f"I couldn't find a channel matching `{error.argument}`")
+            if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
+                                  commands.TooManyArguments)):
+                return await ctx.warn(str(error))
+            if isinstance(error, commands.UserInputError):  # quote errors, bad flags, ...
+                return await ctx.warn(str(error) or "That input isn't valid")
+            if isinstance(error, commands.DisabledCommand):
+                return await ctx.warn("That command is disabled right now")
+            if isinstance(error, commands.CheckFailure):
+                return await ctx.warn(str(error) or "You can't use this command")
+            if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+                return await ctx.warn("That took too long, try again in a moment")
+            if isinstance(error, discord.Forbidden):
+                return await ctx.warn("I don't have permission to do that (check my role position & permissions)")
+            if isinstance(error, discord.HTTPException):
+                return await ctx.warn(f"Discord rejected that: `{error.text or error.status}`")
+            tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+            log.error("Unhandled error in %s:\n%s", ctx.command, tb)
+            self._error_seq += 1
+            record = {"id": self._error_seq, "command": ctx.command.qualified_name if ctx.command else "?",
+                      "content": ctx.message.content[:300], "user": ctx.author.id,
+                      "guild": ctx.guild.id if ctx.guild else None, "time": time.time(),
+                      "error": f"{type(error).__name__}: {error}", "traceback": tb}
+            self.recent_errors.appendleft(record)
+            # don't echo the exception message itself: it can contain file paths, SQL or other internals.
+            # developers can see the full details with the error ID (and in ERROR_LOG_CHANNEL).
             try:
-                await channel.send(embed=e)
+                await ctx.send(embed=discord.Embed(
+                    color=Colors.error,
+                    description=f"❌ Something went wrong running that command (`{type(error).__name__}`). "
+                                f"It has been reported — error ID `{record['id']}`."))
             except discord.HTTPException:
                 pass
+            channel = self.get_channel(settings.error_log_channel or 0)
+            if channel:
+                e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",
+                                  description=f"```py\n{tb[-3900:]}```", timestamp=discord.utils.utcnow())
+                e.add_field(name="Message", value=record["content"] or "—", inline=False)
+                e.add_field(name="User", value=f"<@{record['user']}>")
+                e.add_field(name="Server", value=f"`{record['guild']}`")
+                try:
+                    await channel.send(embed=e)
+                except discord.HTTPException:
+                    pass
+        except Exception as handler_err:
+            log.exception("Error inside on_command_error for %s: %s", getattr(ctx, "command", None), handler_err)

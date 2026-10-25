@@ -75,7 +75,13 @@ class Context(commands.Context["Veil"]):
         if footer:
             embed.set_footer(text=footer)
             embed.timestamp = discord.utils.utcnow()
-        return await self.send(embed=embed, **kw)
+        try:
+            return await self.send(embed=embed, **kw)
+        except (discord.Forbidden, discord.HTTPException):
+            try:
+                return await self.send(text, **kw)
+            except Exception:
+                return None
 
     async def approve(self, text: str, **kw):
         return await self._styled(Colors.success, text, **kw)
