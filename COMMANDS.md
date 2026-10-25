@@ -1,6 +1,6 @@
 # Command reference
 
-429 commands. Default prefix `,`. `<required>` `[optional]`.
+436 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -301,6 +301,7 @@ _Keep your server in line_
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
+| `checkbled [target]` (checkbl, scanbl, bledcheck) | Check a user or the whole server for members with BLED (blacklisted) roles | manage roles |
 | `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members |
 | `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members |
 | `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames |
@@ -340,11 +341,17 @@ _Keep your server in line_
 | `role rename <role> <name>` | Rename a role | manage roles |
 | `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles |
 | `roleblacklist add <role>` | Blacklist a role | manage roles |
+| `roleblacklist authorize <target>` (auth, whitelist, allow) | Authorize a member or role to bypass the role blacklist | manage roles |
+| `roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles |
+| `roleblacklist check [target]` (scan, audit, search) | Check a user or the whole server for members with BLED (blacklisted) roles | manage roles |
 | `roleblacklist list` | View blacklisted roles | manage roles |
 | `roleblacklist remove <role>` (rem, delete) | Unblacklist a role, or `remove deleted` to purge deleted roles | manage roles |
+| `roleblacklist strip` (purge, clean) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
+| `roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles |
 | `roles` (rolelist) | List every role in the server, highest first |  |
 | `slowmode [delay=0] [channel]` (sm) | Set slowmode (e.g. `10s`, `5m`, `0` to disable) | manage channels |
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members |
+| `stripbled` (purgebled) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator |
 | `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members |
 | `unban <user> [reason]` | Unban a user | ban members |

@@ -283,5 +283,43 @@ def test_roleblacklist_enforcement():
         can_run_normal = await Veil._may_run_commands(bot, msg_normal)
         assert can_run_normal is True
 
+        # 3. rbl_check tests
+        ctx = SimpleNamespace(
+            guild=guild,
+            author=SimpleNamespace(id=9999),
+            clean_prefix=",",
+            send=AsyncMock(),
+        )
+
+        # Check clean member -> Authorized embed
+        clean_member = SimpleNamespace(
+            id=456,
+            mention="<@456>",
+            roles=[normal_role],
+            display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
+        )
+        await cog.rbl_check.callback(cog, ctx, clean_member)
+        assert ctx.send.await_count == 1
+        call_kwargs = ctx.send.call_args[1]
+        sent_embed = call_kwargs.get("embed")
+        assert "Authorized" in sent_embed.title or "Authorized" in sent_embed.description
+        assert "✅" in sent_embed.description
+
+        # Check member with blacklisted role -> Unauthorized embed with interactive View
+        bled_member = SimpleNamespace(
+            id=123,
+            mention="<@123>",
+            roles=[normal_role, blacklisted_role],
+            display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
+        )
+        ctx.send.reset_mock()
+        await cog.rbl_check.callback(cog, ctx, bled_member)
+        assert ctx.send.await_count == 1
+        call_kwargs = ctx.send.call_args[1]
+        sent_embed = call_kwargs.get("embed")
+        sent_view = call_kwargs.get("view")
+        assert "Unauthorized" in sent_embed.description
+        assert sent_view is not None  # Offers Strip Roles and Authorize buttons
+
     run(_run)
 
