@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import io
 
+import aiohttp
 import discord
 from discord.ext import commands
 
@@ -375,7 +376,7 @@ class Logging(commands.Cog):
         e.set_footer(text=footer_text)
         try:
             await ch.send(embed=e)
-        except discord.HTTPException:
+        except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
             pass
 
     # ------------------------------------------------------------ messages
