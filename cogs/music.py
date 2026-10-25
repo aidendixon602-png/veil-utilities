@@ -132,7 +132,7 @@ class Music(commands.Cog):
         if not nodes:
             raise UserError("The music server is offline right now, try again in a minute")
         is_url = query.startswith(("http://", "https://"))
-        sources = [None] if is_url else ["ytmsearch", "ytsearch", "scsearch"]
+        sources = [None] if is_url else ["ytmsearch", "scsearch", "ytsearch"]
         for node in nodes[:3]:
             for source in sources:
                 try:
@@ -233,6 +233,19 @@ class Music(commands.Cog):
         if home:
             try:
                 await home.send(embed=self.track_embed(payload.track))
+            except discord.HTTPException:
+                pass
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_exception(self, payload):
+        log.warning("Lavalink track exception on %s: %s", getattr(payload.player, "guild", None), getattr(payload, "exception", None))
+        home = getattr(payload.player, "home", None)
+        if home:
+            try:
+                await home.send(embed=discord.Embed(
+                    color=Colors.warn,
+                    description="⚠️ Playback failed on this track (YouTube restricted on this node). Try a SoundCloud link or different query."
+                ))
             except discord.HTTPException:
                 pass
 
