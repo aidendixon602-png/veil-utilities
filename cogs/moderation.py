@@ -39,36 +39,71 @@ class SingleMemberBledView(discord.ui.View):
             return False
         return True
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        import logging
+        logging.getLogger("veil").error(f"Error in {self.__class__.__name__} button {getattr(item, 'label', item)}: {error}", exc_info=error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ An error occurred processing this action.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ An error occurred processing this action.", ephemeral=True)
+        except Exception:
+            pass
+
     @discord.ui.button(label="Strip Roles", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def strip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+
+        embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
+        embed.color = Colors.gold
+        embed.set_footer(text="Veil Utilities • Stripping roles in progress...")
+        await interaction.response.edit_message(embed=embed, view=self)
+
         top_pos = getattr(getattr(self.ctx.guild.me, "top_role", None), "position", 999999)
         valid = [r for r in self.roles_to_strip if getattr(r, "position", 0) < top_pos]
         if not valid:
-            return await interaction.response.send_message("⚠️ Cannot strip roles — they are above my highest role.", ephemeral=True)
+            embed.color = Colors.error
+            embed.description = "⚠️ Cannot strip roles — they are above my highest role."
+            embed.set_footer(text="Veil Utilities • Hierarchy Error")
+            try:
+                return await interaction.edit_original_response(embed=embed, view=self)
+            except Exception:
+                if interaction.message:
+                    return await interaction.message.edit(embed=embed, view=self)
+
         try:
             await self.target.remove_roles(*valid, reason=f"Veil: BLED role strip by {interaction.user}")
         except discord.HTTPException as e:
-            return await interaction.response.send_message(f"⚠️ Failed to remove roles: {e}", ephemeral=True)
+            embed.color = Colors.error
+            embed.description = f"⚠️ Failed to remove roles: {e}"
+            embed.set_footer(text="Veil Utilities • Error")
+            try:
+                return await interaction.edit_original_response(embed=embed, view=self)
+            except Exception:
+                if interaction.message:
+                    return await interaction.message.edit(embed=embed, view=self)
 
-        for child in self.children:
-            child.disabled = True
-        embed = interaction.message.embeds[0]
         embed.color = Colors.mint
         embed.description = f"✅ **Stripped Roles**\n\nSuccessfully removed **{len(valid)}** blacklisted role(s) from {self.target.mention}."
         embed.set_footer(text="Veil Utilities • Roles Stripped")
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.edit_original_response(embed=embed, view=self)
+        except Exception:
+            if interaction.message:
+                await interaction.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label="Authorize User", style=discord.ButtonStyle.success, emoji="➕")
     async def auth_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
         cfg = await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist")
         auth = cfg.setdefault("authorized", [])
         if self.target.id not in auth:
             auth.append(self.target.id)
             await self.cog.bot.db.set_config(self.ctx.guild.id, "roleblacklist", cfg)
 
-        for child in self.children:
-            child.disabled = True
-        embed = interaction.message.embeds[0]
+        embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
         embed.color = Colors.mint
         embed.description = f"✅ **User Authorized**\n\n{self.target.mention} has been added to authorized bypasses and is permitted to hold these roles."
         embed.set_footer(text="Veil Utilities • Authorized")
@@ -95,8 +130,29 @@ class GuildBledView(discord.ui.View):
             return False
         return True
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        import logging
+        logging.getLogger("veil").error(f"Error in {self.__class__.__name__} button {getattr(item, 'label', item)}: {error}", exc_info=error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ An error occurred processing this action.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ An error occurred processing this action.", ephemeral=True)
+        except Exception:
+            pass
+
     @discord.ui.button(label="Strip All Unauthorized", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def strip_all(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+
+        embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
+        embed.color = Colors.gold
+        embed.description = "⏳ **Purging Blacklisted Roles...**\n\nStripping blacklisted roles from unauthorized members. Please wait..."
+        embed.set_footer(text="Veil Utilities • Purging in progress...")
+        # Respond immediately (<50ms) so interaction token never expires
+        await interaction.response.edit_message(embed=embed, view=self)
+
         top_pos = getattr(getattr(self.ctx.guild.me, "top_role", None), "position", 999999)
         done = 0
         removed = 0
@@ -107,19 +163,22 @@ class GuildBledView(discord.ui.View):
                     await m.remove_roles(*valid, reason=f"Veil: BLED role purge by {interaction.user}")
                     done += 1
                     removed += len(valid)
-                except discord.HTTPException:
+                except (discord.HTTPException, discord.Forbidden):
                     pass
 
-        for child in self.children:
-            child.disabled = True
-        embed = interaction.message.embeds[0]
         embed.color = Colors.success
         embed.description = f"✅ **Purged Blacklisted Roles**\n\nStripped **{removed}** blacklisted role(s) from **{done}** member(s)."
         embed.set_footer(text="Veil Utilities • Purged")
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.edit_original_response(embed=embed, view=self)
+        except Exception:
+            if interaction.message:
+                await interaction.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label="Authorize All", style=discord.ButtonStyle.success, emoji="➕")
     async def auth_all(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
         cfg = await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist")
         auth = cfg.setdefault("authorized", [])
         count = 0
@@ -129,9 +188,7 @@ class GuildBledView(discord.ui.View):
                 count += 1
         await self.cog.bot.db.set_config(self.ctx.guild.id, "roleblacklist", cfg)
 
-        for child in self.children:
-            child.disabled = True
-        embed = interaction.message.embeds[0]
+        embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
         embed.color = Colors.mint
         embed.description = f"✅ **All Authorized**\n\nAdded **{count}** member(s) to authorized bypasses."
         embed.set_footer(text="Veil Utilities • Authorized")
