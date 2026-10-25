@@ -600,6 +600,51 @@ def test_all_moderation_actions_have_uperm_checks():
         assert any(f"uperm: {expected_level}" in p for p in perms_list), f"Command {cmd_name} missing uperm: {expected_level}"
 
 
+def test_home_embed_and_view_strict_uperm_filtering():
+    h = _help()
+
+    # 1. Unranked (rank 0) home embed must NOT reveal Staff & Administration
+    unranked_embed = h.home_embed(author_rank=0)
+    unranked_field_names = [f.name for f in unranked_embed.fields]
+    assert "🛠️ Public & Community Modules" in unranked_field_names
+    assert "🛡️ Staff & Administration" not in unranked_field_names
+
+    # 2. Staff (rank 1+) home embed reveals Staff & Administration
+    staff_embed = h.home_embed(author_rank=1)
+    staff_field_names = [f.name for f in staff_embed.fields]
+    assert "🛠️ Public & Community Modules" in staff_field_names
+    assert "🛡️ Staff & Administration" in staff_field_names
+
+    # 3. Unranked HelpView must ONLY contain public category buttons
+    categories = {"Utility": [], "Music": [], "Moderation": [], "Roles": [], "Antinuke": []}
+    unranked_view = HelpView(h, categories, author_rank=0, is_owner=False)
+    unranked_labels = [b.label for b in unranked_view.children if isinstance(b, CategoryButton)]
+    assert "Utility" in unranked_labels
+    assert "Music" in unranked_labels
+    assert "Moderation" not in unranked_labels
+    assert "Roles" not in unranked_labels
+    assert "Antinuke" not in unranked_labels
+
+    # 4. Admin (rank 3) HelpView contains Moderation and Roles, but NOT Antinuke (rank 4)
+    admin_view = HelpView(h, categories, author_rank=3, is_owner=False)
+    admin_labels = [b.label for b in admin_view.children if isinstance(b, CategoryButton)]
+    assert "Utility" in admin_labels
+    assert "Music" in admin_labels
+    assert "Moderation" in admin_labels
+    assert "Roles" in admin_labels
+    assert "Antinuke" not in admin_labels
+
+
+def test_help_view_on_timeout_deletes_message():
+    h = _help()
+    view = HelpView(h, {"Utility": []}, author_rank=0)
+    msg = SimpleNamespace(delete=AsyncMock())
+    view.message = msg
+
+    asyncio.run(view.on_timeout())
+    assert msg.delete.called
+
+
 
 
 

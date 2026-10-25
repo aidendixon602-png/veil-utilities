@@ -363,7 +363,7 @@ class HelpView(OwnedView):
         self.current = None
         self.page = 0
         self._build_items()
-        embed = self.help_cmd.home_embed()
+        embed = self.help_cmd.home_embed(author_rank=self.author_rank)
         await _respond_or_edit(it, embed, self)
 
     async def show_category(self, it: discord.Interaction, label: str):
@@ -418,7 +418,7 @@ class HelpView(OwnedView):
             b.disabled = True
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.HTTPException:
                 pass
 
@@ -838,7 +838,7 @@ class Help(commands.HelpCommand):
         super().__init__(command_attrs={"aliases": ["h", "commands"], "help": "Show help for a command or category"})
 
     # ------------------------------------------------------------ embeds
-    def home_embed(self) -> discord.Embed:
+    def home_embed(self, author_rank: int = 0) -> discord.Embed:
         bot = self.context.bot
         p = self.context.clean_prefix
         total_cmds = sum(1 for _ in bot.walk_commands()) if hasattr(bot, "walk_commands") else 474
@@ -852,7 +852,7 @@ class Help(commands.HelpCommand):
                 f"• **Security Clearance**: Strict Zero-Trust & Hierarchy Enforcement (`uperm`)"
             ),
         )
-        if bot.user:
+        if bot and getattr(bot, "user", None):
             e.set_author(name=f"{bot.user.name}", icon_url=bot.user.display_avatar.url)
 
         e.add_field(
@@ -866,18 +866,19 @@ class Help(commands.HelpCommand):
             inline=True,
         )
 
-        e.add_field(
-            name="🛡️ Staff & Administration",
-            value=(
-                "• **Moderation**: Warns, mutes, kicks, bans & purge\n"
-                "• **Roles**: Autoroles, vanity & role blacklist (`rbl`)\n"
-                "• **Permissions**: Bot rank hierarchy & uperms\n"
-                "• **Antinuke**: Zero-trust defense & auto-strip\n"
-                "• **Automod**: Anti-spam, links & invite filters\n"
-                "• **Server**: Presets, logging channels & configs"
-            ),
-            inline=True,
-        )
+        if author_rank >= 1:
+            e.add_field(
+                name="🛡️ Staff & Administration",
+                value=(
+                    "• **Moderation**: Warns, mutes, kicks, bans & purge\n"
+                    "• **Roles**: Autoroles, vanity & role blacklist (`rbl`)\n"
+                    "• **Permissions**: Bot rank hierarchy & uperms\n"
+                    "• **Antinuke**: Zero-trust defense & auto-strip\n"
+                    "• **Automod**: Anti-spam, links & invite filters\n"
+                    "• **Server**: Presets, logging channels & configs"
+                ),
+                inline=True,
+            )
 
         e.set_footer(text=f"Midtown Community • {total_cmds} commands • Veil Utilities")
         return e
@@ -1151,7 +1152,7 @@ class Help(commands.HelpCommand):
         is_owner = await self.is_owner_check()
         author_rank = await self.get_author_rank()
         view = HelpView(self, categories, None, is_owner=is_owner, author_rank=author_rank)
-        embed = self.home_embed()
+        embed = self.home_embed(author_rank=author_rank)
         if it.response.is_done():
             await it.edit_original_response(embed=embed, view=view)
         else:
@@ -1182,7 +1183,7 @@ class Help(commands.HelpCommand):
 
         view = HelpView(self, categories, start, is_owner=is_owner, author_rank=author_rank)
         if start is None:
-            embed = self.home_embed()
+            embed = self.home_embed(author_rank=author_rank)
         elif start in categories:
             cmds = [
                 c for c in categories[start]
@@ -1190,7 +1191,7 @@ class Help(commands.HelpCommand):
             ]
             embed = self.category_embed(start, cmds, 0)
         else:
-            embed = self.home_embed()
+            embed = self.home_embed(author_rank=author_rank)
         view.message = await self.context.send(embed=embed, view=view)
 
     async def command_callback(self, ctx, /, *, command: str | None = None):

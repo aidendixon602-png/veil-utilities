@@ -298,7 +298,10 @@ class Veil(commands.AutoShardedBot):
                 pass
 
         try:
-            await channel.send(f"✅ **Veil Utilities is back online!** (Restart completed in `{duration:.1f}s`)")
+            await channel.send(
+                f"✅ **Veil Utilities is back online!** (Restart completed in `{duration:.1f}s`)",
+                delete_after=15,
+            )
         except Exception:
             pass
 
