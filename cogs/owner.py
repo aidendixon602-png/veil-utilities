@@ -452,25 +452,30 @@ class Owner(commands.Cog):
         status_clean = status.lower()
         if status_clean not in STATUS_MAP:
             full_text = status + (f" {text}" if text else "")
+            g = await self.bot.db.get_config(0, "global")
+            g["custom_status_text"] = full_text
+            await self.bot.db.set_config(0, "global", g)
             await self.bot.change_presence(status=self.bot.presence_status, activity=discord.CustomActivity(name=full_text))
             return await ctx.approve(f"Status activity updated to: `{full_text}`")
 
         self.bot.presence_status = STATUS_MAP[status_clean]
         g = await self.bot.db.get_config(0, "global")
         g["presence_status"] = status_clean
+        if text:
+            g["custom_status_text"] = text
         await self.bot.db.set_config(0, "global", g)
 
         if text:
             activity = discord.CustomActivity(name=text)
+            await self.bot.change_presence(status=self.bot.presence_status, activity=activity)
         else:
-            activity = getattr(self.bot, "activity", None) or discord.CustomActivity(name=f"Guarding {len(self.bot.guilds)} guilds")
+            await self.bot.update_dynamic_status()
 
-        await self.bot.change_presence(status=self.bot.presence_status, activity=activity)
         await ctx.approve(f"Bot presence updated to **{status_clean.upper()}** (persisted across restarts).")
 
     @commands.command(hidden=True)
     async def setstatus(self, ctx: Context, *, arg: str):
-        """Change the bot's status text or presence: `,setstatus dnd` or `,setstatus Watching the server`"""
+        """Change the bot's status text or presence: `,setstatus dnd` or `,setstatus 🛡️ Midtown Events Department • ,help`"""
         STATUS_MAP = {
             "online": discord.Status.online,
             "dnd": discord.Status.dnd,
@@ -479,7 +484,16 @@ class Owner(commands.Cog):
         }
         if arg.lower() in STATUS_MAP:
             await self.setpresence(ctx, arg)
+        elif arg.lower() in ("reset", "dynamic", "default", "clear"):
+            g = await self.bot.db.get_config(0, "global")
+            g.pop("custom_status_text", None)
+            await self.bot.db.set_config(0, "global", g)
+            await self.bot.update_dynamic_status()
+            await ctx.approve("Status activity reset to Midtown dynamic status rotation.")
         else:
+            g = await self.bot.db.get_config(0, "global")
+            g["custom_status_text"] = arg
+            await self.bot.db.set_config(0, "global", g)
             await self.bot.change_presence(status=self.bot.presence_status, activity=discord.CustomActivity(name=arg))
             await ctx.approve(f"Status activity updated to: `{arg}`")
 

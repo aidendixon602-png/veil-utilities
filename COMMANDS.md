@@ -307,8 +307,8 @@ _Log server events to channels_
 | `log` (logs) | View logging channels | manage guild |
 | `log cleanup` (clean, purgeduplicates, cleanupchannels) | Clean up duplicate logging channels created by the bot | manage guild |
 | `log set <kind> [channel]` | Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = auto/off) | manage guild |
-| `log setup` (init, default, defaults) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |
-| `setuplogs` (setupchannels, autologs) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |
+| `log setup [mode=default]` (init, default, defaults) | Automatically create default log channels under VEIL LOGS. Use `log setup all` to include security logs (#antinuke-logs and #message-logs). | manage guild |
+| `setuplogs [mode=default]` (setupchannels, autologs) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |
 
 ## 🔨 Moderation
 _Keep your server in line_

@@ -83,6 +83,11 @@ class Veil(commands.AutoShardedBot):
             except Exception:
                 connector = None
 
+        initial_status_text = (
+            settings.status
+            if settings.status and settings.status not in ("veil utilities | ,help", "default", "dynamic")
+            else f"🛡️ Midtown Events Department • {settings.prefix}help"
+        )
         super().__init__(
             command_prefix=self._get_prefix,
             intents=intents or discord.Intents.all(),
@@ -92,7 +97,7 @@ class Veil(commands.AutoShardedBot):
             owner_ids=owners or None,
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, replied_user=False),
             status=self.presence_status,
-            activity=discord.Activity(type=discord.ActivityType.watching, name=settings.status),
+            activity=discord.CustomActivity(name=initial_status_text),
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
             proxy=settings.proxy,
@@ -180,22 +185,32 @@ class Veil(commands.AutoShardedBot):
         try:
             users = sum(g.member_count or 0 for g in self.guilds)
             guilds = len(self.guilds)
-            status_template = settings.status
-            if not status_template or status_template in ("veil utilities | ,help", "default"):
-                statuses = [
-                    f"🛡️ Midtown Events Department • {self.default_prefix}help",
-                    f"⚡ veil utilities • {users:,} members",
-                    f"🔒 Zero-Trust Security • {guilds} guilds",
-                    f"✨ Protecting Midtown Community • {self.default_prefix}help",
-                ]
-                idx = getattr(self, "_presence_index", 0)
-                text = statuses[idx % len(statuses)]
-                self._presence_index = idx + 1
-            else:
+            custom_text = None
+            if hasattr(self, "db") and getattr(self.db, "is_connected", True):
                 try:
-                    text = status_template.format(users=users, guilds=guilds, prefix=self.default_prefix)
+                    g = await self.db.get_config(0, "global")
+                    custom_text = g.get("custom_status_text")
                 except Exception:
-                    text = status_template
+                    pass
+            if custom_text:
+                text = custom_text
+            else:
+                status_template = settings.status
+                if not status_template or status_template in ("veil utilities | ,help", "default", "dynamic", "🛡️ Midtown Events Department • ,help"):
+                    statuses = [
+                        f"🛡️ Midtown Events Department • {self.default_prefix}help",
+                        f"⚡ veil utilities • {users:,} members",
+                        f"🔒 Zero-Trust Security • {guilds} guilds",
+                        f"✨ Protecting Midtown Community • {self.default_prefix}help",
+                    ]
+                    idx = getattr(self, "_presence_index", 0)
+                    text = statuses[idx % len(statuses)]
+                    self._presence_index = idx + 1
+                else:
+                    try:
+                        text = status_template.format(users=users, guilds=guilds, prefix=self.default_prefix)
+                    except Exception:
+                        text = status_template
             activity = discord.CustomActivity(name=text)
             await self.change_presence(status=self.presence_status, activity=activity)
         except Exception:

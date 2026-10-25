@@ -9,12 +9,13 @@ from discord.ext import commands
 
 from core.utils import Colors, Context, UserError, has_perms, shorten, ts
 
-TYPES = ("messages", "members", "roles", "channels", "voice", "server", "bans", "joinleave", "commands")
+TYPES = ("messages", "members", "roles", "channels", "voice", "server", "bans", "joinleave", "commands", "antinuke")
 
 AUTO_CHANNELS: dict[str, list[str]] = {
     "joinleave": ["join-logs", "join-log", "joins-leaves", "member-logs"],
     "bans": ["bans", "ban-logs", "ban-log", "punishments", "mod-logs", "modlog"],
     "commands": ["command-logs", "cmd-logs", "commands", "command-log"],
+    "antinuke": ["antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging"],
     "messages": ["message-logs", "msg-logs"],
     "members": ["member-logs", "members"],
     "roles": ["role-logs", "roles"],
@@ -91,6 +92,11 @@ DEFAULT_LOG_CHANNELS = [
     ("veil-utilities-logging", "server", "Server events and bot updates"),
 ]
 
+SECURITY_LOG_CHANNELS = [
+    ("antinuke-logs", "antinuke", "Antinuke alerts and zero-trust security defense logs"),
+    ("message-logs", "messages", "Deleted and edited message audit logs"),
+]
+
 
 class Logging(commands.Cog):
     """Log server events to channels"""
@@ -101,7 +107,7 @@ class Logging(commands.Cog):
         self._role_update_tasks: dict[tuple[int, int], asyncio.Task] = {}
         self._role_update_states: dict[tuple[int, int], tuple[discord.Member, discord.Member]] = {}
 
-    async def ensure_default_channels(self, guild: discord.Guild) -> list[discord.TextChannel]:
+    async def ensure_default_channels(self, guild: discord.Guild, include_security: bool = False) -> list[discord.TextChannel]:
         """Automatically create the default logging channels if they do not exist."""
         if not guild:
             return []
@@ -122,9 +128,13 @@ class Logging(commands.Cog):
         existing = {c.name.lower(): c for c in text_channels}
         created = []
 
+        channel_targets = list(DEFAULT_LOG_CHANNELS)
+        if include_security:
+            channel_targets += SECURITY_LOG_CHANNELS
+
         # Find or create category "VEIL LOGS"
         category = discord.utils.get(categories, name="VEIL LOGS")
-        missing_names = [name for name, _, _ in DEFAULT_LOG_CHANNELS if name not in existing]
+        missing_names = [name for name, _, _ in channel_targets if name not in existing]
         if not category and missing_names:
             try:
                 overwrites = {
@@ -138,7 +148,7 @@ class Logging(commands.Cog):
         cfg = await self.bot.db.get_config(guild.id, "logs")
         changed = False
 
-        for name, kind, topic in DEFAULT_LOG_CHANNELS:
+        for name, kind, topic in channel_targets:
             ch = existing.get(name)
             if not ch:
                 try:
@@ -236,34 +246,42 @@ class Logging(commands.Cog):
 
     @log.command(name="setup", aliases=["init", "default", "defaults"])
     @has_perms(manage_guild=True)
-    async def log_setup(self, ctx: Context):
-        """Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging"""
+    async def log_setup(self, ctx: Context, mode: str = "default"):
+        """Automatically create default log channels under VEIL LOGS. Use `log setup all` to include security logs (#antinuke-logs and #message-logs)."""
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need the `Manage Channels` permission to create the default log channels.")
-        created = await self.ensure_default_channels(ctx.guild)
+        include_sec = mode.lower() in ("all", "security", "extended", "full")
+        created = await self.ensure_default_channels(ctx.guild, include_security=include_sec)
         channels = [
-            await self.channel_for(ctx.guild, "joinleave"),
-            await self.channel_for(ctx.guild, "bans"),
-            await self.channel_for(ctx.guild, "commands"),
-            await self.channel_for(ctx.guild, "server"),
+            ("Join Logs", await self.channel_for(ctx.guild, "joinleave")),
+            ("Bans & Punishments", await self.channel_for(ctx.guild, "bans")),
+            ("Command Logs", await self.channel_for(ctx.guild, "commands")),
+            ("Server Logging", await self.channel_for(ctx.guild, "server")),
         ]
+        if include_sec:
+            channels.insert(3, ("Antinuke Defense", await self.channel_for(ctx.guild, "antinuke")))
+            channels.insert(4, ("Message Audit Logs", await self.channel_for(ctx.guild, "messages")))
+
+        desc = "The logging channels are configured and ready under **VEIL LOGS**:\n\n" + "\n".join(
+            f"• **{title}**: {getattr(ch, 'mention', '`Not set`')}" for title, ch in channels
+        )
+        if created:
+            desc += f"\n\n*(Created {len(created)} new channel(s) under `VEIL LOGS`)*"
+        else:
+            desc += "\n\n*(All specified channels were already configured)*"
+
         embed = discord.Embed(
-            title="Default Log Channels",
+            title="Logging Channels Setup",
             color=Colors.mint,
-            description="The default logging channels are configured and ready:\n\n"
-                        f"• **Join Logs**: {getattr(channels[0], 'mention', '`#join-logs`')}\n"
-                        f"• **Bans & Punishments**: {getattr(channels[1], 'mention', '`#bans`')}\n"
-                        f"• **Command Logs**: {getattr(channels[2], 'mention', '`#command-logs`')}\n"
-                        f"• **Server Logging**: {getattr(channels[3], 'mention', '`#veil-utilities-logging`')}\n\n"
-                        + (f"*(Created {len(created)} new channel(s))*" if created else "*(All default channels were already present)*")
+            description=desc,
         )
         await ctx.send(embed=embed)
 
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)
-    async def cmd_setuplogs(self, ctx: Context):
+    async def cmd_setuplogs(self, ctx: Context, mode: str = "default"):
         """Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging"""
-        await self.log_setup(ctx)
+        await self.log_setup(ctx, mode=mode)
 
     @log.command(name="cleanup", aliases=["clean", "purgeduplicates", "cleanupchannels"])
     @has_perms(manage_guild=True)
@@ -272,7 +290,7 @@ class Logging(commands.Cog):
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need the `Manage Channels` permission to delete duplicate channels.")
 
-        target_names = {name.lower() for name, _, _ in DEFAULT_LOG_CHANNELS}
+        target_names = {name.lower() for name, _, _ in DEFAULT_LOG_CHANNELS + SECURITY_LOG_CHANNELS}
         seen_names = set()
         deleted_channels = 0
 

@@ -158,7 +158,8 @@ def alert_embed(*, guild, user, actor_id, module, threshold, window, punishment,
     """The alert card sent to the log channel, server owner and developers."""
     e = discord.Embed(title="Antinuke Triggered", color=Colors.error, timestamp=discord.utils.utcnow())
     if user:
-        e.set_author(name=user.name, icon_url=user.display_avatar.url)
+        av_url = getattr(getattr(user, "display_avatar", None), "url", None)
+        e.set_author(name=getattr(user, "name", str(actor_id)), icon_url=av_url)
     e.add_field(name="Guild", value=f"**{guild.name}**\n`{guild.id}`")
     e.add_field(name="User", value=f"{user.name if user else 'Unknown'}\n(`{actor_id}`)")
     e.add_field(name="Bot", value="Yes" if user and user.bot else "No")
@@ -328,7 +329,11 @@ class Antinuke(commands.Cog):
         rule_def = RULE_LOOKUP.get(module)
         default_pun = rule_def["punishment"] if rule_def else "ban"
         default_win = rule_def["window"] if rule_def else 60
-        punishment = mod.get("punishment") or cfg.get("punishment", default_pun)
+        if module == "permissions":
+            # Giving administrator role or dangerous permissions must strictly strip the role, never default to ban!
+            punishment = mod.get("punishment") or "strip"
+        else:
+            punishment = mod.get("punishment") or cfg.get("punishment", default_pun)
         window = mod.get("window") or cfg.get("window", default_win)
         reason = f"Antinuke: {MODULES.get(module, module)}"
         done = [f"blocked `{via}`"] if via else []
@@ -360,12 +365,40 @@ class Antinuke(commands.Cog):
             elif module == "timeout" and isinstance(entry.target, discord.Member):
                 await entry.target.timeout(None, reason=reason)
                 done.append(f"removed the timeout from {entry.target}")
-            elif module == "permissions" and isinstance(entry.target, discord.Member):
-                added = [r for r in getattr(entry.after, "roles", []) if isinstance(r, discord.Role)
-                         and is_dangerous(r.permissions)]
-                if added:
-                    await entry.target.remove_roles(*added, reason=reason)
-                    done.append(f"removed dangerous roles from {entry.target}")
+            elif module == "permissions":
+                # Strip dangerous roles from target member
+                target_m = getattr(entry, "target", None)
+                def _can_strip_role(r):
+                    if not is_dangerous(getattr(r, "permissions", None)):
+                        return False
+                    if getattr(r, "managed", False):
+                        return False
+                    try:
+                        return r < guild.me.top_role
+                    except Exception:
+                        return getattr(r, "position", 0) < getattr(guild.me.top_role, "position", 999999)
+
+                if isinstance(target_m, discord.Member):
+                    added = [r for r in getattr(entry.after, "roles", []) if _can_strip_role(r)]
+                    if not added:
+                        added = [r for r in getattr(target_m, "roles", []) if _can_strip_role(r)]
+                    if added:
+                        await target_m.remove_roles(*added, reason=reason)
+                        done.append(f"removed dangerous roles from {target_m}")
+                # Also strip dangerous roles from actor if they gave it to themselves or have dangerous perms
+                actor_can_be_stripped = False
+                if actor and actor.id != guild.owner_id:
+                    try:
+                        actor_can_be_stripped = actor.top_role < guild.me.top_role
+                    except Exception:
+                        actor_can_be_stripped = getattr(actor.top_role, "position", 0) < getattr(guild.me.top_role, "position", 999999)
+
+                if actor_can_be_stripped:
+                    actor_dangerous = [r for r in getattr(actor, "roles", []) if _can_strip_role(r)]
+                    if actor_dangerous:
+                        await actor.remove_roles(*actor_dangerous, reason=reason)
+                        if not any("removed dangerous roles" in d for d in done):
+                            done.append(f"removed dangerous roles from {actor}")
             elif module in ("vanity", "serverupdate") and getattr(entry.before, "vanity_url_code", None):
                 await guild.edit(vanity_code=entry.before.vanity_url_code, reason=reason)
                 done.append("restored vanity")
@@ -373,16 +406,25 @@ class Antinuke(commands.Cog):
             pass
         # punish
         try:
+            actor_above_me = False
+            if actor and getattr(guild, "me", None):
+                try:
+                    actor_above_me = (actor.top_role >= guild.me.top_role)
+                except Exception:
+                    actor_above_me = getattr(actor.top_role, "position", 0) >= getattr(guild.me.top_role, "position", 0)
+
             if actor is None:
                 await guild.ban(discord.Object(actor_id), reason=reason)
                 done.append("banned the attacker")
-            elif actor.top_role >= guild.me.top_role:
+            elif actor_above_me:
                 done.append("⚠️ could not punish — attacker is above my role")
             elif punishment == "kick":
                 await actor.kick(reason=reason); done.append("kicked the attacker")
             elif punishment == "strip":
-                roles = [r for r in actor.roles if is_dangerous(r.permissions) and r < guild.me.top_role and not r.managed]
-                await actor.remove_roles(*roles, reason=reason); done.append("stripped the attacker's staff roles")
+                roles = [r for r in getattr(actor, "roles", []) if is_dangerous(getattr(r, "permissions", None)) and not getattr(r, "managed", False)]
+                if roles:
+                    await actor.remove_roles(*roles, reason=reason)
+                done.append("stripped the attacker's staff roles")
             else:
                 await actor.ban(reason=reason); done.append("banned the attacker")
         except discord.HTTPException as e:
@@ -400,23 +442,56 @@ class Antinuke(commands.Cog):
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label="Jump to Server", emoji="↗️",
                                         url=f"https://discord.com/channels/{guild.id}"))
-        # server copies: log channel + server owner
-        for d in (guild.get_channel(cfg.get("log") or 0), guild.owner):
+
+        # 1. DM the user (target member or actor)
+        target_obj = getattr(entry, "target", None)
+        user_to_dm = target_obj if isinstance(target_obj, (discord.Member, discord.User)) else actor
+        if user_to_dm and not getattr(user_to_dm, "bot", False):
+            try:
+                user_embed = discord.Embed(
+                    title="🛡️ Veil Antinuke Security Notice",
+                    description=f"Your administrative/dangerous role in **{guild.name}** was automatically stripped.\n\n"
+                                f"**Trigger**: Unauthorized permission grant (administrator / dangerous permissions).\n"
+                                f"**Action**: Roles granting dangerous permissions were safely removed by Veil Antinuke to secure the server.",
+                    color=Colors.error,
+                )
+                user_embed.set_footer(text="Veil Zero-Trust Security • Midtown Events Department")
+                await user_to_dm.send(embed=user_embed)
+            except (discord.HTTPException, discord.Forbidden):
+                pass
+
+        # 2. Server copies: log channel + server owner
+        log_channel = guild.get_channel(cfg.get("log") or 0)
+        if not log_channel:
+            text_chs = list(getattr(guild, "text_channels", []))
+            for name in ("antinuke-logs", "antinuke-log", "security-logs", "veil-utilities-logging"):
+                log_channel = discord.utils.get(text_chs, name=name)
+                if log_channel:
+                    break
+
+        destinations = [log_channel]
+        if guild.owner:
+            destinations.append(guild.owner)
+
+        for d in destinations:
             if d:
                 try:
                     await d.send(embed=alert_embed(**info, footer="Antinuke alert"), view=view)
                 except discord.HTTPException:
                     pass
-        # global copy: every bot developer
+
+        # 3. Global copy: every bot developer (resolved user instances)
         if settings.antinuke_dev_alerts:
             from cogs.authorization import developers
-            for uid in await developers(self.bot):
+            dev_ids = await developers(self.bot)
+            for uid in dev_ids:
                 if guild.owner_id == uid:
                     continue  # already got the owner copy
                 try:
-                    dev = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
-                    await dev.send(embed=alert_embed(**info, footer="Global antinuke alert"), view=view)
-                except discord.HTTPException:
+                    dev_user = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                    if dev_user:
+                        await dev_user.send(embed=alert_embed(**info, footer="Global antinuke alert • Veil Developers"), view=view)
+                except (discord.HTTPException, discord.Forbidden):
                     pass
 
     # ================================================================ status & rules
