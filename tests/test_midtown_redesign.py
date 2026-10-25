@@ -191,6 +191,38 @@ def test_ban_log_view_toggle():
     assert view.toggle_btn.style == discord.ButtonStyle.danger
 
 
+def test_ban_log_view_security_and_self_ban_protection():
+    from cogs.logging import BanLogView
+    view = BanLogView(guild_id=1, user_id=406546241996980225, is_banned=False)
+
+    # 1. Self-ban is blocked
+    member = SimpleNamespace(id=406546241996980225, guild_permissions=discord.Permissions.all())
+    guild = SimpleNamespace(id=1, owner_id=100, get_member=lambda uid: member)
+    it = SimpleNamespace(
+        guild=guild,
+        user=member,
+        client=SimpleNamespace(
+            get_guild=lambda gid: guild,
+            is_owner=AsyncMock(return_value=False),
+            db=SimpleNamespace(get_config=AsyncMock(return_value={})),
+        ),
+        response=SimpleNamespace(send_message=AsyncMock()),
+    )
+    asyncio.run(view.toggle_btn.callback(it))
+    assert it.response.send_message.called
+    msg = it.response.send_message.call_args[0][0]
+    assert "cannot ban or unban yourself" in msg or "Only Bot Developers" in msg
+
+    # 2. Random member without uperm is blocked even if they have Discord admin
+    random_member = SimpleNamespace(id=999, guild_permissions=discord.Permissions.all())
+    it.user = random_member
+    it.guild.get_member = lambda uid: random_member
+    it.response.send_message.reset_mock()
+    asyncio.run(view.toggle_btn.callback(it))
+    assert it.response.send_message.called
+    assert "Only Bot Developers" in it.response.send_message.call_args[0][0]
+
+
 def test_help_home_view_shows_secret_and_dev_for_owner():
     view = HelpView(_help(), {"Utility": [], "Music": [], "Moderation": []}, is_owner=True)
     labels = [b.label for b in view.children if isinstance(b, CategoryButton)]

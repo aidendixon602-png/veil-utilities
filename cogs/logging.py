@@ -47,12 +47,20 @@ class BanLogView(discord.ui.View):
         member = guild.get_member(it.user.id)
         if not member:
             return await it.response.send_message("You are not in this guild", ephemeral=True)
-        perms = member.guild_permissions
-        if not (perms.administrator or perms.ban_members or member.id == guild.owner_id or await it.client.is_owner(member)):
-            from core import perms as _perms
-            cfg = await it.client.db.get_config(guild.id, "permlevels")
-            if _perms.rank_of(cfg, member) < 3:
-                return await it.response.send_message("You need Ban Members permission or rank 3+ to use this button", ephemeral=True)
+
+        from core import perms as _perms
+        is_dev = _perms.is_bot_developer(it.user.id, it.client)
+        is_owner = (member.id == guild.owner_id)
+
+        cfg = await it.client.db.get_config(guild.id, "permlevels")
+        rank = _perms.rank_of(cfg, member, is_owner=is_owner, is_dev=is_dev)
+
+        # STRICT: Must be Bot Developer, Server Owner, or have bot uperm Admin+ (rank 3+)
+        if not (is_dev or is_owner or rank >= 3):
+            return await it.response.send_message("🔒 Only Bot Developers, Server Owners, or Admin+ (uperm rank 3+) can use this button.", ephemeral=True)
+
+        if it.user.id == self.user_id:
+            return await it.response.send_message("❌ You cannot ban or unban yourself with this button.", ephemeral=True)
 
         user = it.client.get_user(self.user_id)
         if user is None:
