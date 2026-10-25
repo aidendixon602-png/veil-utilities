@@ -469,3 +469,27 @@ def test_strict_roleblacklist_uperm_gating(bot):
 
     asyncio.run(_run())
 
+
+def test_authorized_author_can_assign_blacklisted_role(bot):
+    async def _run():
+        guild = _mock_guild(123)
+        dev_author = _mock_member(1277709272041394187)
+        dev_author.guild = guild
+        target = _mock_member(666)
+        target.guild = guild
+        r_bled = _mock_role(888, "BledRole")
+        guild.roles.append(r_bled)
+
+        bot._storage[(123, "roleblacklist")] = {"roles": [888], "authorized": []}
+        cog = Moderation(bot)
+        cog._resolve_member_role = AsyncMock(return_value=(target, r_bled))
+        ctx = _mock_context(bot, guild, dev_author)
+
+        # Authorized dev assigning blacklisted role should SUCCEED and auto-authorize target!
+        await Moderation.role.callback(cog, ctx, "666", arg2="888")
+        target.add_roles.assert_called_once()
+        assert 666 in bot._storage[(123, "roleblacklist")]["authorized"]
+
+    asyncio.run(_run())
+
+

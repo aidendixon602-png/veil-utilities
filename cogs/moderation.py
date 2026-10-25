@@ -711,6 +711,12 @@ class Moderation(commands.Cog):
             await check_role_assignable(ctx, role)
             if is_dangerous(role.permissions):
                 await antinuke_guard(ctx, "permissions")
+            if await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
+                rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+                auth = rbl_cfg.setdefault("authorized", [])
+                if member.id not in auth:
+                    auth.append(member.id)
+                    await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
             await member.add_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Added {role.mention} to {member.mention}")
 
@@ -721,6 +727,12 @@ class Moderation(commands.Cog):
             raise UserError(f"{member.mention} already has {role.mention}")
         if is_dangerous(role.permissions):
             await antinuke_guard(ctx, "permissions")
+        if await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
+            rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+            auth = rbl_cfg.setdefault("authorized", [])
+            if member.id not in auth:
+                auth.append(member.id)
+                await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
         await member.add_roles(role, reason=f"by {ctx.author}")
         await ctx.approve(f"Added {role.mention} to {member.mention}")
 
@@ -1337,15 +1349,37 @@ class Moderation(commands.Cog):
             added = [r for r in after.roles if r not in before.roles]
             if added:
                 cfg = await self.bot.db.get_config(after.guild.id, "roleblacklist")
-                if not self._is_role_authorized(after.guild, after, cfg):
-                    b_ids = set(cfg.get("roles", []))
-                    top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
-                    to_strip = [r for r in added if r.id in b_ids and getattr(r, "position", 0) < top_pos]
-                    if to_strip and after.guild.me.guild_permissions.manage_roles:
-                        try:
-                            await after.remove_roles(*to_strip, reason="Veil: Role is blacklisted")
-                        except discord.HTTPException:
-                            pass
+                b_ids = set(cfg.get("roles", []))
+                has_bled = any(r.id in b_ids for r in added)
+
+                if has_bled and not self._is_role_authorized(after.guild, after, cfg):
+                    assigned_by_auth = False
+                    try:
+                        me = getattr(after.guild, "me", None)
+                        if me and getattr(me.guild_permissions, "view_audit_log", False):
+                            async for entry in after.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_role_update):
+                                if getattr(entry.target, "id", None) == after.id:
+                                    delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
+                                    if delta < 15:
+                                        actor = entry.user
+                                        if actor.id == self.bot.user.id or self._is_role_authorized(after.guild, actor, cfg):
+                                            assigned_by_auth = True
+                                            auth = cfg.setdefault("authorized", [])
+                                            if after.id not in auth:
+                                                auth.append(after.id)
+                                                await self.bot.db.set_config(after.guild.id, "roleblacklist", cfg)
+                                            break
+                    except Exception:
+                        pass
+
+                    if not assigned_by_auth:
+                        top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
+                        to_strip = [r for r in added if r.id in b_ids and getattr(r, "position", 0) < top_pos]
+                        if to_strip and after.guild.me.guild_permissions.manage_roles:
+                            try:
+                                await after.remove_roles(*to_strip, reason="Veil: Role is blacklisted")
+                            except discord.HTTPException:
+                                pass
 
     # ================================================================ jail
     @commands.group(invoke_without_command=True)

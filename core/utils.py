@@ -639,11 +639,21 @@ async def is_role_blacklisted(guild_id: int, role_id: int, db) -> bool:
 async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
     """Validate that a role can be assigned: checks roleblacklist (BLED), hierarchy, and manageability.
 
-    Devs are automatically authorized for everything including blacklisted roles.
+    Devs, server owner, and authorized staff can give out blacklisted roles.
     """
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
-    if not _perms.is_bot_developer(ctx.author, bot):
+    is_dev = _perms.is_bot_developer(ctx.author, bot)
+    is_owner = ctx.guild and ctx.author.id == ctx.guild.owner_id
+    cfg = await ctx.bot.db.get_config(ctx.guild.id, "roleblacklist") if (ctx.guild and ctx.bot) else {}
+    auth_list = cfg.get("authorized", [])
+    is_auth = (
+        is_dev
+        or is_owner
+        or ctx.author.id in auth_list
+        or any(r.id in auth_list for r in getattr(ctx.author, "roles", []))
+    )
+    if not is_auth:
         if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")
     check_role(ctx, role)
