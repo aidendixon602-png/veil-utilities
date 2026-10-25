@@ -138,6 +138,24 @@ class Config(commands.Cog):
         await self.put(ctx.guild.id, "welcome", cfg)
         await ctx.approve(f"Welcome messages delete after **{seconds}s**" if seconds else "Welcome messages stay")
 
+    @welcome.command(name="preset", aliases=["card", "template"])
+    @has_perms(manage_guild=True)
+    async def welcome_preset(self, ctx: Context, channel: discord.TextChannel):
+        """Install a sleek Midtown welcome embed preset in a channel: `welcome preset #welcome`"""
+        template = (
+            "{embed}"
+            "$v{color: #B10F2E}"
+            "$v{author: Welcome to {guild.name}! && {guild.icon}}"
+            "$v{thumbnail: {user.avatar}}"
+            "$v{description: Hey {user.mention}, welcome to **{guild.name}**!\n\n"
+            "• Make sure to review our departmental guidelines.\n"
+            "• Check out recent announcements and events.\n"
+            "• Enjoy your stay with us!}"
+            "$v{footer: Member #{guild.member_count} • User ID: {user.id}}"
+        )
+        await self.put(ctx.guild.id, "welcome", {"channel": channel.id, "message": template})
+        await ctx.approve(f"Installed Midtown welcome embed preset in {channel.mention}!\nRun `{ctx.clean_prefix}welcome test` to preview.")
+
     @commands.group(aliases=["leave"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def goodbye(self, ctx, channel: discord.TextChannel = None, *, message: str = None):

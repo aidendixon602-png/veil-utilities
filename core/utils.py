@@ -510,8 +510,6 @@ def requires_uperm(min_level_or_func="helper"):
                 return True
             if getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None):
                 return True
-            if getattr(getattr(ctx.author, "guild_permissions", None), "administrator", False):
-                return True
             db = getattr(getattr(ctx, "bot", None), "db", None)
             cfg = await db.get_config(ctx.guild.id, "permlevels") if db else {}
             author_rank = _perms.rank_of(
@@ -519,7 +517,7 @@ def requires_uperm(min_level_or_func="helper"):
                 ctx.author,
                 is_owner=(getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None)),
                 is_dev=_perms.is_bot_developer(ctx.author, bot),
-                has_admin=getattr(getattr(ctx.author, "guild_permissions", None), "administrator", False),
+                has_admin=False,
             )
             levels = _perms.all_levels(cfg)
             target_info = levels.get(min_level.lower())

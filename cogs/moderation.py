@@ -19,7 +19,7 @@ if not hasattr(_cu, "check_role_assignable"):
 
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, OwnedView, UserError, antinuke_guard, check_hierarchy,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
-                        ts)
+                        ts, requires_uperm)
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -881,12 +881,14 @@ class Moderation(commands.Cog):
         return False
 
     @commands.group(aliases=["rbl", "rolebl"], invoke_without_command=True)
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def roleblacklist(self, ctx: Context):
         """Blacklist roles so the bot refuses to assign them"""
         await ctx.send_help(ctx.command)
 
     @roleblacklist.command(name="add")
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def rbl_add(self, ctx: Context, *, role: discord.Role):
         """Blacklist a role"""
@@ -918,6 +920,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"{role.mention} has been blacklisted.")
 
     @roleblacklist.command(name="remove", aliases=["rem", "delete"])
+    @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def rbl_remove(self, ctx: Context, *, role: str):
         """Unblacklist a role, or `remove deleted` to purge deleted roles"""
@@ -1119,6 +1122,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"Stripped **{removed_count}** blacklisted role(s) from **{done}** member(s).")
 
     @roleblacklist.command(name="strip", aliases=["purge", "clean"])
+    @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def rbl_strip(self, ctx: Context):
@@ -1126,6 +1130,7 @@ class Moderation(commands.Cog):
         await self._do_rbl_strip(ctx)
 
     @commands.command(name="stripbled", aliases=["purgebled", "rblstrip", "roleblstrip"])
+    @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_stripbled(self, ctx: Context):
@@ -1133,12 +1138,14 @@ class Moderation(commands.Cog):
         await self._do_rbl_strip(ctx)
 
     @roleblacklist.command(name="authorize", aliases=["auth", "whitelist", "allow"])
+    @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def rbl_authorize(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Authorize a member or role to bypass the role blacklist: `,rbl auth @user`"""
         await self._do_rbl_authorize(ctx, target)
 
     @commands.command(name="rblauth", aliases=["roleblauth", "bledauth", "rblbypass"])
+    @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def cmd_rblauth(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Authorize a member or role to hold blacklisted roles: `,rblauth @user`"""
@@ -1146,6 +1153,15 @@ class Moderation(commands.Cog):
 
     async def _do_rbl_authorize(self, ctx: Context, target: discord.Member | discord.Role):
         from core import perms as _perms
+        bot = getattr(ctx, "bot", None)
+        is_dev = _perms.is_bot_developer(ctx.author, bot)
+        is_owner = getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None)
+        cfg_pl = await self.bot.db.get_config(ctx.guild.id, "permlevels")
+        author_rank = _perms.rank_of(cfg_pl, ctx.author, is_owner=is_owner, is_dev=is_dev)
+
+        if author_rank < 4 and not (is_dev or is_owner):
+            raise UserError("🔒 You must have **Head Admin** uperm (rank 4+) or be the Server Owner to authorize members for blacklisted roles.")
+
         if _perms.is_bot_developer(target, self.bot):
             return await ctx.approve(f"{target.mention} is a bot developer and is automatically authorized across the bot.")
         if target.id == ctx.guild.owner_id:
@@ -1159,12 +1175,14 @@ class Moderation(commands.Cog):
         await ctx.approve(f"{target.mention} is now authorized to hold blacklisted roles.")
 
     @roleblacklist.command(name="unauthorize", aliases=["unauth", "unwhitelist"])
+    @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def rbl_unauthorize(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Revoke a member's or role's authorization to bypass the role blacklist"""
         await self._do_rbl_unauthorize(ctx, target)
 
     @commands.command(name="rblunauth", aliases=["roleblunauth", "bledunauth"])
+    @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def cmd_rblunauth(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Revoke role blacklist authorization for a member or role: `,rblunauth @user`"""
@@ -1172,6 +1190,15 @@ class Moderation(commands.Cog):
 
     async def _do_rbl_unauthorize(self, ctx: Context, target: discord.Member | discord.Role):
         from core import perms as _perms
+        bot = getattr(ctx, "bot", None)
+        is_dev = _perms.is_bot_developer(ctx.author, bot)
+        is_owner = getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None)
+        cfg_pl = await self.bot.db.get_config(ctx.guild.id, "permlevels")
+        author_rank = _perms.rank_of(cfg_pl, ctx.author, is_owner=is_owner, is_dev=is_dev)
+
+        if author_rank < 4 and not (is_dev or is_owner):
+            raise UserError("🔒 You must have **Head Admin** uperm (rank 4+) or be the Server Owner to revoke role blacklist authorizations.")
+
         if _perms.is_bot_developer(target, self.bot):
             raise UserError(f"{target.mention} is a bot developer and cannot be unauthorized.")
         if target.id == ctx.guild.owner_id:

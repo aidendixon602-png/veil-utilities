@@ -1,6 +1,6 @@
 # Command reference
 
-473 commands. Default prefix `,`. `<required>` `[optional]`.
+474 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -135,6 +135,7 @@ _Welcome messages, roles, responders, starboard and more_
 | `welcome [channel] [message]` (greet) | Set the welcome message: `welcome #ch {embed}$v{description: hi {user.mention}}` | manage guild |
 | `welcome deleteafter [seconds=0]` | Auto-delete welcome messages after N seconds (0 = never) | manage guild |
 | `welcome off` (disable) | Disable welcome messages | manage guild |
+| `welcome preset <channel>` (card, template) | Install a sleek Midtown welcome embed preset in a channel: `welcome preset #welcome` | manage guild |
 | `welcome test` | Preview the welcome message | manage guild |
 
 ## ⚡ DevTools
@@ -344,8 +345,8 @@ _Keep your server in line_
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
 | `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members |
-| `rblauth <target>` (roleblauth, bledauth, rblbypass) | Authorize a member or role to hold blacklisted roles: `,rblauth @user` | manage roles |
-| `rblunauth <target>` (roleblunauth, bledunauth) | Revoke role blacklist authorization for a member or role: `,rblunauth @user` | manage roles |
+| `rblauth <target>` (roleblauth, bledauth, rblbypass) | Authorize a member or role to hold blacklisted roles: `,rblauth @user` | manage roles, uperm: headadmin |
+| `rblunauth <target>` (roleblunauth, bledunauth) | Revoke role blacklist authorization for a member or role: `,rblunauth @user` | manage roles, uperm: headadmin |
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `removerole <arg1> <arg2>` (takerole) | Remove a role from a member: `,removerole @User @Role` | manage roles |
@@ -360,20 +361,20 @@ _Keep your server in line_
 | `role humans <action> <role>` | Add/remove a role for all humans | administrator |
 | `role remove <arg1> <arg2>` (rem, del) | Remove a role from a member: `,role remove @User @Role` | manage roles |
 | `role rename <role> <name>` | Rename a role | manage roles |
-| `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles |
-| `roleblacklist add <role>` | Blacklist a role | manage roles |
-| `roleblacklist authorize <target>` (auth, whitelist, allow) | Authorize a member or role to bypass the role blacklist: `,rbl auth @user` | manage roles |
+| `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles, uperm: admin |
+| `roleblacklist add <role>` | Blacklist a role | manage roles, uperm: admin |
+| `roleblacklist authorize <target>` (auth, whitelist, allow) | Authorize a member or role to bypass the role blacklist: `,rbl auth @user` | manage roles, uperm: headadmin |
 | `roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles |
 | `roleblacklist check [target]` (scan, audit, search) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
 | `roleblacklist list` | View blacklisted roles | manage roles |
-| `roleblacklist remove <role>` (rem, delete) | Unblacklist a role, or `remove deleted` to purge deleted roles | manage roles |
-| `roleblacklist strip` (purge, clean) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
-| `roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles |
+| `roleblacklist remove <role>` (rem, delete) | Unblacklist a role, or `remove deleted` to purge deleted roles | manage roles, uperm: admin |
+| `roleblacklist strip` (purge, clean) | Strip all blacklisted roles from unauthorized members across the server | manage roles, uperm: headadmin |
+| `roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles, uperm: headadmin |
 | `roles` (rolelist) | List every role in the server, highest first |  |
 | `security` (secscan, auditsec, serveraudit) | Run a comprehensive security audit of this Discord server | manage guild |
 | `slowmode [delay=0] [channel]` (sm) | Set slowmode (e.g. `10s`, `5m`, `0` to disable) | manage channels |
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members |
-| `stripbled` (purgebled, rblstrip, roleblstrip) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
+| `stripbled` (purgebled, rblstrip, roleblstrip) | Strip all blacklisted roles from unauthorized members across the server | manage roles, uperm: headadmin |
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator |
 | `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members |
 | `unban <user> [reason]` | Unban a user | ban members |

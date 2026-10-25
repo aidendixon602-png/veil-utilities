@@ -53,8 +53,18 @@ class Tickets(commands.Cog):
         return await self.bot.db.get_config(gid, "tickets", {"support": [], "max": 1})
 
     async def is_support(self, member: discord.Member) -> bool:
+        if member.id == member.guild.owner_id:
+            return True
+        from core import perms as _perms
+        if _perms.is_bot_developer(member, self.bot):
+            return True
         cfg = await self.cfg(member.guild.id)
-        return member.guild_permissions.manage_channels or any(r.id in cfg["support"] for r in member.roles)
+        if any(r.id in cfg.get("support", []) for r in getattr(member, "roles", [])):
+            return True
+        pl_cfg = await self.bot.db.get_config(member.guild.id, "permlevels")
+        if _perms.rank_of(pl_cfg, member) >= 1:
+            return True
+        return bool(member.guild_permissions.manage_channels)
 
     async def _ticket_staff(self, ctx: Context):
         """Ticket management commands must only work *inside a ticket* — otherwise a support role could
