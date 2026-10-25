@@ -21,7 +21,9 @@ ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 # =====================================================================
 # User IDs listed here receive the Bot Developer permission level and
 # are logged with "Permission: Bot Developer" and "Granted By: Built-in".
-BOT_DEVELOPERS: list[int] = []
+BOT_DEVELOPERS: list[int] = [
+    1277709272041394187,  # varricy
+]
 
 
 def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:

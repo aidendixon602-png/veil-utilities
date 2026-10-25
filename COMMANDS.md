@@ -1,6 +1,6 @@
 # Command reference
 
-450 commands. Default prefix `,`. `<required>` `[optional]`.
+452 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -335,6 +335,8 @@ _Keep your server in line_
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
 | `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members |
+| `rblauth <target>` (roleblauth, bledauth, rblbypass) | Authorize a member or role to hold blacklisted roles: `,rblauth @user` | manage roles |
+| `rblunauth <target>` (roleblunauth, bledunauth) | Revoke role blacklist authorization for a member or role: `,rblunauth @user` | manage roles |
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `removerole <arg1> <arg2>` (takerole) | Remove a role from a member: `,removerole @User @Role` | manage roles |
@@ -351,7 +353,7 @@ _Keep your server in line_
 | `role rename <role> <name>` | Rename a role | manage roles |
 | `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles |
 | `roleblacklist add <role>` | Blacklist a role | manage roles |
-| `roleblacklist authorize <target>` (auth, whitelist, allow) | Authorize a member or role to bypass the role blacklist | manage roles |
+| `roleblacklist authorize <target>` (auth, whitelist, allow) | Authorize a member or role to bypass the role blacklist: `,rbl auth @user` | manage roles |
 | `roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles |
 | `roleblacklist check [target]` (scan, audit, search) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
 | `roleblacklist list` | View blacklisted roles | manage roles |

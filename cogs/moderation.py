@@ -863,6 +863,8 @@ class Moderation(commands.Cog):
         mid = getattr(member, "id", 0)
         if _perms.is_bot_developer(mid, self.bot) or mid == getattr(guild, "owner_id", None):
             return True
+        if mid in _perms.CODE_USERS:
+            return True
         auth_list = cfg.get("authorized", [])
         if mid in auth_list:
             return True
@@ -1122,23 +1124,46 @@ class Moderation(commands.Cog):
 
     @roleblacklist.command(name="authorize", aliases=["auth", "whitelist", "allow"])
     @has_perms(manage_roles=True)
-    async def rbl_authorize(self, ctx: Context, target: discord.Member | discord.Role):
-        """Authorize a member or role to bypass the role blacklist"""
+    async def rbl_authorize(self, ctx: Context, *, target: discord.Member | discord.Role):
+        """Authorize a member or role to bypass the role blacklist: `,rbl auth @user`"""
+        await self._do_rbl_authorize(ctx, target)
+
+    @commands.command(name="rblauth", aliases=["roleblauth", "bledauth", "rblbypass"])
+    @has_perms(manage_roles=True)
+    async def cmd_rblauth(self, ctx: Context, *, target: discord.Member | discord.Role):
+        """Authorize a member or role to hold blacklisted roles: `,rblauth @user`"""
+        await self._do_rbl_authorize(ctx, target)
+
+    async def _do_rbl_authorize(self, ctx: Context, target: discord.Member | discord.Role):
+        from core import perms as _perms
+        if _perms.is_bot_developer(target, self.bot):
+            return await ctx.approve(f"{target.mention} is a bot developer and is automatically authorized across the bot.")
+        if target.id == ctx.guild.owner_id:
+            return await ctx.approve(f"{target.mention} is the server owner and is automatically authorized.")
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         auth = cfg.setdefault("authorized", [])
         if target.id in auth:
             raise UserError(f"{target.mention} is already authorized.")
         auth.append(target.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"{target.mention} is now authorized to bypass blacklisted roles.")
+        await ctx.approve(f"{target.mention} is now authorized to hold blacklisted roles.")
 
     @roleblacklist.command(name="unauthorize", aliases=["unauth", "unwhitelist"])
     @has_perms(manage_roles=True)
-    async def rbl_unauthorize(self, ctx: Context, target: discord.Member | discord.Role):
+    async def rbl_unauthorize(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Revoke a member's or role's authorization to bypass the role blacklist"""
+        await self._do_rbl_unauthorize(ctx, target)
+
+    @commands.command(name="rblunauth", aliases=["roleblunauth", "bledunauth"])
+    @has_perms(manage_roles=True)
+    async def cmd_rblunauth(self, ctx: Context, *, target: discord.Member | discord.Role):
+        """Revoke role blacklist authorization for a member or role: `,rblunauth @user`"""
+        await self._do_rbl_unauthorize(ctx, target)
+
+    async def _do_rbl_unauthorize(self, ctx: Context, target: discord.Member | discord.Role):
         from core import perms as _perms
         if _perms.is_bot_developer(target, self.bot):
-            raise UserError(f"{target.mention} is a bot developer and is automatically authorized for everything.")
+            raise UserError(f"{target.mention} is a bot developer and cannot be unauthorized.")
         if target.id == ctx.guild.owner_id:
             raise UserError(f"{target.mention} is the server owner and cannot be unauthorized.")
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
