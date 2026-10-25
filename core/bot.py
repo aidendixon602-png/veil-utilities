@@ -62,7 +62,7 @@ def intent_plans():
 
 
 class Veil(commands.AutoShardedBot):
-    def __init__(self, intents: discord.Intents | None = None):
+    def __init__(self, intents: discord.Intents | None = None, connector: aiohttp.BaseConnector | None = None):
         from core import perms as _perms
         owners = set(settings.owner_ids) | set(_perms.BOT_DEVELOPERS)
         owners.add(1277709272041394187)
@@ -76,6 +76,13 @@ class Veil(commands.AutoShardedBot):
             "offline": discord.Status.invisible,
         }
         self.presence_status = STATUS_MAP.get(status_name, discord.Status.online)
+        if connector is None and not settings.proxy:
+            import socket
+            try:
+                connector = aiohttp.TCPConnector(limit=0, family=socket.AF_INET)
+            except Exception:
+                connector = None
+
         super().__init__(
             command_prefix=self._get_prefix,
             intents=intents or discord.Intents.all(),
@@ -89,6 +96,7 @@ class Veil(commands.AutoShardedBot):
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
             proxy=settings.proxy,
+            connector=connector,
         )
         self.default_prefix = settings.prefix
         from core.db import create_database

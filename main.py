@@ -90,36 +90,65 @@ logging.getLogger("wavelink.websocket").setLevel(logging.ERROR)
 log = logging.getLogger("veil")
 
 
-async def run_bot() -> bool:
+async def run_bot(show_banner: bool = True) -> bool:
     """Run one bot session. Returns True if an in-process restart was requested, False if exiting."""
+    import socket
+    import aiohttp
     import discord
 
-    use_color = os.environ.get("LOG_COLOR", "1") != "0"
-    print(render_startup_banner(color=use_color), flush=True)
-    print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
+    if show_banner:
+        use_color = os.environ.get("LOG_COLOR", "1") != "0"
+        print(render_startup_banner(color=use_color), flush=True)
+        print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
     log.info("Connecting to Discord Gateway with auto-sharding...")
-    for intents, warning in intent_plans():
-        if warning:
-            log.warning("Discord refused a privileged intent. %s %s", warning, INTENT_HELP)
-        try:
-            bot = Veil(intents=intents)
-            bot._restart_requested = False
-            async with bot:
-                await bot.start(settings.discord_token)
-            return getattr(bot, "_restart_requested", False)
-        except discord.PrivilegedIntentsRequired:
-            continue
-        except discord.LoginFailure:
-            sys.exit("Discord rejected DISCORD_TOKEN. Open https://discord.com/developers/applications -> your bot "
-                     "-> Bot -> Reset Token, paste the new token into .env (no quotes, no 'Bot ' prefix) and restart.")
+
+    # Dual-stack strategy: try IPv4 first (bypasses blocked datacenter IPv6 ranges);
+    # fallback to IPv6 if IPv4 encounters a block, or vice-versa.
+    families_to_try = [socket.AF_INET]
+    if socket.has_ipv6:
+        families_to_try.append(socket.AF_INET6)
+
+    last_429 = None
+    for family in families_to_try:
+        family_name = "IPv4" if family == socket.AF_INET else "IPv6"
+        for intents, warning in intent_plans():
+            if warning:
+                log.warning("Discord refused a privileged intent. %s %s", warning, INTENT_HELP)
+            try:
+                conn = None
+                if not settings.proxy:
+                    try:
+                        conn = aiohttp.TCPConnector(limit=0, family=family)
+                    except Exception:
+                        conn = None
+                bot = Veil(intents=intents, connector=conn)
+                bot._restart_requested = False
+                async with bot:
+                    await bot.start(settings.discord_token)
+                return getattr(bot, "_restart_requested", False)
+            except discord.PrivilegedIntentsRequired:
+                continue
+            except discord.HTTPException as err:
+                if getattr(err, "status", None) == 429:
+                    last_429 = err
+                    log.warning("%s route received Discord 429 rate limit.", family_name)
+                    break
+                raise
+            except discord.LoginFailure:
+                sys.exit("Discord rejected DISCORD_TOKEN. Open https://discord.com/developers/applications -> your bot "
+                         "-> Bot -> Reset Token, paste the new token into .env (no quotes, no 'Bot ' prefix) and restart.")
+
+    if last_429 is not None:
+        raise last_429
     sys.exit("Discord refused every intent combination. " + INTENT_HELP)
 
 
 def main() -> None:
     rate_limit_backoff = 60
+    first_boot = True
     while True:
         try:
-            should_restart = asyncio.run(run_bot())
+            should_restart = asyncio.run(run_bot(show_banner=first_boot))
             if not should_restart:
                 break
             log.info("──────────────────────────────────────────")
@@ -127,6 +156,7 @@ def main() -> None:
             log.info("──────────────────────────────────────────")
             time.sleep(1)
             rate_limit_backoff = 60
+            first_boot = True
         except KeyboardInterrupt:
             break
         except Exception as exc:
@@ -144,6 +174,7 @@ def main() -> None:
                 is_429 = True
 
             if is_429:
+                first_boot = False
                 log.warning("═" * 70)
                 log.warning(" [RATE LIMIT] Discord Cloudflare Edge Block (HTTP 429)")
                 log.warning(" Discord temporarily blocked API requests from this server's IP address")
