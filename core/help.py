@@ -246,9 +246,27 @@ async def _safe_defer(it: discord.Interaction):
             pass
 
 
+CATEGORY_EMOJIS: dict[str, str] = {
+    "Utility": "🛠️",
+    "Music": "🎵",
+    "Moderation": "🛡️",
+    "Roles": "🏷️",
+    "Permissions": "🔒",
+    "Antinuke": "🚨",
+    "Automod": "🤖",
+    "Server": "⚙️",
+    "VoiceMaster": "🎙️",
+    "Community": "✨",
+    "Developer": "⚡",
+    "Secret": "🔑",
+}
+
+
 class CategoryButton(discord.ui.Button["HelpView"]):
-    def __init__(self, label: str, row: int, style: discord.ButtonStyle = discord.ButtonStyle.secondary):
-        super().__init__(label=label, style=style, row=row)
+    def __init__(self, label: str, row: int, style: discord.ButtonStyle = discord.ButtonStyle.secondary, emoji: str | None = None):
+        if emoji is None:
+            emoji = CATEGORY_EMOJIS.get(label)
+        super().__init__(label=label, emoji=emoji, style=style, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.show_category(it, self.label)
@@ -256,7 +274,7 @@ class CategoryButton(discord.ui.Button["HelpView"]):
 
 class BackButton(discord.ui.Button["HelpView"]):
     def __init__(self, row: int = 0):
-        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.show_home(it)
@@ -303,11 +321,11 @@ class HelpView(OwnedView):
                     labels.append(label)
 
             for i, label in enumerate(labels[:15]):
-                self.add_item(CategoryButton(label, row=i // 5))
+                self.add_item(CategoryButton(label, row=i // 5, emoji=CATEGORY_EMOJIS.get(label)))
             if self.is_owner:
                 dev_row = (len(labels) + 4) // 5
-                self.add_item(CategoryButton("Developer", row=dev_row, style=discord.ButtonStyle.secondary))
-                self.add_item(CategoryButton("Secret", row=dev_row, style=discord.ButtonStyle.danger))
+                self.add_item(CategoryButton("Developer", row=dev_row, style=discord.ButtonStyle.primary, emoji="⚡"))
+                self.add_item(CategoryButton("Secret", row=dev_row, style=discord.ButtonStyle.danger, emoji="🔑"))
         else:
             # Category view: Back button + pagination if needed
             self.add_item(BackButton(row=0))
@@ -812,10 +830,45 @@ class Help(commands.HelpCommand):
     def home_embed(self) -> discord.Embed:
         bot = self.context.bot
         p = self.context.clean_prefix
-        e = discord.Embed(color=Colors.blurple)
+        total_cmds = sum(1 for _ in bot.walk_commands()) if hasattr(bot, "walk_commands") else 474
+        e = discord.Embed(
+            title="Veil Utilities • Command Portal",
+            color=Colors.main,
+            description=(
+                f"Welcome to **Veil Utilities**. Select a category button below to explore available modules, command signatures, and documentation.\n\n"
+                f"• **Active Prefix**: `{p}` (or `@mention`)\n"
+                f"• **Detailed Help**: Run `{p}help <command>` for parameter usage & syntax\n"
+                f"• **Security Clearance**: Strict Zero-Trust & Hierarchy Enforcement (`uperm`)"
+            ),
+        )
         if bot.user:
-            e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
-        e.description = f"Select a category below to view its commands.\nprefix: {p}"
+            e.set_author(name=f"{bot.user.name}", icon_url=bot.user.display_avatar.url)
+
+        e.add_field(
+            name="🛠️ Public & Community Modules",
+            value=(
+                "• **Utility**: Lookups, afk, userinfo, snipe & server info\n"
+                "• **Music**: High-res Lavalink audio streaming & Spotify\n"
+                "• **VoiceMaster**: Dynamic temporary VCs & controls\n"
+                "• **Community**: Support tickets, level system, AI & fun"
+            ),
+            inline=True,
+        )
+
+        e.add_field(
+            name="🛡️ Staff & Administration",
+            value=(
+                "• **Moderation**: Warns, mutes, kicks, bans & purge\n"
+                "• **Roles**: Autoroles, vanity & role blacklist (`rbl`)\n"
+                "• **Permissions**: Bot rank hierarchy & uperms\n"
+                "• **Antinuke**: Zero-trust defense & auto-strip\n"
+                "• **Automod**: Anti-spam, links & invite filters\n"
+                "• **Server**: Presets, logging channels & configs"
+            ),
+            inline=True,
+        )
+
+        e.set_footer(text=f"Midtown Community • {total_cmds} commands • Veil Utilities")
         return e
 
     def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
