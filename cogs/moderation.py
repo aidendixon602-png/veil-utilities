@@ -1053,7 +1053,7 @@ class Moderation(commands.Cog):
         """Strip all blacklisted roles from unauthorized members across the server"""
         await self._do_rbl_strip(ctx)
 
-    @commands.command(name="stripbled", aliases=["purgebled"])
+    @commands.command(name="stripbled", aliases=["purgebled", "rblstrip", "roleblstrip"])
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_stripbled(self, ctx: Context):

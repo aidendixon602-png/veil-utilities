@@ -351,7 +351,7 @@ _Keep your server in line_
 | `roles` (rolelist) | List every role in the server, highest first |  |
 | `slowmode [delay=0] [channel]` (sm) | Set slowmode (e.g. `10s`, `5m`, `0` to disable) | manage channels |
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members |
-| `stripbled` (purgebled) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
+| `stripbled` (purgebled, rblstrip, roleblstrip) | Strip all blacklisted roles from unauthorized members across the server | manage roles |
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator |
 | `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members |
 | `unban <user> [reason]` | Unban a user | ban members |
