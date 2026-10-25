@@ -45,6 +45,20 @@ def load_env_file(path: str) -> None:
         load_dotenv(path)
 
 
+def auto_sync_git() -> None:
+    """If running in a git repo on a host like Wispbyte, auto-pull latest commits from GitHub."""
+    try:
+        import subprocess
+        git_dir = os.path.join(ROOT, ".git")
+        if os.path.exists(git_dir):
+            r = subprocess.run(["git", "fetch", "origin", "main"], cwd=ROOT, capture_output=True, timeout=10)
+            if r.returncode == 0:
+                subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=ROOT, capture_output=True, timeout=10)
+    except Exception:
+        pass
+
+
+auto_sync_git()
 load_env_file(os.path.join(ROOT, ".env"))
 
 from core.config import ConfigError  # noqa: E402  (must load after .env)

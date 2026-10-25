@@ -41,9 +41,10 @@ class Owner(commands.Cog):
         self.bot = bot
 
     async def cog_check(self, ctx: Context) -> bool:
-        if not await self.bot.is_owner(ctx.author):
-            raise commands.NotOwner()
-        return True
+        from core import perms as _perms
+        if await self.bot.is_owner(ctx.author) or ctx.author.id in _perms.BOT_DEVELOPERS or (ctx.guild and ctx.author.id == ctx.guild.owner_id):
+            return True
+        raise commands.NotOwner()
 
     async def save_global(self):
         g = await self.bot.db.get_config(0, "global")
@@ -317,6 +318,47 @@ class Owner(commands.Cog):
                                         numbered=False) or [discord.Embed(color=Colors.neutral, description="Nobody is blacklisted")])
 
     # ================================================================ process
+    @commands.command(hidden=True, aliases=["pull", "updatebot", "botupdate", "syncgit"])
+    async def gitpull(self, ctx: Context):
+        """Pull the latest code from GitHub main and hot-reload all cogs"""
+        import subprocess
+        msg = await ctx.send("🔄 Pulling latest commits from GitHub...")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            r1 = await asyncio.to_thread(
+                subprocess.run, ["git", "fetch", "origin", "main"],
+                cwd=root, capture_output=True, text=True, timeout=15
+            )
+            r2 = await asyncio.to_thread(
+                subprocess.run, ["git", "reset", "--hard", "origin/main"],
+                cwd=root, capture_output=True, text=True, timeout=15
+            )
+            out = (r2.stdout or r1.stdout or "").strip()
+        except Exception as e:
+            return await msg.edit(content=f"❌ Failed to git pull: `{e}`")
+
+        # Reload all extensions
+        reloaded = []
+        failed = []
+        for ext in list(self.bot.extensions.keys()):
+            try:
+                await self.bot.reload_extension(ext)
+                reloaded.append(ext.removeprefix("cogs."))
+            except Exception as e:
+                failed.append(f"{ext.removeprefix('cogs.')}: {e}")
+
+        desc = f"**Git Sync**: `{out or 'Synced with origin/main'}`\n\n"
+        desc += f"✅ **Reloaded ({len(reloaded)})**: " + ", ".join(f"`{e}`" for e in reloaded)
+        if failed:
+            desc += f"\n❌ **Failed ({len(failed)})**: " + ", ".join(f"`{f}`" for f in failed)
+
+        embed = discord.Embed(
+            title="Bot Updated via GitHub",
+            color=Colors.success if not failed else Colors.warn,
+            description=desc,
+        )
+        await msg.edit(content=None, embed=embed)
+
     @commands.command(hidden=True, aliases=["rl"])
     async def reload(self, ctx: Context, *extensions: str):
         """Reload modules without restarting (all if none given)"""

@@ -1,6 +1,6 @@
 # Command reference
 
-436 commands. Default prefix `,`. `<required>` `[optional]`.
+437 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
