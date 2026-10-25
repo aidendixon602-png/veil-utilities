@@ -223,6 +223,29 @@ def secret_commands(bot: commands.Bot) -> list[commands.Command]:
     return sorted(cmds, key=lambda c: c.name)
 
 
+async def _respond_or_edit(it: discord.Interaction, embed: discord.Embed, view: discord.ui.View | None = None):
+    resp = getattr(it, "response", None)
+    is_done = resp.is_done() if resp and hasattr(resp, "is_done") else False
+    kwargs = {"embed": embed}
+    if view is not None:
+        kwargs["view"] = view
+    if is_done and hasattr(it, "edit_original_response"):
+        await it.edit_original_response(**kwargs)
+    elif resp and hasattr(resp, "edit_message"):
+        await resp.edit_message(**kwargs)
+    elif hasattr(it, "edit_original_response"):
+        await it.edit_original_response(**kwargs)
+
+
+async def _safe_defer(it: discord.Interaction):
+    resp = getattr(it, "response", None)
+    if resp and hasattr(resp, "defer") and hasattr(resp, "is_done") and not resp.is_done():
+        try:
+            await resp.defer()
+        except Exception:
+            pass
+
+
 class CategoryButton(discord.ui.Button["HelpView"]):
     def __init__(self, label: str, row: int, style: discord.ButtonStyle = discord.ButtonStyle.secondary):
         super().__init__(label=label, style=style, row=row)
@@ -308,7 +331,7 @@ class HelpView(OwnedView):
         self.page = 0
         self._build_items()
         embed = self.help_cmd.home_embed()
-        await it.response.edit_message(embed=embed, view=self)
+        await _respond_or_edit(it, embed, self)
 
     async def show_category(self, it: discord.Interaction, label: str):
         if label.lower() in ("dev", "developer"):
@@ -318,16 +341,16 @@ class HelpView(OwnedView):
             self.page = 0
             view = DeveloperView(self.help_cmd, it.user.id)
             embed = await self.help_cmd.developer_embed()
-            await it.response.edit_message(embed=embed, view=view)
+            await _respond_or_edit(it, embed, view)
             return
-        elif label.lower() == "secret":
+        elif label.lower() in ("secret", "secretsuite", "secret suite", "tokens"):
             if not self.is_owner:
                 return await it.response.send_message("🔒 This category is restricted to bot developers.", ephemeral=True)
             self.current = label
             self.page = 0
-            view = SecretHelpView(self.help_cmd.context, help_cmd=self.help_cmd)
+            view = SecretHelpView(self.help_cmd.context, help_cmd=self.help_cmd, initial_category="tokens")
             embed = view.get_embed()
-            await it.response.edit_message(embed=embed, view=view)
+            await _respond_or_edit(it, embed, view)
             return
 
         min_rank = CATEGORY_MIN_RANKS.get(label, 0)
@@ -343,7 +366,7 @@ class HelpView(OwnedView):
             if self.is_owner or self.author_rank >= min_rank_for_command(c, bot)
         ]
         embed = self.help_cmd.category_embed(label, cmds, self.page)
-        await it.response.edit_message(embed=embed, view=self)
+        await _respond_or_edit(it, embed, self)
 
     async def change_page(self, it: discord.Interaction, delta: int):
         bot = getattr(getattr(self.help_cmd, "context", None), "bot", None)
@@ -352,6 +375,10 @@ class HelpView(OwnedView):
             if self.is_owner or self.author_rank >= min_rank_for_command(c, bot)
         ]
         total_pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
+        self.page = max(0, min(self.page + delta, total_pages - 1))
+        self._build_items()
+        embed = self.help_cmd.category_embed(self.current, cmds, self.page)
+        await _respond_or_edit(it, embed, self)
         self.page = max(0, min(total_pages - 1, self.page + delta))
         self._build_items()
         embed = self.help_cmd.category_embed(self.current, cmds, self.page)
@@ -370,6 +397,13 @@ class HelpView(OwnedView):
 class SecretCategorySelect(discord.ui.Select["SecretHelpView"]):
     def __init__(self, current_key: str = "all"):
         options = [
+            discord.SelectOption(
+                label="Tokens, Secrets & Environment",
+                value="tokens",
+                description="Masked bot tokens, API keys, database & runtime credentials",
+                emoji="🔑",
+                default=(current_key == "tokens"),
+            ),
             discord.SelectOption(
                 label="Overview & All Commands",
                 value="all",
@@ -419,12 +453,34 @@ class SecretCategorySelect(discord.ui.Select["SecretHelpView"]):
         await self.view.switch_category(it, self.values[0])
 
 
+class SecretTokensButton(discord.ui.Button["SecretHelpView"]):
+    def __init__(self, active: bool = False):
+        label = "Secret Commands" if active else "Tokens & Secrets"
+        emoji = "🔒" if active else "🔑"
+        style = discord.ButtonStyle.primary if active else discord.ButtonStyle.danger
+        super().__init__(label=label, emoji=emoji, style=style, row=1)
+
+    async def callback(self, it: discord.Interaction):
+        if not it.response.is_done():
+            await it.response.defer()
+        if self.view.category == "tokens":
+            self.view.category = "all"
+        else:
+            self.view.category = "tokens"
+        self.view._build_items()
+        embed = self.view.get_embed()
+        await it.edit_original_response(embed=embed, view=self.view)
+
+
 class SecretRefreshButton(discord.ui.Button["SecretHelpView"]):
     def __init__(self):
         super().__init__(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
 
     async def callback(self, it: discord.Interaction):
-        await self.view.refresh_telemetry(it)
+        if not it.response.is_done():
+            await it.response.defer()
+        embed = self.view.get_embed()
+        await it.edit_original_response(embed=embed, view=self.view)
 
 
 class SecretBackButton(discord.ui.Button["SecretHelpView"]):
@@ -432,10 +488,12 @@ class SecretBackButton(discord.ui.Button["SecretHelpView"]):
         super().__init__(label="Back", emoji="◀", style=discord.ButtonStyle.secondary, row=1)
 
     async def callback(self, it: discord.Interaction):
+        if not it.response.is_done():
+            await it.response.defer()
         if self.view.help_cmd:
             await self.view.help_cmd.show_home_interaction(it)
         else:
-            await it.response.send_message("Closed.", ephemeral=True)
+            await it.edit_original_response(content="Closed.", embed=None, view=None)
 
 
 class SecretHelpView(discord.ui.View):
@@ -450,28 +508,130 @@ class SecretHelpView(discord.ui.View):
     def _build_items(self):
         self.clear_items()
         self.add_item(SecretCategorySelect(current_key=self.category))
+        self.add_item(SecretTokensButton(active=(self.category == "tokens")))
         self.add_item(SecretRefreshButton())
         if self.help_cmd:
             self.add_item(SecretBackButton())
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
         from core import perms as _perms
-        if await self.bot.is_owner(it.user) or _perms.is_bot_developer(it.user, self.bot):
+        if it.user.id in getattr(self.bot, "owner_ids", set()) or _perms.is_bot_developer(it.user, self.bot):
+            return True
+        if await self.bot.is_owner(it.user):
             return True
         await it.response.send_message("❌ This interface is restricted to bot developers.", ephemeral=True)
         return False
 
     async def switch_category(self, it: discord.Interaction, cat_key: str):
+        if not it.response.is_done():
+            await it.response.defer()
         self.category = cat_key
         self._build_items()
         embed = self.get_embed()
-        await it.response.edit_message(embed=embed, view=self)
+        await it.edit_original_response(embed=embed, view=self)
 
     async def refresh_telemetry(self, it: discord.Interaction):
+        if not it.response.is_done():
+            await it.response.defer()
         embed = self.get_embed()
-        await it.response.edit_message(embed=embed, view=self)
+        await it.edit_original_response(embed=embed, view=self)
+
+    def build_tokens_embed(self) -> discord.Embed:
+        from core.config import settings
+        from core import perms as _perms
+
+        bot = self.bot
+
+        def mask(val: str | None, show: int = 4) -> str:
+            if not val:
+                return "🔴 *Not Configured*"
+            val_str = str(val).strip()
+            if len(val_str) <= show:
+                return "●●●●"
+            return f"`●●●●●●●●...{val_str[-show:]}`"
+
+        e = discord.Embed(
+            title="🔑 Secret Suite — Tokens & Runtime Credentials",
+            description="Active runtime credentials and API configurations *(all sensitive tokens safely masked)*.",
+            color=Colors.warn,
+        )
+        if bot.user:
+            e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
+
+        # Discord Gateway Token
+        tok_str = mask(settings.discord_token, show=4)
+        uptime = fmt_duration(time.time() - getattr(bot, "started_at", time.time()))
+        shards = bot.shard_count or 1
+        ws_lat = f"{bot.latency * 1000:.0f}ms" if bot.latency and bot.latency > 0 else "—"
+        e.add_field(
+            name="🤖 Discord Bot Token",
+            value=f"Token: {tok_str}\nStatus: 🟢 **Connected** as @{bot.user}\nShards: `{shards} active` • Ping: `{ws_lat}` • Uptime: `{uptime}`",
+            inline=False,
+        )
+
+        # Database Engine
+        db_target = getattr(settings, "database_url", None) or settings.db_path
+        if getattr(settings, "database_url", None):
+            db_disp = mask(settings.database_url, show=6)
+            db_type = "PostgreSQL"
+        else:
+            db_disp = f"`{settings.db_path}`"
+            db_type = "SQLite"
+        e.add_field(
+            name=f"🗄️ Database ({db_type})",
+            value=f"Target: {db_disp}\nStatus: 🟢 **Connected**",
+            inline=True,
+        )
+
+        # AI Intelligence
+        ai_key = mask(settings.ai_api_key, show=4)
+        ai_model = settings.ai_model or "default (Groq/Gemini)"
+        ai_status = "🟢 Configured" if settings.ai_api_key else "🟡 Free APIs / Unset"
+        e.add_field(
+            name="🧠 AI Providers & LLM",
+            value=f"Key: {ai_key}\nModel: `{ai_model}`\nStatus: {ai_status}",
+            inline=True,
+        )
+
+        # Audio / Lavalink
+        lava_on = (settings.lavalink_uri or "").lower() not in {"off", "none", "false", "disabled", "0"}
+        lava_status = "🟢 Active" if lava_on else "⚪ Disabled"
+        e.add_field(
+            name="🎵 Audio & Lavalink",
+            value=f"URI: `{settings.lavalink_uri or 'None'}`\nPass: {mask(settings.lavalink_password, show=3)}\nStatus: {lava_status}",
+            inline=True,
+        )
+
+        # Third-party APIs (Spotify, Last.fm, Twitch, OCR)
+        spot_status = "🟢 Ready" if (settings.spotify_client_id and settings.spotify_client_secret) else "🔴 Not Set"
+        lfm_status = "🟢 Ready" if settings.lastfm_api_key else "🔴 Not Set"
+        tw_status = "🟢 Ready" if (settings.twitch_client_id and settings.twitch_client_secret) else "🔴 Not Set"
+        ocr_status = "🟢 Ready" if settings.ocr_space_api_key else "🟡 Free Public"
+
+        apis_val = (
+            f"• **Spotify**: {spot_status} (ID: {mask(settings.spotify_client_id)})\n"
+            f"• **Last.fm**: {lfm_status} ({mask(settings.lastfm_api_key)})\n"
+            f"• **Twitch**: {tw_status}\n"
+            f"• **OCR Space**: {ocr_status}"
+        )
+        e.add_field(name="🌐 Integrations & External APIs", value=apis_val, inline=False)
+
+        # Security & Licensing
+        devs_str = ", ".join(f"<@{uid}>" for uid in _perms.BOT_DEVELOPERS) or "None"
+        sec_val = (
+            f"• **Server Licensing**: `{'Enforced (Strict)' if settings.auth_required else 'Disabled'}`\n"
+            f"• **Antinuke Dev Alerts**: `{'Enabled' if settings.antinuke_dev_alerts else 'Disabled'}`\n"
+            f"• **Bot Developers**: {devs_str}"
+        )
+        e.add_field(name="🛡️ Security & Zero-Trust", value=sec_val, inline=False)
+
+        e.set_footer(text="Veil Developer Telemetry • Secrets & Runtime Environment")
+        return e
 
     def get_embed(self) -> discord.Embed:
+        if self.category in ("tokens", "secrets", "credentials", "env"):
+            return self.build_tokens_embed()
+
         from cogs.owner import memory_mb
         from core import perms as _perms
 
@@ -522,7 +682,10 @@ class DeveloperBackButton(discord.ui.Button["DeveloperView"]):
         super().__init__(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=0)
 
     async def callback(self, it: discord.Interaction):
-        await self.view.help_cmd.show_home_interaction(it)
+        view = self.view
+        if not it.response.is_done():
+            await it.response.defer()
+        await view.help_cmd.show_home_interaction(it)
 
 
 class DeveloperRefreshButton(discord.ui.Button["DeveloperView"]):
@@ -530,8 +693,11 @@ class DeveloperRefreshButton(discord.ui.Button["DeveloperView"]):
         super().__init__(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary, row=0)
 
     async def callback(self, it: discord.Interaction):
-        embed = await self.view.get_current_embed()
-        await it.response.edit_message(embed=embed, view=self.view)
+        view = self.view
+        if not it.response.is_done():
+            await it.response.defer()
+        embed = await view.get_current_embed()
+        await _respond_or_edit(it, embed, view)
 
 
 class DeveloperDiagnosticsButton(discord.ui.Button["DeveloperView"]):
@@ -542,13 +708,20 @@ class DeveloperDiagnosticsButton(discord.ui.Button["DeveloperView"]):
         super().__init__(label=label, emoji=emoji, style=style, row=0)
 
     async def callback(self, it: discord.Interaction):
-        if self.view.mode == "diagnostics":
-            self.view.mode = "overview"
-        else:
-            self.view.mode = "diagnostics"
-        self.view._build_items()
-        embed = await self.view.get_current_embed()
-        await it.response.edit_message(embed=embed, view=self.view)
+        view = self.view
+        if not it.response.is_done():
+            await it.response.defer()
+        try:
+            if view.mode == "diagnostics":
+                view.mode = "overview"
+            else:
+                view.mode = "diagnostics"
+            view._build_items()
+            embed = await view.get_current_embed()
+            await _respond_or_edit(it, embed, view)
+        except Exception as ex:
+            err_embed = discord.Embed(title="Diagnostics Probe Error", description=f"`{ex}`", color=Colors.error)
+            await _respond_or_edit(it, err_embed, view)
 
 
 class DeveloperLogsButton(discord.ui.Button["DeveloperView"]):
@@ -559,13 +732,20 @@ class DeveloperLogsButton(discord.ui.Button["DeveloperView"]):
         super().__init__(label=label, emoji=emoji, style=style, row=0)
 
     async def callback(self, it: discord.Interaction):
-        if self.view.mode == "logs":
-            self.view.mode = "overview"
-        else:
-            self.view.mode = "logs"
-        self.view._build_items()
-        embed = await self.view.get_current_embed()
-        await it.response.edit_message(embed=embed, view=self.view)
+        view = self.view
+        if not it.response.is_done():
+            await it.response.defer()
+        try:
+            if view.mode == "logs":
+                view.mode = "overview"
+            else:
+                view.mode = "logs"
+            view._build_items()
+            embed = await view.get_current_embed()
+            await _respond_or_edit(it, embed, view)
+        except Exception as ex:
+            err_embed = discord.Embed(title="Error Reading Logs", description=f"`{ex}`", color=Colors.error)
+            await _respond_or_edit(it, err_embed, view)
 
 
 class DeveloperSecretButton(discord.ui.Button["DeveloperView"]):
@@ -573,9 +753,12 @@ class DeveloperSecretButton(discord.ui.Button["DeveloperView"]):
         super().__init__(label="Secret Suite", emoji="🔒", style=discord.ButtonStyle.danger, row=0)
 
     async def callback(self, it: discord.Interaction):
-        view = SecretHelpView(self.view.help_cmd.context, help_cmd=self.view.help_cmd)
-        embed = view.get_embed()
-        await it.response.edit_message(embed=embed, view=view)
+        view = self.view
+        if not it.response.is_done():
+            await it.response.defer()
+        secret_view = SecretHelpView(view.help_cmd.context, help_cmd=view.help_cmd, initial_category="tokens")
+        embed = secret_view.get_embed()
+        await _respond_or_edit(it, embed, secret_view)
 
 
 class DeveloperView(OwnedView):
@@ -603,12 +786,13 @@ class DeveloperView(OwnedView):
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
         bot = self.help_cmd.context.bot
-        is_owner = await bot.is_owner(it.user)
         from core import perms as _perms
-        if not is_owner and not _perms.is_bot_developer(it.user, bot):
-            await it.response.send_message("🔒 This developer telemetry suite is restricted to authorized bot developers.", ephemeral=True)
-            return False
-        return await super().interaction_check(it)
+        if it.user.id in getattr(bot, "owner_ids", set()) or _perms.is_bot_developer(it.user, bot):
+            return True
+        if await bot.is_owner(it.user):
+            return True
+        await it.response.send_message("🔒 This developer telemetry suite is restricted to authorized bot developers.", ephemeral=True)
+        return False
 
     async def on_timeout(self):
         for b in self.children:
@@ -790,13 +974,17 @@ class Help(commands.HelpCommand):
         thread_cnt = threading.active_count()
         e.add_field(name="Process Details", value=f"PID: `{pid}` • `{thread_cnt}` threads")
 
-        shards_str = ", ".join(f"#{sid}: {lat * 1000:.0f}ms" for sid, lat in bot.latencies) or f"#0: {bot.latency * 1000:.0f}ms"
-        e.add_field(name=f"Shards ({bot.shard_count or 1})", value=shorten(shards_str, 1024), inline=False)
+        shards_str = ", ".join(f"#{sid}: {lat * 1000:.0f}ms" for sid, lat in getattr(bot, "latencies", [])) or f"#0: {getattr(bot, 'latency', 0) * 1000:.0f}ms"
+        shard_cnt = getattr(bot, "shard_count", 1) or 1
+        e.add_field(name=f"Shards ({shard_cnt})", value=shorten(shards_str, 1024), inline=False)
 
-        db_path = getattr(bot.db, "path", "")
+        db_path = getattr(getattr(bot, "db", None), "path", "")
         if db_path and db_path != ":memory:" and os.path.exists(db_path):
-            size_mb = os.path.getsize(db_path) / 1_048_576
-            e.add_field(name="Database File", value=f"`{db_path}` ({size_mb:.2f} MB)")
+            try:
+                size_mb = os.path.getsize(db_path) / 1_048_576
+                e.add_field(name="Database File", value=f"`{db_path}` ({size_mb:.2f} MB)")
+            except Exception:
+                e.add_field(name="Database File", value=f"`{db_path}`")
         else:
             e.add_field(name="Database", value="In-Memory / Postgres")
 
@@ -839,6 +1027,10 @@ class Help(commands.HelpCommand):
         view = SecretHelpView(self.context, help_cmd=self)
         return view.get_embed()
 
+    def tokens_embed(self) -> discord.Embed:
+        view = SecretHelpView(self.context, help_cmd=self, initial_category="tokens")
+        return view.build_tokens_embed()
+
     async def is_owner_check(self) -> bool:
         from core import perms as _perms
         bot = getattr(self.context, "bot", None)
@@ -880,7 +1072,10 @@ class Help(commands.HelpCommand):
         author_rank = await self.get_author_rank()
         view = HelpView(self, categories, None, is_owner=is_owner, author_rank=author_rank)
         embed = self.home_embed()
-        await it.response.edit_message(embed=embed, view=view)
+        if it.response.is_done():
+            await it.edit_original_response(embed=embed, view=view)
+        else:
+            await it.response.edit_message(embed=embed, view=view)
 
     # ------------------------------------------------------------ entry points
     async def open_menu(self, start: str | None = None):
@@ -888,8 +1083,8 @@ class Help(commands.HelpCommand):
         is_owner = await self.is_owner_check()
         author_rank = await self.get_author_rank()
 
-        if start is not None and start.lower() == "secret" and is_owner:
-            view = SecretHelpView(self.context, help_cmd=self)
+        if start is not None and start.lower() in ("secret", "tokens", "secrets", "secretsuite") and is_owner:
+            view = SecretHelpView(self.context, help_cmd=self, initial_category="tokens" if start.lower() in ("tokens", "secrets") else "all")
             embed = view.get_embed()
             view.message = await self.context.send(embed=embed, view=view)
             return
@@ -936,10 +1131,10 @@ class Help(commands.HelpCommand):
                     await self.prepare_help_command(ctx, command)
                     return await self.open_menu("developer")
                 return await self.send_error_message("No command or category called that")
-            if wanted == "secret":
+            if wanted in ("secret", "tokens", "secrets", "secretsuite"):
                 if is_owner:
                     await self.prepare_help_command(ctx, command)
-                    return await self.open_menu("secret")
+                    return await self.open_menu(wanted)
                 return await self.send_error_message("No command or category called that")
         return await super().command_callback(ctx, command=command)
 
