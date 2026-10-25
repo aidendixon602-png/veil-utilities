@@ -633,22 +633,33 @@ class Utility(commands.Cog):
         t = time.perf_counter()
         msg = await ctx.neutral("🏓 …")
         api = (time.perf_counter() - t) * 1000
+        t_db = time.perf_counter()
+        try:
+            await self.bot.db.fetchone("SELECT 1")
+            db_ms = (time.perf_counter() - t_db) * 1000
+            db_str = f" • Database **{db_ms:.1f}ms**"
+        except Exception:
+            db_str = ""
         await msg.edit(embed=discord.Embed(color=Colors.neutral,
-                       description=f"🏓 Gateway **{self.bot.latency * 1000:.0f}ms** • API **{api:.0f}ms**"))
+                       description=f"🏓 Gateway **{self.bot.latency * 1000:.0f}ms** • API **{api:.0f}ms**{db_str}"))
 
     @commands.command(aliases=["bi", "about", "stats"])
     async def botinfo(self, ctx: Context):
         """About the bot"""
         b = self.bot
+        from cogs.owner import memory_mb
         e = discord.Embed(color=Colors.main, title=b.user.name,
                           description="**veil utilities** — a fast all-in-one bot: antinuke, moderation, VoiceMaster, leveling, music, Last.fm and more.")
         e.set_thumbnail(url=b.user.display_avatar.url)
         e.add_field(name="Servers", value=f"{len(b.guilds):,}")
         e.add_field(name="Users", value=f"{sum(g.member_count or 0 for g in b.guilds):,}")
+        e.add_field(name="Channels", value=f"{sum(len(g.channels) for g in b.guilds):,}")
         e.add_field(name="Commands", value=str(sum(1 for _ in b.walk_commands())))
         e.add_field(name="Uptime", value=fmt_duration(time.time() - b.started_at))
         e.add_field(name="Latency", value=f"{b.latency * 1000:.0f}ms")
-        e.add_field(name="Library", value=f"discord.py {discord.__version__} • Python {platform.python_version()}")
+        e.add_field(name="Memory (RAM)", value=memory_mb())
+        e.add_field(name="Library", value=f"discord.py {discord.__version__}")
+        e.add_field(name="Python", value=f"v{platform.python_version()}")
         await ctx.send(embed=e)
 
     @commands.command(aliases=["up"])

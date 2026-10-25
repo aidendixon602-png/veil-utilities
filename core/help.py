@@ -2,12 +2,33 @@
 from __future__ import annotations
 
 import math
+import os
+import platform
+import subprocess
+import threading
 import time
 
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, OwnedView, fmt_duration
+from core.utils import Colors, OwnedView, fmt_duration, shorten
+
+_CACHED_COMMIT: str | None = None
+
+
+def _get_git_commit() -> str:
+    global _CACHED_COMMIT
+    if _CACHED_COMMIT is not None:
+        return _CACHED_COMMIT
+    try:
+        res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=1)
+        if res.returncode == 0 and res.stdout.strip():
+            _CACHED_COMMIT = res.stdout.strip()
+            return _CACHED_COMMIT
+    except Exception:
+        pass
+    _CACHED_COMMIT = "5e9f56f"
+    return _CACHED_COMMIT
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
@@ -85,7 +106,9 @@ SECRET_CATEGORIES = {
             ("system", "", "Live system health: memory, uptime, latency, shards, DB size"),
             ("botlogs", "[lines=50]", "Tail the last N lines of the live bot log file"),
             ("errors", "", "List recent command exceptions and error IDs since startup"),
-            ("error", "<id>", "Full exception traceback and invocation context for an error ID"),
+            ("error", "[id]", "Full exception traceback and invocation context (defaults to latest)"),
+            ("traceback", "", "Show the most recent exception traceback recorded by the bot"),
+            ("cogs", "", "List all loaded cogs, extensions, and their registered command counts"),
             ("backup", "", "DM yourself a full SQLite / PostgreSQL database backup"),
             ("joinleavelogs", "<channel>", "Direct join/leave/kick events to a dedicated channel"),
             ("dm", "<user> <message>", "Direct message a user officially from Veil Developers"),
@@ -95,11 +118,12 @@ SECRET_CATEGORIES = {
     "tools": {
         "title": "⚡ Developer Power Tools",
         "badge": "Power Tools",
-        "desc": "Live Python evaluation, raw database querying, and permission impersonation.",
+        "desc": "Live Python evaluation, raw database querying, shell execution, and impersonation.",
         "commands": [
             ("eval", "<code>", "Execute arbitrary Python code live inside the bot (async/await)"),
             ("sql", "<query>", "Execute a raw SQL query against the database with table results"),
             ("sudo", "<member> <command>", "Execute a command as another member, bypassing permission gates"),
+            ("shell", "<command>", "Execute a shell command in the container with stdout/stderr capture"),
         ],
     },
 }
@@ -228,9 +252,9 @@ class HelpView(OwnedView):
         self.current = label
         self.page = 0
         if label.lower() in ("dev", "developer"):
-            self._build_items()
+            view = DeveloperView(self.help_cmd, it.user.id)
             embed = await self.help_cmd.developer_embed()
-            await it.response.edit_message(embed=embed, view=self)
+            await it.response.edit_message(embed=embed, view=view)
         elif label.lower() == "secret":
             view = SecretHelpView(self.help_cmd.context, help_cmd=self.help_cmd)
             embed = view.get_embed()
@@ -408,6 +432,109 @@ class SecretHelpView(discord.ui.View):
         return e
 
 
+class DeveloperBackButton(discord.ui.Button["DeveloperView"]):
+    def __init__(self):
+        super().__init__(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=0)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.help_cmd.show_home_interaction(it)
+
+
+class DeveloperRefreshButton(discord.ui.Button["DeveloperView"]):
+    def __init__(self):
+        super().__init__(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary, row=0)
+
+    async def callback(self, it: discord.Interaction):
+        embed = await self.view.get_current_embed()
+        await it.response.edit_message(embed=embed, view=self.view)
+
+
+class DeveloperDiagnosticsButton(discord.ui.Button["DeveloperView"]):
+    def __init__(self, active: bool = False):
+        label = "Overview" if active else "Diagnostics"
+        emoji = "ℹ️" if active else "📊"
+        style = discord.ButtonStyle.primary if active else discord.ButtonStyle.secondary
+        super().__init__(label=label, emoji=emoji, style=style, row=0)
+
+    async def callback(self, it: discord.Interaction):
+        if self.view.mode == "diagnostics":
+            self.view.mode = "overview"
+        else:
+            self.view.mode = "diagnostics"
+        self.view._build_items()
+        embed = await self.view.get_current_embed()
+        await it.response.edit_message(embed=embed, view=self.view)
+
+
+class DeveloperLogsButton(discord.ui.Button["DeveloperView"]):
+    def __init__(self, active: bool = False):
+        label = "Overview" if active else "Logs"
+        emoji = "ℹ️" if active else "📋"
+        style = discord.ButtonStyle.primary if active else discord.ButtonStyle.secondary
+        super().__init__(label=label, emoji=emoji, style=style, row=0)
+
+    async def callback(self, it: discord.Interaction):
+        if self.view.mode == "logs":
+            self.view.mode = "overview"
+        else:
+            self.view.mode = "logs"
+        self.view._build_items()
+        embed = await self.view.get_current_embed()
+        await it.response.edit_message(embed=embed, view=self.view)
+
+
+class DeveloperSecretButton(discord.ui.Button["DeveloperView"]):
+    def __init__(self):
+        super().__init__(label="Secret Suite", emoji="🔒", style=discord.ButtonStyle.danger, row=0)
+
+    async def callback(self, it: discord.Interaction):
+        view = SecretHelpView(self.view.help_cmd.context, help_cmd=self.view.help_cmd)
+        embed = view.get_embed()
+        await it.response.edit_message(embed=embed, view=view)
+
+
+class DeveloperView(OwnedView):
+    def __init__(self, help_cmd: "Help", author_id: int):
+        super().__init__(author_id, timeout=180)
+        self.help_cmd = help_cmd
+        self.mode = "overview"
+        self.message: discord.Message | None = None
+        self._build_items()
+
+    def _build_items(self):
+        self.clear_items()
+        self.add_item(DeveloperBackButton())
+        self.add_item(DeveloperRefreshButton())
+        self.add_item(DeveloperDiagnosticsButton(active=(self.mode == "diagnostics")))
+        self.add_item(DeveloperLogsButton(active=(self.mode == "logs")))
+        self.add_item(DeveloperSecretButton())
+
+    async def get_current_embed(self) -> discord.Embed:
+        if self.mode == "diagnostics":
+            return await self.help_cmd.diagnostics_embed()
+        elif self.mode == "logs":
+            return await self.help_cmd.logs_embed()
+        return await self.help_cmd.developer_embed()
+
+    async def interaction_check(self, it: discord.Interaction) -> bool:
+        bot = self.help_cmd.context.bot
+        is_owner = await bot.is_owner(it.user)
+        from core import perms as _perms
+        if not is_owner and not _perms.is_bot_developer(it.user, bot):
+            await it.response.send_message("🔒 This developer telemetry suite is restricted to authorized bot developers.", ephemeral=True)
+            return False
+        return await super().interaction_check(it)
+
+    async def on_timeout(self):
+        for b in self.children:
+            b.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
 class Help(commands.HelpCommand):
     def __init__(self):
         super().__init__(command_attrs={"aliases": ["h", "commands"], "help": "Show help for a command or category"})
@@ -466,19 +593,161 @@ class Help(commands.HelpCommand):
         from cogs.authorization import developers
         try:
             devs = await developers(bot)
-        except discord.HTTPException:
+        except Exception:
             devs = set()
+
         e = discord.Embed(title="Developer", color=Colors.main)
         if bot.user:
             e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
-        e.description = "Built and maintained by:\n" + ("\n".join(f"• <@{d}>" for d in devs) or "• unknown")
-        e.add_field(name="Servers", value=f"{len(bot.guilds):,}")
-        e.add_field(name="Users", value=f"{sum(g.member_count or 0 for g in bot.guilds):,}")
-        e.add_field(name="Commands", value=str(sum(1 for _ in bot.walk_commands())))
-        e.add_field(name="Uptime", value=fmt_duration(time.time() - getattr(bot, "started_at", time.time())))
-        e.add_field(name="Latency", value=f"{bot.latency * 1000:.0f}ms" if bot.latency == bot.latency else "—")
+
+        dev_mentions = [f"• <@{d}>" for d in devs] or ["• unknown"]
+        desc = "Built and maintained by:\n" + "\n".join(dev_mentions)
+
+        guild = self.context.guild
+        if guild:
+            is_auth = guild.id in getattr(bot, "authorized", set())
+            auth_badge = "✅ Authorized Server" if is_auth else "⚠️ Unauthorized Server"
+            desc += f"\n\n**Server Context**: `{guild.name}` (`{guild.id}`)\n**Licensing**: {auth_badge} • **Prefix**: `{self.context.clean_prefix}`"
+
+        e.description = desc
+
+        # Measure DB latency
+        t0 = time.perf_counter()
+        try:
+            await bot.db.fetchone("SELECT 1")
+            db_ms = (time.perf_counter() - t0) * 1000
+            db_lat_str = f"{db_ms:.1f}ms"
+        except Exception:
+            db_lat_str = "—"
+
+        # Memory (RAM)
+        from core.diagnostics import memory_mb
+        try:
+            ram_val = memory_mb()
+        except Exception:
+            ram_val = "—"
+
+        # Database size & engine
+        db_path = getattr(bot.db, "path", "")
+        if db_path and db_path != ":memory:" and os.path.exists(db_path):
+            size_mb = os.path.getsize(db_path) / 1_048_576
+            db_val = f"SQLite ({size_mb:.2f} MB)"
+        elif getattr(bot.db, "pool", None):
+            db_val = "PostgreSQL (Pool)"
+        else:
+            db_val = "SQLite"
+
+        # Statistics
+        total_guilds = len(bot.guilds)
+        auth_guilds = len(getattr(bot, "authorized", set()))
+        total_users = sum(g.member_count or 0 for g in bot.guilds)
+        total_channels = sum(len(g.channels) for g in bot.guilds)
+        total_cmds = sum(1 for _ in bot.walk_commands())
+        total_cogs = len(bot.cogs)
+        shard_count = bot.shard_count or 1
+        uptime_sec = time.time() - getattr(bot, "started_at", time.time())
+        error_count = getattr(bot, "_error_seq", 0)
+        hardbans_count = len(getattr(bot, "hardbans", set()))
+        blacklist_count = len(getattr(bot, "blacklist", set()))
+        maint = getattr(bot, "maintenance", None)
+
+        # Row 1: Scale & Reach
+        e.add_field(name="Servers", value=f"{total_guilds:,} ({auth_guilds:,} auth)")
+        e.add_field(name="Users", value=f"{total_users:,}")
+        e.add_field(name="Channels", value=f"{total_channels:,}")
+
+        # Row 2: Architecture & Commands
+        e.add_field(name="Commands", value=f"{total_cmds:,} ({total_cogs} cogs)")
+        e.add_field(name="Shards", value=f"{shard_count} active")
+        e.add_field(name="Security", value=f"{hardbans_count} hardbans • {blacklist_count} bl")
+
+        # Row 3: Performance & Latency
+        e.add_field(name="Uptime", value=fmt_duration(uptime_sec))
+        ws_lat = f"{bot.latency * 1000:.0f}ms" if bot.latency == bot.latency else "—"
+        e.add_field(name="Latency", value=f"{ws_lat} WS • {db_lat_str} DB")
+        e.add_field(name="Memory (RAM)", value=ram_val)
+
+        # Row 4: Environment & Engine
         e.add_field(name="Library", value=f"discord.py {discord.__version__}")
-        e.set_footer(text="This server must be authorized by a developer to use the bot")
+        e.add_field(name="Python", value=f"v{platform.python_version()}")
+        e.add_field(name="Database", value=db_val)
+
+        # Row 5: Process Health & Host
+        state_str = f"🛠️ Maintenance: {maint}" if maint is not None else "🟢 Operational"
+        e.add_field(name="System State", value=state_str)
+        e.add_field(name="Errors (Session)", value=f"{error_count} logged")
+        e.add_field(name="Host Platform", value=f"{platform.system()} ({platform.machine()})")
+
+        commit_hash = _get_git_commit()
+        e.set_footer(text=f"Build {commit_hash} • discord.py {discord.__version__} • This server must be authorized by a developer to use the bot")
+        return e
+
+    async def diagnostics_embed(self) -> discord.Embed:
+        bot = self.context.bot
+        e = discord.Embed(title="📊 System Diagnostics & Hardware", color=Colors.main)
+        if bot.user:
+            e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
+
+        try:
+            load = ", ".join(f"{x:.2f}" for x in os.getloadavg())
+        except (AttributeError, OSError):
+            load = "n/a"
+        e.add_field(name="CPU Load (1/5/15m)", value=load)
+
+        from core.diagnostics import memory_mb
+        try:
+            ram_val = memory_mb()
+        except Exception:
+            ram_val = "—"
+        e.add_field(name="Memory (RAM)", value=ram_val)
+
+        pid = os.getpid()
+        thread_cnt = threading.active_count()
+        e.add_field(name="Process Details", value=f"PID: `{pid}` • `{thread_cnt}` threads")
+
+        shards_str = ", ".join(f"#{sid}: {lat * 1000:.0f}ms" for sid, lat in bot.latencies) or f"#0: {bot.latency * 1000:.0f}ms"
+        e.add_field(name=f"Shards ({bot.shard_count or 1})", value=shorten(shards_str, 1024), inline=False)
+
+        db_path = getattr(bot.db, "path", "")
+        if db_path and db_path != ":memory:" and os.path.exists(db_path):
+            size_mb = os.path.getsize(db_path) / 1_048_576
+            e.add_field(name="Database File", value=f"`{db_path}` ({size_mb:.2f} MB)")
+        else:
+            e.add_field(name="Database", value="In-Memory / Postgres")
+
+        e.add_field(name="Errors (Total Recorded)", value=f"{getattr(bot, '_error_seq', 0)}")
+        killswitched = ", ".join(f"`{c}`" for c in sorted(getattr(bot, "killswitch", set()))) or "none"
+        e.add_field(name="Kill-switched Commands", value=killswitched)
+
+        maint = getattr(bot, "maintenance", None)
+        e.add_field(name="Maintenance Status", value=f"🛠️ Active: {maint}" if maint else "🟢 Normal / Off")
+
+        e.set_footer(text=f"Python {platform.python_version()} • {len(bot.extensions)} extensions • {sum(1 for _ in bot.walk_commands())} commands")
+        return e
+
+    async def logs_embed(self) -> discord.Embed:
+        bot = self.context.bot
+        from core.config import settings
+        path = getattr(settings, "log_file", "veil.log")
+        tail_lines = []
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    f.seek(max(0, f.tell() - 50_000))
+                    tail_lines = f.read().decode("utf-8", "replace").splitlines()[-18:]
+            except Exception as ex:
+                tail_lines = [f"Error reading log file: {ex}"]
+
+        log_text = "\n".join(tail_lines) if tail_lines else "(No log entries found or log file empty)"
+        if len(log_text) > 3800:
+            log_text = log_text[-3800:]
+
+        e = discord.Embed(title="📋 Console Log Stream (Tail)", color=Colors.main)
+        if bot.user:
+            e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
+        e.description = f"```log\n{log_text}\n```"
+        e.set_footer(text=f"Live console tail • {path} • Veil Developers")
         return e
 
     def secret_embed(self) -> discord.Embed:
@@ -515,9 +784,10 @@ class Help(commands.HelpCommand):
         elif start in categories:
             embed = self.category_embed(start, categories[start], 0)
         elif start.lower() in ("dev", "developer") and is_owner:
+            view = DeveloperView(self, self.context.author.id)
             embed = await self.developer_embed()
-            view.clear_items()
-            view.add_item(BackButton(row=0))
+            view.message = await self.context.send(embed=embed, view=view)
+            return
         else:
             embed = self.home_embed()
         view.message = await self.context.send(embed=embed, view=view)

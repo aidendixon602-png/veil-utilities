@@ -16,6 +16,20 @@ if TYPE_CHECKING:
 VERSION = "1.1.0"
 
 
+def memory_mb() -> str:
+    try:
+        import psutil  # optional
+        return f"{psutil.Process().memory_info().rss / 1_048_576:.0f} MB"
+    except ImportError:
+        pass
+    try:
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return f"{rss / (1_048_576 if sys.platform == 'darwin' else 1024):.0f} MB (peak)"
+    except (ImportError, AttributeError):
+        return "—"
+
+
 class ConsoleFormatter(logging.Formatter):
     """Clean panel-console output: `20:17:14 | INFO  | [veil.music] | message`.
 

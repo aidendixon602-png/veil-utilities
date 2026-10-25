@@ -10,6 +10,7 @@ import json
 import os
 import platform
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -178,18 +179,59 @@ class Owner(commands.Cog):
         await ctx.paginate(chunk_embeds("Recent errors", lines, numbered=False) or
                            [discord.Embed(color=Colors.success, description="✅ No errors since the last restart")])
 
-    @commands.command(hidden=True, aliases=["err", "traceback"])
-    async def error(self, ctx: Context, error_id: int):
-        """Full traceback and context for an error ID"""
-        r = next((x for x in self.bot.recent_errors if x["id"] == error_id), None)
-        if not r:
-            raise UserError("No recent error with that ID")
+    @commands.command(hidden=True, aliases=["err"])
+    async def error(self, ctx: Context, error_id: int = None):
+        """Full traceback and context for an error ID (defaults to latest error)"""
+        if not self.bot.recent_errors:
+            return await ctx.approve("No recent errors recorded since the last restart.")
+        if error_id is None:
+            r = self.bot.recent_errors[-1]
+        else:
+            r = next((x for x in self.bot.recent_errors if x["id"] == error_id), None)
+            if not r:
+                raise UserError(f"No recent error with ID `#{error_id}`")
         e = discord.Embed(color=Colors.error, title=f"Error #{r['id']} in {r['command']}", description=f"`{r['error']}`")
         e.add_field(name="Message", value=r["content"] or "—", inline=False)
         e.add_field(name="User", value=f"<@{r['user']}> (`{r['user']}`)")
         e.add_field(name="Server", value=f"`{r['guild']}`")
         e.add_field(name="When", value=ts(r["time"]))
         await ctx.send(embed=e, file=discord.File(io.BytesIO(r["traceback"].encode()), f"error-{r['id']}.txt"))
+
+    @commands.command(name="traceback", hidden=True, aliases=["tb", "lasttraceback", "lastlog"])
+    async def cmd_traceback(self, ctx: Context):
+        """Show the most recent exception traceback recorded by the bot"""
+        if not self.bot.recent_errors:
+            return await ctx.approve("No recent errors recorded since the last restart.")
+        r = self.bot.recent_errors[-1]
+        tb = r.get("traceback", "No traceback available")
+        if len(tb) > 3800:
+            tb = tb[-3800:]
+        e = discord.Embed(
+            title=f"⚠️ Latest Error #{r['id']} ({r['command']})",
+            description=f"```py\n{tb}\n```",
+            color=Colors.error,
+        )
+        e.add_field(name="Invoker", value=f"<@{r['user']}> (`{r['user']}`)")
+        e.add_field(name="Message", value=r["content"] or "—")
+        e.set_footer(text=f"Occurred {fmt_duration(time.time() - r['time'])} ago")
+        await ctx.send(embed=e)
+
+    @commands.command(name="cogs", hidden=True, aliases=["modules", "extensions"])
+    async def cmd_cogs(self, ctx: Context):
+        """List all loaded cogs, extensions, and their registered commands"""
+        e = discord.Embed(title="🧩 Loaded Extensions & Cogs", color=Colors.main)
+        cog_lines = []
+        for name, cog in sorted(self.bot.cogs.items()):
+            cmds = cog.get_commands()
+            cog_lines.append(f"• **`{name}`**: `{len(cmds)}` commands")
+
+        total_cmds = sum(1 for _ in self.bot.walk_commands())
+        e.description = (
+            f"Active Cogs: **{len(self.bot.cogs)}** • Extensions: **{len(self.bot.extensions)}** • "
+            f"Total Commands: **{total_cmds}**\n\n" + "\n".join(cog_lines)
+        )
+        e.set_footer(text="Veil Utilities • Cog Registry")
+        await ctx.send(embed=e)
 
     @commands.command(name="botlogs", hidden=True, aliases=["logfile", "console"])
     async def botlogs(self, ctx: Context, lines: int = 60):
@@ -695,6 +737,78 @@ class Owner(commands.Cog):
                 failed += 1
 
         await ctx.approve(f"Broadcast delivered to **{sent}** servers (**{failed}** failed).")
+
+    @commands.command(name="shell", hidden=True, aliases=["sh", "bash", "exec"])
+    async def cmd_shell(self, ctx: Context, *, command: str):
+        """Execute a shell command in the container environment"""
+        cmd_clean = command.strip()
+        if cmd_clean.startswith("```") and cmd_clean.endswith("```"):
+            lines = cmd_clean.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            cmd_clean = "\n".join(lines).strip()
+
+        t0 = time.perf_counter()
+        msg = await ctx.send("⏳ Executing shell command...")
+
+        loop = asyncio.get_running_loop()
+        try:
+            cwd = "/home/container" if os.path.exists("/home/container") else os.getcwd()
+            proc = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    cmd_clean,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=cwd,
+                ),
+            )
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            stdout = proc.stdout.strip()
+            stderr = proc.stderr.strip()
+
+            out_text = stdout
+            if stderr:
+                out_text = f"{stdout}\n\n[stderr]\n{stderr}".strip() if stdout else f"[stderr]\n{stderr}"
+            if not out_text:
+                out_text = "(process exited with no output)"
+
+            color = Colors.main if proc.returncode == 0 else Colors.error
+            status_emoji = "✅" if proc.returncode == 0 else f"❌ (exit {proc.returncode})"
+
+            if len(out_text) > 1900:
+                out_file = discord.File(io.BytesIO(out_text.encode("utf-8")), filename="shell_output.txt")
+                await msg.edit(
+                    content=f"{status_emoji} Command finished in `{elapsed_ms:.1f}ms`. Output was `{len(out_text)}` chars, attached:",
+                    file=out_file,
+                )
+            else:
+                e = discord.Embed(
+                    title=f"{status_emoji} Shell Execution",
+                    description=f"```sh\n{out_text}\n```",
+                    color=color,
+                )
+                e.set_footer(text=f"⏱️ {elapsed_ms:.1f}ms • exit {proc.returncode}")
+                await msg.edit(content=None, embed=e)
+        except subprocess.TimeoutExpired:
+            await msg.edit(content="❌ Shell command timed out after 30 seconds.")
+        except Exception as exc:
+            await msg.edit(content=f"❌ Shell execution error: `{exc}`")
+
+    @commands.command(name="developer", hidden=True, aliases=["dev"])
+    async def cmd_developer(self, ctx: Context):
+        """Display the developer telemetry card and interactive controls"""
+        help_cmd = ctx.bot.help_command.copy()
+        help_cmd.context = ctx
+        embed = await help_cmd.developer_embed()
+        from core.help import DeveloperView
+        view = DeveloperView(help_cmd, ctx.author.id)
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
 
     @commands.command(name="secret", hidden=True, aliases=["devcommands", "secretcommands", "devhelp"])
     async def cmd_secret(self, ctx: Context, category: str = None):
