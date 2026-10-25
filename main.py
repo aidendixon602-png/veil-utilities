@@ -47,10 +47,15 @@ def load_env_file(path: str) -> None:
 
 def auto_sync_git() -> None:
     """If running in a git repo on a host like Wispbyte, auto-pull latest commits from GitHub."""
+    if os.environ.get("AUTO_SYNC_GIT", "1") == "0":
+        return
     try:
         import subprocess
         git_dir = os.path.join(ROOT, ".git")
         if os.path.exists(git_dir):
+            status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True, timeout=5)
+            if status.returncode == 0 and status.stdout.strip():
+                return
             r = subprocess.run(["git", "fetch", "origin", "main"], cwd=ROOT, capture_output=True, timeout=10)
             if r.returncode == 0:
                 subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=ROOT, capture_output=True, timeout=10)
@@ -70,32 +75,7 @@ except ConfigError as error:
     sys.exit(f"{error}\n\nFix these in your .env file (see .env.example) and start again.")
 
 from core.bot import INTENT_HELP, Veil, intent_plans  # noqa: E402
-
-class ConsoleFormatter(logging.Formatter):
-    """Clean panel-console output: `20:17:14 | INFO  | veil.music | message`.
-
-    Colors use ANSI escapes (Pterodactyl-style consoles render them); disabled with LOG_COLOR=0.
-    The rotating log file gets the plain format below instead."""
-
-    LEVEL_COLORS = {"DEBUG": "\x1b[2;37m", "INFO": "\x1b[38;5;42m", "WARNING": "\x1b[38;5;214m",
-                    "ERROR": "\x1b[31m", "CRITICAL": "\x1b[1;41m"}
-    RESET = "\x1b[0m"
-    DIM = "\x1b[2m"
-
-    def __init__(self, color: bool):
-        super().__init__()
-        self.color = color
-
-    def format(self, record: logging.LogRecord) -> str:
-        name = record.name.split(".")[0] if not record.name.startswith("veil") else record.name
-        when = time.strftime("%H:%M:%S", time.localtime(record.created))
-        level = {"WARNING": "WARN", "CRITICAL": "CRIT"}.get(record.levelname, record.levelname)
-        if self.color:
-            c = self.LEVEL_COLORS.get(record.levelname, "")
-            return f"{self.DIM}{when}{self.RESET} {c}{level:<5}{self.RESET} " \
-                   f"{self.DIM}{name:<12}{self.RESET} {record.getMessage()}"
-        return f"{when} {level:<5} {name:<12} {record.getMessage()}"
-
+from core.diagnostics import ConsoleFormatter, format_box, get_system_diagnostics, render_startup_banner  # noqa: E402
 
 PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 console = logging.StreamHandler()
@@ -113,7 +93,11 @@ log = logging.getLogger("veil")
 async def run_bot() -> bool:
     """Run one bot session. Returns True if an in-process restart was requested, False if exiting."""
     import discord
-    log.info("config: %s", settings.summary())
+
+    use_color = os.environ.get("LOG_COLOR", "1") != "0"
+    print(render_startup_banner(color=use_color), flush=True)
+    print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
+    log.info("Connecting to Discord Gateway with auto-sharding...")
     for intents, warning in intent_plans():
         if warning:
             log.warning("Discord refused a privileged intent. %s %s", warning, INTENT_HELP)

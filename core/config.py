@@ -117,6 +117,7 @@ class Settings:
     status: str
     db_path: str
     low_memory: bool
+    database_url: str | None
 
     # server authorization
     auth_required: bool
@@ -159,6 +160,7 @@ class Settings:
             status=r.str("STATUS", "veil utilities | ,help"),
             db_path=r.str("DB_PATH", "veil.db"),
             low_memory=r.bool("LOW_MEMORY", False),
+            database_url=r.str("DATABASE_URL"),
             auth_required=r.bool("AUTH_REQUIRED", True),
             auth_log_channel=r.snowflake("AUTH_LOG_CHANNEL"),
             auth_grandfather=r.bool("AUTH_GRANDFATHER", True),
@@ -199,7 +201,7 @@ class Settings:
     def summary(self) -> str:
         """Safe one-line-per-setting view for logs (secrets are masked)."""
         secret = {"discord_token", "ai_api_key", "lastfm_api_key", "ocr_space_api_key", "lavalink_password",
-                  "spotify_client_secret", "twitch_client_secret"}
+                  "spotify_client_secret", "twitch_client_secret", "database_url"}
         lines = []
         for f in fields(self):
             value = getattr(self, f.name)

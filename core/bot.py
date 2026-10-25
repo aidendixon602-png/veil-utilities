@@ -150,11 +150,15 @@ class Veil(commands.AutoShardedBot):
 
     async def on_ready(self):
         commands_total = sum(1 for _ in self.walk_commands())
-        log.info("──────────────────────────────────────────")
-        log.info(" veil utilities v%s", VERSION)
-        log.info(" %s · %d guilds · %d commands", self.user, len(self.guilds), commands_total)
-        log.info(" prefix %s · %shelp for the menu", self.default_prefix, self.default_prefix)
-        log.info("──────────────────────────────────────────")
+        use_color = os.environ.get("LOG_COLOR", "1") != "0"
+        try:
+            from core.diagnostics import format_box, get_ready_diagnostics
+            box = format_box("⚡ VEIL UTILITIES ONLINE", get_ready_diagnostics(self), color=use_color)
+            print("\n" + box + "\n", flush=True)
+        except Exception:
+            pass
+        log.info("Veil Utilities online: %s · %d guilds · %d commands (prefix: %s)",
+                 self.user, len(self.guilds), commands_total, self.default_prefix)
         await self.update_dynamic_status()
         await self.check_restart_notification()
 
