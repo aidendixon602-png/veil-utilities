@@ -143,6 +143,25 @@ async def run_bot(show_banner: bool = True) -> bool:
     sys.exit("Discord refused every intent combination. " + INTENT_HELP)
 
 
+def restart_process() -> None:
+    """Replace this process with a fresh `python main.py`, so every module (core/ included) is loaded from disk.
+
+    An in-process restart reuses modules that are already imported, so after an update it would mix old core
+    code with new cogs. Only returns if the exec failed; the caller then falls back to an in-process restart.
+    """
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        os.execv(sys.executable, [sys.executable, os.path.join(ROOT, "main.py"), *sys.argv[1:]])
+    except OSError as e:
+        log.warning("Couldn't start a fresh process (%s); restarting in-process instead", e)
+
+
 def main() -> None:
     rate_limit_backoff = 60
     first_boot = True
@@ -152,8 +171,9 @@ def main() -> None:
             if not should_restart:
                 break
             log.info("──────────────────────────────────────────")
-            log.info(" Internal restart requested — re-initializing in 1s…")
+            log.info(" Restart requested — starting a fresh process…")
             log.info("──────────────────────────────────────────")
+            restart_process()
             time.sleep(1)
             rate_limit_backoff = 60
             first_boot = True
