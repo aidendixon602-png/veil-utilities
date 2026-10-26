@@ -501,15 +501,18 @@ class Veil(commands.AutoShardedBot):
             error = getattr(error, "original", error)
             if isinstance(error, (commands.CommandNotFound, Ignored)):
                 return
-            if uses_compact_replies(ctx) and not (isinstance(error, UserError) and (
-                    "staff-only" in str(error) or "restricted to" in str(error))):
+            staff_only = isinstance(error, UserError) and ("staff-only" in str(error) or "restricted to" in str(error))
+            # one red "failed: reason" line for everything that stops a command; a missing Discord permission
+            # on an ordinary command keeps its rank-based wording below
+            rank_wording = isinstance(error, commands.MissingPermissions) and not uses_compact_replies(ctx)
+            if not staff_only and not rank_wording:
                 text = compact_failure(ctx, error)
                 if text:
                     return await ctx.fail(text)
             if isinstance(error, UserError):
                 err_msg = str(error)
                 del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None
-                return await ctx.warn(err_msg, delete_after=del_after)
+                return await ctx.deny(err_msg, delete_after=del_after)
             if isinstance(error, commands.MissingRequiredArgument):
                 return await ctx.send_help(ctx.command)
             if isinstance(error, commands.MissingPermissions):
@@ -526,16 +529,16 @@ class Veil(commands.AutoShardedBot):
                 elif any(p in perms_list for p in ("manage_messages",)):
                     needed_rank = "Helper"
 
-                return await ctx.warn(
+                return await ctx.deny(
                     f"🔒 Access Denied: This command requires bot permission rank **{needed_rank}+** (`uperm`) to use."
                 )
             if isinstance(error, commands.BotMissingPermissions):
                 perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-                return await ctx.warn(f"I'm missing {perms} permission")
+                return await ctx.deny(f"I'm missing {perms} permission")
             if isinstance(error, commands.NotOwner):
                 return
             if isinstance(error, commands.NoPrivateMessage):
-                return await ctx.warn("This command can only be used in servers")
+                return await ctx.deny("This command can only be used in servers")
             if isinstance(error, commands.CommandOnCooldown):
                 now = time.monotonic()
                 uid = ctx.author.id
@@ -544,28 +547,28 @@ class Veil(commands.AutoShardedBot):
                     return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=3.5)
                 return
             if isinstance(error, commands.MaxConcurrencyReached):
-                return await ctx.warn("This command is already running")
+                return await ctx.deny("This command is already running")
             if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
-                return await ctx.warn(f"I couldn't find a user matching `{error.argument}`")
+                return await ctx.deny(f"I couldn't find a user matching `{error.argument}`")
             if isinstance(error, commands.RoleNotFound):
-                return await ctx.warn(f"I couldn't find a role matching `{error.argument}`")
+                return await ctx.deny(f"I couldn't find a role matching `{error.argument}`")
             if isinstance(error, commands.ChannelNotFound):
-                return await ctx.warn(f"I couldn't find a channel matching `{error.argument}`")
+                return await ctx.deny(f"I couldn't find a channel matching `{error.argument}`")
             if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
                                   commands.TooManyArguments)):
-                return await ctx.warn(str(error))
+                return await ctx.deny(str(error))
             if isinstance(error, commands.UserInputError):  # quote errors, bad flags, ...
-                return await ctx.warn(str(error) or "That input isn't valid")
+                return await ctx.deny(str(error) or "That input isn't valid")
             if isinstance(error, commands.DisabledCommand):
-                return await ctx.warn("That command is disabled right now")
+                return await ctx.deny("That command is disabled right now")
             if isinstance(error, commands.CheckFailure):
-                return await ctx.warn(str(error) or "You can't use this command")
+                return await ctx.deny(str(error) or "You can't use this command")
             if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
-                return await ctx.warn("That took too long, try again in a moment")
+                return await ctx.deny("That took too long, try again in a moment")
             if isinstance(error, discord.Forbidden):
-                return await ctx.warn("I don't have permission to do that (check my role position & permissions)")
+                return await ctx.deny("I don't have permission to do that (check my role position & permissions)")
             if isinstance(error, discord.HTTPException):
-                return await ctx.warn(f"Discord rejected that: `{error.text or error.status}`")
+                return await ctx.deny(f"Discord rejected that: `{error.text or error.status}`")
             tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
             log.error("Unhandled error in %s:\n%s", ctx.command, tb)
             self._error_seq += 1

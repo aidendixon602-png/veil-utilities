@@ -40,6 +40,22 @@ doesn't match the live commands, so keep it in sync.
 - `ruff` is the source of truth for formatting/linting (see `pyproject.toml`).
 - Keep freedom: every integration must degrade gracefully when its key/node is missing.
 
+### Replies
+
+Answer with the `ctx` helpers instead of building an embed by hand. Each sends one coloured line as a
+reply to the command message, with no author header or footer:
+
+| Helper | Colour | Use it for |
+| --- | --- | --- |
+| `ctx.approve(text)` (alias `done`) | green | it worked |
+| `ctx.warn(text)` | amber | careful, empty results, "nothing to do", confirmations |
+| `ctx.deny(text)` (alias `fail`) | red | it did not work |
+| `ctx.neutral(text)` | grey | plain information |
+
+Write successes as a short past-tense phrase in lower case (`banned @user`, `added @Role to @user`).
+Raise `UserError("…")` for a problem the user caused: the bot turns it into `failed: …` in red.
+Reach for a full embed (`discord.Embed`) only when the answer is a card or a list the person will read.
+
 ## Reporting bugs & requesting features
 
 Use the [issue templates](https://github.com/aidendixon602-png/veil-utilities/issues/new/choose).

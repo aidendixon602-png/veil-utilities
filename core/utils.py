@@ -60,52 +60,9 @@ class Context(commands.Context["Veil"]):
             kwargs.pop("reference", None)
             return await self.channel.send(*args, **kwargs)
 
-    async def _footer(self) -> str | None:
-        if self.guild is None:
-            return None
-        from core import perms
-        cmd = self.command.qualified_name if self.command else ""
-        if cmd in ("userperm check", "perm check", "perms check", "uperm check", "permission check", "userperm"):
-            cmd = "permission check"
-        seg = f"{self.clean_prefix}{cmd}".rstrip()
-        try:
-            cfg = await self.bot.db.get_config(self.guild.id, "permlevels")
-            is_dev = await self.bot.is_owner(self.author)
-            is_owner = self.author.id == self.guild.owner_id
-            lab = perms.label(cfg, self.author, is_owner=is_owner, is_dev=is_dev)
-        except Exception:
-            lab = None
-        return f"{seg} • {lab}" if lab else (seg or None)
-
-    async def _styled(self, color: int, text: str, **kw):
-        embed = discord.Embed(description=text, color=color)
-        if self.bot.user:
-            embed.set_author(name=self.bot.user.display_name, icon_url=self.bot.user.display_avatar.url)
-        footer = await self._footer()
-        if footer:
-            embed.set_footer(text=footer)
-            embed.timestamp = discord.utils.utcnow()
-        try:
-            return await self.send(embed=embed, **kw)
-        except (discord.Forbidden, discord.HTTPException):
-            try:
-                return await self.send(text, **kw)
-            except Exception:
-                return None
-
-    async def approve(self, text: str, **kw):
-        return await self._styled(Colors.success, text, **kw)
-
-    async def warn(self, text: str, **kw):
-        return await self._styled(Colors.warn, text, **kw)
-
-    async def deny(self, text: str, **kw):
-        return await self._styled(Colors.error, text, **kw)
-
-    async def neutral(self, text: str, **kw):
-        return await self._styled(Colors.neutral, text, **kw)
-
-    # compact one-line replies (used by the role commands): a coloured bar and the text, sent as a reply
+    # ---- replies: every plain answer is one coloured line, sent as a reply (no author header, no footer)
+    #   green  approve/done  it worked          amber  warn     careful, empty, or nothing to do
+    #   red    deny/fail     it did not work    grey   neutral  plain information
     async def compact(self, color: int, text: str, **kw):
         embed = discord.Embed(description=text, color=color)
         kw.setdefault("mention_author", False)
@@ -119,11 +76,20 @@ class Context(commands.Context["Veil"]):
             except Exception:
                 return None
 
-    async def done(self, text: str, **kw):
+    async def approve(self, text: str, **kw):
         return await self.compact(Colors.success, text, **kw)
 
-    async def fail(self, text: str, **kw):
+    async def warn(self, text: str, **kw):
+        return await self.compact(Colors.warn, text, **kw)
+
+    async def deny(self, text: str, **kw):
         return await self.compact(Colors.error, text, **kw)
+
+    async def neutral(self, text: str, **kw):
+        return await self.compact(Colors.neutral, text, **kw)
+
+    done = approve  # the role commands' older names
+    fail = deny
 
     async def paginate(self, embeds: list[discord.Embed]):
         if not embeds:
