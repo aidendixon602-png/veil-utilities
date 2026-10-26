@@ -898,7 +898,7 @@ class Owner(commands.Cog):
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def cmd_testnuke(self, ctx: Context, roles: int = None, channels: int = None):
         """Rapidly create roles and channels in the test server to check the antinuke (asks first, OWNER_IDS only)"""
-        guild = testnuke.test_guild(ctx)
+        guild, becomes_test_server = await testnuke.test_guild(self.bot, ctx)
         antinuke = self.bot.get_cog("Antinuke")
         if antinuke is None:
             raise UserError("The antinuke isn't loaded.")
@@ -915,11 +915,14 @@ class Owner(commands.Cog):
             raise UserError("Nothing to create: give it at least one role or channel.")
 
         view = testnuke.ConfirmTest(ctx.author.id)
-        msg = await ctx.send(embed=testnuke.warning_embed(guild, cfg, roles, channels, ctx.clean_prefix), view=view)
+        msg = await ctx.send(embed=testnuke.warning_embed(guild, cfg, roles, channels, ctx.clean_prefix,
+                                                          becomes_test_server), view=view)
         await view.wait()
         if not view.confirmed:
             text = "Test cancelled." if view.confirmed is False else "Test cancelled: nobody confirmed it in time."
             return await msg.edit(embed=discord.Embed(color=Colors.neutral, description=text), view=None)
+        if becomes_test_server:
+            await testnuke.save_test_guild(self.bot, guild.id)
         await msg.edit(embed=discord.Embed(color=Colors.warn, description=(
             f"🧪 Running: creating **{roles}** role(s) and **{channels}** channel(s)…")), view=None)
         result = await testnuke.run_test(antinuke, guild, ctx.author.id, roles, channels)
@@ -929,7 +932,7 @@ class Owner(commands.Cog):
     @testnuke.env_developer_only()
     async def cmd_testcleanup(self, ctx: Context):
         """Delete every role and channel a test nuke left behind in the test server (OWNER_IDS only)"""
-        guild = testnuke.test_guild(ctx)
+        guild, _ = await testnuke.test_guild(self.bot, ctx)
         roles, channels, failed = await testnuke.cleanup(self.bot.get_cog("Antinuke"), guild)
         if not roles and not channels and not failed:
             return await ctx.neutral("nothing to clean up: no `testnuke-` roles or channels here")
@@ -937,6 +940,30 @@ class Owner(commands.Cog):
         if failed:
             text += f" · **{failed}** couldn't be deleted (check my role is above them)"
         await (ctx.warn(text) if failed else ctx.approve(text))
+
+    @commands.command(name="testserver", hidden=True)
+    @testnuke.env_developer_only()
+    async def cmd_testserver(self, ctx: Context, action: str = None):
+        """See or change the server `testnuke` runs in: `testserver set` (this server) or `testserver clear`"""
+        from core.config import settings as _settings
+        if action is None:
+            current = await testnuke.saved_test_guild_id(self.bot)
+            guild = self.bot.get_guild(current) if current else None
+            where = f"**{discord.utils.escape_markdown(guild.name)}**" if guild else (f"`{current}`" if current else "none yet")
+            return await ctx.neutral(f"test server: {where}"
+                                     + (" (set in .env)" if _settings.test_guild_id else "")
+                                     + f" · `{ctx.clean_prefix}testserver set` here to change it")
+        if _settings.test_guild_id:
+            raise UserError("The test server is set with `TEST_GUILD_ID` in .env, which wins. Remove it there first.")
+        if action.lower() in ("set", "here", "this"):
+            if ctx.guild is None:
+                raise UserError("Run this in the server you want to test in.")
+            await testnuke.save_test_guild(self.bot, ctx.guild.id)
+            return await ctx.approve(f"**{discord.utils.escape_markdown(ctx.guild.name)}** is now the test server")
+        if action.lower() in ("clear", "remove", "none", "reset"):
+            await testnuke.save_test_guild(self.bot, None)
+            return await ctx.approve("no test server now: the next confirmed `testnuke` picks one")
+        raise UserError("Use `testserver set` or `testserver clear`.")
 
     @commands.command(name="developer", hidden=True, aliases=["dev", "secret", "devcommands", "secretcommands", "devhelp"])
     async def cmd_developer(self, ctx: Context):

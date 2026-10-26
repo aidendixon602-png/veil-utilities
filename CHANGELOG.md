@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The test server is picked in Discord, not .env.** With no test server yet, `,testnuke`'s warning says that
+  confirming makes the current server the test server (cancelling doesn't). `,testserver` shows it,
+  `,testserver set` makes the current server the test server and `,testserver clear` forgets it (`OWNER_IDS`
+  developers only). `TEST_GUILD_ID` in .env still works and wins if it's set.
+
 - **Commands clean up after themselves.** Once a command has run, the message that ran it is deleted, and the
   bot's replies follow 15 seconds later. Menus (`,help`, `,an`, paged lists) go when they close instead. Lasting
   things stay: giveaways, button-role and ticket panels (anything with buttons that never expire), and what `poll`

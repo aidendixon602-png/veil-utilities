@@ -20,7 +20,8 @@ ids = itertools.count(9000)
 
 @pytest.fixture(autouse=True)
 def configured(monkeypatch):
-    monkeypatch.setattr(tn, "settings", SimpleNamespace(owner_ids=frozenset({DEV}), test_guild_id=TEST_GUILD))
+    # nothing in .env for the test server: it's picked in Discord
+    monkeypatch.setattr(tn, "settings", SimpleNamespace(owner_ids=frozenset({DEV}), test_guild_id=None))
 
 
 # ------------------------------------------------------------------ who and where
@@ -41,13 +42,52 @@ def test_only_developer_ids_from_the_environment_pass():
             run_check(uid)
 
 
-def test_it_only_runs_in_the_designated_test_server(monkeypatch):
-    assert tn.test_guild(SimpleNamespace(guild=SimpleNamespace(id=TEST_GUILD))).id == TEST_GUILD
-    with pytest.raises(UserError, match="designated test server"):
-        tn.test_guild(SimpleNamespace(guild=SimpleNamespace(id=777)))
-    monkeypatch.setattr(tn, "settings", SimpleNamespace(owner_ids=frozenset({DEV}), test_guild_id=None))
-    with pytest.raises(UserError, match="TEST_GUILD_ID"):
-        tn.test_guild(SimpleNamespace(guild=SimpleNamespace(id=TEST_GUILD)))
+def picker_bot(saved=None):
+    store = {"global": {"test_guild_id": saved} if saved else {}}
+
+    async def get_config(gid, module, default=None):
+        return store.setdefault(module, {})
+
+    async def set_config(gid, module, data):
+        store[module] = data
+    return SimpleNamespace(db=SimpleNamespace(get_config=get_config, set_config=set_config),
+                           get_guild=lambda gid: SimpleNamespace(id=gid, name="Sandbox")), store
+
+
+def test_with_no_test_server_yet_the_current_one_is_offered():
+    bot, _ = picker_bot()
+    guild, new = asyncio.run(tn.test_guild(bot, SimpleNamespace(guild=SimpleNamespace(id=TEST_GUILD))))
+    assert guild.id == TEST_GUILD and new is True
+
+
+def test_once_picked_tests_only_run_there():
+    bot, _ = picker_bot(saved=TEST_GUILD)
+    guild, new = asyncio.run(tn.test_guild(bot, SimpleNamespace(guild=SimpleNamespace(id=TEST_GUILD))))
+    assert new is False
+    with pytest.raises(UserError, match=r"only run in the test server \(\*\*Sandbox\*\*\)"):
+        asyncio.run(tn.test_guild(bot, SimpleNamespace(guild=SimpleNamespace(id=777))))
+
+
+def test_an_id_in_env_still_wins(monkeypatch):
+    monkeypatch.setattr(tn, "settings", SimpleNamespace(owner_ids=frozenset({DEV}), test_guild_id=TEST_GUILD))
+    bot, _ = picker_bot(saved=777)
+    assert asyncio.run(tn.saved_test_guild_id(bot)) == TEST_GUILD
+
+
+def test_the_testserver_command_sets_shows_and_clears(monkeypatch):
+    from cogs.owner import Owner
+    monkeypatch.setattr("core.config.settings", SimpleNamespace(test_guild_id=None, owner_ids=frozenset({DEV})))
+    bot, store = picker_bot()
+    owner = Owner.__new__(Owner)
+    owner.bot = bot
+    ctx = SimpleNamespace(guild=SimpleNamespace(id=TEST_GUILD, name="Sandbox"), approve=AsyncMock(),
+                          neutral=AsyncMock(), clean_prefix=",")
+    asyncio.run(Owner.cmd_testserver.callback(owner, ctx, "set"))
+    assert store["global"]["test_guild_id"] == TEST_GUILD
+    asyncio.run(Owner.cmd_testserver.callback(owner, ctx, None))
+    assert "**Sandbox**" in ctx.neutral.await_args.args[0]
+    asyncio.run(Owner.cmd_testserver.callback(owner, ctx, "clear"))
+    assert "test_guild_id" not in store["global"]
 
 
 def press(view, label, user_id):
@@ -240,7 +280,9 @@ def test_the_command_asks_first_then_runs_and_reports(monkeypatch):
     from cogs.owner import Owner
     cog, guild = make()
     owner = Owner.__new__(Owner)
-    owner.bot = SimpleNamespace(get_cog=lambda name: cog if name == "Antinuke" else None)
+    picker, store = picker_bot()
+    owner.bot = SimpleNamespace(get_cog=lambda name: cog if name == "Antinuke" else None, db=picker.db,
+                                get_guild=picker.get_guild)
     msg = SimpleNamespace(edit=AsyncMock())
     ctx = SimpleNamespace(guild=guild, author=SimpleNamespace(id=DEV), clean_prefix=",",
                           send=AsyncMock(return_value=msg))
@@ -260,13 +302,16 @@ def test_the_command_asks_first_then_runs_and_reports(monkeypatch):
     assert labels == ["Confirm Test", "Cancel"]
     tn.run_test.assert_awaited_once_with(cog, guild, DEV, 6, 3)  # one more than each rule allows
     assert msg.edit.await_args.kwargs["embed"].title == "Test nuke finished"
+    assert "makes **this server** the test server" in warning.description  # none was picked yet...
+    assert store["global"]["test_guild_id"] == TEST_GUILD  # ...so confirming picked this one
 
 
 def test_a_cancelled_test_creates_nothing(monkeypatch):
     from cogs.owner import Owner
     cog, guild = make()
     owner = Owner.__new__(Owner)
-    owner.bot = SimpleNamespace(get_cog=lambda name: cog)
+    picker, store = picker_bot()
+    owner.bot = SimpleNamespace(get_cog=lambda name: cog, db=picker.db, get_guild=picker.get_guild)
     msg = SimpleNamespace(edit=AsyncMock())
     ctx = SimpleNamespace(guild=guild, author=SimpleNamespace(id=DEV), clean_prefix=",",
                           send=AsyncMock(return_value=msg))
@@ -281,3 +326,4 @@ def test_a_cancelled_test_creates_nothing(monkeypatch):
     tn.run_test.assert_not_awaited()
     assert msg.edit.await_args.kwargs["embed"].description == "Test cancelled."
     assert not guild.roles and not guild.channels
+    assert "test_guild_id" not in store["global"]  # cancelling doesn't pick a test server
