@@ -1,5 +1,6 @@
-"""Public ,help: a plain home card and one dropdown of categories. Each category is a single page of command names;
-`,help <command>` has the details. Developers get a Developer category in the same dropdown, in the same style.
+"""Public ,help: a plain home card with one button per category. A category is one page: each command with its
+arguments and what it does, then its aliases, and a Back button. `,help <command>` has the full card. Developers get a
+Developer button that opens the same kind of page for the developer commands.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import typing
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, OwnedView, respond_or_edit, shorten, shorten_md
+from core.utils import Colors, OwnedView, respond_or_edit, shorten_md
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
@@ -28,20 +29,24 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Automod", ["Automod"], []),
     ("Server", ["Config", "Settings"], []),
     ("VoiceMaster", ["VoiceMaster"], []),
-    ("Community", ["Levels", "Giveaways", "Tickets", "Feeds", "Integrations", "Fun", "Imaging", "AI"], []),
+    ("Community", ["Levels", "Giveaways", "Tickets", "Feeds", "Integrations"], []),
+    ("Fun", ["Fun", "AI"], []),
+    ("Images", ["Imaging"], []),
 ]
 
 PAGE_SIZE = 10  # only for subcommand lists now; category pages hold every command
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
-HELP_COLOR = Colors.blurple
+HELP_COLOR = Colors.blurple  # command cards; the menu pages use Discord's plain embed colour
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
     "Utility": 0,       # Public
     "Music": 0,         # Public
     "VoiceMaster": 0,   # Public
     "Community": 0,     # Public
+    "Fun": 0,           # Public
+    "Images": 0,        # Public
     "Moderation": 1,    # Helper+ (rank 1)
     "Roles": 3,         # Admin+ (rank 3)
     "Automod": 3,       # Admin+ (rank 3)
@@ -61,6 +66,8 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Server": "⚙️",
     "VoiceMaster": "🎙️",
     "Community": "✨",
+    "Fun": "🎲",
+    "Images": "🖼️",
     "Developer": "⚡",
 }
 
@@ -75,7 +82,9 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Automod": "Spam, link and invite filtering",
     "Server": "Server setup, welcome messages and settings",
     "VoiceMaster": "Temporary voice channels and VC controls",
-    "Community": "Levels, tickets, giveaways, feeds, AI and fun",
+    "Community": "Levels, tickets, giveaways, feeds and lookups",
+    "Fun": "Games, actions, jokes and AI",
+    "Images": "Image effects and edits",
     "Developer": "Bot owner tools: updates, restarts, blacklist, eval",
 }
 
@@ -132,6 +141,56 @@ def perms_of(cmd: commands.Command) -> list[str]:
             if isinstance(val, dict) and all(isinstance(v, bool) for v in val.values()):
                 perms.extend(val)
     return sorted(set(perms))
+
+
+_ARG_NAMES: list[tuple[type, str]] = [
+    (discord.Member, "member"), (discord.User, "user"), (discord.Role, "role"), (discord.TextChannel, "channel"),
+    (discord.VoiceChannel, "channel"), (discord.abc.GuildChannel, "channel"), (bool, "on/off"), (int, "number"),
+    (float, "number"), (str, "text"),
+]
+
+
+def _arg_name(name: str, param: inspect.Parameter) -> str:
+    """A readable name: `arg1: discord.Role` reads as `role`."""
+    if not re.fullmatch(r"arg\d*", name):
+        return name
+    annotation = param.annotation
+    for kind in typing.get_args(annotation) or (annotation,):
+        for base, label in _ARG_NAMES:
+            if isinstance(kind, type) and issubclass(kind, base):
+                return label
+    return "value"
+
+
+def short_args(cmd) -> str:
+    """`<member> [reason]`: required in angle brackets, optional in square ones, no default values."""
+    out = []
+    for name, param in (getattr(cmd, "clean_params", None) or {}).items():
+        if name in ("ctx", "self"):  # commands built by a factory can carry these through
+            continue
+        required = param.default is inspect.Parameter.empty and param.kind != inspect.Parameter.VAR_POSITIONAL
+        label = _arg_name(name, param)
+        out.append(f"<{label}>" if required else f"[{label}]")
+    return " ".join(out)
+
+
+def description(cmd, limit: int = 110) -> str:
+    """The command's first sentence for a category page, minus usage examples and "— see ..." tails."""
+    text = ((getattr(cmd, "short_doc", None) or "").strip().splitlines() or [""])[0].strip()
+    text = re.sub(r"^`[^`]*`\s*[—–:-]?\s*", "", text)         # a line that opens with an example
+    text = re.sub(r"\s*\([^()]*`[^()]*\)", "", text)          # "(`none` to remove)": examples live on the command card
+    text = re.split(r"\s+[—–]\s+|\.\s", text, maxsplit=1)[0]   # first sentence, no dash tail
+    text = re.sub(r":\s*`.*$", "", text).strip().rstrip(".,;:")  # "Seek to a time: `seek 1:30`"
+    return shorten_md(text, limit) if text else "no description yet"
+
+
+def sentence(text: str) -> str:
+    """'Ban a member' -> 'ban a member.' (acronyms like 'AI' or 'DJ' keep their capitals)."""
+    if not text:
+        return text
+    if len(text) > 1 and text[1].islower():
+        text = text[0].lower() + text[1:]
+    return text if text.endswith((".", "!", "?", "…")) else text + "."
 
 
 def usage(prefix: str, cmd: commands.Command) -> str:
@@ -268,25 +327,34 @@ def developer_commands(bot) -> list[commands.Command]:
     return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
 
 
-class CategorySelect(discord.ui.Select["HelpView"]):
-    """The one control on the menu: pick a category, the page swaps in place."""
+class CategoryButton(discord.ui.Button["HelpView"]):
+    """One plain button per category on the home card."""
 
-    def __init__(self, labels: list[str], current: str | None):
-        options = [discord.SelectOption(label=label, value=label, emoji=CATEGORY_EMOJIS.get(label),
-                                        description=CATEGORY_DESCRIPTIONS.get(label) or None,
-                                        default=(label == current))
-                   for label in labels[:25]]
-        super().__init__(placeholder="Choose a category", options=options, min_values=1, max_values=1)
+    def __init__(self, label: str, row: int):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=row)
+        self.category = label
 
     async def callback(self, it: discord.Interaction):
-        await self.view.show_category(it, self.values[0])
+        await self.view.show_category(it, self.category)
+
+
+class BackButton(discord.ui.Button["HelpView"]):
+    """The only button on a category page: back to the home card."""
+
+    def __init__(self):
+        super().__init__(label="← Back", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show_home(it)
+
+
+BUTTONS_PER_ROW = 5
 
 
 class HelpView(OwnedView):
-    """The home card or a category page, with a single category dropdown under it.
+    """Home card with a button per category; a category page with a Back button.
 
-    Every page is built when the menu opens, so picking a category only swaps the embed: one quick edit, no
-    lookups while Discord shows the loading dots."""
+    Every page is built when the menu opens, so a click only swaps the embed: one quick edit."""
 
     def __init__(self, help_cmd: Help, categories: dict[str, list[commands.Command]], start: str | None = None,
                  is_owner: bool = False, author_rank: int = 0):
@@ -296,6 +364,7 @@ class HelpView(OwnedView):
         self.author_rank = author_rank
         self.message: discord.Message | None = None
         self.pages = {label: help_cmd.category_embed(label, self.commands_in(label)) for label in self.labels()}
+        self.home = help_cmd.home_embed(author_rank, categories, is_owner)
         self.current = start if start in self.pages else None
         self._build_items()
 
@@ -305,7 +374,7 @@ class HelpView(OwnedView):
 
     def labels(self) -> list[str]:
         names = category_labels(self.categories, self.is_owner, self.author_rank)
-        return names + (["Developer"] if self.is_owner else [])
+        return (names + (["Developer"] if self.is_owner else []))[:25]
 
     def commands_in(self, label: str | None) -> list[commands.Command]:
         if label == "Developer":
@@ -313,13 +382,15 @@ class HelpView(OwnedView):
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank)
 
     def embed(self) -> discord.Embed:
-        if self.current is None:
-            return self.help_cmd.home_embed(self.author_rank, self.categories, self.is_owner)
-        return self.pages[self.current]
+        return self.home if self.current is None else self.pages[self.current]
 
     def _build_items(self):
         self.clear_items()
-        self.add_item(CategorySelect(self.labels(), self.current))
+        if self.current is not None:
+            self.add_item(BackButton())
+            return
+        for i, label in enumerate(self.labels()):
+            self.add_item(CategoryButton(label, i // BUTTONS_PER_ROW))
 
     async def show_category(self, it: discord.Interaction, label: str):
         if label not in self.pages:  # not theirs to open (a stale menu, or a rank that changed)
@@ -327,6 +398,11 @@ class HelpView(OwnedView):
         self.current = label
         self._build_items()
         await respond_or_edit(it, self.pages[label], self)
+
+    async def show_home(self, it: discord.Interaction):
+        self.current = None
+        self._build_items()
+        await respond_or_edit(it, self.home, self)
 
     async def on_timeout(self):
         if self.message:
@@ -347,19 +423,33 @@ class Help(commands.HelpCommand):
                    is_owner: bool = False) -> discord.Embed:
         """The plain home card. (The arguments are kept so callers don't change; the buttons carry the detail.)"""
         bot = self.context.bot
-        p = self.context.clean_prefix
-        e = discord.Embed(color=HELP_COLOR, description=f"Select a category below to view its commands.\nprefix: {p}")
+        e = discord.Embed(description="select a category below to view its commands.")
         if bot and getattr(bot, "user", None):
             e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
+        e.add_field(name=f"prefix: {self.context.clean_prefix}", value="\u200b", inline=False)
         return e
 
     def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
-        """Every command in the category on one page, names only. (`page` is ignored; kept for old callers.)"""
+        """One page per category: `,command <args>` - what it does, then the aliases. (`page` is ignored.)"""
         p = self.context.clean_prefix
-        names = " · ".join(re.sub(r"([_*~|`])", r"\\\1", c.name) for c in cmds) or "No commands in this category."
-        e = discord.Embed(title=f"{CATEGORY_EMOJIS.get(label, '📁')} {label} · {count(len(cmds), 'command')}",
-                          color=HELP_COLOR, description=shorten(names, 4000))
-        e.set_footer(text=f"{p}help <command> for details")
+        aliases = " • ".join(f"{cmd.name} → {' '.join(cmd.aliases)}" for cmd in cmds if getattr(cmd, "aliases", None))
+        tail = f"\n\nAliases: {aliases}" if aliases else ""
+        for limit in (110, 80, 60, 40):  # shorter descriptions before anything is left out
+            lines = [f"`{p}{cmd.name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}` - "
+                     f"{sentence(description(cmd, limit))}" for cmd in cmds] or ["no commands in this category."]
+            body = "\n".join(lines)
+            if len(body) + len(tail) <= 4096:
+                break
+        if len(body) + len(tail) > 4096:  # never cut a line in half; say how to see the rest
+            kept, size = [], len(tail) + 60
+            for line in lines:
+                if size + len(line) + 1 > 4096:
+                    break
+                kept.append(line)
+                size += len(line) + 1
+            body = "\n".join(kept) + f"\n…and {len(lines) - len(kept)} more: `{p}help <command>`"
+        e = discord.Embed(title=label, description=body + tail)
+        e.add_field(name=f"prefix: {p}", value="\u200b", inline=False)
         return e
 
     def command_embed(self, cmd: commands.Command) -> discord.Embed:

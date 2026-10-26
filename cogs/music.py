@@ -387,7 +387,7 @@ class Music(commands.Cog):
 
     @commands.command()
     async def pause(self, ctx: Context):
-        """Pause"""
+        """Pause the music"""
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         await player.pause(True)
@@ -395,7 +395,7 @@ class Music(commands.Cog):
 
     @commands.command()
     async def resume(self, ctx: Context):
-        """Resume"""
+        """Resume the music"""
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         await player.pause(False)

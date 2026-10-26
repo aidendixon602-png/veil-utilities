@@ -110,10 +110,10 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 <br/>
 
 <div align="center">
-<img src="assets/help-preview.png" alt="The ,help menu: one category dropdown and every command name on one page" width="560"/>
+<img src="assets/help-preview.png" alt="The ,help menu: a button per category; each category lists its commands with arguments, then a Back button" width="460"/>
 </div>
 
-One dropdown of the categories you're allowed to open; each category is a single page with every command name (no paging). `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Developer** category only appears for developers. Every bot response also replies to your message (without pinging).
+A plain home card with one button per category you're allowed to open. Each category is a single page: every command with its arguments and what it does (`,play <query>` - play a song or playlist.), then its aliases, and a ← Back button. `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Developer** category only appears for developers. Every bot response also replies to your message (without pinging).
 The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>
@@ -229,7 +229,7 @@ veil-utilities/
 │   ├── config.py            typed, validated settings loaded from .env
 │   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
 │   ├── dashboard.py         opt-in web dashboard with Discord login
-│   ├── help.py              the ,help menu: category dropdown, one page per category, command cards
+│   ├── help.py              the ,help menu: category buttons, one page per category, command cards
 │   ├── modlog.py            numbered moderation cases
 │   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
 │   ├── perms.py             named permission levels & staff hierarchy
@@ -257,7 +257,7 @@ veil-utilities/
 - [x] PostgreSQL backend option for large deployments
 - [x] Audit pass over automod · logging · permissions cogs
 - [x] Developer lockdown: hidden commands are invisible to non-developers
-- [x] Developer commands in the same help dropdown (developers only)
+- [x] Developer commands in the same help menu (developers only)
 - [x] Automatic developer authorization & BLED bypass
 - [ ] More image filters and AI models
 

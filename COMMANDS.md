@@ -408,11 +408,11 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `djrole [role]` | Set the DJ role (needed to pause/stop/volume/etc.), or no role to let everyone control music | manage guild |
 | `loop [mode=track]` | Loop mode: track, queue or off |  |
 | `lyrics [query]` (ly, songlyrics) | Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track) | uperm: helper |
-| `pause` | Pause |  |
+| `pause` | Pause the music |  |
 | `play <query>` (p) | Play a song or playlist (URL or search) |  |
 | `queue` (q) | Show the queue |  |
 | `remove <position>` | Remove a track from the queue |  |
-| `resume` | Resume |  |
+| `resume` | Resume the music |  |
 | `seek <position>` | Seek to a time: `seek 1:30` |  |
 | `shuffle` | Shuffle the queue |  |
 | `skip` (next, voteskip, vs) | Skip the current song (DJs and the requester skip instantly, others vote) |  |
@@ -519,7 +519,7 @@ _Handy everyday tools_
 | `ping` | Latency |  |
 | `poll <question>` | Quick poll — `poll Pizza? \| Yes \| No \| Maybe` for options | manage messages |
 | `reactionsnipe` (rs) | Show recently removed reactions |  |
-| `remind <duration> [reminder=something]` (remindme, reminder) | `remind 2h30m take out the trash` |  |
+| `remind <duration> [reminder=something]` (remindme, reminder) | Set a reminder: `remind 2h30m take out the trash` |  |
 | `remind delete <reminder_id>` (remove, cancel) | Cancel a reminder |  |
 | `remind list` | Your reminders |  |
 | `roleinfo <role>` (ri) | Info about a role |  |
