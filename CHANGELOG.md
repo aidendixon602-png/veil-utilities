@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One reply style for the whole bot.** `ctx.approve`, `warn`, `deny` and `neutral` now send a single coloured line
+  as a reply (green worked, amber careful/empty, red failed, grey info) with no author header, footer or timestamp,
+  the same look the role commands already had. Every command error is now a red `failed: reason` line;
+  only the cooldown nudge stays amber. Missing Discord permissions on ordinary commands keep their rank wording.
+  The reply rules are in CONTRIBUTING.md.
 - **Logging rebuilt around per-category channels.** `,logs setup` creates a private **VEIL LOGS** category with
   `message-logs`, `member-logs`, `role-logs`, `channel-logs`, `voice-logs`, `mod-logs`, `server-logs`,
   `command-logs` and `antinuke-logs`; `,logs` opens a panel to point each category at a channel (or turn it off).

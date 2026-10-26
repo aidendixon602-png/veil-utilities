@@ -96,22 +96,27 @@ def test_unexpected_errors_fall_back_to_the_normal_handler():
 
 # ------------------------------------------------------------------ wired into the error handler
 
-def test_error_handler_sends_red_line_for_role_commands_only(bot):
+def test_error_handler_sends_a_red_line_for_every_command(bot):
+    async def go():
+        for command in (Moderation.role, Moderation.stripstaff):
+            ctx = MagicMock()
+            ctx.command = command
+            ctx.compact_action = None
+            ctx.fail, ctx.warn, ctx.deny = AsyncMock(), AsyncMock(), AsyncMock()
+            await bot.on_command_error(ctx, MissingRank("Admin"))
+            ctx.fail.assert_awaited_once_with("failed: you need the **Admin** rank or higher (`uperm`)")
+            ctx.warn.assert_not_awaited()
+    asyncio.run(go())
+
+
+def test_missing_discord_permission_keeps_rank_wording_outside_role_commands(bot):
     async def go():
         ctx = MagicMock()
-        ctx.command = Moderation.role
-        ctx.compact_action = None
-        ctx.fail, ctx.warn = AsyncMock(), AsyncMock()
-        await bot.on_command_error(ctx, MissingRank("Admin"))
-        ctx.fail.assert_awaited_once_with("failed: you need the **Admin** rank or higher (`uperm`)")
-        ctx.warn.assert_not_awaited()
-
-        other = MagicMock()
-        other.command = Moderation.stripstaff
-        other.fail, other.warn = AsyncMock(), AsyncMock()
-        await bot.on_command_error(other, MissingRank("Admin"))
-        other.warn.assert_awaited_once()
-        other.fail.assert_not_awaited()
+        ctx.command = Moderation.stripstaff
+        ctx.fail, ctx.deny = AsyncMock(), AsyncMock()
+        await bot.on_command_error(ctx, commands.MissingPermissions(["ban_members"]))
+        ctx.fail.assert_not_awaited()
+        assert "**Admin+**" in ctx.deny.await_args.args[0]
     asyncio.run(go())
 
 
