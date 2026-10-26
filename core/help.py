@@ -1,4 +1,4 @@
-"""Public ,help: a slim home card, a category dropdown, numbered paged lists and one card per command.
+"""Public ,help: a plain home card with one button per category, numbered paged lists and one card per command.
 
 The developer-only menus (Developer overview, Secret Suite) live in core/devmenu.py.
 """
@@ -25,7 +25,7 @@ from core.utils import Colors, OwnedView, respond_or_edit, shorten
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
-# (dropdown label, cogs included, extra top-level commands pulled in from other cogs)
+# (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Utility", ["Utility"], []),
     ("Music", ["Music", "Spotify"], []),
@@ -43,7 +43,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
 
 PAGE_SIZE = 10
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
-HELP_COLOR = Colors.main
+HELP_COLOR = Colors.blurple
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
     "Utility": 0,       # Public
@@ -73,7 +73,7 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Secret": "🔑",
 }
 
-# One short line per category: shown under the list title and in the dropdown.
+# One short line per category: shown under the list title.
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Utility": "Lookups, AFK, snipe and everyday tools",
     "Music": "Lavalink and Spotify playback, queues, filters",
@@ -261,46 +261,51 @@ def example_for(cmd, prefix: str) -> str:
 
 # ---------------------------------------------------------------- view components
 
-class CategorySelect(discord.ui.Select["HelpView"]):
-    def __init__(self, options: list[discord.SelectOption]):
-        super().__init__(placeholder="Select a category…", options=options, min_values=1, max_values=1, row=0)
+class CategoryButton(discord.ui.Button["HelpView"]):
+    """One plain button per category; the open one is highlighted and Secret stays red."""
+
+    def __init__(self, label: str, row: int, selected: bool = False):
+        style = (discord.ButtonStyle.primary if selected
+                 else discord.ButtonStyle.danger if label == "Secret" else discord.ButtonStyle.secondary)
+        super().__init__(label=label, style=style, row=row)
+        self.category = label
 
     async def callback(self, it: discord.Interaction):
-        await self.view.show_category(it, self.values[0])
+        await self.view.show_category(it, self.category)
 
 
 class PrevButton(discord.ui.Button["HelpView"]):
-    def __init__(self, disabled: bool):
-        super().__init__(emoji="◀", style=discord.ButtonStyle.secondary, disabled=disabled, row=1)
+    def __init__(self, disabled: bool, row: int = 3):
+        super().__init__(emoji="◀", style=discord.ButtonStyle.secondary, disabled=disabled, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.change_page(it, -1)
 
 
 class PageIndicator(discord.ui.Button["HelpView"]):
-    def __init__(self, page: int, pages: int):
-        super().__init__(label=f"{page + 1}/{pages}", style=discord.ButtonStyle.secondary, disabled=True, row=1)
+    def __init__(self, page: int, pages: int, row: int = 3):
+        super().__init__(label=f"{page + 1}/{pages}", style=discord.ButtonStyle.secondary, disabled=True, row=row)
 
 
 class NextButton(discord.ui.Button["HelpView"]):
-    def __init__(self, disabled: bool):
-        super().__init__(emoji="▶", style=discord.ButtonStyle.secondary, disabled=disabled, row=1)
+    def __init__(self, disabled: bool, row: int = 3):
+        super().__init__(emoji="▶", style=discord.ButtonStyle.secondary, disabled=disabled, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.change_page(it, 1)
 
 
 class HomeButton(discord.ui.Button["HelpView"]):
-    def __init__(self):
-        super().__init__(label="Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=1)
+    def __init__(self, row: int = 3):
+        super().__init__(label="Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.show_home(it)
 
 
 class CloseButton(discord.ui.Button["HelpView"]):
-    def __init__(self):
-        super().__init__(emoji="🗑️", style=discord.ButtonStyle.secondary, row=1)
+    def __init__(self, row: int = 3):
+        super().__init__(emoji="🗑️", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         self.view.stop()
@@ -311,8 +316,12 @@ class CloseButton(discord.ui.Button["HelpView"]):
             pass
 
 
+BUTTONS_PER_ROW = 5
+MAX_CATEGORY_ROWS = 4  # the last row is kept for the pager / Home / close
+
+
 class HelpView(OwnedView):
-    """Home card plus one dropdown for the categories; a pager appears on lists longer than a page."""
+    """Home card with a button per category; a pager appears on lists longer than a page."""
 
     def __init__(self, help_cmd: Help, categories: dict[str, list[commands.Command]], start: str | None = None,
                  is_owner: bool = False, author_rank: int = 0):
@@ -340,34 +349,27 @@ class HelpView(OwnedView):
         return max(1, math.ceil(len(self.commands_in(self.current)) / PAGE_SIZE))
 
     # -- layout
-    def _options(self) -> list[discord.SelectOption]:
-        options = []
-        for label in self.labels():
-            n = len(self.commands_in(label))
-            options.append(discord.SelectOption(
-                label=label, value=label, emoji=CATEGORY_EMOJIS.get(label),
-                description=shorten(f"{count(n, 'command')} · {CATEGORY_DESCRIPTIONS.get(label, '')}", 100),
-                default=(label == self.current)))
+    def _category_names(self) -> list[str]:
+        names = self.labels()
         if self.is_owner:
-            for label in ("Developer", "Secret"):
-                options.append(discord.SelectOption(
-                    label=label, value=label, emoji=CATEGORY_EMOJIS[label],
-                    description=CATEGORY_DESCRIPTIONS[label], default=(label == self.current)))
-        return options
+            names += ["Developer", "Secret"]
+        return names[:BUTTONS_PER_ROW * MAX_CATEGORY_ROWS]
 
     def _build_items(self):
         self.clear_items()
-        options = self._options()
-        if options:
-            self.add_item(CategorySelect(options))
-        if self.current is not None:
-            pages = self.pages()
-            if pages > 1:
-                self.add_item(PrevButton(self.page <= 0))
-                self.add_item(PageIndicator(self.page, pages))
-                self.add_item(NextButton(self.page >= pages - 1))
-            self.add_item(HomeButton())
-        self.add_item(CloseButton())
+        names = self._category_names()
+        for i, label in enumerate(names):
+            self.add_item(CategoryButton(label, i // BUTTONS_PER_ROW, selected=(label == self.current)))
+        if self.current is None:
+            return  # the home card is just the category buttons
+        row = min(max(1, math.ceil(len(names) / BUTTONS_PER_ROW)), MAX_CATEGORY_ROWS)
+        pages = self.pages()
+        if pages > 1:
+            self.add_item(PrevButton(self.page <= 0, row))
+            self.add_item(PageIndicator(self.page, pages, row))
+            self.add_item(NextButton(self.page >= pages - 1, row))
+        self.add_item(HomeButton(row))
+        self.add_item(CloseButton(row))
 
     # -- navigation
     async def show_home(self, it: discord.Interaction):
@@ -417,21 +419,12 @@ class Help(commands.HelpCommand):
     # ------------------------------------------------------------ embeds
     def home_embed(self, author_rank: int = 0, categories: dict[str, list] | None = None,
                    is_owner: bool = False) -> discord.Embed:
+        """The plain home card. (The arguments are kept so callers don't change; the buttons carry the detail.)"""
         bot = self.context.bot
         p = self.context.clean_prefix
-        if categories is not None:
-            labels = category_labels(categories, is_owner, author_rank)
-            total = sum(len(allowed(categories[label], bot, is_owner, author_rank)) for label in labels)
-            stats = f"{count(len(labels), 'category', 'categories')} · {count(total, 'command')}"
-        else:
-            stats = count(sum(1 for c in bot.commands if not c.hidden), "command") if hasattr(bot, "commands") else ""
-        e = discord.Embed(color=HELP_COLOR, description=(
-            "Protection, moderation and community tools in one bot.\n\n"
-            f"**Prefix** `{p}`" + (f" · {stats}" if stats else "") + "\n"
-            f"Pick a category from the menu below, or run `{p}help <command>` for usage, aliases and permissions."))
+        e = discord.Embed(color=HELP_COLOR, description=f"Select a category below to view its commands.\nprefix: {p}")
         if bot and getattr(bot, "user", None):
             e.set_author(name=bot.user.name, icon_url=bot.user.display_avatar.url)
-        e.set_footer(text=f"{p}help <command> for details")
         return e
 
     def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:

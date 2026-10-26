@@ -63,8 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The antinuke alert card honours the channel chosen under `,logs` (Antinuke) before falling back to its own `log` setting.
 - The **Unban** button on ban cards is now persistent: it keeps working after a bot restart.
 - The bot no longer creates log channels by itself when it joins a server; run `,logs setup` instead.
-- **`,help` rebuilt.** One dropdown for the categories you may open (with command counts) instead of up to 15
-  buttons; numbered lists, 10 per page, with ◀ ▶ and a page counter; 🏠 Home and 🗑 close. `,help <command>`
+- **`,help` rebuilt.** The home card is the short "Select a category below to view its commands." prompt with one
+  plain button per category you may open (Secret stays red); numbered lists, 10 per page, with ◀ ▶ and a page
+  counter; 🏠 Home and 🗑 close. `,help <command>`
   now shows a card with syntax, a generated example (commands can set `extras={"example": ...}`), aliases,
   and the rank/permissions needed. A mistyped command suggests close matches you are allowed to see.
 - The developer menus (Developer overview, Secret Suite) moved out of `core/help.py` into `core/devmenu.py`.

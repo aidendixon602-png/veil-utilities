@@ -7,42 +7,33 @@
 <circle cx="20" cy="20" r="18" fill="#b10f2e"/><text x="20" y="26" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="15" font-weight="700" fill="#fff" text-anchor="middle">V</text>
 <text x="50" y="20" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="15" font-weight="700" fill="#f2f3f5" text-anchor="start">Veil Utilities</text>
 <rect x="144" y="9" width="34" height="16" rx="4" fill="#5865F2"/><text x="161" y="21" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="10" font-weight="700" fill="#fff" text-anchor="middle">APP</text>
-<rect x="50" y="34" width="480" height="160" rx="8" fill="#2b2d31"/>
-<rect x="50" y="34" width="4" height="160" rx="2" fill="#b10f2e"/>
-<text x="70" y="62" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#dbdee1" text-anchor="start">Protection, moderation and community tools in one bot.</text>
-<text x="70" y="92" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#dbdee1" text-anchor="start">Prefix , · 10 categories · 220 commands</text>
-<text x="70" y="114" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#b5bac1" text-anchor="start">Pick a category from the menu below, or run ,help &lt;command&gt;</text>
-<text x="70" y="134" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#b5bac1" text-anchor="start">for usage, aliases and permissions.</text>
-<text x="70" y="182" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">,help &lt;command&gt; for details</text>
+<rect x="50" y="34" width="480" height="88" rx="8" fill="#2b2d31"/>
+<rect x="50" y="34" width="4" height="88" rx="2" fill="#5865f2"/>
+<circle cx="76" cy="58" r="10" fill="#b10f2e"/><text x="76" y="62" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">V</text>
+<text x="94" y="62" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="700" fill="#f2f3f5" text-anchor="start">Veil Utilities</text>
+<text x="70" y="90" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#dbdee1" text-anchor="start">Select a category below to view its commands.</text>
+<text x="70" y="110" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#dbdee1" text-anchor="start">prefix: ,</text>
 </g>
-<rect x="80" y="270" width="480" height="38" rx="6" fill="#1e1f22" stroke="#3f4147"/>
-<text x="94" y="294" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#b5bac1" text-anchor="start">Select a category…</text>
-<path d="M532 286 l7 7 l7 -7" stroke="#b5bac1" stroke-width="2" fill="none"/>
-<rect x="80" y="316" width="480" height="206" rx="8" fill="#2b2d31" stroke="#3f4147"/>
-<text x="98" y="344" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="14" font-weight="400" fill="#dbdee1" text-anchor="start">🛠️</text>
-<text x="124" y="344" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#f2f3f5" text-anchor="start">Utility</text>
-<text x="124" y="360" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">33 commands · Lookups, AFK, snipe and everyday tools</text>
-<text x="98" y="382" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="14" font-weight="400" fill="#dbdee1" text-anchor="start">🎵</text>
-<text x="124" y="382" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#f2f3f5" text-anchor="start">Music</text>
-<text x="124" y="398" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">19 commands · Lavalink and Spotify playback, queues, filters</text>
-<text x="98" y="420" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="14" font-weight="400" fill="#dbdee1" text-anchor="start">🛡️</text>
-<text x="124" y="420" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#f2f3f5" text-anchor="start">Moderation</text>
-<text x="124" y="436" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">41 commands · Warns, mutes, kicks, bans, purge and logs</text>
-<text x="98" y="458" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="14" font-weight="400" fill="#dbdee1" text-anchor="start">🏷️</text>
-<text x="124" y="458" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#f2f3f5" text-anchor="start">Roles</text>
-<text x="124" y="474" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">10 commands · Role commands, autoroles, role blacklist</text>
-<text x="98" y="496" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="14" font-weight="400" fill="#dbdee1" text-anchor="start">🚨</text>
-<text x="124" y="496" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#f2f3f5" text-anchor="start">Antinuke</text>
-<text x="124" y="512" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">3 commands · Real-time server protection and anti-raid</text>
-<rect x="80" y="536" width="40" height="32" rx="6" fill="#4e5058"/>
-<text x="100.0" y="557" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">🗑</text>
-<text x="132" y="557" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="400" fill="#949ba4" text-anchor="start">Only the person who ran ,help can use the menu</text>
+<rect x="80" y="200" width="92" height="32" rx="6" fill="#4e5058"/><text x="126.0" y="221" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Utility</text>
+<rect x="177" y="200" width="92" height="32" rx="6" fill="#4e5058"/><text x="223.0" y="221" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Music</text>
+<rect x="274" y="200" width="92" height="32" rx="6" fill="#4e5058"/><text x="320.0" y="221" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Moderation</text>
+<rect x="371" y="200" width="92" height="32" rx="6" fill="#4e5058"/><text x="417.0" y="221" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Roles</text>
+<rect x="468" y="200" width="92" height="32" rx="6" fill="#4e5058"/><text x="514.0" y="221" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Permissions</text>
+<rect x="80" y="238" width="92" height="32" rx="6" fill="#4e5058"/><text x="126.0" y="259" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Antinuke</text>
+<rect x="177" y="238" width="92" height="32" rx="6" fill="#4e5058"/><text x="223.0" y="259" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Automod</text>
+<rect x="274" y="238" width="92" height="32" rx="6" fill="#4e5058"/><text x="320.0" y="259" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Server</text>
+<rect x="371" y="238" width="92" height="32" rx="6" fill="#4e5058"/><text x="417.0" y="259" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">VoiceMaster</text>
+<rect x="468" y="238" width="92" height="32" rx="6" fill="#4e5058"/><text x="514.0" y="259" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Community</text>
+<rect x="80" y="276" width="92" height="32" rx="6" fill="#4e5058"/><text x="126.0" y="297" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Developer</text>
+<rect x="177" y="276" width="92" height="32" rx="6" fill="#da373c"/><text x="223.0" y="297" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Secret</text>
+<text x="80" y="330" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="400" fill="#949ba4" text-anchor="start">Only the person who ran ,help can use the menu</text>
+<text x="80" y="350" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="12" font-weight="400" fill="#949ba4" text-anchor="start">Developer and Secret only show up for bot developers</text>
 <g transform="translate(600,64)" filter="url(#sh)">
 <circle cx="20" cy="20" r="18" fill="#b10f2e"/><text x="20" y="26" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="15" font-weight="700" fill="#fff" text-anchor="middle">V</text>
 <text x="50" y="20" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="15" font-weight="700" fill="#f2f3f5" text-anchor="start">Veil Utilities</text>
 <rect x="144" y="9" width="34" height="16" rx="4" fill="#5865F2"/><text x="161" y="21" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="10" font-weight="700" fill="#fff" text-anchor="middle">APP</text>
 <rect x="50" y="34" width="430" height="342" rx="8" fill="#2b2d31"/>
-<rect x="50" y="34" width="4" height="342" rx="2" fill="#b10f2e"/>
+<rect x="50" y="34" width="4" height="342" rx="2" fill="#5865f2"/>
 <text x="70" y="60" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="15" font-weight="700" fill="#f2f3f5" text-anchor="start">🛡️ Moderation</text>
 <text x="70" y="80" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">Warns, mutes, kicks, bans, purge and logs</text>
 <text x="70" y="110" font-family="'gg mono',Consolas,monospace" font-size="12" font-weight="400" fill="#949ba4" text-anchor="start"> 1</text>
@@ -67,17 +58,19 @@
 <text x="96" y="326" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" fill="#dbdee1"><tspan font-weight="700" fill="#f2f3f5">mute</tspan><tspan fill="#949ba4" font-weight="400" font-size="12"> (timeout)</tspan><tspan> — Time a member out</tspan></text>
 <text x="70" y="366" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="400" fill="#949ba4" text-anchor="start">Page 1/5 · 41 commands · ,help &lt;command&gt; for details</text>
 </g>
-<rect x="650" y="452" width="430" height="38" rx="6" fill="#1e1f22" stroke="#3f4147"/>
-<text x="664" y="476" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="400" fill="#b5bac1" text-anchor="start">🛡️  Moderation</text>
-<path d="M1052 468 l7 7 l7 -7" stroke="#b5bac1" stroke-width="2" fill="none"/>
-<rect x="650" y="500" width="40" height="32" rx="6" fill="#383a40"/>
-<text x="670.0" y="521" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#80848e" text-anchor="middle">◀</text>
-<rect x="696" y="500" width="62" height="32" rx="6" fill="#383a40"/>
-<text x="727.0" y="521" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#80848e" text-anchor="middle">1/5</text>
-<rect x="764" y="500" width="40" height="32" rx="6" fill="#4e5058"/>
-<text x="784.0" y="521" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">▶</text>
-<rect x="810" y="500" width="84" height="32" rx="6" fill="#4e5058"/>
-<text x="852.0" y="521" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">🏠 Home</text>
-<rect x="900" y="500" width="40" height="32" rx="6" fill="#4e5058"/>
-<text x="920.0" y="521" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">🗑</text>
+<rect x="650" y="452" width="82" height="32" rx="6" fill="#4e5058"/><text x="691.0" y="473" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Utility</text>
+<rect x="737" y="452" width="82" height="32" rx="6" fill="#4e5058"/><text x="778.0" y="473" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Music</text>
+<rect x="824" y="452" width="82" height="32" rx="6" fill="#5865f2"/><text x="865.0" y="473" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Moderation</text>
+<rect x="911" y="452" width="82" height="32" rx="6" fill="#4e5058"/><text x="952.0" y="473" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Roles</text>
+<rect x="998" y="452" width="82" height="32" rx="6" fill="#4e5058"/><text x="1039.0" y="473" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Permissions</text>
+<rect x="650" y="490" width="82" height="32" rx="6" fill="#4e5058"/><text x="691.0" y="511" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Antinuke</text>
+<rect x="737" y="490" width="82" height="32" rx="6" fill="#4e5058"/><text x="778.0" y="511" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Automod</text>
+<rect x="824" y="490" width="82" height="32" rx="6" fill="#4e5058"/><text x="865.0" y="511" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Server</text>
+<rect x="911" y="490" width="82" height="32" rx="6" fill="#4e5058"/><text x="952.0" y="511" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">VoiceMaster</text>
+<rect x="998" y="490" width="82" height="32" rx="6" fill="#4e5058"/><text x="1039.0" y="511" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Community</text>
+<rect x="650" y="528" width="40" height="32" rx="6" fill="#383a40"/><text x="670.0" y="549" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#80848e" text-anchor="middle">◀</text>
+<rect x="696" y="528" width="62" height="32" rx="6" fill="#383a40"/><text x="727.0" y="549" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#80848e" text-anchor="middle">1/5</text>
+<rect x="764" y="528" width="40" height="32" rx="6" fill="#4e5058"/><text x="784.0" y="549" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">▶</text>
+<rect x="810" y="528" width="84" height="32" rx="6" fill="#4e5058"/><text x="852.0" y="549" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">🏠 Home</text>
+<rect x="900" y="528" width="40" height="32" rx="6" fill="#4e5058"/><text x="920.0" y="549" font-family="'gg sans','Segoe UI',Helvetica,sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">🗑</text>
 </svg>
