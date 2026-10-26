@@ -1,6 +1,7 @@
 """Antinuke (audit-log driven, threshold based) and Antiraid (join filters)."""
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
@@ -136,6 +137,9 @@ UNDOES = {
 }
 # things other bots create as part of their normal job; destructive actions by bots still count
 BOT_JOBS = {"channelcreate", "rolecreate", "webhook", "roleinvite"}
+RAID_QUIET = 300  # seconds without a new join wave before raid mode ends by itself
+RAID_PAUSE_FOR = 3600  # invites/DMs are paused this long at most (Discord resumes them itself if I'm offline)
+RAID_LOCK_DEFAULTS = {"invites": True, "channels": False}  # what raid mode does unless a server changes it
 LOOKBACK = 600  # seconds: when someone is caught, everything they did in this long is undone
 CAUGHT_FOR = 120  # seconds after being caught during which anything else they do is undone straight away
 LABELS = {
@@ -239,6 +243,7 @@ class Antinuke(commands.Cog):
         self.hits: dict[tuple[int, int, str], deque] = defaultdict(deque)
         self.joins: dict[int, deque] = defaultdict(deque)
         self.raid_until: dict[int, float] = {}
+        self.raid_tasks: dict[int, asyncio.Task] = {}  # guild -> waits for the raid to go quiet, then ends it
         self.incidents: dict[tuple[int, int, str], Incident] = {}
         self.snapshots = Snapshots()  # recently deleted channels/roles, so they can be rebuilt
         self.recent: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, user) -> (time, module, entry)
@@ -1200,6 +1205,14 @@ class Antinuke(commands.Cog):
         embed.add_field(name="No avatar", value="on" if cfg.get("avatar") else "off")
         embed.add_field(name="Punishment", value=cfg.get("punishment", "kick"))
         embed.add_field(name="Whitelist", value=str(len(cfg.get("whitelist", []))) + " users")
+        lock = {**RAID_LOCK_DEFAULTS, **(cfg.get("lockdown") or {})}
+        embed.add_field(name="During a raid", value=(
+            f"pause invites & DMs: **{'on' if lock['invites'] else 'off'}**\n"
+            f"lock channels: **{'on' if lock['channels'] else 'off'}**"))
+        state = cfg.get("raid_state")
+        embed.add_field(name="Raid mode", value=f"**on** since <t:{int(state['since'])}:R>" if state else "off")
+        embed.set_footer(text=f"{ctx.clean_prefix}antiraid start / end · "
+                              f"{ctx.clean_prefix}antiraid lockdown <invites|channels> <on|off>")
         await ctx.send(embed=embed)
 
     async def _ar_set(self, ctx, key, value, msg):
@@ -1255,6 +1268,40 @@ class Antinuke(commands.Cog):
             msg = f"added {user.mention} to the antiraid whitelist"
         await self.bot.db.set_config(ctx.guild.id, "antiraid", cfg)
         await ctx.approve(msg)
+
+    @antiraid.command(name="start", aliases=["on", "now"])
+    @has_perms(administrator=True)
+    async def ar_start(self, ctx: Context):
+        """Turn raid mode on now (pauses invites and DMs, locks channels if set) until joins go quiet"""
+        done = await self.start_raid(ctx.guild, "Raid mode was started by hand", by=ctx.author)
+        await ctx.approve("raid mode is **on**" + (": " + "; ".join(x.removeprefix("⚠️ ") for x in done) if done else ""))
+
+    @antiraid.command(name="end", aliases=["stop", "off", "over"])
+    @has_perms(administrator=True)
+    async def ar_end(self, ctx: Context):
+        """End raid mode now: resume invites and DMs, unlock the channels it locked"""
+        cfg = await self._raid_cfg(ctx.guild.id)
+        if not cfg.get("raid_state"):
+            return await ctx.neutral("raid mode isn't on")
+        done = await self.end_raid(ctx.guild, f"ended by {ctx.author}")
+        await ctx.approve("raid mode is **off**" + (": " + "; ".join(x.removeprefix("⚠️ ") for x in done) if done else ""))
+
+    @antiraid.command(name="lockdown", aliases=["lock"])
+    @has_perms(administrator=True)
+    async def ar_lockdown(self, ctx: Context, what: str, state: str):
+        """What raid mode does: `antiraid lockdown invites on` (pause invites & DMs) or `antiraid lockdown channels on`"""
+        what = {"invite": "invites", "invites": "invites", "dms": "invites", "channel": "channels",
+                "channels": "channels", "chat": "channels"}.get(what.lower())
+        if what is None:
+            raise UserError("Use `invites` (pause invites & DMs) or `channels` (lock channels for @everyone)")
+        on = state.lower() in ("on", "true", "enable", "yes")
+        if not on and state.lower() not in ("off", "false", "disable", "no"):
+            raise UserError("Use `on` or `off`")
+        cfg = await self._raid_cfg(ctx.guild.id)
+        cfg["lockdown"] = {**RAID_LOCK_DEFAULTS, **(cfg.get("lockdown") or {}), what: on}
+        await self.bot.db.set_config(ctx.guild.id, "antiraid", cfg)
+        label = "pause invites and DMs" if what == "invites" else "lock channels for @everyone"
+        await ctx.approve(f"during a raid I'll **{'' if on else 'not '}{label}**")
 
     # ================================================================ antialt
     @commands.group(name="antialt", aliases=["alt", "antialts"], invoke_without_command=True)
@@ -1333,11 +1380,13 @@ class Antinuke(commands.Cog):
             while q and t - q[0][0] > mj["seconds"]:
                 q.popleft()
             if len(q) >= mj["joins"]:
-                if self.raid_until.get(gid, 0) <= t:
+                starting = self.raid_until.get(gid, 0) <= t
+                self.raid_until[gid] = t + RAID_QUIET  # raid mode lasts until joins stay quiet this long
+                if starting:
                     # raid mode just started: the earlier joiners in this wave are part of it too
                     wave = [uid for _, uid in q if uid != member.id]
-                    self.bot.loop.create_task(self._raid_alert(member.guild, len(q), mj["seconds"]))
-                self.raid_until[gid] = t + 300  # raid mode for 5 minutes (extended while joins continue)
+                    asyncio.create_task(self.start_raid(member.guild, f"**{len(q)}** members joined within "
+                                                                      f"{mj['seconds']}s"))
             if self.raid_until.get(gid, 0) > t:
                 reason = "mass join (raid mode)"
             elif not q:
@@ -1363,19 +1412,145 @@ class Antinuke(commands.Cog):
         except discord.HTTPException:
             pass
 
-    async def _raid_alert(self, guild: discord.Guild, joins: int, seconds: int) -> None:
-        """Tell the antinuke log channel (or the owner) that raid mode switched on."""
-        cfg = await self.cfg(guild.id)
-        dest = guild.get_channel(cfg.get("log") or 0) or guild.owner
-        if dest is None:
-            return
+    # ================================================================ raid mode
+    async def _raid_cfg(self, guild_id: int) -> dict:
+        return await self.bot.db.get_config(guild_id, "antiraid")
+
+    async def _raid_post(self, guild: discord.Guild, embed: discord.Embed) -> None:
+        """Raid notices go where antinuke alerts go (the antinuke log channel) and to the server owner."""
+        channel = await self._log_channel(guild, await self.cfg(guild.id))
+        for dest in (channel, guild.owner):
+            if dest is None:
+                continue
+            try:
+                await dest.send(embed=embed)
+            except (discord.HTTPException, AttributeError):
+                pass
+
+    async def start_raid(self, guild: discord.Guild, why: str, by=None) -> list[str]:
+        """Raid mode: pause invites and member DMs (and lock channels if that's turned on) until joins go quiet."""
+        cfg = await self._raid_cfg(guild.id)
+        if cfg.get("raid_state"):  # already on (a second wave, or a manual start during one)
+            self.raid_until[guild.id] = max(self.raid_until.get(guild.id, 0), time.monotonic() + RAID_QUIET)
+            return ["raid mode was already on; it now lasts longer"]
+        lock = {**RAID_LOCK_DEFAULTS, **(cfg.get("lockdown") or {})}
+        state = {"since": time.time(), "invites": False, "locked": []}
+        done = []
+        if lock["invites"]:
+            until = discord.utils.utcnow() + timedelta(seconds=RAID_PAUSE_FOR)
+            try:
+                await guild.edit(invites_disabled_until=until, dms_disabled_until=until,
+                                 reason="Antiraid: raid mode")
+                state["invites"] = True
+                done.append("paused invites and DMs between members")
+            except (discord.HTTPException, TypeError) as e:
+                done.append(f"⚠️ couldn't pause invites ({getattr(e, 'status', 'error')}): I need Manage Server")
+        if lock["channels"]:
+            state["locked"] = await self._lock_channels(guild)
+            done.append(f"locked {len(state['locked'])} channel(s) for @everyone")
+        cfg["raid_state"] = state
+        await self.bot.db.set_config(guild.id, "antiraid", cfg)
+        self.raid_until[guild.id] = max(self.raid_until.get(guild.id, 0), time.monotonic() + RAID_QUIET)
+        self._watch_raid(guild)
+
         e = discord.Embed(title="🚨 Raid mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
-                          description=f"**{joins}** members joined **{guild.name}** within {seconds}s. "
-                                      "New joiners will be punished for the next 5 minutes.")
-        try:
-            await dest.send(embed=e)
-        except discord.HTTPException:
-            pass
+                          description=f"{why} in **{discord.utils.escape_markdown(guild.name)}**."
+                                      + (f" Started by {by.mention}." if by is not None else ""))
+        e.add_field(name="What I did", value="\n".join(f"• {x}" for x in done) or "• punishing new joiners",
+                    inline=False)
+        e.add_field(name="Ends", value=f"after {RAID_QUIET // 60} minutes without a new join wave, "
+                                       "or with `,antiraid end`", inline=False)
+        await self._raid_post(guild, e)
+        return done
+
+    async def end_raid(self, guild: discord.Guild, why: str = "joins went quiet") -> list[str]:
+        """Undo raid mode's lockdown: resume invites and DMs, unlock exactly the channels raid mode locked."""
+        self.raid_until.pop(guild.id, None)
+        task = self.raid_tasks.pop(guild.id, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+        cfg = await self._raid_cfg(guild.id)
+        state = cfg.pop("raid_state", None)
+        if not state:
+            return []
+        await self.bot.db.set_config(guild.id, "antiraid", cfg)
+        done = []
+        if state.get("invites"):
+            try:
+                await guild.edit(invites_disabled_until=None, dms_disabled_until=None, reason="Antiraid: raid over")
+                done.append("resumed invites and DMs")
+            except (discord.HTTPException, TypeError):
+                done.append("⚠️ couldn't resume invites: Discord turns them back on within the hour anyway")
+        if state.get("locked"):
+            unlocked = await self._unlock_channels(guild, state["locked"])
+            done.append(f"unlocked {unlocked} channel(s)")
+        e = discord.Embed(title="✅ Raid mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
+                          description=f"Raid mode in **{discord.utils.escape_markdown(guild.name)}** ended: {why}.")
+        if done:
+            e.add_field(name="Undone", value="\n".join(f"• {x}" for x in done), inline=False)
+        await self._raid_post(guild, e)
+        return done
+
+    def _watch_raid(self, guild: discord.Guild) -> None:
+        old = self.raid_tasks.get(guild.id)
+        if old is not None and not old.done():
+            return
+
+        async def watch():
+            while True:
+                wait = self.raid_until.get(guild.id, 0) - time.monotonic()
+                if wait <= 0:
+                    break
+                await asyncio.sleep(min(wait, 30))
+            await self.end_raid(guild)
+        self.raid_tasks[guild.id] = asyncio.create_task(watch())
+
+    async def _lock_channels(self, guild: discord.Guild) -> list[int]:
+        """Stop @everyone sending in text channels that are open; returns the ones it locked (to unlock later)."""
+        locked = []
+        for channel in getattr(guild, "text_channels", []):
+            ow = channel.overwrites_for(guild.default_role)
+            if ow.send_messages is False:
+                continue  # already locked by someone: leave it exactly as it is
+            ow.send_messages = False
+            try:
+                await channel.set_permissions(guild.default_role, overwrite=ow, reason="Antiraid: raid mode")
+                locked.append(channel.id)
+            except discord.HTTPException:
+                pass
+        return locked
+
+    async def _unlock_channels(self, guild: discord.Guild, channel_ids: list[int]) -> int:
+        unlocked = 0
+        for channel_id in channel_ids:
+            channel = guild.get_channel(channel_id)
+            if channel is None:
+                continue
+            ow = channel.overwrites_for(guild.default_role)
+            if ow.send_messages is not False:
+                continue
+            ow.send_messages = None
+            try:
+                await channel.set_permissions(guild.default_role, overwrite=ow, reason="Antiraid: raid over")
+                unlocked += 1
+            except discord.HTTPException:
+                pass
+        return unlocked
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Raid mode survives a restart: pick up where it was, or end it if it should be over."""
+        if getattr(self, "_raids_resumed", False):
+            return
+        self._raids_resumed = True
+        for guild in list(self.bot.guilds):
+            cfg = await self._raid_cfg(guild.id)
+            state = cfg.get("raid_state")
+            if not state:
+                continue
+            self.raid_until[guild.id] = time.monotonic() + RAID_QUIET
+            self._watch_raid(guild)
+
 
 async def setup(bot):
     await bot.add_cog(Antinuke(bot))

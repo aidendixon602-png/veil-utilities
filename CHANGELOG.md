@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Raid mode locks the door.** When the mass-join filter spots a wave (or an admin runs `,antiraid start`), the bot
+  pauses invites and DMs between members, and can also lock every open text channel for @everyone
+  (`,antiraid lockdown channels on`; invites/DMs are on by default, `,antiraid lockdown invites off` to skip). The
+  alert goes to the antinuke log channel and the server owner, with what was done. Raid mode ends by itself after 5
+  minutes without a new wave (or `,antiraid end`), resumes invites and DMs, and unlocks exactly the channels it
+  locked (channels that were already locked stay locked). It carries on across restarts, and Discord resumes
+  invites itself within the hour if the bot is offline. `,antiraid` shows whether raid mode is on.
 - **The antinuke puts the server back.** When it catches someone it now undoes everything they did in the last 10
   minutes, not just the action that tripped the rule: unbans the people they banned (and bans again anyone they
   unbanned), rebuilds deleted channels (same name, category, position, topic, slowmode and permission overwrites)

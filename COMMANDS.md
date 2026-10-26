@@ -1,6 +1,6 @@
 # Command reference
 
-480 commands. Default prefix `,`. `<required>` `[optional]`.
+483 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -60,8 +60,11 @@ _Stop rogue admins and raids before they wreck your server_
 | `antiraid` (raid) | Filter suspicious joins: mass joins, new accounts, no avatar | administrator |
 | `antiraid age [days=0]` | Punish accounts younger than N days (0 to disable) | administrator |
 | `antiraid avatar <state>` | Punish accounts with no avatar (on/off) | administrator |
+| `antiraid end` (stop, off, over) | End raid mode now: resume invites and DMs, unlock the channels it locked | administrator |
+| `antiraid lockdown <what> <state>` (lock) | What raid mode does: `antiraid lockdown invites on` (pause invites & DMs) or `antiraid lockdown channels on` | administrator |
 | `antiraid massjoin [joins=0] [seconds=10]` | Punish everyone in a join wave: `antiraid massjoin 10 10` (0 to disable) | administrator |
 | `antiraid punishment <punishment>` | kick, ban or timeout | administrator |
+| `antiraid start` (on, now) | Turn raid mode on now (pauses invites and DMs, locks channels if set) until joins go quiet | administrator |
 | `antiraid whitelist <user>` | Let a specific user bypass antiraid | administrator |
 
 ## 🧹 Automod
