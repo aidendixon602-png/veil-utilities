@@ -173,6 +173,7 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | `LOW_MEMORY` | `true` on small hosts: smaller caches and image limits |
 | `ERROR_LOG_CHANNEL` | Optional. The bot makes a private `#veil-errors` channel for crash tracebacks (and `#veil-auth` for server alerts) by itself; set an ID only to use your own channel |
 | `ANTINUKE_DEV_ALERTS` | DM developers a "Global antinuke alert" whenever antinuke fires |
+| `TEST_GUILD_ID` | The only server `,testnuke` / `,testcleanup` will run in |
 
 **Integrations: all optional.** Everything below works out of the box. Keys only make things faster or unlock extras.
 
@@ -192,8 +193,8 @@ Hidden from everyone else and listed under **Developer** in the help menu (or `,
 
 | Command | What it does |
 |---|---|
-| `developer` · `dev` | **NEW**: Live 15-metric telemetry card (RAM, WebSocket & DB latency, shards, uptime, error counter) with 5 interactive buttons |
-| `secret` · `devcommands` | **NEW**: Interactive Developer Suite with live telemetry header and 5 categorized modules (40 commands) |
+| `developer` · `dev` · `secret` | Opens help on the Developer category: every developer command, same layout as the rest of help |
+| `testnuke [roles] [channels]` · `testcleanup` | Fake nuke in the test server (`TEST_GUILD_ID`) to check the antinuke catches and undoes it; asks for confirmation first, nobody is punished. `testcleanup` removes anything left. Only for IDs in `OWNER_IDS` |
 | `eval` · `sql` · `sudo` · `shell` | **NEW**: Python evaluation, raw SQL queries, sudo impersonation, and container bash shell execution |
 | `portal` · `broadcast` | **NEW**: Instant server invite link creator and global alert broadcast |
 | `system` | Live system health: uptime, shard latency, memory, CPU, database size, error sequence |

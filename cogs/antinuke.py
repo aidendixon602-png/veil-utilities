@@ -172,13 +172,42 @@ def overwrite_gained(before, after) -> bool:
     return bool(added & OVERWRITE_DANGEROUS.value)
 
 
+PUNISH_VERBS = {"ban": "ban", "kick": "kick", "strip": "strip the staff roles of"}
+TEST_PREFIX = "testnuke-"  # names of everything ,testnuke creates, so the antinuke and ,testcleanup can tell
+
+
+class TestRun:
+    """A developer's `,testnuke` in progress. While it runs, the bot's own creations named `testnuke-…` in that
+    server are treated as an attack by a simulated attacker: detected, alerted and undone like a real one, but
+    nobody is punished."""
+
+    def __init__(self, guild_id: int, started_by: int):
+        self.guild_id, self.started_by = guild_id, started_by
+        self.created: set[int] = set()
+        self.incidents: list[Incident] = []
+        self.started = time.monotonic()
+
+    def owns(self, entry) -> bool:
+        """Only the test's *creations* count. The antinuke deleting them afterwards must not look like an attack
+        (it would rebuild them)."""
+        if getattr(entry, "action", None) not in (A.role_create, A.channel_create):
+            return False
+        target_id = getattr(getattr(entry, "target", None), "id", None)
+        if target_id in self.created:
+            return True
+        name = getattr(entry.after, "name", None) or getattr(getattr(entry, "target", None), "name", None) or ""
+        return str(name).startswith(TEST_PREFIX)
+
+
 ALERT_MERGE_WINDOW = 60  # seconds: repeat triggers by the same user + module update one alert instead of new ones
 
 
 class Incident:
     """One antinuke incident: what happened, and the alert messages sent about it (edited when it repeats)."""
 
-    def __init__(self, *, guild, user, actor_id, module, threshold, window, via, roles, result, undone, problems):
+    def __init__(self, *, guild, user, actor_id, module, threshold, window, via, roles, result, undone, problems,
+                 test: bool = False):
+        self.test = test
         self.guild, self.user, self.actor_id, self.module = guild, user, actor_id, module
         self.threshold, self.window, self.via, self.roles = threshold, window, via, roles
         self.result, self.undone, self.problems = result, list(undone), list(problems)
@@ -207,12 +236,14 @@ def _bullets(lines: list[str]) -> str:
 def alert_embed(inc: Incident, footer: str) -> discord.Embed:
     """The alert card sent to the log channel, server owner and developers."""
     label = LABELS.get(inc.module, inc.module)
-    e = discord.Embed(title=f"Antinuke triggered: {label}", color=Colors.error, timestamp=discord.utils.utcnow())
+    title = f"🧪 Antinuke test: {label}" if inc.test else f"Antinuke triggered: {label}"
+    e = discord.Embed(title=title, color=Colors.warn if inc.test else Colors.error, timestamp=discord.utils.utcnow())
     name = getattr(inc.user, "name", None) or "Unknown user"
     is_bot = bool(getattr(inc.user, "bot", False))
     avatar = getattr(getattr(inc.user, "display_avatar", None), "url", None)
     e.set_author(name=name, icon_url=avatar)
-    e.add_field(name="User", value=f"{discord.utils.escape_markdown(name)}{' (bot)' if is_bot else ''}\n`{inc.actor_id}`")
+    e.add_field(name="User", value="simulated attacker (`,testnuke`)" if inc.test else
+                f"{discord.utils.escape_markdown(name)}{' (bot)' if is_bot else ''}\n`{inc.actor_id}`")
     e.add_field(name="Server", value=f"{discord.utils.escape_markdown(inc.guild.name)}\n`{inc.guild.id}`")
     e.add_field(name="Limit", value=f"{inc.threshold} in {inc.window}s"
                                     + (f"\nvia bot command `{inc.via}`" if inc.via else ""))
@@ -249,6 +280,7 @@ class Antinuke(commands.Cog):
         self.snapshots = Snapshots()  # recently deleted channels/roles, so they can be rebuilt
         self.recent: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, user) -> (time, module, entry)
         self.caught: dict[tuple[int, int], float] = {}  # (guild, user) -> until when follow-ups are undone at once
+        self.test_runs: dict[int, TestRun] = {}  # guild -> a developer's ,testnuke in progress
 
     async def cfg(self, gid):
         cfg = await self.bot.db.get_config(gid, "antinuke", DEFAULT)
@@ -281,11 +313,11 @@ class Antinuke(commands.Cog):
         self.snapshots.role_deleted(role)
 
     @staticmethod
-    def _matters(module: str, entry) -> bool:
+    def _matters(module: str, entry, test: bool = False) -> bool:
         """Filter the noisy audit events down to the ones that can hurt."""
         if module in ("vanity", "serverupdate"):  # renaming the server or changing its icon isn't an attack
             return getattr(entry.before, "vanity_url_code", None) != getattr(entry.after, "vanity_url_code", None)
-        if module in BOT_JOBS and getattr(getattr(entry, "user", None), "bot", False):
+        if module in BOT_JOBS and not test and getattr(getattr(entry, "user", None), "bot", False):
             return False  # ticket, logging and role bots make channels, webhooks and invites all day
         if module == "timeout":
             # member_update covers nick changes etc. — only count a timeout being applied
@@ -310,14 +342,18 @@ class Antinuke(commands.Cog):
         if not cfg.get("enabled"):
             return
         actor_id = entry.user_id
-        if not actor_id or await self._trusted(guild, cfg, actor_id):
+        run = self.test_runs.get(guild.id)
+        test = run is not None and actor_id == getattr(self.bot.user, "id", None) and run.owns(entry)
+        if not test and (not actor_id or await self._trusted(guild, cfg, actor_id)):
             return
-        if not self._matters(module, entry):
+        if not self._matters(module, entry, test=test):
             return
         who = (guild.id, actor_id)
         t = time.monotonic()
         if self.caught.get(who, 0) > t:  # already caught: undo whatever else lands straight away
             return await self._follow_up(guild, actor_id, module, entry)
+        if test and getattr(entry.target, "id", None) is not None:
+            run.created.add(entry.target.id)
         if module in UNDOES:  # remembered even when its own rule is off, so it can be undone if they trip another
             recent = self.recent[who]
             recent.append((t, module, entry))
@@ -344,7 +380,23 @@ class Antinuke(commands.Cog):
         if all(e is not entry for _, e in entries):
             entries.append((module, entry))
         self._mark_caught(who, t)
-        await self.respond(guild, cfg, actor_id, module, entry, threshold, entries=entries)
+        await self.respond(guild, cfg, actor_id, module, entry, threshold, entries=entries, test=run if test else None)
+
+    def start_test(self, guild_id: int, user_id: int) -> TestRun:
+        run = self.test_runs[guild_id] = TestRun(guild_id, user_id)
+        return run
+
+    def end_test(self, guild_id: int) -> TestRun | None:
+        """Stop treating the bot's test creations as an attack and forget its counters."""
+        run = self.test_runs.pop(guild_id, None)
+        me = getattr(self.bot.user, "id", None)
+        self.caught.pop((guild_id, me), None)
+        self.recent.pop((guild_id, me), None)
+        for key in [k for k in self.hits if k[0] == guild_id and k[1] == me]:
+            del self.hits[key]
+        for key in [k for k in self.incidents if k[0] == guild_id and k[1] == me]:
+            del self.incidents[key]
+        return run
 
     def _mark_caught(self, who: tuple[int, int], now: float) -> None:
         for key in [k for k, until in self.caught.items() if until <= now]:
@@ -456,7 +508,8 @@ class Antinuke(commands.Cog):
         return done
 
     async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1,
-                      via: str | None = None, entries: list[tuple[str, object]] | None = None):
+                      via: str | None = None, entries: list[tuple[str, object]] | None = None,
+                      test: TestRun | None = None):
         actor = guild.get_member(actor_id)
         user = actor or self.bot.get_user(actor_id)
         if user is None:
@@ -478,22 +531,29 @@ class Antinuke(commands.Cog):
         # member id -> (member, removed role names, "target" | "actor"), for the notice DMs
         stripped: dict[int, tuple] = {}
         undone = [f"blocked the `{via}` command"] if via else []
-        # strip bot-granted powers first, so a kick (or a failed punishment) doesn't leave them armed
-        undone += await self._revoke_bot_perms(guild, actor_id)
+        if test is None:
+            # strip bot-granted powers first, so a kick (or a failed punishment) doesn't leave them armed
+            undone += await self._revoke_bot_perms(guild, actor_id)
         if entries is None:
             entries = [(module, entry)] if entry is not None else []
         # permission grants are taken back before the punishment (it decides what is left to strip); everything
         # slow (rebuilding channels and roles, unbanning) comes after it, so the attacker is stopped first
         undone += await self._revert_all(guild, [x for x in entries if x[0] == "permissions"], reason, stripped)
-        result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped)
+        if test is not None:  # the attacker is simulated: say what would have happened, punish nobody
+            result = f"Test: would {PUNISH_VERBS.get(punishment, punishment)} the attacker (nobody was punished)"
+            roles_held = []
+        else:
+            result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped)
         undone += await self._revert_all(guild, [x for x in entries if x[0] != "permissions"], reason, stripped)
         problems = [line.removeprefix("⚠️ ") for line in undone if line.startswith("⚠️")]
         undone = collapse([line for line in undone if not line.startswith("⚠️")])
 
-        await self._notify_stripped(guild, stripped)
+        if test is None:
+            await self._notify_stripped(guild, stripped)
         await self._send_alert(guild, cfg, actor_id, module, dict(
             guild=guild, user=user, actor_id=actor_id, module=module, threshold=threshold, window=window,
-            via=via, roles=roles_held, result=result, undone=undone, problems=problems))
+            via=via, roles=roles_held, result=result, undone=undone, problems=problems, test=test is not None),
+            test=test)
 
     @staticmethod
     def _strippable(guild: discord.Guild, role) -> bool:
@@ -690,7 +750,8 @@ class Antinuke(commands.Cog):
         logs = get_cog("Logging") if get_cog else None
         return await logs.channel_for(guild, "antinuke") if logs else None
 
-    async def _send_alert(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, details: dict) -> None:
+    async def _send_alert(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, details: dict,
+                          test: TestRun | None = None) -> None:
         """Send the alert card, or update the existing one if the same user tripped the same module just now."""
         now = time.monotonic()
         for k in [k for k, inc in self.incidents.items() if now - inc.last > ALERT_MERGE_WINDOW]:
@@ -707,14 +768,20 @@ class Antinuke(commands.Cog):
                     pass
             return
         inc = self.incidents[key] = Incident(**details)
+        if test is not None:
+            test.incidents.append(inc)
 
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label="Jump to Server", emoji="↗️",
                                         url=f"https://discord.com/channels/{guild.id}"))
         log_channel = await self._log_channel(guild, cfg)
 
-        targets: list[tuple] = [(d, "Antinuke alert") for d in (log_channel, guild.owner) if d]
-        if settings.antinuke_dev_alerts:
+        if test is not None:  # a test only tells the log channel; the developer gets the summary in the channel
+            targets: list[tuple] = [(log_channel, "Antinuke test · simulated attacker · nobody was punished")] \
+                if log_channel else []
+        else:
+            targets = [(d, "Antinuke alert") for d in (log_channel, guild.owner) if d]
+        if settings.antinuke_dev_alerts and test is None:
             from cogs.authorization import developers
             for uid in await developers(self.bot):
                 if uid == guild.owner_id:
