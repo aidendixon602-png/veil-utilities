@@ -125,7 +125,7 @@ The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command lis
 git clone https://github.com/aidendixon602-png/veil-utilities
 cd veil-utilities
 pip install -r requirements.txt
-cp .env.example .env          # add DISCORD_TOKEN and your OWNER_IDS
+cp .env.example .env          # add your DISCORD_TOKEN, that's all it needs
 python main.py
 ```
 
@@ -167,11 +167,11 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | Variable | Purpose |
 |---|---|
 | `DISCORD_TOKEN` | Your bot token. **Never commit it.** |
-| `OWNER_IDS` | Developer user IDs (comma-separated). They unlock the Secret tools and server authorization |
+| `OWNER_IDS` | Optional. Developers are found automatically (the owner or team of your bot's Discord application); list IDs here only to add more. Developers unlock the Secret tools and server authorization |
 | `AUTH_REQUIRED` | `true` = only authorized servers can use the bot |
 | `PRIVATE_MODE` | `true` (default) = only developers, server owners and people with a permission level can run commands; everyone else and DMs are ignored silently. `false` opens public commands to every member |
 | `LOW_MEMORY` | `true` on small hosts: smaller caches and image limits |
-| `ERROR_LOG_CHANNEL` | Channel that receives a traceback for every crash |
+| `ERROR_LOG_CHANNEL` | Optional. The bot makes a private `#veil-errors` channel for crash tracebacks (and `#veil-auth` for server alerts) by itself; set an ID only to use your own channel |
 | `ANTINUKE_DEV_ALERTS` | DM developers a "Global antinuke alert" whenever antinuke fires |
 
 **Integrations: all optional.** Everything below works out of the box. Keys only make things faster or unlock extras.

@@ -174,7 +174,8 @@ class Settings:
 
     @property
     def dashboard_login_configured(self) -> bool:
-        return bool(self.discord_client_id and self.discord_client_secret and self.dashboard_url)
+        # the client ID is read from the bot itself at startup, so only the secret and the address are needed
+        return bool(self.discord_client_secret and self.dashboard_url)
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
@@ -224,9 +225,9 @@ class Settings:
         if settings.dashboard_secret is not None and len(settings.dashboard_secret) < 32:
             r.problems.append("DASHBOARD_SECRET must be at least 32 characters (or leave it empty)")
         login_parts = (settings.discord_client_id, settings.discord_client_secret, settings.dashboard_url)
-        if settings.dashboard_enabled and any(login_parts) and not all(login_parts):
-            r.problems.append("Dashboard login needs all three of DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET "
-                              "and DASHBOARD_URL (or none of them for a localhost-only dashboard)")
+        if settings.dashboard_enabled and any(login_parts) and not settings.dashboard_login_configured:
+            r.problems.append("Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL "
+                              "(the client ID is detected automatically), or neither for a localhost-only dashboard")
         if r.problems:
             raise ConfigError(r.problems)
         return settings
@@ -236,8 +237,6 @@ class Settings:
         problems = []
         if not self.discord_token:
             problems.append("DISCORD_TOKEN is required — copy .env.example to .env and add your bot token")
-        if not self.owner_ids:
-            problems.append("OWNER_IDS is required — add your Discord user ID so you can manage the bot")
         if problems:
             raise ConfigError(problems)
 

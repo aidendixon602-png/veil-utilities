@@ -146,7 +146,8 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
         ("Bot Runtime:", f"Python {platform.python_version()} ({platform.system()} {platform.machine()})"),
         ("Discord API:", f"discord.py v{discord.__version__}"),
         ("Command Prefix:", f"{settings.prefix} (Default)"),
-        ("Bot Developers:", f"{len(settings.owner_ids)} authorized developer(s)"),
+        ("Bot Developers:", f"{len(settings.owner_ids)} authorized developer(s)" if settings.owner_ids
+                            else "found automatically from your Discord application"),
         ("Database Engine:", db_engine),
         ("Web Dashboard:", f"Port {dash_port} (Active)"),
         ("Music Subsystem:", music_status),
