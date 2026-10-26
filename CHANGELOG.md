@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same look the role commands already had. Every command error is now a red `failed: reason` line;
   only the cooldown nudge stays amber. Missing Discord permissions on ordinary commands keep their rank wording.
   The reply rules are in CONTRIBUTING.md.
+- **Antinuke, antiraid and anti-alt replies redone.** Short lower-case lines that say what changed:
+  `turned antinuke on`, `set the Ban rule to 3 in 60s → ban`, `whitelisted @user`, `made @user an antinuke admin`,
+  `mass join filter set to 10 joins in 10s`. Whitelist commands use mentions, warn (amber) when nothing changed,
+  and the antiraid/anti-alt whitelist toggles now say whether they added or removed the user.
+- Antinuke usage hints (`failed: usage: !an ban <count> <punishment> <timeframe>`) and the preset help follow the
+  server's prefix instead of a hard-coded `,`.
 - **Moderation replies redone.** Every moderation command answers in the shared style with a mention and the case
   number: `banned @user · case #12`, `timed out @user for 10 minutes · case #13`, `warned @user (warning 3) · case #14`,
   `locked #general`, `purged 12 messages`. Same for kick, softban, unban, jail, quarantine, nicknames, slowmode, the

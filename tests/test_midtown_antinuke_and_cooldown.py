@@ -131,8 +131,8 @@ def test_whitelist_and_unwhitelist():
         guild_id = 888
         guild = SimpleNamespace(id=guild_id, owner_id=1)
         author = SimpleNamespace(id=1, guild_permissions=SimpleNamespace(administrator=True))
-        target_user = SimpleNamespace(id=42, __str__=lambda self: "TrustedUser#0001")
-        ctx = SimpleNamespace(guild=guild, author=author, approve=AsyncMock(), neutral=AsyncMock())
+        target_user = SimpleNamespace(id=42, mention="<@42>")
+        ctx = SimpleNamespace(guild=guild, author=author, approve=AsyncMock(), neutral=AsyncMock(), warn=AsyncMock())
 
         # Whitelist user
         await Antinuke.an_whitelist.callback(cog, ctx, target_user)
@@ -141,7 +141,7 @@ def test_whitelist_and_unwhitelist():
 
         # Whitelist again (already whitelisted)
         await Antinuke.an_whitelist.callback(cog, ctx, target_user)
-        ctx.neutral.assert_awaited_once()
+        ctx.warn.assert_awaited_once()
 
         # Unwhitelist user
         await Antinuke.an_unwhitelist.callback(cog, ctx, target_user)
