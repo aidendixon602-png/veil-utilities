@@ -153,28 +153,65 @@ def overwrite_gained(before, after) -> bool:
     return bool(added & OVERWRITE_DANGEROUS.value)
 
 
-def alert_embed(*, guild, user, actor_id, module, threshold, window, punishment, highest, roles,
-                reverted, failed, footer, via=None) -> discord.Embed:
+ALERT_MERGE_WINDOW = 60  # seconds: repeat triggers by the same user + module update one alert instead of new ones
+
+
+class Incident:
+    """One antinuke incident: what happened, and the alert messages sent about it (edited when it repeats)."""
+
+    def __init__(self, *, guild, user, actor_id, module, threshold, window, via, roles, result, undone, problems):
+        self.guild, self.user, self.actor_id, self.module = guild, user, actor_id, module
+        self.threshold, self.window, self.via, self.roles = threshold, window, via, roles
+        self.result, self.undone, self.problems = result, list(undone), list(problems)
+        self.count = 1
+        self.first = self.last = time.monotonic()
+        self.messages: list[discord.Message] = []
+
+    def merge(self, *, result, undone, problems, roles) -> None:
+        self.count += 1
+        self.last = time.monotonic()
+        self.result = result
+        self.roles = roles or self.roles
+        for line in undone:
+            if line not in self.undone:
+                self.undone.append(line)
+        for line in problems:
+            if line not in self.problems:
+                self.problems.append(line)
+
+
+def _bullets(lines: list[str]) -> str:
+    text = "\n".join(f"• {line}" for line in lines)
+    return text if len(text) <= 1024 else text[:1020] + "…"
+
+
+def alert_embed(inc: Incident, footer: str) -> discord.Embed:
     """The alert card sent to the log channel, server owner and developers."""
-    e = discord.Embed(title="Antinuke Triggered", color=Colors.error, timestamp=discord.utils.utcnow())
-    if user:
-        av_url = getattr(getattr(user, "display_avatar", None), "url", None)
-        e.set_author(name=getattr(user, "name", str(actor_id)), icon_url=av_url)
-    e.add_field(name="Guild", value=f"**{guild.name}**\n`{guild.id}`")
-    e.add_field(name="User", value=f"{user.name if user else 'Unknown'}\n(`{actor_id}`)")
-    e.add_field(name="Bot", value="Yes" if user and user.bot else "No")
-    e.add_field(name="Triggered Action", value=LABELS.get(module, module) + (f"\nvia bot command `{via}`" if via else ""))
-    e.add_field(name="Threshold", value=f"{threshold} in {window}s")
-    e.add_field(name="Punishment", value=punishment + (" (failed)" if failed else ""))
-    e.add_field(name="Highest Role", value=highest or "None", inline=False)
-    held = ", ".join(roles)
-    e.add_field(name="Roles Held", value=(held[:1020] + "…") if len(held) > 1024 else (held or "None"), inline=False)
-    if reverted:
-        e.add_field(name="Response", value="\n".join(reverted)[:1024], inline=False)
-    if failed:
-        e.add_field(name="Problems", value="\n".join(failed)[:1024], inline=False)
+    label = LABELS.get(inc.module, inc.module)
+    e = discord.Embed(title=f"Antinuke triggered: {label}", color=Colors.error, timestamp=discord.utils.utcnow())
+    name = getattr(inc.user, "name", None) or "Unknown user"
+    is_bot = bool(getattr(inc.user, "bot", False))
+    avatar = getattr(getattr(inc.user, "display_avatar", None), "url", None)
+    e.set_author(name=name, icon_url=avatar)
+    e.add_field(name="User", value=f"{discord.utils.escape_markdown(name)}{' (bot)' if is_bot else ''}\n`{inc.actor_id}`")
+    e.add_field(name="Server", value=f"{discord.utils.escape_markdown(inc.guild.name)}\n`{inc.guild.id}`")
+    e.add_field(name="Limit", value=f"{inc.threshold} in {inc.window}s"
+                                    + (f"\nvia bot command `{inc.via}`" if inc.via else ""))
+    e.add_field(name="Result", value=inc.result, inline=False)
+    if inc.undone:
+        e.add_field(name="Undone", value=_bullets(inc.undone), inline=False)
+    if inc.problems:
+        e.add_field(name="Problems", value=_bullets(inc.problems), inline=False)
+    roles = ", ".join(inc.roles)
+    e.add_field(name="Their roles (highest first)", inline=False,
+                value=(roles[:1020] + "…") if len(roles) > 1024 else (roles or "None"))
+    if inc.count > 1:
+        secs = max(1, int(inc.last - inc.first))
+        e.add_field(name="Repeated", value=f"{inc.count} times in {secs}s", inline=False)
     e.set_footer(text=footer)
     return e
+
+
 DEFAULT = {"enabled": False, "punishment": "ban", "window": 60, "whitelist": [], "admins": [],
            "modules": {}, "presets": {}, "log": None}
 
@@ -188,6 +225,7 @@ class Antinuke(commands.Cog):
         self.hits: dict[tuple[int, int, str], deque] = defaultdict(deque)
         self.joins: dict[int, deque] = defaultdict(deque)
         self.raid_until: dict[int, float] = {}
+        self.incidents: dict[tuple[int, int, str], Incident] = {}
 
     async def cfg(self, gid):
         return await self.bot.db.get_config(gid, "antinuke", DEFAULT)
@@ -332,151 +370,171 @@ class Antinuke(commands.Cog):
     async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1,
                       via: str | None = None):
         actor = guild.get_member(actor_id)
-        # snapshot before punishment strips/removes anything
         user = actor or self.bot.get_user(actor_id)
         if user is None:
             try:
                 user = await self.bot.fetch_user(actor_id)
             except discord.HTTPException:
                 user = None
+        # snapshot before punishment strips anything; highest role first
         roles_held = [r.name for r in reversed(actor.roles[1:])] if actor else []
-        highest = actor.top_role.name if actor and len(actor.roles) > 1 else None
         mod = cfg.get("modules", {}).get(module, {})
         rule_def = RULE_LOOKUP.get(module)
-        default_pun = rule_def["punishment"] if rule_def else "ban"
-        default_win = rule_def["window"] if rule_def else 60
         if module == "permissions":
-            # Giving administrator role or dangerous permissions must strictly strip the role, NEVER ban!
-            punishment = "strip"
+            punishment = "strip"  # granting dangerous permissions is answered by taking them back, never a ban
         else:
-            punishment = mod.get("punishment") or cfg.get("punishment", default_pun)
-        window = mod.get("window") or cfg.get("window", default_win)
+            punishment = mod.get("punishment") or cfg.get("punishment", rule_def["punishment"] if rule_def else "ban")
+        window = mod.get("window") or cfg.get("window", rule_def["window"] if rule_def else 60)
         reason = f"Antinuke: {MODULES.get(module, module)}"
-        done = [f"blocked `{via}`"] if via else []
+
+        # member id -> (member, removed role names, "target" | "actor"), for the notice DMs
+        stripped: dict[int, tuple] = {}
+        undone = [f"blocked the `{via}` command"] if via else []
         # strip bot-granted powers first, so a kick (or a failed punishment) doesn't leave them armed
-        done += await self._revoke_bot_perms(guild, actor_id)
-        # revert what we safely can (nothing to revert when the guard blocked the action up front)
+        undone += await self._revoke_bot_perms(guild, actor_id)
+        undone += await self._revert(guild, module, entry, reason, stripped)
+        result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped)
+        problems = [line.removeprefix("⚠️ ") for line in undone if line.startswith("⚠️")]
+        undone = [line for line in undone if not line.startswith("⚠️")]
+
+        await self._notify_stripped(guild, stripped)
+        await self._send_alert(guild, cfg, actor_id, module, dict(
+            guild=guild, user=user, actor_id=actor_id, module=module, threshold=threshold, window=window,
+            via=via, roles=roles_held, result=result, undone=undone, problems=problems))
+
+    @staticmethod
+    def _strippable(guild: discord.Guild, role) -> bool:
+        if not is_dangerous(getattr(role, "permissions", None)) or getattr(role, "managed", False):
+            return False
         try:
-            if entry is None:
-                pass
-            elif module == "botadd" and isinstance(entry.target, (discord.Member, discord.User, discord.Object)):
-                await guild.ban(entry.target, reason="Antinuke: unauthorized bot")
-                done.append("banned the added bot")
-            elif module == "permissions" and entry.action == A.role_update and isinstance(entry.target, discord.Role):
+            return role < guild.me.top_role
+        except Exception:
+            return getattr(role, "position", 0) < getattr(guild.me.top_role, "position", 999999)
+
+    @staticmethod
+    def _below_me(guild: discord.Guild, member) -> bool:
+        try:
+            return member.top_role < guild.me.top_role
+        except Exception:
+            return getattr(member.top_role, "position", 0) < getattr(guild.me.top_role, "position", 0)
+
+    async def _revert(self, guild: discord.Guild, module: str, entry, reason: str, stripped: dict) -> list[str]:
+        """Undo what the attacker did where that's safe. Returns lines for the alert ("⚠️ …" for failures)."""
+        if entry is None:  # the bot-command guard blocked the action before it happened
+            return []
+        target = getattr(entry, "target", None)
+        try:
+            if module == "botadd" and isinstance(target, (discord.Member, discord.User, discord.Object)):
+                await guild.ban(target, reason="Antinuke: unauthorized bot")
+                return ["banned the added bot"]
+            if module == "permissions" and entry.action == A.role_update and isinstance(target, discord.Role):
                 before = getattr(entry.before, "permissions", None)
                 if before is not None:
-                    await entry.target.edit(permissions=before, reason=reason)
-                    done.append(f"reverted permissions on {entry.target.name}")
+                    await target.edit(permissions=before, reason=reason)
+                    return [f"reverted the permissions on {target.name}"]
             elif module == "permissions" and entry.action in (A.overwrite_create, A.overwrite_update) \
-                    and isinstance(entry.target, discord.abc.GuildChannel):
+                    and isinstance(target, discord.abc.GuildChannel):
                 ow_target = getattr(entry.extra, "id", None) and (
                     guild.get_role(entry.extra.id) or guild.get_member(entry.extra.id))
                 if ow_target is not None:
-                    ow = entry.target.overwrites_for(ow_target)
+                    ow = target.overwrites_for(ow_target)
                     for perm, value in OVERWRITE_DANGEROUS:
                         if value and getattr(ow, perm) is True:
                             setattr(ow, perm, None)
-                    await entry.target.set_permissions(ow_target, overwrite=ow, reason=reason)
-                    done.append(f"removed staff overwrites in #{entry.target.name}")
-            elif module == "timeout" and isinstance(entry.target, discord.Member):
-                await entry.target.timeout(None, reason=reason)
-                done.append(f"removed the timeout from {entry.target}")
-            elif module == "permissions":
-                # Strip dangerous roles from target member
-                target_m = getattr(entry, "target", None)
-                def _can_strip_role(r):
-                    if not is_dangerous(getattr(r, "permissions", None)):
-                        return False
-                    if getattr(r, "managed", False):
-                        return False
-                    try:
-                        return r < guild.me.top_role
-                    except Exception:
-                        return getattr(r, "position", 0) < getattr(guild.me.top_role, "position", 999999)
-
-                if isinstance(target_m, discord.Member):
-                    added = [r for r in getattr(entry.after, "roles", []) if _can_strip_role(r)]
-                    if not added:
-                        added = [r for r in getattr(target_m, "roles", []) if _can_strip_role(r)]
-                    if added:
-                        await target_m.remove_roles(*added, reason=reason)
-                        done.append(f"removed dangerous roles from {target_m}")
-                # Also strip dangerous roles from actor if they gave it to themselves or have dangerous perms
-                actor_can_be_stripped = False
-                if actor and actor.id != guild.owner_id:
-                    try:
-                        actor_can_be_stripped = actor.top_role < guild.me.top_role
-                    except Exception:
-                        actor_can_be_stripped = getattr(actor.top_role, "position", 0) < getattr(guild.me.top_role, "position", 999999)
-
-                if actor_can_be_stripped:
-                    actor_dangerous = [r for r in getattr(actor, "roles", []) if _can_strip_role(r)]
-                    if actor_dangerous:
-                        await actor.remove_roles(*actor_dangerous, reason=reason)
-                        if not any("removed dangerous roles" in d for d in done):
-                            done.append(f"removed dangerous roles from {actor}")
+                    await target.set_permissions(ow_target, overwrite=ow, reason=reason)
+                    return [f"removed staff overwrites in #{target.name}"]
+            elif module == "permissions" and isinstance(target, discord.Member):
+                added = [r for r in getattr(entry.after, "roles", []) or [] if self._strippable(guild, r)]
+                if not added:
+                    added = [r for r in target.roles if self._strippable(guild, r)]
+                if added:
+                    await target.remove_roles(*added, reason=reason)
+                    stripped[target.id] = (target, [r.name for r in added], "target")
+                    return [f"removed {', '.join(r.name for r in added)} from {target}"]
+            elif module == "timeout" and isinstance(target, discord.Member):
+                await target.timeout(None, reason=reason)
+                return [f"removed the timeout from {target}"]
             elif module in ("vanity", "serverupdate") and getattr(entry.before, "vanity_url_code", None):
                 await guild.edit(vanity_code=entry.before.vanity_url_code, reason=reason)
-                done.append("restored vanity")
-        except discord.HTTPException:
-            pass
-        # punish
-        try:
-            actor_above_me = False
-            if actor and getattr(guild, "me", None):
-                try:
-                    actor_above_me = (actor.top_role >= guild.me.top_role)
-                except Exception:
-                    actor_above_me = getattr(actor.top_role, "position", 0) >= getattr(guild.me.top_role, "position", 0)
+                return ["restored the vanity URL"]
+        except discord.HTTPException as e:
+            return [f"⚠️ couldn't undo it (Discord said {e.status})"]
+        return []
 
+    async def _punish(self, guild: discord.Guild, actor, actor_id: int, module: str, punishment: str, reason: str,
+                      stripped: dict) -> str:
+        """Punish the attacker and describe what actually happened."""
+        word = {"ban": "Ban", "kick": "Kick", "strip": "Strip"}.get(punishment, punishment.title())
+        try:
             if actor is None:
+                if module == "permissions":
+                    return "Nothing to strip: they're no longer in the server"
                 await guild.ban(discord.Object(actor_id), reason=reason)
-                done.append("banned the attacker")
-            elif actor_above_me:
-                done.append("⚠️ could not punish — attacker is above my role")
-            elif punishment == "kick":
-                await actor.kick(reason=reason); done.append("kicked the attacker")
-            elif punishment == "strip" or module == "permissions":
-                roles = [r for r in getattr(actor, "roles", []) if is_dangerous(getattr(r, "permissions", None)) and not getattr(r, "managed", False)]
+                return "Banned (they had already left the server)"
+            if not self._below_me(guild, actor):
+                return "⚠️ Not punished: their top role is above mine. Move my role higher."
+            if punishment == "kick":
+                await actor.kick(reason=reason)
+                return "Kicked"
+            if punishment == "strip" or module == "permissions":
+                roles = [r for r in actor.roles if self._strippable(guild, r)]
                 if roles:
                     await actor.remove_roles(*roles, reason=reason)
-                done.append("stripped the attacker's staff roles")
-            else:
-                await actor.ban(reason=reason); done.append("banned the attacker")
+                    prev = stripped.get(actor.id)
+                    names = list(prev[1]) if prev else []
+                    names += [r.name for r in roles if r.name not in names]
+                    stripped[actor.id] = (actor, names, "actor")
+                    return f"Stripped {len(roles)} staff role(s)"
+                if actor.id in stripped:  # gave the roles to themselves: already taken back above
+                    member, names, _ = stripped[actor.id]
+                    stripped[actor.id] = (member, names, "actor")
+                    return f"Stripped {len(names)} staff role(s)"
+                return "Nothing to strip: they have no staff roles"
+            await actor.ban(reason=reason)
+            return "Banned"
         except discord.HTTPException as e:
-            done.append(f"⚠️ punishment failed ({e.status})")
+            return f"⚠️ {word} failed (Discord said {e.status})"
 
-        outcome = {"ban": "Ban", "kick": "Kick", "strip": "Strip"}.get(punishment, punishment.title())
-        if actor is None and module != "permissions":
-            outcome = "Ban (not in server)"
-        reverted = [d for d in done if not d.endswith("attacker") and not d.startswith("⚠️")
-                    and "staff roles" not in d]
-        info = dict(guild=guild, user=user, actor_id=actor_id, module=module, via=via, threshold=threshold,
-                    window=window, punishment=outcome, highest=highest, roles=roles_held,
-                    reverted=reverted, failed=[d for d in done if d.startswith("⚠️")])
+    async def _notify_stripped(self, guild: discord.Guild, stripped: dict) -> None:
+        """Tell people whose roles the antinuke removed what happened, so it isn't a mystery."""
+        for member, names, kind in stripped.values():
+            if getattr(member, "bot", False) or not names:
+                continue
+            roles = ", ".join(f"**{discord.utils.escape_markdown(n)}**" for n in names)
+            if kind == "actor":
+                text = (f"Veil removed your staff roles ({roles}) in **{discord.utils.escape_markdown(guild.name)}** "
+                        f"because you gave out dangerous permissions without being trusted by the server's antinuke.")
+            else:
+                text = (f"Veil removed {roles} from you in **{discord.utils.escape_markdown(guild.name)}**. "
+                        f"They were given to you by someone the server's antinuke doesn't trust.")
+            embed = discord.Embed(title="🛡️ Veil Antinuke Security Notice", color=Colors.error,
+                                  description=text + "\n\nIf this was a mistake, ask the server owner to restore them.")
+            try:
+                await member.send(embed=embed)
+            except (discord.HTTPException, AttributeError):
+                pass
+
+    async def _send_alert(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, details: dict) -> None:
+        """Send the alert card, or update the existing one if the same user tripped the same module just now."""
+        now = time.monotonic()
+        for k in [k for k, inc in self.incidents.items() if now - inc.last > ALERT_MERGE_WINDOW]:
+            del self.incidents[k]
+        key = (guild.id, actor_id, module)
+        inc = self.incidents.get(key)
+        if inc is not None:
+            inc.merge(result=details["result"], undone=details["undone"], problems=details["problems"],
+                      roles=details["roles"])
+            for msg, footer in list(inc.messages):
+                try:
+                    await msg.edit(embed=alert_embed(inc, footer))
+                except discord.HTTPException:
+                    pass
+            return
+        inc = self.incidents[key] = Incident(**details)
 
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label="Jump to Server", emoji="↗️",
                                         url=f"https://discord.com/channels/{guild.id}"))
-
-        # 1. DM the user (target member or actor)
-        target_obj = getattr(entry, "target", None)
-        user_to_dm = target_obj if isinstance(target_obj, (discord.Member, discord.User)) else actor
-        if user_to_dm and not getattr(user_to_dm, "bot", False):
-            try:
-                user_embed = discord.Embed(
-                    title="🛡️ Veil Antinuke Security Notice",
-                    description=f"Your administrative/dangerous role in **{guild.name}** was automatically stripped.\n\n"
-                                f"**Trigger**: Unauthorized permission grant (administrator / dangerous permissions).\n"
-                                f"**Action**: Roles granting dangerous permissions were safely removed by Veil Antinuke to secure the server.",
-                    color=Colors.error,
-                )
-                user_embed.set_footer(text="Veil Zero-Trust Security • Midtown Events Department")
-                await user_to_dm.send(embed=user_embed)
-            except (discord.HTTPException, discord.Forbidden):
-                pass
-
-        # 2. Server copies: log channel + server owner
         log_channel = guild.get_channel(cfg.get("log") or 0)
         if not log_channel:
             text_chs = list(getattr(guild, "text_channels", []))
@@ -485,30 +543,26 @@ class Antinuke(commands.Cog):
                 if log_channel:
                     break
 
-        destinations = [log_channel]
-        if guild.owner:
-            destinations.append(guild.owner)
-
-        for d in destinations:
-            if d:
-                try:
-                    await d.send(embed=alert_embed(**info, footer="Antinuke alert"), view=view)
-                except discord.HTTPException:
-                    pass
-
-        # 3. Global copy: every bot developer (resolved user instances)
+        targets: list[tuple] = [(d, "Antinuke alert") for d in (log_channel, guild.owner) if d]
         if settings.antinuke_dev_alerts:
             from cogs.authorization import developers
-            dev_ids = await developers(self.bot)
-            for uid in dev_ids:
-                if guild.owner_id == uid:
+            for uid in await developers(self.bot):
+                if uid == guild.owner_id:
                     continue  # already got the owner copy
                 try:
-                    dev_user = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
-                    if dev_user:
-                        await dev_user.send(embed=alert_embed(**info, footer="Global antinuke alert • Veil Developers"), view=view)
-                except (discord.HTTPException, discord.Forbidden):
-                    pass
+                    dev = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                except discord.HTTPException:
+                    dev = None
+                if dev:
+                    targets.append((dev, "Global antinuke alert • Veil Developers"))
+
+        for dest, footer in targets:
+            try:
+                msg = await dest.send(embed=alert_embed(inc, footer), view=view)
+            except (discord.HTTPException, AttributeError):
+                continue
+            if msg is not None and hasattr(msg, "edit"):
+                inc.messages.append((msg, footer))
 
     # ================================================================ status & rules
     async def build_status_embed(self, guild_id: int) -> discord.Embed:

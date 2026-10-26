@@ -129,7 +129,11 @@ def test_granting_staff_permissions_is_instant():
         _, cog, guild = await setup({})
         with pytest.raises(UserError, match="Antinuke blocked"):
             await cog.guard(make_ctx(MOD, guild), "permissions")
-        guild.ban.assert_awaited_once()
+        # permission grants are answered by stripping, never a ban (even when the member isn't cached)
+        guild.ban.assert_not_awaited()
+        dev = next(u for u in cog.bot.dms if u.id == DEV)
+        alert = dev.send.await_args.kwargs["embed"]
+        assert next(f.value for f in alert.fields if f.name == "Result").startswith("Nothing to strip")
     run(_run)
 
 

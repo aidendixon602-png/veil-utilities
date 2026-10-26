@@ -95,7 +95,7 @@ def test_antinuke_permissions_strips_role_and_dms():
     target_user.send.assert_awaited_once()
     dm_embed = target_user.send.await_args[1]["embed"]
     assert "Veil Antinuke Security Notice" in dm_embed.title
-    assert "stripped" in dm_embed.description
+    assert "removed your staff roles" in dm_embed.description and "**Administrator**" in dm_embed.description
 
     # Bot developer received global alert DM
     bot_dev.send.assert_awaited_once()
