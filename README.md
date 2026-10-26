@@ -110,12 +110,10 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 <br/>
 
 <div align="center">
-<img src="assets/help-preview.svg" alt="The ,help menu with category buttons" width="720"/>
+<img src="assets/help-preview.svg" alt="The ,help menu: category dropdown and a paged command list" width="720"/>
 </div>
 
-15 category buttons plus **Home** for the overview, one owner-locked menu: only the person who ran
-`,help` can click, the active category lights up, and the red **Secret** button lists the developer
-tools — it only opens for developers. Every bot response also replies to your message (without pinging).
+One dropdown for the categories you're allowed to open (each shows its command count), numbered lists 10 to a page with ◀ ▶, 🏠 Home and 🗑 close. `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Secret** entry only appears for developers. Every bot response also replies to your message (without pinging).
 The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>
@@ -189,7 +187,7 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 
 ## 👑 Developer tools
 
-Hidden from everyone else and listed under the red **Secret** help button (or `,secret` / `,developer`):
+Hidden from everyone else and listed under **Secret** in the help dropdown (or `,secret` / `,developer`):
 
 | Command | What it does |
 |---|---|
@@ -230,7 +228,8 @@ veil-utilities/
 │   ├── config.py            typed, validated settings loaded from .env
 │   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
 │   ├── dashboard.py         opt-in web dashboard with Discord login
-│   ├── help.py              the interactive button help menu & Developer telemetry suite
+│   ├── help.py              the ,help menu: dropdown, paged lists, command cards
+│   ├── devmenu.py           developer-only menus (telemetry, Secret Suite)
 │   ├── modlog.py            numbered moderation cases
 │   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
 │   ├── perms.py             named permission levels & staff hierarchy

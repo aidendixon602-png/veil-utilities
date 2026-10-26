@@ -1,4 +1,4 @@
-"""Help menu Home button returns to the overview; all bot output replies to the command message."""
+"""All bot output replies to the command message (the help menu itself is covered in test_help_menu)."""
 from __future__ import annotations
 
 import asyncio
@@ -7,30 +7,7 @@ from unittest.mock import AsyncMock
 
 import discord
 
-from core.help import Help, HelpView
 from core.utils import Context
-
-
-def _help():
-    h = Help()
-    h.context = SimpleNamespace(guild=SimpleNamespace(), clean_prefix=",",
-                                author=SimpleNamespace(id=42),
-                                bot=SimpleNamespace(user=None, is_owner=AsyncMock(return_value=False)))
-    return h
-
-
-def test_home_button_returns_to_overview():
-    async def go():
-        view = HelpView(_help(), {"Utility": []}, start="Utility")
-        back = next(b for b in view.children if b.label in ("Back", "Home"))
-        it = SimpleNamespace(response=SimpleNamespace(edit_message=AsyncMock()),
-                             user=SimpleNamespace(id=42))
-        await back.callback(it)
-        return view, it
-
-    view, it = asyncio.run(go())
-    assert view.current is None            # back on the home card
-    assert it.response.edit_message.called  # menu updated in place
 
 
 def _ctx(send_mock):

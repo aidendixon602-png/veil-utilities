@@ -800,7 +800,7 @@ class Moderation(commands.Cog):
         await ctx.done(f"removed {role.mention} from {member.mention}")
 
     @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True,
-                    usage="<member> <role>", extras={"compact": True})
+                    usage="<member> <role>", extras={"compact": True, "example": "@user @role"})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -822,7 +822,7 @@ class Moderation(commands.Cog):
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
         await self._take_role(ctx, member, role)
 
-    @role.command(name="add", usage="<member> <role>")
+    @role.command(name="add", usage="<member> <role>", extras={"example": "@user @role"})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -830,7 +830,7 @@ class Moderation(commands.Cog):
         """Add a role to a member: `,r add @User @Role`"""
         await self._do_role_add(ctx, arg1, arg2)
 
-    @role.command(name="remove", aliases=["rem", "del"], usage="<member> <role>")
+    @role.command(name="remove", aliases=["rem", "del"], usage="<member> <role>", extras={"example": "@user @role"})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -838,7 +838,8 @@ class Moderation(commands.Cog):
         """Remove a role from a member: `,r remove @User @Role`"""
         await self._do_role_remove(ctx, arg1, arg2)
 
-    @commands.command(name="addrole", aliases=["giverole"], usage="<member> <role>", extras={"compact": True})
+    @commands.command(name="addrole", aliases=["giverole"], usage="<member> <role>",
+                      extras={"compact": True, "example": "@user @role"})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -846,7 +847,8 @@ class Moderation(commands.Cog):
         """Add a role to a member: `,addrole @User @Role`"""
         await self._do_role_add(ctx, arg1, arg2)
 
-    @commands.command(name="removerole", aliases=["takerole"], usage="<member> <role>", extras={"compact": True})
+    @commands.command(name="removerole", aliases=["takerole"], usage="<member> <role>",
+                      extras={"compact": True, "example": "@user @role"})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)

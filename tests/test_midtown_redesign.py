@@ -9,7 +9,7 @@ import discord
 import pytest
 
 from core.bot import Veil
-from core.help import BackButton, CategoryButton, Help, HelpView
+from core.help import Help, HelpView
 from core.utils import Colors, UserError
 
 
@@ -22,56 +22,6 @@ def _help():
         bot=SimpleNamespace(user=None, is_owner=AsyncMock(return_value=False)),
     )
     return h
-
-
-def test_help_home_view_has_no_secret_or_dev_buttons():
-    view = HelpView(_help(), {"Utility": [], "Music": [], "Moderation": []})
-    labels = [b.label for b in view.children if isinstance(b, CategoryButton)]
-    assert "Secret" not in labels
-    assert "Developer" not in labels
-    assert all(not isinstance(b, BackButton) for b in view.children)
-
-
-def test_help_category_view_has_back_button():
-    view = HelpView(_help(), {"Utility": []}, start="Utility")
-    assert any(isinstance(b, BackButton) and b.label == "Home" for b in view.children)
-
-
-def test_help_back_button_returns_to_home():
-    async def go():
-        view = HelpView(_help(), {"Utility": []}, start="Utility")
-        back_btn = next(b for b in view.children if isinstance(b, BackButton))
-        it = SimpleNamespace(
-            response=SimpleNamespace(edit_message=AsyncMock()),
-            user=SimpleNamespace(id=42),
-        )
-        await back_btn.callback(it)
-        return view, it
-
-    view, it = asyncio.run(go())
-    assert view.current is None
-    assert it.response.edit_message.called
-
-
-def test_category_embed_formatting():
-    h = _help()
-    cmd1 = SimpleNamespace(name="userinfo", signature="[user]", short_doc="Show profile info", aliases=["ui", "info"])
-    cmd2 = SimpleNamespace(name="serverinfo", signature="", short_doc="Server stats", aliases=["si"])
-    embed = h.category_embed("Utility", [cmd1, cmd2], page=0)
-
-    assert "Utility" in embed.title
-    assert embed.color.value == Colors.main
-    assert "**`,userinfo`** `[user]` — Show profile info. · *ui, info*" in embed.description
-    assert "**`,serverinfo`** — Server stats. · *si*" in embed.description
-    assert "Aliases" not in embed.description and "help <command>" not in embed.description
-    assert embed.footer.text == "Page 1 of 1 • 2 commands • ,help <command> for details"
-
-
-def test_long_alias_lists_are_capped():
-    h = _help()
-    cmd = SimpleNamespace(name="role", signature="", short_doc="Toggle a role", aliases=["r", "cr", "changerole", "rl", "x"])
-    embed = h.category_embed("Roles", [cmd], page=0)
-    assert "· *r, cr, changerole +2*" in embed.description
 
 
 def test_perm_alias_on_userperm():
@@ -226,13 +176,6 @@ def test_ban_log_view_security_and_self_ban_protection():
     asyncio.run(view.toggle_btn.callback(it))
     assert it.response.send_message.called
     assert "Only Bot Developers" in it.response.send_message.call_args[0][0]
-
-
-def test_help_home_view_shows_secret_and_dev_for_owner():
-    view = HelpView(_help(), {"Utility": [], "Music": [], "Moderation": []}, is_owner=True)
-    labels = [b.label for b in view.children if isinstance(b, CategoryButton)]
-    assert "Secret" in labels
-    assert "Developer" in labels
 
 
 def test_default_log_channels_auto_creation():
@@ -428,61 +371,6 @@ def test_dynamic_presence_rotation():
     assert "veil utilities" in act2.name
 
 
-def test_dynamic_category_filtering_by_rank():
-    all_cats = {
-        "Utility": [], "Music": [], "Moderation": [], "Roles": [], "Permissions": [],
-        "Antinuke": [], "Automod": [], "Server": [], "VoiceMaster": [], "Community": []
-    }
-
-    # 1. Unranked / regular user (rank 0)
-    view_unranked = HelpView(_help(), all_cats, author_rank=0, is_owner=False)
-    unranked_labels = [b.label for b in view_unranked.children if isinstance(b, CategoryButton)]
-    assert set(unranked_labels) == {"Utility", "Music", "VoiceMaster", "Community"}
-    assert "Moderation" not in unranked_labels
-    assert "Roles" not in unranked_labels
-    assert "Permissions" not in unranked_labels
-    assert "Antinuke" not in unranked_labels
-    assert "Automod" not in unranked_labels
-    assert "Server" not in unranked_labels
-    assert "Developer" not in unranked_labels
-    assert "Secret" not in unranked_labels
-
-    # 2. Helper (rank 1)
-    view_helper = HelpView(_help(), all_cats, author_rank=1, is_owner=False)
-    helper_labels = [b.label for b in view_helper.children if isinstance(b, CategoryButton)]
-    assert "Moderation" in helper_labels
-    assert "Roles" not in helper_labels
-    assert "Permissions" not in helper_labels
-    assert "Antinuke" not in helper_labels
-
-    # 3. Admin (rank 3)
-    view_admin = HelpView(_help(), all_cats, author_rank=3, is_owner=False)
-    admin_labels = [b.label for b in view_admin.children if isinstance(b, CategoryButton)]
-    assert "Moderation" in admin_labels
-    assert "Roles" in admin_labels
-    assert "Automod" in admin_labels
-    assert "Server" in admin_labels
-    assert "Permissions" not in admin_labels
-    assert "Antinuke" not in admin_labels
-    assert "Developer" not in admin_labels
-
-    # 4. Head Admin (rank 4)
-    view_headadmin = HelpView(_help(), all_cats, author_rank=4, is_owner=False)
-    headadmin_labels = [b.label for b in view_headadmin.children if isinstance(b, CategoryButton)]
-    assert "Permissions" in headadmin_labels
-    assert "Antinuke" in headadmin_labels
-    assert "Developer" not in headadmin_labels
-    assert "Secret" not in headadmin_labels
-
-    # 5. Bot Developer / Owner (is_owner=True)
-    view_owner = HelpView(_help(), all_cats, is_owner=True)
-    owner_labels = [b.label for b in view_owner.children if isinstance(b, CategoryButton)]
-    assert "Developer" in owner_labels
-    assert "Secret" in owner_labels
-    assert "Permissions" in owner_labels
-    assert "Antinuke" in owner_labels
-
-
 def test_command_category_and_rank_resolution():
     from core.help import category_for_command, min_rank_for_command
     from cogs.moderation import Moderation
@@ -637,41 +525,6 @@ def test_all_moderation_actions_have_uperm_checks():
         assert any(f"uperm: {expected_level}" in p for p in perms_list), f"Command {cmd_name} missing uperm: {expected_level}"
 
 
-def test_home_embed_and_view_strict_uperm_filtering():
-    h = _help()
-
-    # 1. Unranked (rank 0) home embed must NOT reveal Staff & Administration
-    unranked_embed = h.home_embed(author_rank=0)
-    unranked_field_names = [f.name for f in unranked_embed.fields]
-    assert "🛠️ Public & Community Modules" in unranked_field_names
-    assert "🛡️ Staff & Administration" not in unranked_field_names
-
-    # 2. Staff (rank 1+) home embed reveals Staff & Administration
-    staff_embed = h.home_embed(author_rank=1)
-    staff_field_names = [f.name for f in staff_embed.fields]
-    assert "🛠️ Public & Community Modules" in staff_field_names
-    assert "🛡️ Staff & Administration" in staff_field_names
-
-    # 3. Unranked HelpView must ONLY contain public category buttons
-    categories = {"Utility": [], "Music": [], "Moderation": [], "Roles": [], "Antinuke": []}
-    unranked_view = HelpView(h, categories, author_rank=0, is_owner=False)
-    unranked_labels = [b.label for b in unranked_view.children if isinstance(b, CategoryButton)]
-    assert "Utility" in unranked_labels
-    assert "Music" in unranked_labels
-    assert "Moderation" not in unranked_labels
-    assert "Roles" not in unranked_labels
-    assert "Antinuke" not in unranked_labels
-
-    # 4. Admin (rank 3) HelpView contains Moderation and Roles, but NOT Antinuke (rank 4)
-    admin_view = HelpView(h, categories, author_rank=3, is_owner=False)
-    admin_labels = [b.label for b in admin_view.children if isinstance(b, CategoryButton)]
-    assert "Utility" in admin_labels
-    assert "Music" in admin_labels
-    assert "Moderation" in admin_labels
-    assert "Roles" in admin_labels
-    assert "Antinuke" not in admin_labels
-
-
 def test_help_view_on_timeout_deletes_message():
     h = _help()
     view = HelpView(h, {"Utility": []}, author_rank=0)
@@ -680,9 +533,5 @@ def test_help_view_on_timeout_deletes_message():
 
     asyncio.run(view.on_timeout())
     assert msg.delete.called
-
-
-
-
 
 
