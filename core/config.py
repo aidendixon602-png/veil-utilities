@@ -139,6 +139,7 @@ class Settings:
     error_log_channel: int | None
     log_file: str
     antinuke_dev_alerts: bool
+    test_guild_id: int | None  # the one server ,testnuke may run in
 
     # integrations
     lastfm_api_key: str | None
@@ -194,6 +195,7 @@ class Settings:
             support_url=r.url("SUPPORT_URL"),
             private_mode=r.bool("PRIVATE_MODE", True),
             error_log_channel=r.snowflake("ERROR_LOG_CHANNEL"),
+            test_guild_id=r.snowflake("TEST_GUILD_ID"),
             log_file=r.str("LOG_FILE", "veil.log"),
             antinuke_dev_alerts=r.bool("ANTINUKE_DEV_ALERTS", True),
             lastfm_api_key=r.str("LASTFM_API_KEY"),

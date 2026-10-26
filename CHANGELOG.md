@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`,testnuke` and `,testcleanup` (developers).** `,testnuke [roles] [channels]` creates roles and channels named
+  `testnuke-…` as fast as Discord allows in the designated test server (`TEST_GUILD_ID` in `.env`), by default one
+  more of each than the Role Create / Channel Create rules allow. It first shows a warning (the counts, the
+  current rules, that the antinuke is off if it is) with **Confirm Test** and **Cancel**; only the developer who
+  started it can press them, and it cancels itself after a minute. While it runs, the antinuke treats those
+  creations as an attack by a simulated attacker: it detects it with the real rules, posts a 🧪 test alert to the
+  log channel (not the owner or other developers) and deletes what it catches, but punishes nobody. The report
+  says what was created, caught and removed, and what's left. `,testcleanup` deletes any `testnuke-` roles and
+  channels still there. Both only work for developer IDs written in `OWNER_IDS`: server permissions,
+  Administrator and server ownership don't count.
+
 - **Whitelist a role in the antinuke.** `,an whitelist @Role` trusts everyone who has the role (it says how many
   members that is right now); `,an unwhitelist @Role` stops it. Users and bots work as before, @everyone is
   refused, and `,an whitelist` on its own lists whitelisted users and roles. `,an admins` and the `,an` panel show
