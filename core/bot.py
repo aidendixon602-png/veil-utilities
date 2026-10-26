@@ -343,6 +343,23 @@ class Veil(commands.AutoShardedBot):
         except Exception:
             pass
 
+        # the restart ended the command before it could clean up after itself: do it now
+        from core import autoclean
+        on, delay = await autoclean.settings_for(self, getattr(channel, "guild", None))
+        if on:
+            command_id = state.get("command_message_id")
+            if command_id:
+                autoclean.remember(command_id)
+                try:
+                    await channel.get_partial_message(command_id).delete()
+                except (discord.HTTPException, AttributeError):
+                    pass
+            if msg is not None:
+                try:
+                    await msg.delete(delay=delay)
+                except (discord.HTTPException, AttributeError, TypeError):
+                    pass
+
     # ------------------------------------------------------------- prefixes
     async def _get_prefix(self, bot, message: discord.Message):
         prefixes = []
@@ -399,12 +416,53 @@ class Veil(commands.AutoShardedBot):
         if await self._may_run_commands(message):
             await self.process_commands(message)
 
-    async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        # re-run commands that were fixed within 60s (same gate as on_message, or edits would bypass the blacklist)
-        if before.content == after.content or (discord.utils.utcnow() - after.created_at).total_seconds() >= 60:
+    # ------------------------------------------------------------- buttons that nothing answers
+    def _component_is_live(self, it: discord.Interaction) -> bool:
+        """Is anything still listening for this button/menu? (Mirrors how discord.py routes component clicks.)"""
+        store = getattr(self._connection, "_view_store", None)
+        data = getattr(it, "data", None) or {}
+        custom_id = data.get("custom_id")
+        if store is None or custom_id is None:
+            return True  # can't tell: assume yes rather than talk over a real handler
+        if any(pattern.fullmatch(custom_id) for pattern in getattr(store, "_dynamic_items", {})):
+            return True
+        key = (data.get("component_type"), custom_id)
+        views = getattr(store, "_views", {})
+        message_id = getattr(getattr(it, "message", None), "id", None)
+        return key in views.get(message_id, {}) or key in views.get(None, {})
+
+    async def on_interaction(self, it: discord.Interaction):
+        """Never leave a click unanswered ("The application didn't respond in time").
+
+        A menu that has expired (timed out, or from before a restart) has nothing listening to it any more: say so
+        privately and take its dead buttons off. Anything else gets a silent acknowledgement if its handler hasn't
+        answered within 2.5 seconds (Discord gives up at 3)."""
+        if it.type is not discord.InteractionType.component:
             return
-        if await self._may_run_commands(after):
-            await self.process_commands(after)
+        if not self._component_is_live(it):
+            try:
+                if getattr(it.message, "author", None) is not None and it.message.author.id == self.user.id:
+                    await it.response.edit_message(view=None)
+                    await it.followup.send("This menu has expired. Run the command again to get a fresh one.",
+                                           ephemeral=True)
+                else:
+                    await it.response.send_message("This menu has expired. Run the command again.", ephemeral=True)
+            except discord.HTTPException:
+                pass
+            return
+        await asyncio.sleep(2.5)
+        if not it.response.is_done():
+            try:
+                await it.response.defer()
+            except discord.HTTPException:
+                pass  # answered in the meantime
+
+    # Editing a message never runs a command: a command is what was typed when the message was sent. (An edit used to
+    # re-run it, which let a message be turned into a different command after the fact.)
+
+    async def on_command_completion(self, ctx: Context):
+        from core import autoclean
+        await autoclean.after_command(ctx, ran=True)
 
     async def on_guild_join(self, guild: discord.Guild):
         if guild.id in self.blacklist:
@@ -546,6 +604,13 @@ class Veil(commands.AutoShardedBot):
 
     # ------------------------------------------------------------- errors
     async def on_command_error(self, ctx: Context, error: commands.CommandError):
+        try:
+            await self._handle_command_error(ctx, error)
+        finally:
+            from core import autoclean
+            await autoclean.after_command(ctx, ran=False)  # only cleans up when the person was shown something
+
+    async def _handle_command_error(self, ctx: Context, error: commands.CommandError):
         try:
             error = getattr(error, "original", error)
             if isinstance(error, (commands.CommandNotFound, Ignored)):

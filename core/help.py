@@ -396,7 +396,7 @@ class HelpView(OwnedView):
 
     def __init__(self, help_cmd: Help, categories: dict[str, list[commands.Command]], start: str | None = None,
                  is_owner: bool = False, author_rank: int = 0):
-        super().__init__(help_cmd.context.author.id, timeout=180)
+        super().__init__(help_cmd.context.author.id, timeout=300)  # 5 minutes to read before the menu goes
         self.help_cmd, self.categories = help_cmd, categories
         self.is_owner = is_owner
         self.author_rank = author_rank

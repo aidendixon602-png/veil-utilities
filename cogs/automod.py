@@ -12,6 +12,7 @@ import discord
 import regex
 from discord.ext import commands
 
+from core import autoclean
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, shorten
 
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/[\w-]+", re.I)
@@ -148,8 +149,8 @@ class Automod(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
-        if not message.guild or message.author.bot or not message.content:
-            return
+        if not message.guild or message.author.bot or not message.content or autoclean.was_cleaned(message.id):
+            return  # (a command the bot tidied away is not a ghost ping)
         from core import perms as _perms
         if _perms.is_bot_developer(message.author, self.bot):
             return

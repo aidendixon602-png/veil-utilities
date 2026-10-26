@@ -593,6 +593,7 @@ class Owner(commands.Cog):
         state = {
             "channel_id": getattr(channel, "id", None),
             "message_id": getattr(msg, "id", None),
+            "command_message_id": getattr(getattr(ctx, "message", None), "id", None),
             "guild_id": getattr(guild, "id", None),
             "author_id": getattr(author, "id", None),
             "start_time": start_time,

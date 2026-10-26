@@ -111,25 +111,23 @@ def test_edits_do_not_count_toward_spam():
 
 
 # ------------------------------------------------------------------ blacklist
-def test_blacklisted_user_cannot_run_commands_by_editing():
+def test_editing_a_message_never_runs_a_command():
+    """Nobody can turn a message into a different command by editing it, blacklisted or not."""
     from core.bot import Veil
 
     async def run():
         bot = Veil()
-        bot.blacklist = {42}
         ran = []
 
         async def fake_process(message):
             ran.append(message)
         bot.process_commands = fake_process
         now = datetime.now(timezone.utc)
-        author = SimpleNamespace(id=42, bot=False)
-        before = SimpleNamespace(content=",ban", author=author, guild=None, created_at=now - timedelta(seconds=5))
+        author = SimpleNamespace(id=7, bot=False)
+        before = SimpleNamespace(content="hello", author=author, guild=None, created_at=now - timedelta(seconds=5))
         after = SimpleNamespace(content=",ban @x", author=author, guild=None, created_at=now - timedelta(seconds=5))
-        await bot.on_message_edit(before, after)
-        assert ran == []
-        author.id = 7  # not blacklisted → edit re-runs the command as before
-        await bot.on_message_edit(before, after)
-        assert ran == [after]
+        bot.dispatch("message_edit", before, after)
+        await asyncio.sleep(0)
+        assert ran == [] and not hasattr(Veil, "on_message_edit")
 
     asyncio.run(run())

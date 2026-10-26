@@ -55,10 +55,13 @@ class Context(commands.Context["Veil"]):
         If the original message was deleted, Discord sends a plain message instead."""
         kwargs.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
         try:
-            return await self.channel.send(*args, **kwargs)
+            message = await self.channel.send(*args, **kwargs)
         except discord.HTTPException:
             kwargs.pop("reference", None)
-            return await self.channel.send(*args, **kwargs)
+            message = await self.channel.send(*args, **kwargs)
+        from core import autoclean
+        autoclean.track(self, message, kwargs.get("view"))  # cleaned up after the command, if the server wants
+        return message
 
     # ---- replies: every plain answer is one coloured line, sent as a reply (no author header, no footer)
     #   green  approve/done  it worked          amber  warn     careful, empty, or nothing to do

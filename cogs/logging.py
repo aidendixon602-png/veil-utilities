@@ -14,6 +14,7 @@ import aiohttp
 import discord
 from discord.ext import commands
 
+from core import autoclean
 from core import devchannels
 from core import logembeds as fmt
 from core.utils import Colors, Context, Ignored, OwnedView, UserError, has_perms, input_error_text, respond_or_edit
@@ -816,7 +817,7 @@ class Logging(commands.Cog):
     # ------------------------------------------------------------ messages
     @commands.Cog.listener()
     async def on_message_delete(self, m: discord.Message):
-        if not m.guild or m.author.bot:
+        if not m.guild or m.author.bot or autoclean.was_cleaned(m.id):  # the bot tidying a command away
             return
         channel = await self.route(m.guild, "messages", channel_id=m.channel.id, user_id=m.author.id)
         if not channel:
