@@ -192,7 +192,7 @@ class Tickets(commands.Cog):
                           description=text or "Click the button below to open a private ticket with staff.")
         await (channel or ctx.channel).send(embed=e, view=TicketPanel(self))
         if channel:
-            await ctx.approve(f"Panel sent to {channel.mention}")
+            await ctx.approve(f"sent the ticket panel to {channel.mention}")
 
     async def _set(self, ctx, **kw):
         cfg = await self.cfg(ctx.guild.id)
@@ -205,7 +205,7 @@ class Tickets(commands.Cog):
     async def t_category(self, ctx, *, category: discord.CategoryChannel):
         """Category new tickets are created in"""
         await self._set(ctx, category=category.id)
-        await ctx.approve(f"Tickets will open in **{category.name}**")
+        await ctx.approve(f"tickets will open in **{discord.utils.escape_markdown(category.name)}**")
 
     @ticket.command(name="support")
     @has_perms(manage_guild=True)
@@ -213,30 +213,35 @@ class Tickets(commands.Cog):
         """Toggle a support role"""
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg["support"]
-        lst.remove(role.id) if role.id in lst else lst.append(role.id)
+        if role.id in lst:
+            lst.remove(role.id)
+            msg = f"removed {role.mention} from the support roles"
+        else:
+            lst.append(role.id)
+            msg = f"added {role.mention} to the support roles"
         await self._set(ctx, support=lst)
-        await ctx.approve(f"Support roles: {', '.join(f'<@&{r}>' for r in lst) or 'none'}")
+        await ctx.approve(msg)
 
     @ticket.command(name="logs")
     @has_perms(manage_guild=True)
     async def t_logs(self, ctx, channel: discord.TextChannel = None):
         """Where transcripts are posted"""
         await self._set(ctx, log=channel.id if channel else None)
-        await ctx.approve(f"Transcripts → {channel.mention if channel else 'nowhere (DM only)'}")
+        await ctx.approve(f"transcripts will go to {channel.mention}" if channel else "transcripts will only be sent by DM")
 
     @ticket.command(name="message")
     @has_perms(manage_guild=True)
     async def t_message(self, ctx, *, message: str):
         """Message shown inside new tickets"""
         await self._set(ctx, message=message)
-        await ctx.approve("Updated ticket message")
+        await ctx.approve("updated the ticket message")
 
     @ticket.command(name="ping")
     @has_perms(manage_guild=True)
     async def t_ping(self, ctx, state: bool):
         """Ping support roles on new tickets"""
         await self._set(ctx, ping=state)
-        await ctx.approve(f"Ping support: **{state}**")
+        await ctx.approve(f"turned support pings **{'on' if state else 'off'}**")
 
     @ticket.command(name="close")
     async def t_close(self, ctx: Context):
@@ -250,7 +255,7 @@ class Tickets(commands.Cog):
         """Add someone to this ticket"""
         await self._ticket_staff(ctx)
         await ctx.channel.set_permissions(member, view_channel=True, send_messages=True)
-        await ctx.approve(f"Added {member.mention}")
+        await ctx.approve(f"added {member.mention} to the ticket")
 
     @ticket.command(name="remove")
     async def t_remove(self, ctx: Context, member: discord.Member):
@@ -259,14 +264,14 @@ class Tickets(commands.Cog):
         if member == ctx.guild.me:
             raise UserError("I need to stay in the ticket to manage it")
         await ctx.channel.set_permissions(member, overwrite=None)
-        await ctx.approve(f"Removed {member.mention}")
+        await ctx.approve(f"removed {member.mention} from the ticket")
 
     @ticket.command(name="rename")
     async def t_rename(self, ctx: Context, *, name: str):
         """Rename this ticket"""
         await self._ticket_staff(ctx)
         await ctx.channel.edit(name=name[:100])
-        await ctx.approve(f"Renamed to **{name}**")
+        await ctx.approve(f"renamed the ticket to **{discord.utils.escape_markdown(name[:100])}**")
 
 
 async def setup(bot):

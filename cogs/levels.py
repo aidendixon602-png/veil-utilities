@@ -172,6 +172,8 @@ class Levels(commands.Cog):
         """Server XP leaderboard"""
         rows = await self.bot.db.fetchall("SELECT user_id, xp FROM levels WHERE guild_id=? ORDER BY xp DESC LIMIT 100",
                                           ctx.guild.id)
+        if not rows:
+            return await ctx.warn("nobody has any XP yet")
         lines = [f"<@{r['user_id']}> — level **{level_from_xp(r['xp'])[0]}** ({r['xp']:,} xp)" for r in rows]
         await ctx.paginate(chunk_embeds(f"{ctx.guild.name} leaderboard", lines))
 
@@ -202,28 +204,28 @@ class Levels(commands.Cog):
     async def lv_on(self, ctx):
         """Enable leveling"""
         await self._set(ctx, enabled=True)
-        await ctx.approve("Leveling enabled")
+        await ctx.approve("turned leveling **on**")
 
     @leveling.command(name="off", aliases=["disable"])
     @has_perms(manage_guild=True)
     async def lv_off(self, ctx):
         """Disable leveling"""
         await self._set(ctx, enabled=False)
-        await ctx.approve("Leveling disabled")
+        await ctx.approve("turned leveling **off**")
 
     @leveling.command(name="message")
     @has_perms(manage_guild=True)
     async def lv_message(self, ctx, *, message: str = None):
         """Level-up message (`{level}` + all variables; `none` to silence)"""
         await self._set(ctx, message=None if message in (None, "none") else message)
-        await ctx.approve("Updated level-up message")
+        await ctx.approve("updated the level-up message")
 
     @leveling.command(name="channel")
     @has_perms(manage_guild=True)
     async def lv_channel(self, ctx, channel: discord.TextChannel = None):
         """Send level-ups to a channel (omit for same channel)"""
         await self._set(ctx, channel=channel.id if channel else None)
-        await ctx.approve(f"Level-ups → {channel.mention if channel else 'same channel'}")
+        await ctx.approve(f"level-ups will go to {channel.mention}" if channel else "level-ups will go to the channel the member is talking in")
 
     @leveling.command(name="reward", aliases=["role"])
     @has_perms(manage_roles=True)
@@ -243,21 +245,21 @@ class Levels(commands.Cog):
         else:
             cfg["roles"].pop(str(level), None)
         await self.bot.db.set_config(ctx.guild.id, "levels", cfg)
-        await ctx.approve(f"Level **{level}** → {role.mention if role else 'no reward'}")
+        await ctx.approve(f"level **{level}** now gives {role.mention}" if role else f"removed the reward for level **{level}**")
 
     @leveling.command(name="stack")
     @has_perms(manage_guild=True)
     async def lv_stack(self, ctx, state: bool):
         """Keep old reward roles (true) or only the highest (false)"""
         await self._set(ctx, stack=state)
-        await ctx.approve(f"Stacking rewards: **{state}**")
+        await ctx.approve(f"turned stacking rewards **{'on' if state else 'off'}**")
 
     @leveling.command(name="voice")
     @has_perms(manage_guild=True)
     async def lv_voice(self, ctx, state: bool):
         """Toggle XP for time in voice"""
         await self._set(ctx, voice=state)
-        await ctx.approve(f"Voice XP: **{state}**")
+        await ctx.approve(f"turned voice XP **{'on' if state else 'off'}**")
 
     @leveling.command(name="ignore")
     @has_perms(manage_guild=True)
@@ -265,9 +267,14 @@ class Levels(commands.Cog):
         """Toggle a channel not giving XP"""
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("ignored", [])
-        lst.remove(channel.id) if channel.id in lst else lst.append(channel.id)
+        if channel.id in lst:
+            lst.remove(channel.id)
+            msg = f"{channel.mention} gives XP again"
+        else:
+            lst.append(channel.id)
+            msg = f"{channel.mention} no longer gives XP"
         await self.bot.db.set_config(ctx.guild.id, "levels", cfg)
-        await ctx.approve(f"Toggled XP in {channel.mention}")
+        await ctx.approve(msg)
 
     @leveling.command(name="multiplier")
     @has_perms(manage_guild=True)
@@ -280,7 +287,7 @@ class Levels(commands.Cog):
             multiplier = max(0.1, min(multiplier, 10))
             cfg["multipliers"][str(role.id)] = multiplier
         await self.bot.db.set_config(ctx.guild.id, "levels", cfg)
-        await ctx.approve(f"{role.mention} XP ×{multiplier:g}")
+        await ctx.approve(f"{role.mention} now earns XP ×{multiplier:g}" if multiplier != 1 else f"{role.mention} earns normal XP")
 
     @leveling.command(name="setxp")
     @has_perms(administrator=True)
@@ -290,7 +297,7 @@ class Levels(commands.Cog):
         level = level_from_xp(xp)[0]
         await self.bot.db.execute("INSERT INTO levels VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET xp=excluded.xp, level=excluded.level",
                                   ctx.guild.id, member.id, xp, level)
-        await ctx.approve(f"{member.mention} now has **{xp:,}** XP (level {level})")
+        await ctx.approve(f"set {member.mention} to **{xp:,}** XP (level {level})")
 
     @leveling.command(name="setlevel")
     @has_perms(administrator=True)
@@ -300,7 +307,7 @@ class Levels(commands.Cog):
         xp = sum(xp_for(i) for i in range(max(0, level)))
         await self.bot.db.execute("INSERT INTO levels VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET xp=excluded.xp, level=excluded.level",
                                   ctx.guild.id, member.id, xp, level)
-        await ctx.approve(f"{member.mention} is now level **{level}**")
+        await ctx.approve(f"set {member.mention} to level **{level}**")
 
     @leveling.command(name="reset")
     @has_perms(administrator=True)
@@ -308,10 +315,10 @@ class Levels(commands.Cog):
         """Reset one member's XP, or everyone's"""
         if member:
             await self.bot.db.execute("DELETE FROM levels WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
-            return await ctx.approve(f"Reset {member.mention}'s XP")
-        if await ctx.confirm("Reset **everyone's** XP?"):
+            return await ctx.approve(f"reset {member.mention}'s XP")
+        if await ctx.confirm("reset **everyone's** XP?"):
             await self.bot.db.execute("DELETE FROM levels WHERE guild_id=?", ctx.guild.id)
-            await ctx.approve("Reset all XP")
+            await ctx.approve("reset everyone's XP")
 
 
 async def setup(bot):

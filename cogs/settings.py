@@ -29,7 +29,7 @@ class Settings(commands.Cog):
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         own = await self.bot.db.get_selfprefix(ctx.author.id)
         extra = f" • your self prefix is `{own}`" if own else ""
-        await ctx.neutral(f"Server prefix is `{s.get('prefix', self.bot.default_prefix)}`{extra}")
+        await ctx.neutral(f"the server prefix is `{s.get('prefix', self.bot.default_prefix)}`{extra}")
 
     @prefix.command(name="set")
     @has_perms(manage_guild=True)
@@ -40,18 +40,18 @@ class Settings(commands.Cog):
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         s["prefix"] = prefix
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"Server prefix set to `{prefix}`")
+        await ctx.approve(f"set the server prefix to `{prefix}`")
 
     @commands.command()
     async def selfprefix(self, ctx: Context, prefix: str = None):
         """Set a personal prefix that works everywhere (`none` to remove)"""
         if prefix is None or prefix.lower() == "none":
             await self.bot.db.set_selfprefix(ctx.author.id, None)
-            return await ctx.approve("Removed your self prefix")
+            return await ctx.approve("removed your self prefix")
         if len(prefix) > 10:
             raise UserError("Prefix can be at most 10 characters")
         await self.bot.db.set_selfprefix(ctx.author.id, prefix)
-        await ctx.approve(f"Your self prefix is now `{prefix}`")
+        await ctx.approve(f"set your self prefix to `{prefix}`")
 
     # ---------------------------------------------------------- aliases
     @commands.group(invoke_without_command=True)
@@ -93,7 +93,7 @@ class Settings(commands.Cog):
             raise UserError("You can have at most 100 aliases")
         a[shortcut] = command
         await self.bot.db.set_config(ctx.guild.id, "aliases", a)
-        await ctx.approve(f"`{shortcut}` now runs `{command}`")
+        await ctx.approve(f"added alias `{shortcut}` → `{command}`")
 
     @alias.command(name="remove", aliases=["delete", "del"])
     @has_perms(manage_guild=True)
@@ -103,14 +103,16 @@ class Settings(commands.Cog):
         if a.pop(shortcut.lower(), None) is None:
             raise UserError(f"No alias named `{shortcut}`")
         await self.bot.db.set_config(ctx.guild.id, "aliases", a)
-        await ctx.approve(f"Removed alias `{shortcut}`")
+        await ctx.approve(f"removed alias `{shortcut}`")
 
     @alias.command(name="list")
     @has_perms(manage_guild=True)
     async def alias_list(self, ctx: Context):
         """List aliases"""
         a = await self.bot.db.get_config(ctx.guild.id, "aliases")
-        await ctx.paginate(chunk_embeds("Aliases", [f"`{k}` → `{v}`" for k, v in a.items()]))
+        if not a:
+            return await ctx.warn("no aliases are set")
+        await ctx.paginate(chunk_embeds(f"Aliases ({len(a)})", [f"`{k}` → `{v}`" for k, v in a.items()]))
 
     # ---------------------------------------------------------- ignore
     @commands.group(invoke_without_command=True)
@@ -122,10 +124,10 @@ class Settings(commands.Cog):
         lst = s.setdefault(key, [])
         if target.id in lst:
             lst.remove(target.id)
-            msg = f"No longer ignoring {target.mention}"
+            msg = f"no longer ignoring {target.mention}"
         else:
             lst.append(target.id)
-            msg = f"Now ignoring {target.mention}"
+            msg = f"now ignoring {target.mention}"
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
         await ctx.approve(msg)
 
@@ -151,7 +153,7 @@ class Settings(commands.Cog):
             raise UserError(f"`{cmd.qualified_name}` is already disabled")
         s["disabled"].append(cmd.qualified_name)
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"`{cmd.qualified_name}` has been disabled.")
+        await ctx.approve(f"disabled `{cmd.qualified_name}`")
 
     @disablecommand.command(name="list")
     @has_perms(manage_guild=True)
@@ -160,7 +162,7 @@ class Settings(commands.Cog):
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         disabled = sorted(s.get("disabled", []))
         if not disabled:
-            return await ctx.warn("No commands are disabled.")
+            return await ctx.warn("no commands are disabled")
         embed = discord.Embed(title="Disabled Commands", color=Colors.main,
                               description="\n".join(f"`{c}`" for c in disabled))
         embed.set_footer(text=f"{len(disabled)} disabled")
@@ -177,7 +179,7 @@ class Settings(commands.Cog):
             raise UserError(f"`{name}` isn't disabled")
         s["disabled"].remove(name)
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"`{name}` has been re-enabled.")
+        await ctx.approve(f"enabled `{name}`")
 
     # ---------------------------------------------------------- staff-only / bot channels
     @commands.command(aliases=["botlock", "lockbot"])
@@ -190,8 +192,9 @@ class Settings(commands.Cog):
         new_state = (not current) if state is None else state
         s["staff_only"] = new_state
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        note = " (only staff & members with permission levels can use commands)" if new_state else " (all members can use public commands)"
-        await ctx.approve(f"Staff-only mode is now **{'enabled' if new_state else 'disabled'}**{note}")
+        note = ("\n-# only staff and members with a permission rank can run commands" if new_state
+                else "\n-# everyone can run public commands")
+        await ctx.approve(f"turned staff-only mode **{'on' if new_state else 'off'}**{note}")
 
     @commands.group(aliases=["cmdchannels", "botchannel"], invoke_without_command=True)
     @has_perms(manage_guild=True)
@@ -201,15 +204,15 @@ class Settings(commands.Cog):
         channels = s.setdefault("bot_channels", [])
         if channel is None:
             if not channels:
-                return await ctx.neutral("Commands are allowed in all channels.")
+                return await ctx.neutral("commands are allowed in every channel")
             lines = [f"<#{c}>" for c in channels]
             return await ctx.paginate(chunk_embeds("Allowed Bot Channels", lines))
         if channel.id in channels:
             channels.remove(channel.id)
-            msg = f"{channel.mention} removed from allowed bot channels"
+            msg = f"removed {channel.mention} from the allowed bot channels"
         else:
             channels.append(channel.id)
-            msg = f"{channel.mention} added to allowed bot channels"
+            msg = f"added {channel.mention} to the allowed bot channels"
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
         await ctx.approve(msg)
 
@@ -224,7 +227,7 @@ class Settings(commands.Cog):
         else:
             s.pop("modlog", None)
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"Mod logs will be sent to {channel.mention}" if channel else "Disabled mod logs")
+        await ctx.approve(f"mod logs will go to {channel.mention}" if channel else "turned off mod logs")
 
     # ---------------------------------------------------------- fake permissions
     @commands.group(aliases=["fp", "fakeperms"], invoke_without_command=True)
@@ -249,9 +252,9 @@ class Settings(commands.Cog):
         lst = fp.setdefault(str(role.id), [])
         lst.extend(p for p in perms if p not in lst)
         await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
-        note = ("\n⚠️ `administrator` lets this role use **every** bot command, including antinuke-sensitive ones"
+        note = ("\n-# ⚠️ `administrator` lets this role use every bot command, including antinuke-sensitive ones"
                 if "administrator" in perms else "")
-        await ctx.approve(f"{role.mention} now has fake {', '.join(f'`{p}`' for p in perms)}{note}")
+        await ctx.approve(f"gave {role.mention} fake {', '.join(f'`{p}`' for p in perms)}{note}")
 
     @fakepermissions.command(name="revoke", aliases=["remove"])
     @is_server_owner()
@@ -264,7 +267,7 @@ class Settings(commands.Cog):
             perms = {p.strip().lower().replace(" ", "_") for p in permissions.split(",")}
             fp[str(role.id)] = [p for p in fp.get(str(role.id), []) if p not in perms]
         await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
-        await ctx.approve(f"Updated fake permissions for {role.mention}")
+        await ctx.approve(f"updated the fake permissions on {role.mention}")
 
     @fakepermissions.command(name="list")
     @commands.guild_only()

@@ -154,7 +154,7 @@ class Giveaways(commands.Cog):
             raise UserError("No active giveaway with that message ID")
         if await self.finish(gw) is None:
             raise UserError("That giveaway already ended")
-        await ctx.approve("Ended the giveaway")
+        await ctx.approve("ended the giveaway")
 
     @giveaway.command(name="reroll")
     @has_perms(manage_guild=True)
@@ -169,14 +169,16 @@ class Giveaways(commands.Cog):
         new = await self.finish(gw, reroll=True)
         if not new:
             raise UserError("No valid entries left to reroll")
-        await ctx.approve(f"Rerolled **{gw['prize']}** — new winner(s) announced in <#{gw['channel_id']}>")
+        await ctx.approve(f"rerolled **{gw['prize']}** · the new winner is announced in <#{gw['channel_id']}>")
 
     @giveaway.command(name="list")
     async def gw_list(self, ctx: Context):
         """Active giveaways"""
         rows = await self.bot.db.fetchall("SELECT * FROM giveaways WHERE guild_id=? AND ended=0", ctx.guild.id)
+        if not rows:
+            return await ctx.warn("there are no active giveaways")
         lines = [f"**{r['prize']}** in <#{r['channel_id']}> ends {ts(r['ends'])} (`{r['message_id']}`)" for r in rows]
-        await ctx.paginate(chunk_embeds("Active giveaways", lines))
+        await ctx.paginate(chunk_embeds(f"Active giveaways ({len(rows)})", lines))
 
     @giveaway.command(name="cancel", aliases=["delete"])
     @has_perms(manage_guild=True)
@@ -193,7 +195,7 @@ class Giveaways(commands.Cog):
                 await ch.get_partial_message(message_id).delete()
             except discord.HTTPException:
                 pass
-        await ctx.approve("Cancelled the giveaway")
+        await ctx.approve("cancelled the giveaway")
 
 
 async def setup(bot):
