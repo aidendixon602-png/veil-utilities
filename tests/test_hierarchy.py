@@ -49,14 +49,14 @@ class TestHierarchy:
 
 class TestRestart:
     def test_restart_triggers_clean_reboot(self):
-        """Restart must trigger in-process reboot without killing the container (prevents crash backoff)."""
+        """Restart must close the bot and request a restart (main.py re-execs) without killing the container."""
         import asyncio
 
         from cogs.owner import Owner
 
         bot = SimpleNamespace(_restart_requested=False, close=AsyncMock())
         ctx = SimpleNamespace(approve=AsyncMock())
-        cog = SimpleNamespace(bot=bot)
+        cog = Owner(bot)
         asyncio.run(Owner.restart.callback(cog, ctx))
         ctx.approve.assert_awaited_once()
         assert bot._restart_requested is True
@@ -78,7 +78,7 @@ class TestRestart:
             guild=SimpleNamespace(id=456),
             author=SimpleNamespace(id=789),
         )
-        cog = SimpleNamespace(bot=bot)
+        cog = Owner(bot)
         try:
             asyncio.run(Owner.restart.callback(cog, ctx, seconds=4))
             ctx.approve.assert_awaited_once()

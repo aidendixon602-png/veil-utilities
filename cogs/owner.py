@@ -22,6 +22,52 @@ from discord.ext import commands
 from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, fmt_duration, shorten, ts
 
+BOT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# code that is imported once at startup and can't be swapped safely while the bot runs
+RESTART_PATHS = ("core/", "main.py")
+
+
+class UpdatePlan:
+    def __init__(self, restart: bool, restart_reason: str, reload: list[str], deps_changed: bool):
+        self.restart = restart
+        self.restart_reason = restart_reason
+        self.reload = reload
+        self.deps_changed = deps_changed
+
+
+def plan_update(changed: list[str] | None, loaded: set[str]) -> UpdatePlan:
+    """Decide how to apply pulled changes: reload the changed cogs, or restart when anything else changed."""
+    if changed is None:
+        return UpdatePlan(True, "Couldn't tell which files changed.", [], False)
+    deps = "requirements.txt" in changed
+    core = sorted(f for f in changed if f.startswith(RESTART_PATHS))
+    if core:
+        shown = ", ".join(f"`{f}`" for f in core[:5]) + (" …" if len(core) > 5 else "")
+        return UpdatePlan(True, f"Core files changed ({shown}).", [], deps)
+    cogs = sorted({"cogs." + f[len("cogs/"):-3] for f in changed
+                   if f.startswith("cogs/") and f.endswith(".py") and f != "cogs/__init__.py"})
+    new = [c for c in cogs if c not in loaded]
+    if new:
+        return UpdatePlan(True, "New cog(s) added (" + ", ".join(f"`{c}`" for c in new) + ").", [], deps)
+    return UpdatePlan(False, "", cogs, deps)
+
+
+def _code_mtimes() -> dict[str, float]:
+    found = {}
+    for rel in [os.path.join("core", f) for f in os.listdir(os.path.join(BOT_ROOT, "core")) if f.endswith(".py")] \
+            + ["main.py"]:
+        try:
+            found[rel] = os.path.getmtime(os.path.join(BOT_ROOT, rel))
+        except OSError:
+            pass
+    return found
+
+
+def core_changed_on_disk(bot) -> bool:
+    """True if core/ or main.py on disk differ from what was there when the bot started."""
+    snapshot = getattr(bot, "_code_mtimes", None)
+    return snapshot is not None and _code_mtimes() != snapshot
+
 
 def memory_mb() -> str:
     try:
@@ -367,68 +413,66 @@ class Owner(commands.Cog):
                                         numbered=False) or [discord.Embed(color=Colors.neutral, description="Nobody is blacklisted")])
 
     # ================================================================ process
+    async def _git(self, *args: str) -> subprocess.CompletedProcess:
+        return await asyncio.to_thread(subprocess.run, ["git", *args], cwd=BOT_ROOT, capture_output=True,
+                                       text=True, timeout=30)
+
     @commands.command(hidden=True, aliases=["pull", "updatebot", "botupdate", "syncgit"])
     async def gitpull(self, ctx: Context):
-        """Pull the latest code from GitHub main and hot-reload all cogs"""
-        import subprocess
+        """Pull the latest code from GitHub main; reloads changed cogs, or restarts if core files changed"""
         msg = await ctx.send("🔄 Pulling latest commits from GitHub...")
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         try:
-            r1 = await asyncio.to_thread(
-                subprocess.run, ["git", "fetch", "origin", "main"],
-                cwd=root, capture_output=True, text=True, timeout=15
-            )
-            r2 = await asyncio.to_thread(
-                subprocess.run, ["git", "reset", "--hard", "origin/main"],
-                cwd=root, capture_output=True, text=True, timeout=15
-            )
-            out = (r2.stdout or r1.stdout or "").strip()
+            old = (await self._git("rev-parse", "HEAD")).stdout.strip()
+            fetch = await self._git("fetch", "origin", "main")
+            if fetch.returncode != 0:
+                return await msg.edit(content=f"❌ `git fetch` failed: `{shorten(fetch.stderr.strip(), 300)}`")
+            reset = await self._git("reset", "--hard", "origin/main")
+            if reset.returncode != 0:
+                return await msg.edit(content=f"❌ `git reset` failed: `{shorten(reset.stderr.strip(), 300)}`")
+            new = (await self._git("rev-parse", "HEAD")).stdout.strip()
+            diff = await self._git("diff", "--name-only", old, new) if old and old != new else None
         except Exception as e:
             return await msg.edit(content=f"❌ Failed to git pull: `{e}`")
 
-        # Reload core helper modules in memory first
-        import importlib
-        import sys
-        for mod_name in list(sys.modules.keys()):
-            if mod_name.startswith("core."):
-                try:
-                    importlib.reload(sys.modules[mod_name])
-                except Exception:
-                    pass
+        if old == new:
+            return await msg.edit(content=f"✅ Already up to date (`{new[:7]}`)")
 
-        # Reload all extensions
-        reloaded = []
-        failed = []
-        for ext in list(self.bot.extensions.keys()):
+        changed = diff.stdout.split() if diff is not None and diff.returncode == 0 else None
+        plan = plan_update(changed, set(self.bot.extensions))
+        head = f"**Git Sync**: `{old[:7]}` → `{new[:7]}` · {len(changed) if changed is not None else '?'} file(s) changed"
+        notes = []
+        if plan.deps_changed:
+            notes.append("⚠️ `requirements.txt` changed: restart from your hosting panel so new packages install.")
+
+        if plan.restart:
+            desc = head + "\n\n🔁 " + plan.restart_reason + " Restarting so everything loads fresh…"
+            if notes:
+                desc += "\n" + "\n".join(notes)
+            await msg.edit(content=None, embed=discord.Embed(title="Bot Updated via GitHub", color=Colors.warn,
+                                                             description=desc))
+            return await self._restart(ctx, msg)
+
+        reloaded, failed = [], []
+        for ext in plan.reload:
             try:
                 await self.bot.reload_extension(ext)
                 reloaded.append(ext.removeprefix("cogs."))
             except Exception as e:
                 failed.append(f"{ext.removeprefix('cogs.')}: {e}")
 
-        desc = f"**Git Sync**: `{out or 'Synced with origin/main'}`\n\n"
-        desc += f"✅ **Reloaded ({len(reloaded)})**: " + ", ".join(f"`{e}`" for e in reloaded)
+        desc = head + "\n\n"
+        desc += (f"✅ **Reloaded ({len(reloaded)})**: " + ", ".join(f"`{e}`" for e in reloaded)) if reloaded \
+            else "Nothing to reload (no cog code changed)."
         if failed:
             desc += f"\n❌ **Failed ({len(failed)})**: " + ", ".join(f"`{f}`" for f in failed)
-
-        embed = discord.Embed(
-            title="Bot Updated via GitHub",
-            color=Colors.success if not failed else Colors.warn,
-            description=desc,
-        )
-        await msg.edit(content=None, embed=embed)
+        if notes:
+            desc += "\n" + "\n".join(notes)
+        await msg.edit(content=None, embed=discord.Embed(title="Bot Updated via GitHub", description=desc,
+                                                         color=Colors.success if not failed else Colors.warn))
 
     @commands.command(hidden=True, aliases=["rl"])
     async def reload(self, ctx: Context, *extensions: str):
-        """Reload modules without restarting (all if none given)"""
-        import importlib
-        import sys
-        for mod_name in list(sys.modules.keys()):
-            if mod_name.startswith("core."):
-                try:
-                    importlib.reload(sys.modules[mod_name])
-                except Exception:
-                    pass
+        """Reload cogs without restarting (all if none given). Changes to core/ or main.py need ,restart"""
         exts = [f"cogs.{e}" if not e.startswith("cogs.") else e for e in extensions] or list(self.bot.extensions)
         failed = []
         for ext in exts:
@@ -436,7 +480,10 @@ class Owner(commands.Cog):
                 await self.bot.reload_extension(ext)
             except commands.ExtensionError as e:
                 failed.append(f"{ext}: {e}")
-        await (ctx.warn("\n".join(failed)) if failed else ctx.approve(f"Reloaded {len(exts)} module(s)"))
+        text = "\n".join(failed) if failed else f"Reloaded {len(exts)} module(s)"
+        if core_changed_on_disk(self.bot):
+            text += f"\n⚠️ Files in `core/` or `main.py` changed since startup. Run `{ctx.clean_prefix}restart` to load them."
+        await (ctx.warn(text) if failed else ctx.approve(text))
 
     @commands.command(hidden=True, aliases=["presence", "statusstate"])
     async def setpresence(self, ctx: Context, status: str, *, text: str = None):
@@ -499,16 +546,19 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True, aliases=["reboot"])
     async def restart(self, ctx: Context, seconds: int = 3):
-        """Restart the bot cleanly in-process and announce when back online"""
+        """Restart the bot in a fresh process (loads all code from disk) and announce when back online"""
         delay = max(1, min(60, seconds))
         start_time = time.time()
         target_ts = int(start_time + delay)
+        msg = await ctx.approve(f"Restarting — back online <t:{target_ts}:R> (~{delay}s remaining)…")
+        await self._restart(ctx, msg, delay=delay, start_time=start_time)
 
+    async def _restart(self, ctx: Context, msg, delay: int = 3, start_time: float | None = None):
+        """Save where to announce 'back online', then close; main.py starts a fresh process."""
+        start_time = start_time or time.time()
+        target_ts = int(start_time + delay)
         self.bot.maintenance = "Restarting bot"
         self.bot.maintenance_until = target_ts
-
-        msg = await ctx.approve(f"Restarting — back online <t:{target_ts}:R> (~{delay}s remaining)…")
-
         channel = getattr(ctx, "channel", None)
         guild = getattr(ctx, "guild", None)
         author = getattr(ctx, "author", None)
@@ -834,4 +884,6 @@ class Owner(commands.Cog):
 
 
 async def setup(bot):
+    if not hasattr(bot, "_code_mtimes"):  # taken on the first load only, so cog reloads don't reset it
+        bot._code_mtimes = _code_mtimes()
     await bot.add_cog(Owner(bot))
