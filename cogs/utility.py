@@ -205,7 +205,7 @@ class Utility(commands.Cog):
     # ================================================================ reminders
     @commands.group(aliases=["remindme", "reminder"], invoke_without_command=True)
     async def remind(self, ctx: Context, duration: Duration, *, reminder: str = "something"):
-        """`remind 2h30m take out the trash`"""
+        """Set a reminder: `remind 2h30m take out the trash`"""
         count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM reminders WHERE user_id=?", ctx.author.id))["c"]
         if count >= 25:
             raise UserError(f"You have 25 reminders already — remove some with `{ctx.clean_prefix}remind delete <id>`")

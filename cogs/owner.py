@@ -141,7 +141,7 @@ class Owner(commands.Cog):
     # ================================================================ maintenance / kill switch
     @commands.command(hidden=True, aliases=["maint"])
     async def maintenance(self, ctx: Context, state: str = None, duration: str = None, *, reason: str = ""):
-        """`maintenance on [duration] [reason]` — e.g. `maintenance on 5m DB update`; `maintenance off`"""
+        """Turn maintenance mode on or off: `maintenance on 5m DB update`, `maintenance off`"""
         if state is None:
             m = self.bot.maintenance
             until = getattr(self.bot, "maintenance_until", None)
