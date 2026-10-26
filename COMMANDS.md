@@ -1,6 +1,6 @@
 # Command reference
 
-485 commands. Default prefix `,`. `<required>` `[optional]`.
+486 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -449,6 +449,7 @@ _Configure how the bot behaves in your server_
 | `alias add <shortcut> <command>` | Add an alias, e.g. `alias add b ban` or `alias add hi say hello` | manage guild |
 | `alias list` | List aliases | manage guild |
 | `alias remove <shortcut>` (delete, del) | Remove an alias | manage guild |
+| `autoclean [setting]` (autodelete, cleanreplies) | Delete command messages once they've run and the bot's replies after a delay: `autoclean on`, `off` or `30` | manage guild |
 | `botchannels [channel]` (cmdchannels, botchannel) | Restrict normal commands to specific channels (`botchannels <#channel>` to toggle) | manage guild |
 | `disablecommand <command>` (disablecmd, dcmd) | Disable a command for non-admins (`dcmd list` to see what's disabled) | manage guild |
 | `disablecommand list` | List disabled commands | manage guild |

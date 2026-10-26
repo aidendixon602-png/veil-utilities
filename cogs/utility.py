@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands, tasks
 
+from core import autoclean
 from core.utils import (Colors, Context, Duration, UserError, build_message, build_vars, chunk_embeds,
                         fmt_duration, has_perms, now, shorten, ts)
 
@@ -81,7 +82,7 @@ class Utility(commands.Cog):
     # ================================================================ snipe
     @commands.Cog.listener()
     async def on_message_delete(self, m: discord.Message):
-        if m.guild and not m.author.bot:
+        if m.guild and not m.author.bot and not autoclean.was_cleaned(m.id):  # not commands the bot tidied away
             self.deleted[m.channel.id].appendleft({
                 "author": m.author, "content": m.content, "time": time.time(),
                 "attachments": [a.proxy_url for a in m.attachments],
