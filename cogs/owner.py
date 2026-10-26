@@ -19,6 +19,7 @@ import traceback
 import discord
 from discord.ext import commands
 
+from core import gitinfo
 from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, fmt_duration, shorten, ts
 
@@ -415,34 +416,35 @@ class Owner(commands.Cog):
                                         numbered=False) or [discord.Embed(color=Colors.neutral, description="Nobody is blacklisted")])
 
     # ================================================================ process
-    async def _git(self, *args: str) -> subprocess.CompletedProcess:
-        return await asyncio.to_thread(subprocess.run, ["git", *args], cwd=BOT_ROOT, capture_output=True,
-                                       text=True, timeout=30)
-
     @commands.command(hidden=True, aliases=["pull", "updatebot", "botupdate", "syncgit"])
     async def gitpull(self, ctx: Context):
         """Pull the latest code from GitHub main; reloads changed cogs, or restarts if core files changed"""
         msg = await ctx.send("🔄 Pulling latest commits from GitHub...")
         try:
-            old = (await self._git("rev-parse", "HEAD")).stdout.strip()
-            fetch = await self._git("fetch", "origin", "main")
-            if fetch.returncode != 0:
-                return await msg.edit(content=f"❌ `git fetch` failed: `{shorten(fetch.stderr.strip(), 300)}`")
-            reset = await self._git("reset", "--hard", "origin/main")
-            if reset.returncode != 0:
-                return await msg.edit(content=f"❌ `git reset` failed: `{shorten(reset.stderr.strip(), 300)}`")
-            new = (await self._git("rev-parse", "HEAD")).stdout.strip()
-            diff = await self._git("diff", "--name-only", old, new) if old and old != new else None
+            result = await asyncio.to_thread(gitinfo.pull, BOT_ROOT)
         except Exception as e:
             return await msg.edit(content=f"❌ Failed to git pull: `{e}`")
+        if not result.ok:
+            return await msg.edit(content=f"❌ Couldn't pull from GitHub: {result.error}")
 
-        if old == new:
-            return await msg.edit(content=f"✅ Already up to date (`{new[:7]}`)")
-
-        changed = diff.stdout.split() if diff is not None and diff.returncode == 0 else None
-        plan = plan_update(changed, set(self.bot.extensions))
-        head = f"**Git Sync**: `{old[:7]}` → `{new[:7]}` · {len(changed) if changed is not None else '?'} file(s) changed"
+        new = result.new
+        slug = gitinfo.repo_slug(result.remote)
+        source = f"`{slug}`" if slug else (f"`{result.remote}`" if result.remote else "an unknown remote")
         notes = []
+        if slug and slug.lower() != gitinfo.EXPECTED_REPO.lower():
+            notes.append(f"⚠️ This folder pulls from {source}, not `{gitinfo.EXPECTED_REPO}`. "
+                         "Fix the Git repo address in the host panel.")
+        # what the running process has loaded can lag the files (a restart skipped, a host that pulled on its own)
+        loaded = getattr(self.bot, "loaded_commit", "")
+        base = loaded if isinstance(loaded, str) and loaded else result.old
+        changed = result.changed if base == result.old else gitinfo.changed_files(BOT_ROOT, base, new)
+        if base == new:
+            text = f"✅ Already up to date (`{new[:7]}`) · {shorten(result.subject, 80)}\n-# from {source}"
+            return await msg.edit(content="\n".join([text, *notes]))
+
+        plan = plan_update(changed, set(self.bot.extensions))
+        head = (f"**Git Sync**: `{base[:7]}` → `{new[:7]}` · "
+                f"{len(changed) if changed is not None else '?'} file(s) changed\n-# {shorten(result.subject, 80)} · from {source}")
         if plan.deps_changed:
             notes.append("⚠️ `requirements.txt` changed: restart from your hosting panel so new packages install.")
 
@@ -461,6 +463,8 @@ class Owner(commands.Cog):
                 reloaded.append(ext.removeprefix("cogs."))
             except Exception as e:
                 failed.append(f"{ext.removeprefix('cogs.')}: {e}")
+        if not failed:
+            self.bot.loaded_commit = new
 
         desc = head + "\n\n"
         desc += (f"✅ **Reloaded ({len(reloaded)})**: " + ", ".join(f"`{e}`" for e in reloaded)) if reloaded \
@@ -471,6 +475,30 @@ class Owner(commands.Cog):
             desc += "\n" + "\n".join(notes)
         await msg.edit(content=None, embed=discord.Embed(title="Bot Updated via GitHub", description=desc,
                                                          color=Colors.success if not failed else Colors.warn))
+
+    @commands.command(hidden=True, aliases=["ver", "build"])
+    async def version(self, ctx: Context):
+        """Which commit the bot is running, what's on disk and what GitHub's main is, with what to do about a mismatch"""
+        async with ctx.typing():
+            snap = await asyncio.to_thread(gitinfo.snapshot, BOT_ROOT)
+            remote_sha, remote_error = await asyncio.to_thread(gitinfo.remote_head, BOT_ROOT)
+        loaded = getattr(self.bot, "loaded_commit", "")
+        loaded = loaded if isinstance(loaded, str) else ""
+        loaded_subject = await asyncio.to_thread(gitinfo.subject_of, BOT_ROOT, loaded)
+        ok, advice = gitinfo.verdict(loaded, snap.sha, remote_sha, remote_error, snap.slug)
+
+        def line(label: str, sha: str, subject: str = "") -> str:
+            return f"**{label}** `{sha[:7] or 'unknown'}`" + (f" · {shorten(subject, 70)}" if subject else "")
+
+        lines = [line("Running", loaded, loaded_subject),
+                 line("On disk", snap.sha, snap.subject),
+                 line("GitHub main", remote_sha) if remote_sha else "**GitHub main** unavailable",
+                 f"**Pulls from** `{snap.slug or snap.remote or 'no remote'}` · branch `{snap.branch or 'unknown'}`"]
+        if snap.edited:
+            lines.append(f"**Edited by hand** {snap.edited} tracked file(s)")
+        lines += ["", ("✅ " if ok else "⚠️ ") + advice]
+        await ctx.send(embed=discord.Embed(title="Version", color=Colors.success if ok else Colors.warn,
+                                           description="\n".join(lines)))
 
     @commands.command(hidden=True, aliases=["rl"])
     async def reload(self, ctx: Context, *extensions: str):
@@ -888,4 +916,5 @@ class Owner(commands.Cog):
 async def setup(bot):
     if not hasattr(bot, "_code_mtimes"):  # taken on the first load only, so cog reloads don't reset it
         bot._code_mtimes = _code_mtimes()
+        bot.loaded_commit = await asyncio.to_thread(gitinfo.head_sha, BOT_ROOT)
     await bot.add_cog(Owner(bot))

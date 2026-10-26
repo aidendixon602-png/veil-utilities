@@ -1,11 +1,11 @@
 """,gitpull must restart (fresh process) when core code changes, and only hot-reload when just cogs changed."""
 import asyncio
 import os
-import subprocess
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import cogs.owner as owner_mod
+from core import gitinfo
 from cogs.owner import Owner, core_changed_on_disk, plan_update
 
 LOADED = {"cogs.moderation", "cogs.owner", "cogs.antinuke"}
@@ -43,26 +43,17 @@ def test_core_changed_on_disk_compares_against_startup_snapshot(monkeypatch):
     assert core_changed_on_disk(bot) is True
 
 
-def _git_stub(old, new, changed):
-    calls = []
-
-    async def fake(self, *args):
-        calls.append(args)
-        if args[0] == "rev-parse":
-            out = old if sum(1 for c in calls if c[0] == "rev-parse") == 1 else new
-            return subprocess.CompletedProcess(args, 0, out + "\n", "")
-        if args[0] == "diff":
-            return subprocess.CompletedProcess(args, 0, "\n".join(changed) + "\n", "")
-        return subprocess.CompletedProcess(args, 0, "", "")
-    return fake, calls
-
-
-def _run_gitpull(monkeypatch, changed):
-    fake, calls = _git_stub("a" * 40, "b" * 40, changed)
-    monkeypatch.setattr(Owner, "_git", fake)
+def _run_gitpull(monkeypatch, changed, result=None, loaded=None):
+    """Run ,gitpull with gitinfo.pull stubbed. `loaded` is the commit the running process started on."""
+    result = result or gitinfo.PullResult(True, old="a" * 40, new="b" * 40, subject="Some change",
+                                          remote="https://github.com/aidendixon602-png/veil-utilities",
+                                          changed=changed)
+    monkeypatch.setattr(gitinfo, "pull", lambda root, timeout=60: result)
     bot = MagicMock()
     bot.extensions = {name: None for name in LOADED}
     bot.reload_extension = AsyncMock()
+    if loaded is not None:
+        bot.loaded_commit = loaded
     cog = Owner(bot)
     cog._restart = AsyncMock()
     msg = MagicMock()
@@ -84,3 +75,43 @@ def test_gitpull_with_cog_change_reloads_only_that_cog(monkeypatch):
     cog, bot, msg = _run_gitpull(monkeypatch, ["cogs/moderation.py"])
     cog._restart.assert_not_awaited()
     bot.reload_extension.assert_awaited_once_with("cogs.moderation")
+
+
+def test_gitpull_reports_a_failed_fetch_in_plain_words(monkeypatch):
+    failed = gitinfo.PullResult(False, "Permission denied (publickey) — The host can't log in to GitHub.")
+    cog, bot, msg = _run_gitpull(monkeypatch, None, result=failed)
+    assert "Couldn't pull from GitHub" in msg.edit.call_args.kwargs["content"]
+    assert "can't log in" in msg.edit.call_args.kwargs["content"]
+    cog._restart.assert_not_awaited()
+
+
+def test_gitpull_up_to_date_names_the_repo_it_pulled_from(monkeypatch):
+    same = gitinfo.PullResult(True, old="c" * 40, new="c" * 40, subject="Latest",
+                              remote="git@github.com:aidendixon602-png/veil-utilities.git")
+    _, _, msg = _run_gitpull(monkeypatch, None, result=same, loaded="c" * 40)
+    text = msg.edit.call_args.kwargs["content"]
+    assert "Already up to date" in text and "aidendixon602-png/veil-utilities" in text
+    assert "not `" not in text  # right repo: no warning
+
+
+def test_gitpull_warns_when_the_folder_pulls_from_another_repo(monkeypatch):
+    other = gitinfo.PullResult(True, old="c" * 40, new="c" * 40, subject="x",
+                               remote="https://github.com/someone/else.git")
+    _, _, msg = _run_gitpull(monkeypatch, None, result=other, loaded="c" * 40)
+    assert "someone/else" in msg.edit.call_args.kwargs["content"]
+    assert "not `aidendixon602-png/veil-utilities`" in msg.edit.call_args.kwargs["content"]
+
+
+def test_gitpull_applies_files_that_are_newer_than_the_running_bot(monkeypatch):
+    """The files were already pulled (disk == GitHub) but the process started earlier: still reload/restart."""
+    same = gitinfo.PullResult(True, old="b" * 40, new="b" * 40, subject="x",
+                              remote="https://github.com/aidendixon602-png/veil-utilities")
+    monkeypatch.setattr(gitinfo, "changed_files", lambda root, old, new: ["core/help.py"])
+    cog, bot, msg = _run_gitpull(monkeypatch, None, result=same, loaded="a" * 40)
+    cog._restart.assert_awaited_once()
+    assert "Restarting" in msg.edit.call_args.kwargs["embed"].description
+
+
+def test_gitpull_remembers_what_it_loaded(monkeypatch):
+    cog, bot, msg = _run_gitpull(monkeypatch, ["cogs/moderation.py"], loaded="a" * 40)
+    assert bot.loaded_commit == "b" * 40

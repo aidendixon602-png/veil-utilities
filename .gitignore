@@ -6,6 +6,7 @@
 # runtime data (lives on the host, not in git)
 .restart_state.json
 .requirements.hash
+local-edits-*.patch
 .local/
 *.db
 *.db-shm
