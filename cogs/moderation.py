@@ -17,7 +17,7 @@ if not hasattr(_cu, "check_role_assignable"):
     except Exception:
         pass
 
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy,
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy, check_hierarchy_async,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm)
 
@@ -234,7 +234,7 @@ class Moderation(commands.Cog):
         if reason and "--purge" in reason:
             delete, reason = 604800, reason.replace("--purge", "").strip() or None
         if isinstance(user, discord.Member):
-            check_hierarchy(ctx, user, "ban")
+            await check_hierarchy_async(ctx, user, "ban")
         await antinuke_guard(ctx, "ban")
         if isinstance(user, discord.Member):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
@@ -265,7 +265,7 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(ban_members=True)
     async def softban(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Ban and immediately unban to wipe a member's recent messages"""
-        check_hierarchy(ctx, member, "softban")
+        await check_hierarchy_async(ctx, member, "softban")
         await antinuke_guard(ctx, "ban")
         await member.ban(reason=f"softban by {ctx.author}: {reason}", delete_message_seconds=604800)
         await ctx.guild.unban(member, reason="softban")
@@ -283,9 +283,15 @@ class Moderation(commands.Cog):
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
         is_owner = ctx.author.id == ctx.guild.owner_id
         # respect the invoker's hierarchy too — fake-permission admins must not be able to sweep up senior staff
-        targets = [m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
-                   and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
-                   and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)]
+        pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and ctx.bot) else {}
+        from core import perms as _perms
+        targets = [
+            m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
+            and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
+            and not _perms.is_bot_developer(m, self.bot)
+            and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)
+            and (is_owner or _perms.rank_of(pl_cfg, m, is_owner=False, is_dev=False, has_admin=False) == 0)
+        ]
         if not targets:
             raise UserError("Nobody joined in that window")
         if not await ctx.confirm(f"Ban **{len(targets)}** members who joined in the last {minutes} minutes?"):
@@ -305,9 +311,15 @@ class Moderation(commands.Cog):
             raise UserError("Minutes must be between 1 and 10080 (one week)")
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
         is_owner = ctx.author.id == ctx.guild.owner_id
-        targets = [m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
-                   and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
-                   and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)]
+        pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and ctx.bot) else {}
+        from core import perms as _perms
+        targets = [
+            m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
+            and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
+            and not _perms.is_bot_developer(m, self.bot)
+            and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)
+            and (is_owner or _perms.rank_of(pl_cfg, m, is_owner=False, is_dev=False, has_admin=False) == 0)
+        ]
         if not targets:
             raise UserError("Nobody joined in that window")
         if not await ctx.confirm(f"Kick **{len(targets)}** members who joined in the last {minutes} minutes?"):
@@ -330,7 +342,7 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(kick_members=True)
     async def kick(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Kick a member"""
-        check_hierarchy(ctx, member, "kick")
+        await check_hierarchy_async(ctx, member, "kick")
         await antinuke_guard(ctx, "kick")
         await dm_target(member, ctx.guild, "kicked", ctx.author, reason)
         await member.kick(reason=f"{ctx.author}: {reason}")
@@ -343,7 +355,7 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(moderate_members=True)
     async def timeout(self, ctx: Context, member: discord.Member, duration: Optional[Duration] = None, *, reason: str = None):
         """Timeout a member (default 5m, max 28d)"""
-        check_hierarchy(ctx, member, "timeout")
+        await check_hierarchy_async(ctx, member, "timeout")
         duration = duration or timedelta(minutes=5)
         if duration > timedelta(days=28):
             raise UserError("Timeouts can be at most 28 days")
@@ -359,7 +371,7 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     async def untimeout(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Remove a timeout (use `untimeout all` for everyone)"""
-        check_hierarchy(ctx, member, "untimeout")
+        await check_hierarchy_async(ctx, member, "untimeout")
         if not member.is_timed_out():
             raise UserError(f"{member.mention} isn't timed out")
         await member.timeout(None, reason=f"{ctx.author}: {reason}")
@@ -390,7 +402,7 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     async def warn(self, ctx: Context, member: discord.Member, *, reason: str = "No reason provided"):
         """Warn a member. Auto-punishments can be set with `warnpunish`"""
-        check_hierarchy(ctx, member, "warn")
+        await check_hierarchy_async(ctx, member, "warn")
         await self.bot.db.execute("INSERT INTO warns(guild_id,user_id,mod_id,reason,created_at) VALUES(?,?,?,?,?)",
                                   ctx.guild.id, member.id, ctx.author.id, reason, now())
         count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM warns WHERE guild_id=? AND user_id=?",
@@ -754,12 +766,14 @@ class Moderation(commands.Cog):
         if not arg2:
             raise UserError(f"Usage: `{ctx.clean_prefix}role <member> <role>` or `{ctx.clean_prefix}role add/remove <member> <role>`")
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
-        check_role(ctx, role)
         if role in member.roles:
+            check_role(ctx, role)
+            await check_hierarchy_async(ctx, member, "modify roles on")
             await member.remove_roles(role, reason=f"by {ctx.author}")
             await ctx.approve(f"Removed {role.mention} from {member.mention}")
         else:
             await check_role_assignable(ctx, role)
+            await check_hierarchy_async(ctx, member, "modify roles on")
             if is_dangerous(role.permissions):
                 await antinuke_guard(ctx, "permissions")
             if await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
@@ -774,6 +788,7 @@ class Moderation(commands.Cog):
     async def _do_role_add(self, ctx: Context, arg1: str, arg2: str):
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
         await check_role_assignable(ctx, role)
+        await check_hierarchy_async(ctx, member, "modify roles on")
         if role in member.roles:
             raise UserError(f"{member.mention} already has {role.mention}")
         if is_dangerous(role.permissions):
@@ -790,6 +805,7 @@ class Moderation(commands.Cog):
     async def _do_role_remove(self, ctx: Context, arg1: str, arg2: str):
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
         check_role(ctx, role)
+        await check_hierarchy_async(ctx, member, "modify roles on")
         if role not in member.roles:
             raise UserError(f"{member.mention} doesn't have {role.mention}")
         await member.remove_roles(role, reason=f"by {ctx.author}")
@@ -925,7 +941,7 @@ class Moderation(commands.Cog):
     @has_perms(administrator=True)
     async def stripstaff(self, ctx: Context, member: discord.Member):
         """Remove every role with dangerous permissions from a member"""
-        check_hierarchy(ctx, member, "strip")
+        await check_hierarchy_async(ctx, member, "strip")
         roles = [r for r in member.roles if is_dangerous(r.permissions) and r < ctx.guild.me.top_role and not r.managed]
         if not roles:
             raise UserError(f"{member.mention} has no staff roles I can remove")
@@ -1377,7 +1393,7 @@ class Moderation(commands.Cog):
     async def nickname(self, ctx: Context, member: discord.Member, *, nickname: str = None):
         """Change (or reset) a member's nickname"""
         if member != ctx.author:
-            check_hierarchy(ctx, member, "rename")
+            await check_hierarchy_async(ctx, member, "rename")
         await member.edit(nick=nickname)
         await ctx.approve(f"{'Set' if nickname else 'Reset'} {member.mention}'s nickname")
 
@@ -1386,7 +1402,7 @@ class Moderation(commands.Cog):
     @has_perms(manage_nicknames=True)
     async def forcenickname(self, ctx: Context, member: discord.Member, *, nickname: str = None):
         """Lock a member's nickname (omit nickname to unlock)"""
-        check_hierarchy(ctx, member, "rename")
+        await check_hierarchy_async(ctx, member, "rename")
         fn = await self._cfg(ctx.guild.id, "forcenick")
         if nickname:
             fn[str(member.id)] = nickname
@@ -1461,7 +1477,7 @@ class Moderation(commands.Cog):
         role = ctx.guild.get_role(cfg.get("role", 0))
         if not role:
             raise UserError(f"Jail isn't set up — run `{ctx.clean_prefix}jail setup`")
-        check_hierarchy(ctx, member, "jail")
+        await check_hierarchy_async(ctx, member, "jail")
         if str(member.id) in cfg.get("jailed", {}):
             raise UserError(f"{member.mention} is already jailed")
         keep = [r for r in member.roles if r.managed or r.is_default() or r >= ctx.guild.me.top_role]
@@ -1569,7 +1585,7 @@ class Moderation(commands.Cog):
         from core import perms as _perms
         if _perms.is_bot_developer(member, self.bot):
             raise UserError("You cannot quarantine a bot developer.")
-        check_hierarchy(ctx, member, "quarantine")
+        await check_hierarchy_async(ctx, member, "quarantine")
         cfg = await self._cfg(ctx.guild.id, "quarantine")
         if str(member.id) in cfg.get("quarantined", {}):
             raise UserError(f"{member.mention} is already quarantined")

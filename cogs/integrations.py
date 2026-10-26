@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands
 
 from core.config import settings
-from core.utils import Colors, Context, UserError, chunk_embeds, shorten, ts, requires_uperm
+from core.utils import Colors, Context, UserError, chunk_embeds, shorten, ts, requires_uperm, has_perms
 
 LASTFM = "https://ws.audioscrobbler.com/2.0/"
 LASTFM_NOIMAGE = "2a96cbd8b46e442fc41c2b86b821562f"  # Last.fm's grey star placeholder
@@ -172,7 +172,7 @@ class Integrations(commands.Cog):
 
     @lastfm.command(name="reactions")
     @commands.guild_only()
-    @commands.has_permissions(manage_guild=True)
+    @has_perms(manage_guild=True)
     async def lf_reactions(self, ctx: Context, *emojis: str):
         """Set the reactions added to now-playing embeds (none to disable)"""
         s = await self.bot.db.get_config(ctx.guild.id, "settings")

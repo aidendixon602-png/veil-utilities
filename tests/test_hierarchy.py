@@ -270,3 +270,46 @@ class TestPermissionHierarchy:
         with pytest.raises(UserError, match="user permission"):
             asyncio.run(mod_predicate(ctx_helper))
 
+    def test_check_hierarchy_async_bot_rank_protection(self):
+        import asyncio
+        from core.utils import check_hierarchy_async, UserError
+        from unittest.mock import AsyncMock
+
+        guild = SimpleNamespace(id=1, owner_id=100, me=SimpleNamespace(id=99999, top_role=100))
+        # Author has Admin uperm (rank 3), target has Head Admin uperm (rank 4)
+        author = SimpleNamespace(id=201, top_role=50, roles=[], mention="<@201>")
+        target = SimpleNamespace(id=202, top_role=40, roles=[], mention="<@202>")
+
+        pl_cfg = {"users": {"201": "admin", "202": "headadmin"}}
+        db_mock = SimpleNamespace(get_config=AsyncMock(return_value=pl_cfg))
+        bot = SimpleNamespace(owner_ids=frozenset(), db=db_mock)
+        ctx = SimpleNamespace(guild=guild, author=author, bot=bot)
+
+        with pytest.raises(UserError, match="their bot permission rank"):
+            asyncio.run(check_hierarchy_async(ctx, target, "ban"))
+
+    def test_check_role_assignable_blocks_admin_role_for_non_supreme_leader(self):
+        import asyncio
+        import discord
+        from core.utils import check_role_assignable, UserError
+        from unittest.mock import AsyncMock, MagicMock
+
+        guild = SimpleNamespace(id=1, owner_id=100, me=SimpleNamespace(id=99999, top_role=SimpleNamespace(position=100)))
+        author = SimpleNamespace(id=201, top_role=SimpleNamespace(position=80), roles=[], mention="<@201>")
+
+        admin_role = MagicMock(spec=discord.Role)
+        admin_role.id = 777
+        admin_role.position = 70
+        admin_role.managed = False
+        admin_role.is_default.return_value = False
+        admin_role.permissions = discord.Permissions(administrator=True)
+
+        pl_cfg = {"users": {"201": "admin"}}  # Rank 3
+        db_mock = SimpleNamespace(get_config=AsyncMock(side_effect=lambda gid, table: pl_cfg if table == "permlevels" else {}))
+        bot = SimpleNamespace(owner_ids=frozenset(), db=db_mock)
+        ctx = SimpleNamespace(guild=guild, author=author, bot=bot)
+
+        # Admin cannot assign an Administrator role
+        with pytest.raises(UserError, match="Only the Server Owner, Bot Developers, or Supreme Leader"):
+            asyncio.run(check_role_assignable(ctx, admin_role))
+

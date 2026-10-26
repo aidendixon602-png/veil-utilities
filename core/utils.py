@@ -631,10 +631,32 @@ def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderat
     if target == ctx.guild.me:
         raise UserError(f"I can't {action} myself")
     is_dev = _perms.is_bot_developer(ctx.author, bot)
-    if not is_dev and ctx.author.id != ctx.guild.owner_id and target.top_role >= ctx.author.top_role:
+    is_owner = ctx.guild and ctx.author.id == ctx.guild.owner_id
+    if not is_dev and not is_owner and target.top_role >= ctx.author.top_role:
         raise UserError(f"You can't {action} {target.mention}, their top role is equal or higher than yours")
     if target.top_role >= ctx.guild.me.top_role:
         raise UserError(f"I can't {action} {target.mention}, their top role is above mine")
+
+
+async def check_hierarchy_async(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
+    """Validate hierarchy considering both Discord role hierarchy and bot custom ranks (uperm)."""
+    check_hierarchy(ctx, target, action)
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
+    is_dev = _perms.is_bot_developer(ctx.author, bot)
+    is_owner = ctx.guild and ctx.author.id == ctx.guild.owner_id
+    if is_dev or is_owner:
+        return
+    db = getattr(bot, "db", None)
+    if db and ctx.guild:
+        pl_cfg = await db.get_config(ctx.guild.id, "permlevels")
+        author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=False, is_dev=False, has_admin=False)
+        target_is_owner = target.id == ctx.guild.owner_id
+        target_is_dev = _perms.is_bot_developer(target, bot)
+        target_rank = _perms.rank_of(pl_cfg, target, is_owner=target_is_owner, is_dev=target_is_dev, has_admin=False)
+        if target_rank >= author_rank and target_rank > 0:
+            target_level_name, _, _ = _perms.member_level_info(pl_cfg, target)
+            raise UserError(f"You can't {action} {target.mention}, their bot permission rank (**{target_level_name}**) is equal to or higher than yours.")
 
 
 def check_role(ctx: Context, role: discord.Role) -> None:
@@ -675,6 +697,16 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
     if not is_auth:
         if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")
+    if is_dangerous(role.permissions):
+        db = getattr(bot, "db", None)
+        pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
+        author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
+        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= 7):
+            raise UserError("🔒 Only the Server Owner, Bot Developers, or Supreme Leader can assign roles with Administrator permission.")
+        if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
+            raise UserError("🔒 Assigning roles with Server Management permissions requires bot permission rank Head Admin+ (uperm).")
+        if (getattr(role.permissions, "manage_roles", False) or getattr(role.permissions, "ban_members", False)) and not (is_dev or is_owner or author_rank >= 3):
+            raise UserError("🔒 Assigning roles with Moderation or Role management permissions requires bot permission rank Admin+ (uperm).")
     check_role(ctx, role)
 
 
