@@ -794,7 +794,7 @@ def shorten_md(text: str, n: int = 1024) -> str:
         return text
     cut = text[: n - 1]
     space = cut.rfind(" ")
-    if space > n // 2:  # end on a whole word
+    if space > n // 3:  # end on a whole word
         cut = cut[:space]
     for mark in ("`", "**", "*", "__", "||", "~~"):
         while cut.count(mark) % 2:
