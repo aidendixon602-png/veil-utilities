@@ -60,7 +60,7 @@ class DevTools(commands.Cog):
         if roles:
             await member.add_roles(*roles, reason=f"unstrip by {ctx.author}")
         await self.bot.db.set_config(ctx.guild.id, "strips", cfg)
-        await ctx.approve(f"Restored **{len(roles)}** role(s) to {member.mention}.")
+        await ctx.approve(f"restored **{len(roles)}** role{'' if len(roles) == 1 else 's'} to {member.mention}")
 
     # ================================================================ massunrole
     @commands.command(hidden=True)
@@ -76,7 +76,7 @@ class DevTools(commands.Cog):
         members = list(role.members)
         if not members and flag != "samerole":
             raise UserError(f"Nobody has {role.mention}")
-        msg = await ctx.neutral(f"Removing {role.mention} from **{len(members)}** member(s)…")
+        msg = await ctx.neutral(f"removing {role.mention} from **{len(members)}** member{'' if len(members) == 1 else 's'}…")
         done = 0
         for m in members:
             try:
@@ -158,7 +158,7 @@ class DevTools(commands.Cog):
     async def _network_ban(self, ctx: Context, user: discord.abc.Snowflake, reason: str | None, verb: str):
         guilds = list(self.bot.guilds)
         if not await ctx.confirm(f"{verb} **{user}** across all **{len(guilds)}** servers?"):
-            return await ctx.neutral("Cancelled.")
+            return await ctx.neutral("cancelled")
         await self.bot.db.execute(
             "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
         banned, failed = [], []
@@ -251,10 +251,9 @@ class DevTools(commands.Cog):
         cfg["joinleave"] = channel.id if channel else None
         await self.bot.db.set_config(ctx.guild.id, "logs", cfg)
         if channel:
-            await ctx.approve(f"Join/leave logs set to {channel.mention}.\n"
-                              "Joins, leaves, and kicks will go here instead of the main log.")
+            await ctx.approve(f"joins, leaves and kicks will go to {channel.mention}")
         else:
-            await ctx.approve("Join/leave logs cleared — they go to the main member log again.")
+            await ctx.approve("joins, leaves and kicks go to the member log again")
 
     # ================================================================ antinuke presets
     @commands.group(hidden=True, aliases=["anpreset"], invoke_without_command=True)
@@ -270,7 +269,7 @@ class DevTools(commands.Cog):
         presets = await self.bot.db.get_config(0, "anpresets")
         presets[name.lower()] = an
         await self.bot.db.set_config(0, "anpresets", presets)
-        await ctx.approve(f"Saved antinuke preset **{name.lower()}**.")
+        await ctx.approve(f"saved antinuke preset **{name.lower()}**")
 
     @antinukepreset.command(name="load", aliases=["apply"])
     @commands.guild_only()
@@ -286,13 +285,15 @@ class DevTools(commands.Cog):
         for keep in ("admins", "whitelist", "log"):
             merged[keep] = current.get(keep, preset.get(keep))
         await self.bot.db.set_config(ctx.guild.id, "antinuke", merged)
-        await ctx.approve(f"Applied antinuke preset **{name.lower()}** to this server.")
+        await ctx.approve(f"applied antinuke preset **{name.lower()}** to this server")
 
     @antinukepreset.command(name="list")
     async def anp_list(self, ctx: Context):
         """List antinuke presets"""
         presets = await self.bot.db.get_config(0, "anpresets")
-        await ctx.neutral("Antinuke presets: " + (", ".join(f"`{n}`" for n in presets) or "none"))
+        if not presets:
+            return await ctx.warn("there are no antinuke presets")
+        await ctx.neutral("antinuke presets: " + ", ".join(f"`{n}`" for n in presets))
 
     @antinukepreset.command(name="delete", aliases=["remove"])
     async def anp_delete(self, ctx: Context, name: str):
@@ -301,7 +302,7 @@ class DevTools(commands.Cog):
         if presets.pop(name.lower(), None) is None:
             raise UserError(f"No preset named `{name.lower()}`")
         await self.bot.db.set_config(0, "anpresets", presets)
-        await ctx.approve(f"Deleted preset **{name.lower()}**.")
+        await ctx.approve(f"deleted preset **{name.lower()}**")
 
 
 async def setup(bot):

@@ -306,7 +306,7 @@ class Feeds(commands.Cog):
         cfg["items"][fid] = {"type": platform, "label": label, "url": url, "channel": channel.id,
                              "seen": [e["id"] for e in entries if e["id"]][:60], "message": None, "role": None}
         await self.bot.db.set_config(ctx.guild.id, "feeds", cfg)
-        await ctx.approve(f"Feed `#{fid}`: new **{PLATFORMS[platform][0]}** posts from **{label}** → {channel.mention} "
+        await ctx.approve(f"added feed `#{fid}` · new **{PLATFORMS[platform][0]}** posts from **{label}** go to {channel.mention} "
                           f"(checked every 5 minutes)")
 
     @feed.command(name="remove", aliases=["delete"])
@@ -318,7 +318,7 @@ class Feeds(commands.Cog):
         if not f:
             raise UserError("No feed with that ID")
         await self.bot.db.set_config(ctx.guild.id, "feeds", cfg)
-        await ctx.approve(f"Removed the {PLATFORMS[f['type']][0]} feed for **{f['label']}**")
+        await ctx.approve(f"removed the {PLATFORMS[f['type']][0]} feed for **{f['label']}**")
 
     @feed.command(name="list")
     @has_perms(manage_guild=True)
@@ -339,7 +339,7 @@ class Feeds(commands.Cog):
             raise UserError("No feed with that ID")
         f["role"] = role.id if role else None
         await self.bot.db.set_config(ctx.guild.id, "feeds", cfg)
-        await ctx.approve(f"Feed `#{feed_id}` will ping {role.mention}" if role else "Feed won't ping anyone")
+        await ctx.approve(f"feed `#{feed_id}` will ping {role.mention}" if role else f"feed `#{feed_id}` won't ping anyone")
 
     @feed.command(name="message")
     @has_perms(manage_guild=True)
@@ -351,7 +351,7 @@ class Feeds(commands.Cog):
             raise UserError("No feed with that ID")
         f["message"] = None if message in (None, "none") else message
         await self.bot.db.set_config(ctx.guild.id, "feeds", cfg)
-        await ctx.approve("Updated the feed message")
+        await ctx.approve("updated the feed message")
 
     @feed.command(name="test")
     @has_perms(manage_guild=True)

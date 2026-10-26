@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same look the role commands already had. Every command error is now a red `failed: reason` line;
   only the cooldown nudge stays amber. Missing Discord permissions on ordinary commands keep their rank wording.
   The reply rules are in CONTRIBUTING.md.
+- **Developer, music, feed and integration replies redone** in the shared style: `blacklisted 123`, `reloaded 2
+  modules`, `set the volume to 80%`, `looping the queue`, `added feed #3 · new YouTube posts from ... go to #videos`,
+  `linked Last.fm ...`. Empty developer lists say so (`nothing is kill-switched`, `there are no antinuke presets`).
+- The error handler's last-resort messages (not in a server, command disabled, timed out, Discord rejected the
+  request, bad input) now use the same red `failed: reason` line as every other error.
 - **Utility, permissions, automod and AI replies redone** in the shared style: `turned snipe off for this server`,
   `you're now AFK: lunch`, `added a note for @user`, `set @user's permission level to Admin`, `turned the invites
   filter on`, `blocked spoiler`. Every toggle (link allow-list, blocked words and patterns, filter exemptions,

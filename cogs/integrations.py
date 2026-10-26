@@ -126,13 +126,13 @@ class Integrations(commands.Cog):
         data = await self.lf("user.getinfo", user=username)
         name = data["user"]["name"]
         await self.bot.db.execute("INSERT OR REPLACE INTO lastfm VALUES(?,?)", ctx.author.id, name)
-        await ctx.approve(f"Linked Last.fm **{name}** ({int(data['user']['playcount']):,} scrobbles)")
+        await ctx.approve(f"linked Last.fm **{name}** ({int(data['user']['playcount']):,} scrobbles)")
 
     @lastfm.command(name="unlink", aliases=["logout"])
     async def lf_unlink(self, ctx: Context):
         """Unlink Last.fm"""
         await self.bot.db.execute("DELETE FROM lastfm WHERE user_id=?", ctx.author.id)
-        await ctx.approve("Unlinked Last.fm")
+        await ctx.approve("unlinked Last.fm")
 
     @commands.command(aliases=["np", "nowplay"])
     @requires_uperm()
@@ -178,7 +178,7 @@ class Integrations(commands.Cog):
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         s["np_reactions"] = list(emojis[:3])
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"Now-playing reactions: {' '.join(emojis) or 'none'}")
+        await ctx.approve(f"now-playing embeds will get {' '.join(emojis)}" if emojis else "turned off now-playing reactions")
 
     @lastfm.command(name="recent", aliases=["rt"])
     async def lf_recent(self, ctx: Context, member: discord.Member = None):
@@ -360,7 +360,7 @@ class Integrations(commands.Cog):
         from_c = from_curr.upper()
         to_c = to_curr.upper()
         if from_c == to_c:
-            return await ctx.neutral(f"**{amount:,.2f} {from_c}** is equal to **{amount:,.2f} {to_c}**.")
+            return await ctx.neutral(f"**{amount:,.2f} {from_c}** is **{amount:,.2f} {to_c}**")
 
         try:
             data = await self.get_json("https://api.frankfurter.app/latest", amount=amount, from_curr=from_c, to=to_c)
