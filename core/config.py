@@ -53,6 +53,15 @@ class _Reader:
         self.problems.append(f"{name} must be true or false (got {value!r})")
         return default
 
+    def int(self, name: str, default: int, low: int, high: int) -> int:
+        value = self.raw(name)
+        if value is None:
+            return default
+        if not value.isdigit() or not low <= int(value) <= high:
+            self.problems.append(f"{name} must be a whole number from {low} to {high} (got {value!r})")
+            return default
+        return int(value)
+
     def snowflake(self, name: str) -> int | None:
         value = self.raw(name)
         if value is None:
@@ -153,6 +162,19 @@ class Settings:
     # network / proxy (bypasses datacenter or hosting IP rate limits)
     proxy: str | None = None
 
+    # web dashboard (off unless DASHBOARD_ENABLED=true; public only with Discord login configured)
+    dashboard_enabled: bool = False
+    dashboard_host: str | None = None     # None = 0.0.0.0 with login configured, otherwise 127.0.0.1
+    dashboard_port: int = 8080
+    dashboard_url: str | None = None      # public base URL, e.g. https://veil.example.com
+    discord_client_id: int | None = None
+    discord_client_secret: str | None = None
+    dashboard_secret: str | None = None   # signs login cookies; random per start if unset
+
+    @property
+    def dashboard_login_configured(self) -> bool:
+        return bool(self.discord_client_id and self.discord_client_secret and self.dashboard_url)
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
         r = _Reader(dict(os.environ) if env is None else env)
@@ -187,9 +209,22 @@ class Settings:
             twitch_client_secret=r.str("TWITCH_CLIENT_SECRET"),
             rsshub_url=r.url("RSSHUB_URL", "https://rsshub.app"),
             proxy=r.str("DISCORD_PROXY") or r.str("HTTPS_PROXY") or r.str("HTTP_PROXY"),
+            dashboard_enabled=r.bool("DASHBOARD_ENABLED", False),
+            dashboard_host=r.str("DASHBOARD_HOST"),
+            dashboard_port=r.int("DASHBOARD_PORT", r.int("PORT", 8080, 1, 65535), 1, 65535),
+            dashboard_url=r.url("DASHBOARD_URL"),
+            discord_client_id=r.snowflake("DISCORD_CLIENT_ID"),
+            discord_client_secret=r.str("DISCORD_CLIENT_SECRET"),
+            dashboard_secret=r.str("DASHBOARD_SECRET"),
         )
         if len(settings.prefix) > 10:
             r.problems.append("PREFIX can be at most 10 characters")
+        if settings.dashboard_secret is not None and len(settings.dashboard_secret) < 32:
+            r.problems.append("DASHBOARD_SECRET must be at least 32 characters (or leave it empty)")
+        login_parts = (settings.discord_client_id, settings.discord_client_secret, settings.dashboard_url)
+        if settings.dashboard_enabled and any(login_parts) and not all(login_parts):
+            r.problems.append("Dashboard login needs all three of DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET "
+                              "and DASHBOARD_URL (or none of them for a localhost-only dashboard)")
         if r.problems:
             raise ConfigError(r.problems)
         return settings
@@ -207,7 +242,8 @@ class Settings:
     def summary(self) -> str:
         """Safe one-line-per-setting view for logs (secrets are masked)."""
         secret = {"discord_token", "ai_api_key", "lastfm_api_key", "ocr_space_api_key", "lavalink_password",
-                  "spotify_client_secret", "twitch_client_secret", "database_url"}
+                  "spotify_client_secret", "twitch_client_secret", "database_url",
+                  "discord_client_secret", "dashboard_secret"}
         lines = []
         for f in fields(self):
             value = getattr(self, f.name)

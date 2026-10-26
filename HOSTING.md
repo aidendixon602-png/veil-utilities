@@ -57,6 +57,31 @@ goes down. Public nodes can be slow or busy at times. For rock-solid music, host
 (config in `lavalink/application.yml`) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
 to turn music off.
 
+## Web dashboard (optional)
+The dashboard is **off** by default. It lets server owners edit role blacklist, log channels and antinuke
+settings in a browser.
+
+**Only on this machine:** set `DASHBOARD_ENABLED=true`. It listens on `127.0.0.1:8080` and nobody else can
+reach it. Wispbyte has no way to open a local address, so use the next option there.
+
+**Public, with Discord login:**
+1. Developer portal → your app → **OAuth2**. Copy the **Client ID**, reset and copy the **Client Secret**.
+2. Under **Redirects**, add your dashboard address followed by `/callback`, for example
+   `http://123.45.67.89:25565/callback` (Wispbyte shows the address and port on the server's **Network** tab).
+3. In `.env`:
+   ```
+   DASHBOARD_ENABLED=true
+   DASHBOARD_PORT=25565                       # the port Wispbyte gave you
+   DASHBOARD_URL=http://123.45.67.89:25565    # exactly what you added in step 2, without /callback
+   DISCORD_CLIENT_ID=...
+   DISCORD_CLIENT_SECRET=...
+   DASHBOARD_SECRET=                          # optional: 32+ random characters keeps people logged in across restarts
+   ```
+4. Restart. People sign in with Discord and only see servers they **own**; IDs in `OWNER_IDS` see every server.
+
+A plain `http://` address works, but login cookies then travel unencrypted. Put the dashboard behind HTTPS
+(a domain with a reverse proxy such as Caddy or Cloudflare Tunnel) if other people will use it.
+
 ## Troubleshooting
 | Console says | Fix |
 |---|---|
@@ -66,6 +91,7 @@ to turn music off.
 | `AI unavailable: … rejected the API key` | `AI_API_KEY` is wrong or revoked. Make a new key, or delete the line to use the free AI |
 | `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
 | `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
+| `Dashboard login needs all three of …` | Fill in `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `DASHBOARD_URL`, or clear all three for a localhost-only dashboard |
 | The bot leaves your server right away | Server authorization: your ID must be in `OWNER_IDS`, or run `,authorize <server id>` |
 
 ---

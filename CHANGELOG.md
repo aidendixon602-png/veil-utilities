@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Web dashboard locked down.** It previously started on every boot, listened on all interfaces and had no
+  login, so anyone who found the port could list every server and add themselves as an antinuke admin.
+  It is now off unless `DASHBOARD_ENABLED=true`, listens only on `127.0.0.1` unless Discord login is configured,
+  signs people in with Discord and only lets server owners (and `OWNER_IDS`) edit a server. Forms carry CSRF
+  tokens, cross-site POSTs are refused, and server names are HTML-escaped.
+
+### Fixed
+
+- Dashboard home page crashed with a `KeyError` (unescaped CSS braces in a `.format()` template).
+- Dashboard antinuke punishment was saved as `action`, which the antinuke never reads; it now sets `punishment`.
+- Dashboard log channels were saved under `logging.channels`, which nothing reads; they now go to `logs`.
+- Opening a server in the dashboard could cache an antinuke config without defaults, making the antinuke
+  fail for that server until restart.
+- The dashboard started again on every gateway reconnect; it now starts once in `setup_hook`.
+
 ### Added
 
 - **Midtown Utilities Help Redesign** — Redesigned `,help` menu matching the elite Midtown Utilities style:

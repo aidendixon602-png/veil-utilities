@@ -156,6 +156,20 @@ class Veil(commands.AutoShardedBot):
         self.add_check(self._global_check)
         if not self.presence_rotator.is_running():
             self.presence_rotator.start()
+        await self.start_dashboard()
+
+    async def start_dashboard(self) -> None:
+        """Start the web dashboard once, only when DASHBOARD_ENABLED=true (see core/dashboard.py)."""
+        if not settings.dashboard_enabled or getattr(self, "dashboard", None):
+            return
+        from core.dashboard import DashboardServer
+        dashboard = DashboardServer.from_settings(self, settings)
+        try:
+            await dashboard.start()
+        except Exception as e:
+            log.warning("Could not start the web dashboard on %s:%d: %s", dashboard.host, dashboard.port, e)
+            return
+        self.dashboard = dashboard
 
     async def close(self) -> None:
         if hasattr(self, "presence_rotator") and self.presence_rotator.is_running():
@@ -229,13 +243,6 @@ class Veil(commands.AutoShardedBot):
         await self.update_dynamic_status()
         await self.check_restart_notification()
 
-        try:
-            from core.dashboard import DashboardServer
-            port = int(os.environ.get("DASHBOARD_PORT", os.environ.get("PORT", 8080)))
-            self.dashboard = DashboardServer(self, port=port)
-            await self.dashboard.start()
-        except Exception as e:
-            log.warning("Could not start dashboard: %s", e)
 
     async def check_restart_notification(self):
         state_file = ".restart_state.json"
