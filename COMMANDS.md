@@ -1,6 +1,6 @@
 # Command reference
 
-475 commands. Default prefix `,`. `<required>` `[optional]`.
+481 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -303,12 +303,18 @@ _Log server events to channels_
 
 | Command | Description | Permission |
 |---|---|---|
-| `cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | Clean up duplicate logging channels created by the bot | manage guild |
-| `log` (logs) | View logging channels | manage guild |
-| `log cleanup` (clean, purgeduplicates, cleanupchannels) | Clean up duplicate logging channels created by the bot | manage guild |
-| `log set <kind> [channel]` | Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = auto/off) | manage guild |
-| `log setup [mode=default]` (init, default, defaults) | Automatically create default log channels under VEIL LOGS. Use `log setup all` to include security logs (#antinuke-logs and #message-logs). | manage guild |
-| `setuplogs [mode=default]` (setupchannels, autologs) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |
+| `cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | Delete duplicate log channels the bot created (same as `logs cleanup`) | manage guild |
+| `logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild |
+| `logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild |
+| `logs cleanup` (clean, purgeduplicates, cleanupchannels) | Delete duplicate log channels the bot created, and an empty VEIL LOGS category | manage guild |
+| `logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild |
+| `logs ignore add <target>` | Ignore a channel or member | manage guild |
+| `logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild |
+| `logs off <category>` (disable) | Stop a category (or `all`) from being logged | manage guild |
+| `logs set <category> [channel]` | Send a category to a channel: `logs set messages #logs`. Use `off` to stop it or `auto` to find it by name | manage guild |
+| `logs setup` (init, default, defaults, create) | Create a private channel for every log category under VEIL LOGS (skips ones you already set) | manage guild |
+| `logs test` | Send a test line to every category that has a channel, so you can see what's missing permissions | manage guild |
+| `setuplogs` (setupchannels, autologs) | Create a private channel for every log category (same as `logs setup`) | manage guild |
 
 ## 🔨 Moderation
 _Keep your server in line_

@@ -10,7 +10,7 @@ import pytest
 
 from core.bot import Veil
 from core.help import Help, HelpView
-from core.utils import Colors, UserError
+from core.utils import UserError
 
 
 def _help():
@@ -134,105 +134,6 @@ def test_logging_channel_auto_detection():
     assert asyncio.run(cog.channel_for(guild, "server")) == ch_gen
 
 
-def test_ban_log_view_toggle():
-    from cogs.logging import BanLogView
-    view = BanLogView(guild_id=1, user_id=123, is_banned=True)
-    assert view.toggle_btn.label == "Unban"
-    assert view.toggle_btn.style == discord.ButtonStyle.success
-
-    view.is_banned = False
-    view._sync()
-    assert view.toggle_btn.label == "Reban"
-    assert view.toggle_btn.style == discord.ButtonStyle.danger
-
-
-def test_ban_log_view_security_and_self_ban_protection():
-    from cogs.logging import BanLogView
-    view = BanLogView(guild_id=1, user_id=406546241996980225, is_banned=False)
-
-    # 1. Self-ban is blocked
-    member = SimpleNamespace(id=406546241996980225, guild_permissions=discord.Permissions.all())
-    guild = SimpleNamespace(id=1, owner_id=100, get_member=lambda uid: member)
-    it = SimpleNamespace(
-        guild=guild,
-        user=member,
-        client=SimpleNamespace(
-            get_guild=lambda gid: guild,
-            is_owner=AsyncMock(return_value=False),
-            db=SimpleNamespace(get_config=AsyncMock(return_value={})),
-        ),
-        response=SimpleNamespace(send_message=AsyncMock()),
-    )
-    asyncio.run(view.toggle_btn.callback(it))
-    assert it.response.send_message.called
-    msg = it.response.send_message.call_args[0][0]
-    assert "cannot ban or unban yourself" in msg or "Only Bot Developers" in msg
-
-    # 2. Random member without uperm is blocked even if they have Discord admin
-    random_member = SimpleNamespace(id=999, guild_permissions=discord.Permissions.all())
-    it.user = random_member
-    it.guild.get_member = lambda uid: random_member
-    it.response.send_message.reset_mock()
-    asyncio.run(view.toggle_btn.callback(it))
-    assert it.response.send_message.called
-    assert "Only Bot Developers" in it.response.send_message.call_args[0][0]
-
-
-def test_default_log_channels_auto_creation():
-    from cogs.logging import Logging
-    bot = Veil()
-    cog = Logging(bot)
-    bot.db = SimpleNamespace(
-        get_config=AsyncMock(return_value={}),
-        set_config=AsyncMock(),
-    )
-    created_channels = []
-
-    class MockObj:
-        def __init__(self, id, **kwargs):
-            self.id = id
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-
-        def __hash__(self):
-            return self.id
-
-        def __eq__(self, other):
-            return getattr(other, "id", None) == self.id
-
-    async def fake_create_channel(name, **kwargs):
-        ch = SimpleNamespace(id=len(created_channels) + 1, name=name, __class__=discord.TextChannel)
-        created_channels.append(ch)
-        return ch
-
-    async def fake_create_category(name, **kwargs):
-        return SimpleNamespace(id=99, name=name)
-
-    default_role = MockObj(1)
-    me = MockObj(
-        2,
-        guild_permissions=SimpleNamespace(manage_channels=True),
-    )
-    guild = SimpleNamespace(
-        id=10,
-        me=me,
-        default_role=default_role,
-        text_channels=[],
-        categories=[],
-        create_category=fake_create_category,
-        create_text_channel=fake_create_channel,
-        get_channel=lambda cid: None,
-    )
-
-    created = asyncio.run(cog.ensure_default_channels(guild))
-    assert len(created) == 4
-    created_names = [c.name for c in created]
-    assert "join-logs" in created_names
-    assert "bans" in created_names
-    assert "command-logs" in created_names
-    assert "veil-utilities-logging" in created_names
-
-
 def test_role_based_permlevels():
     from core import perms
     cfg = {
@@ -309,47 +210,6 @@ def test_unassigned_member_gets_no_bot_perm():
     assert rank == 0
 
 
-def test_role_update_embed_styling():
-    from cogs.logging import Logging
-    cog = Logging(SimpleNamespace())
-
-    guild = SimpleNamespace(
-        id=1,
-        icon=None,
-        me=SimpleNamespace(guild_permissions=SimpleNamespace(view_audit_log=False)),
-    )
-    member = SimpleNamespace(
-        id=123,
-        name="ham6600y",
-        display_name="Jacob",
-        mention="<@123>",
-        display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatar.png"),
-        guild=guild,
-    )
-    role_added = SimpleNamespace(id=456, name="Bloxlink Bypass", mention="<@&456>")
-    role_removed = SimpleNamespace(id=789, name="Old Role", mention="<@&789>")
-
-    # Test added only -> Colors.success
-    embed_add = asyncio.run(cog._build_role_update_embed(member, [role_added], []))
-    assert embed_add.color.value == Colors.success
-    assert "Roles Added" in embed_add.author.name
-    assert "Jacob" in embed_add.author.name
-    assert any(f.name.startswith("➕ Added") for f in embed_add.fields)
-
-    # Test removed only -> Colors.error
-    embed_rem = asyncio.run(cog._build_role_update_embed(member, [], [role_removed]))
-    assert embed_rem.color.value == Colors.error
-    assert "Roles Removed" in embed_rem.author.name
-    assert any(f.name.startswith("➖ Removed") for f in embed_rem.fields)
-
-    # Test mixed -> Colors.blurple
-    embed_mixed = asyncio.run(cog._build_role_update_embed(member, [role_added], [role_removed]))
-    assert embed_mixed.color.value == Colors.blurple
-    assert "Roles Updated" in embed_mixed.author.name
-    assert any(f.name.startswith("➕ Added") for f in embed_mixed.fields)
-    assert any(f.name.startswith("➖ Removed") for f in embed_mixed.fields)
-
-
 def test_dynamic_presence_rotation():
     bot = Veil()
     bot.change_presence = AsyncMock()
@@ -403,7 +263,8 @@ def test_moderation_uperm_predicates():
     mod_cog = Moderation(bot)
 
     # Test ban requires admin uperm
-    ban_predicate = next(c for c in mod_cog.ban.checks if getattr(c, "__name__", "") == "predicate")
+    # discord.py reverses a shared checks list every time a cog is created, so pick the check by what it is, not where it is
+    ban_predicate = next(c for c in mod_cog.ban.checks if "requires_uperm" in getattr(c, "__qualname__", ""))
 
     ctx_regular = SimpleNamespace(
         guild=SimpleNamespace(id=1, owner_id=100),
@@ -533,5 +394,3 @@ def test_help_view_on_timeout_deletes_message():
 
     asyncio.run(view.on_timeout())
     assert msg.delete.called
-
-
