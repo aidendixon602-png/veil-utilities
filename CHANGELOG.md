@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`,an` is a panel.** The antinuke status is shown in the same plain style as `,help` (`antinuke is **on**.`, one
+  line per rule like `` `Ban` - 3 in 60s → ban `[revert]` ``, whitelist, admins and the alerts channel), with
+  buttons: **Turn on / Turn off**, **Default / Strict / Relaxed** presets, and a "Change a rule…" menu. A rule
+  shows what it watches, its limit, punishment, state and what gets undone, with **Turn on/off**, **− / +** for
+  the count, **time** (30s → 60s → 2m → 5m → 10m) and **punishment** (ban → kick → strip) buttons, and **← Back**.
+  Every press saves straight away. Only the server owner, antinuke admins and developers can press anything;
+  the text commands still work.
 - **Raid mode locks the door.** When the mass-join filter spots a wave (or an admin runs `,antiraid start`), the bot
   pauses invites and DMs between members, and can also lock every open text channel for @everyone
   (`,antiraid lockdown channels on`; invites/DMs are on by default, `,antiraid lockdown invites off` to skip). The

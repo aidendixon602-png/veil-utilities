@@ -9,7 +9,7 @@ from cogs.antinuke import Antinuke, PRESETS, parse_timeframe
 from cogs.moderation import Moderation
 from core.bot import Veil
 from core.db import Database
-from core.utils import Colors, Ignored, UserError
+from core.utils import Ignored, UserError
 
 OPEN_DBS = []
 
@@ -50,41 +50,32 @@ def test_parse_timeframe():
         parse_timeframe("invalid")
 
 
-def test_midtown_antinuke_status_embed_format():
+def test_antinuke_status_reads_like_help():
     async def _run():
         db, cog = await make_test_setup()
         guild_id = 12345
-        # 1. Test when disabled
+        # 1. off: every rule says off
         embed = await cog.build_status_embed(guild_id)
-        assert embed.title == "Antinuke Status"
-        assert embed.color.value == Colors.mint
-        assert "Antinuke is currently **disabled**." in embed.description
-        assert "**Rules**" in embed.description
+        assert embed.title == "Antinuke" and embed.colour is None
+        assert embed.description.startswith("antinuke is **off**.")
+        assert "`Ban` - off" in embed.description and "`Webhook` - off" in embed.description
+        assert [f.name for f in embed.fields] == ["prefix: ,"]
 
-        # Verify all 12 Midtown rules are present
-        assert "`Ban` - **3 in 60s → ban** `[revert]`" in embed.description
-        assert "`Bot Add` - **1 in 60s → ban** `[revert]`" in embed.description
-        assert "`Channel Create` - **2 in 120s → kick** `[revert]`" in embed.description
-        assert "`Channel Delete` - **2 in 120s → ban** `[revert]`" in embed.description
-        assert "`Kick` - **3 in 120s → ban**" in embed.description
-        assert "`Permission Grant` (administrator, ban_members, kick_members, manage_channels, manage_guild, manage_webhooks) - **1 in 60s → strip** `[revert]`" in embed.description
-        assert "`Role Create` - **5 in 120s → strip** `[revert]`" in embed.description
-        assert "`Role Delete` - **5 in 120s → strip** `[revert]`" in embed.description
-        assert "`Invite Spam` - **10 in 60s → strip** `[revert]`" in embed.description
-        assert "`Server Update` - **1 in 60s → strip** `[revert]`" in embed.description
-        assert "`Timeout` - **5 in 120s → strip** `[revert]`" in embed.description
-        assert "`Webhook` - **1 in 60s → kick** `[revert]`" in embed.description
-
-        # Verify footer syntax
-        footer = ",an on/off · ,an <action> <count> <punishment> <timeframe> · ,an whitelist/unwhitelist <user> · ,an reset <action> · ,an preset save/load <name>"
-        assert footer in embed.description
-
-        # 2. Test when enabled
+        # 2. on: every rule with its limit, and [revert] where the damage is undone
         cfg = await cog.cfg(guild_id)
-        cfg["enabled"] = True
+        cog.enable_rules(cfg)
         await cog.save(guild_id, cfg)
-        embed_enabled = await cog.build_status_embed(guild_id)
-        assert "Antinuke is currently **enabled**." in embed_enabled.description
+        embed = await cog.build_status_embed(guild_id)
+        text = embed.description
+        assert text.startswith("antinuke is **on**.")
+        for line in ("`Ban` - 3 in 60s → ban `[revert]`", "`Bot Add` - 1 in 60s → ban `[revert]`",
+                     "`Channel Create` - 2 in 120s → kick `[revert]`", "`Channel Delete` - 2 in 120s → ban `[revert]`",
+                     "`Kick` - 3 in 120s → ban", "`Permission Grant` - 1 in 60s → strip `[revert]`",
+                     "`Role Create` - 5 in 120s → strip `[revert]`", "`Role Delete` - 5 in 120s → strip `[revert]`",
+                     "`Invite Spam` - 10 in 60s → strip `[revert]`", "`Server Update` - 1 in 60s → strip `[revert]`",
+                     "`Timeout` - 5 in 120s → strip `[revert]`", "`Webhook` - 1 in 60s → kick `[revert]`"):
+            assert line in text, line
+        assert "`Kick` - 3 in 120s → ban `[revert]`" not in text  # kicks can't be undone, so no tag
     run(_run)
 
 
@@ -104,7 +95,7 @@ def test_rule_updating_and_presets():
         assert cfg["modules"]["ban"]["punishment"] == "kick"
 
         embed = await cog.build_status_embed(guild_id)
-        assert "`Ban` - **5 in 30s → kick** `[revert]`" in embed.description
+        assert "`Ban` - 5 in 30s → kick `[revert]`" in embed.description
 
         # Test preset save and load
         await Antinuke.an_preset_save.callback(cog, ctx, "custom_raid")
