@@ -1,7 +1,5 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import discord
 from core.help import SECRET_CATEGORIES, SecretHelpView
 
 
@@ -115,9 +113,7 @@ def test_developer_embed_fields():
 
 
 def test_tokens_and_secrets_embed():
-    import asyncio
-    from core.help import SecretHelpView, Help
-    from core.config import settings
+    from core.help import SecretHelpView
     ctx = MagicMock()
     ctx.clean_prefix = ","
     bot = MagicMock()

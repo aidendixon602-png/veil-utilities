@@ -456,7 +456,7 @@ class Music(commands.Cog):
                     raise UserError(f"Could not find lyrics for `{clean_title}`.")
                 data = await resp.json(content_type=None)
         except Exception:
-            raise UserError(f"Lyrics service didn't respond, try again in a moment.")
+            raise UserError("Lyrics service didn't respond, try again in a moment.")
 
         if not data or not isinstance(data, list):
             raise UserError(f"No lyrics found for `{clean_title}`.")

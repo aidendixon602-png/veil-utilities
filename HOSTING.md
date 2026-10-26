@@ -132,7 +132,8 @@ The panel only clones into an **empty** server folder. If you already uploaded t
 
 ## 4. Updating the bot
 Edit or upload changed files on GitHub (or commit + push with GitHub Desktop), then press **Restart** on Wispbyte
-or run `,restart` in Discord. Your `.env` and database stay untouched because they aren't in git.
+or run `,gitpull` in Discord. `,gitpull` reloads changed cogs straight away and restarts by itself when core files
+changed. If `requirements.txt` changed, restart from the panel so new packages get installed. Your `.env` and database stay untouched because they aren't in git.
 
 **If your token ever ends up on GitHub**, even for a second, reset it immediately in the Discord developer
 portal. Bots scan GitHub for leaked tokens within minutes.

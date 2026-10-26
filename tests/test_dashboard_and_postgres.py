@@ -1,9 +1,7 @@
 """Tests for per-server web dashboard and PostgreSQL backend option."""
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from core.dashboard import DashboardServer
 from core.db import Database, PostgresDatabase, create_database

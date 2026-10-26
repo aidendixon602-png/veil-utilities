@@ -17,7 +17,7 @@ if not hasattr(_cu, "check_role_assignable"):
     except Exception:
         pass
 
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy, check_hierarchy_async,
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy_async,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm)
 
@@ -847,9 +847,6 @@ class Moderation(commands.Cog):
     async def cmd_removerole(self, ctx: Context, arg1: str, *, arg2: str):
         """Remove a role from a member: `,removerole @User @Role`"""
         await self._do_role_remove(ctx, arg1, arg2)
-
-    async def _blacklisted(self, guild_id: int, role_id: int) -> bool:
-        return await is_role_blacklisted(guild_id, role_id, self.bot.db)
 
     @role.command(name="create")
     @requires_uperm("admin")
@@ -1750,8 +1747,14 @@ class Moderation(commands.Cog):
             checks["Anti-Raid / Anti-Alt"] = "⚪ Off"
 
         # 6. Default Logging coverage
-        log_cfg = await self.bot.db.get_config(ctx.guild.id, "logging")
-        has_logging = bool(log_cfg)
+        # ask the logging cog, so both `log set` channels and auto-detected channel names count
+        logging_cog = self.bot.get_cog("Logging")
+        has_logging = False
+        if logging_cog is not None:
+            for kind in ("bans", "commands", "joinleave", "members", "roles", "channels", "server"):
+                if await logging_cog.channel_for(ctx.guild, kind):
+                    has_logging = True
+                    break
         veil_log = discord.utils.get(ctx.guild.text_channels, name="veil-utilities-logging")
         if has_logging or veil_log:
             checks["Audit Trail & Logs"] = f"🟢 Active ({'#veil-utilities-logging' if veil_log else 'Configured'})"

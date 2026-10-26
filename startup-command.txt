@@ -1,32 +1,25 @@
 # ================================================================
-# Full Wispbyte / Pterodactyl Startup Commands
+# Wispbyte / Pterodactyl startup commands
 # ================================================================
-# Copy and paste the single-line command below into your Wispbyte panel
-# under the "Startup" tab -> "Startup Command" field.
+# Paste ONE of the single-line commands below into your panel:
+# Startup tab -> "Startup Command".
+#
+# main.py already pulls the latest commit from GitHub on every boot (set AUTO_SYNC_GIT=0 in .env to turn that
+# off), so these commands only need to install packages when requirements.txt changes and then start the bot.
 
 # ----------------------------------------------------------------
-# OPTION 1: Force-Sync with GitHub + Boot (Recommended)
-# Overwrites local cache with the exact latest GitHub commit on every boot:
+# OPTION 1 (recommended): files directly in /home/container
+# Installs packages only when requirements.txt changed, then starts the bot.
 # ----------------------------------------------------------------
-cd /home/container && git fetch origin main && git reset --hard origin/main && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
+cd /home/container && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
 
 # ----------------------------------------------------------------
-# OPTION 2: Fast Force-Sync (Skips pip check if packages already installed):
+# OPTION 2: files in a subfolder (/home/container/veil-utilities)
 # ----------------------------------------------------------------
-cd /home/container && git fetch origin main && git reset --hard origin/main && python main.py
+cd /home/container/veil-utilities && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
 
 # ----------------------------------------------------------------
-# OPTION 2: Standard layout (files directly in /home/container)
-# Fast boot without git pull:
-# ----------------------------------------------------------------
-cd /home/container && if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
-
-# ----------------------------------------------------------------
-# OPTION 3: Subfolder layout (files in /home/container/veil-utilities)
-# ----------------------------------------------------------------
-cd /home/container/veil-utilities && git pull origin main 2>/dev/null; if [ -f requirements.txt ]; then if ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; fi; python main.py
-
-# ----------------------------------------------------------------
-# OPTION 4: Instant Zero-Delay Boot (Fastest: ~1 second flat)
+# OPTION 3: fastest boot, never installs packages
+# Only use this once everything is installed; new packages won't be picked up.
 # ----------------------------------------------------------------
 cd /home/container && python main.py

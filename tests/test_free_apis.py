@@ -1,10 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-import discord
 
 from cogs.integrations import Integrations
 from cogs.fun import Fun
-from cogs.music import Music
 
 
 def test_define_formatting():

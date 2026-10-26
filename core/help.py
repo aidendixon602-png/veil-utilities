@@ -599,7 +599,6 @@ class SecretHelpView(discord.ui.View):
         )
 
         # Database Engine
-        db_target = getattr(settings, "database_url", None) or settings.db_path
         if getattr(settings, "database_url", None):
             db_disp = mask(settings.database_url, show=6)
             db_type = "PostgreSQL"

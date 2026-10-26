@@ -3,10 +3,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
-import pytest
 
 from cogs.antinuke import Antinuke
-from cogs.logging import Logging, DEFAULT_LOG_CHANNELS, SECURITY_LOG_CHANNELS
+from cogs.logging import Logging
 from core.bot import Veil
 
 
