@@ -229,7 +229,7 @@ veil-utilities/
 │   ├── bot.py               prefixes, aliases, global checks, error tracking, cog loading
 │   ├── config.py            typed, validated settings loaded from .env
 │   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
-│   ├── dashboard.py         per-server web dashboard
+│   ├── dashboard.py         opt-in web dashboard with Discord login
 │   ├── help.py              the interactive button help menu & Developer telemetry suite
 │   ├── modlog.py            numbered moderation cases
 │   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
