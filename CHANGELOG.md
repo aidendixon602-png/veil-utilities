@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same look the role commands already had. Every command error is now a red `failed: reason` line;
   only the cooldown nudge stays amber. Missing Discord permissions on ordinary commands keep their rank wording.
   The reply rules are in CONTRIBUTING.md.
+- **Server-setup replies redone** (settings, welcome/goodbye/boost, autoroles, starboard, counters, bump, levels,
+  VoiceMaster, tickets, giveaways) in the shared style: `set the server prefix to !`, `turned leveling on`,
+  `<#chat> no longer gives XP`, `added @Support to the support roles`, `locked your channel`. Toggles say which way
+  they went instead of "toggled", and the wording no longer says "Midtown" in the welcome preset reply.
+- Empty lists say so (`no aliases are set`, `no autoroles are set`, `nobody has any XP yet`, `there are no active
+  giveaways`) and list titles show the total.
+- Staff-only mode and fake-permission notes are now small subtext lines under the reply.
 - **Antinuke, antiraid and anti-alt replies redone.** Short lower-case lines that say what changed:
   `turned antinuke on`, `set the Ban rule to 3 in 60s → ban`, `whitelisted @user`, `made @user an antinuke admin`,
   `mass join filter set to 10 joins in 10s`. Whitelist commands use mentions, warn (amber) when nothing changed,

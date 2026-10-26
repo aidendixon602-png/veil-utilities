@@ -220,7 +220,7 @@ class VoiceMaster(commands.Cog):
         cfg.update(category=cat.id, join=join.id, interface=iface.id)
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
         await self.send_interface(iface)
-        await ctx.approve(f"VoiceMaster is ready — join {join.mention} to create a channel")
+        await ctx.approve(f"set up VoiceMaster · join {join.mention} to create a channel")
 
     async def send_interface(self, channel: discord.TextChannel):
         e = discord.Embed(title="VoiceMaster Interface", color=Colors.main,
@@ -251,7 +251,7 @@ class VoiceMaster(commands.Cog):
                 except discord.HTTPException:
                     pass
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", {})
-        await ctx.approve("VoiceMaster reset")
+        await ctx.approve("reset VoiceMaster")
 
     @voicemaster.command(name="defaultname")
     @has_perms(manage_guild=True)
@@ -260,7 +260,7 @@ class VoiceMaster(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "voicemaster")
         cfg["name"] = name
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
-        await ctx.approve(f"Default name: `{name}`")
+        await ctx.approve(f"set the default channel name to `{name}`")
 
     @voicemaster.command(name="defaultrole")
     @has_perms(manage_guild=True)
@@ -276,7 +276,7 @@ class VoiceMaster(commands.Cog):
                 await antinuke_guard(ctx, "permissions")
         cfg["role"] = role.id if role else None
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
-        await ctx.approve(f"Default role: {role.mention if role else 'none'}")
+        await ctx.approve(f"set the default role to {role.mention}" if role else "removed the default role")
 
     @voicemaster.command(name="bitrate")
     @has_perms(manage_guild=True)
@@ -288,7 +288,7 @@ class VoiceMaster(commands.Cog):
             kbps = int(ctx.guild.bitrate_limit // 1000)
         cfg["bitrate"] = kbps * 1000
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
-        await ctx.approve(f"Default bitrate: **{kbps}kbps**")
+        await ctx.approve(f"set the default bitrate to **{kbps}kbps**")
 
     # ------------------------------------------------------------ owner commands
     async def my_channel(self, ctx: Context) -> discord.VoiceChannel:
@@ -312,28 +312,28 @@ class VoiceMaster(commands.Cog):
         """Lock your channel"""
         vc = await self.my_channel(ctx)
         await vc.set_permissions(ctx.guild.default_role, connect=False)
-        await ctx.approve("Locked your channel")
+        await ctx.approve("locked your channel")
 
     @vc.command(name="unlock")
     async def vc_unlock(self, ctx: Context):
         """Unlock your channel"""
         vc = await self.my_channel(ctx)
         await vc.set_permissions(ctx.guild.default_role, connect=None)
-        await ctx.approve("Unlocked your channel")
+        await ctx.approve("unlocked your channel")
 
     @vc.command(name="hide", aliases=["ghost"])
     async def vc_hide(self, ctx: Context):
         """Hide your channel"""
         vc = await self.my_channel(ctx)
         await vc.set_permissions(ctx.guild.default_role, view_channel=False)
-        await ctx.approve("Hid your channel")
+        await ctx.approve("hid your channel")
 
     @vc.command(name="reveal", aliases=["unhide"])
     async def vc_reveal(self, ctx: Context):
         """Reveal your channel"""
         vc = await self.my_channel(ctx)
         await vc.set_permissions(ctx.guild.default_role, view_channel=None)
-        await ctx.approve("Revealed your channel")
+        await ctx.approve("revealed your channel")
 
     @vc.command(name="rename", aliases=["name"])
     async def vc_rename(self, ctx: Context, *, name: str):
@@ -341,7 +341,7 @@ class VoiceMaster(commands.Cog):
         vc = await self.my_channel(ctx)
         await vc.edit(name=name[:100])
         await self._save_pref(ctx, "name", name[:100])
-        await ctx.approve(f"Renamed to **{name}**")
+        await ctx.approve(f"renamed your channel to **{discord.utils.escape_markdown(name)}**")
 
     @vc.command(name="limit")
     async def vc_limit(self, ctx: Context, limit: int):
@@ -350,14 +350,14 @@ class VoiceMaster(commands.Cog):
         limit = max(0, min(99, limit))
         await vc.edit(user_limit=limit)
         await self._save_pref(ctx, "limit", limit)
-        await ctx.approve(f"Limit set to **{limit or '∞'}**")
+        await ctx.approve(f"set the limit to **{limit}**" if limit else "removed the limit")
 
     @vc.command(name="permit", aliases=["allow"])
     async def vc_permit(self, ctx: Context, target: discord.Member | discord.Role):
         """Let a member/role join even when locked"""
         vc = await self.my_channel(ctx)
         await vc.set_permissions(target, connect=True, view_channel=True)
-        await ctx.approve(f"Permitted {target.mention}")
+        await ctx.approve(f"permitted {target.mention}")
 
     @vc.command(name="reject", aliases=["deny", "kick"])
     async def vc_reject(self, ctx: Context, member: discord.Member):
@@ -368,7 +368,7 @@ class VoiceMaster(commands.Cog):
         await vc.set_permissions(member, connect=False)
         if member in vc.members:
             await member.move_to(None)
-        await ctx.approve(f"Rejected {member.mention}")
+        await ctx.approve(f"rejected {member.mention}")
 
     @vc.command(name="transfer")
     async def vc_transfer(self, ctx: Context, member: discord.Member):
@@ -378,7 +378,7 @@ class VoiceMaster(commands.Cog):
             raise UserError(f"{member.mention} isn't in your channel")
         await vc.set_permissions(ctx.author, overwrite=None)
         await self.set_owner(vc, member)
-        await ctx.approve(f"Transferred ownership to {member.mention}")
+        await ctx.approve(f"transferred your channel to {member.mention}")
 
     @vc.command(name="claim")
     async def vc_claim(self, ctx: Context):
@@ -390,14 +390,14 @@ class VoiceMaster(commands.Cog):
         if any(m.id == owner for m in vc.members):
             raise UserError("The owner is still in the channel")
         await self.set_owner(vc, ctx.author)
-        await ctx.approve("You now own this channel")
+        await ctx.approve("you now own this channel")
 
     @vc.command(name="status")
     async def vc_status(self, ctx: Context, *, status: str = None):
         """Set your channel's voice status"""
         vc = await self.my_channel(ctx)
         await vc.edit(status=status)
-        await ctx.approve("Updated channel status")
+        await ctx.approve("updated the channel status")
 
 
 async def setup(bot):
