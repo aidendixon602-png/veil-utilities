@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Whitelist a role in the antinuke.** `,an whitelist @Role` trusts everyone who has the role (it says how many
+  members that is right now); `,an unwhitelist @Role` stops it. Users and bots work as before, @everyone is
+  refused, and `,an whitelist` on its own lists whitelisted users and roles. `,an admins` and the `,an` panel show
+  whitelisted roles too.
+
 - **`,an` is a panel.** The antinuke status is shown in the same plain style as `,help` (`antinuke is **on**.`, one
   line per rule like `` `Ban` - 3 in 60s → ban `[revert]` ``, whitelist, admins and the alerts channel), with
   buttons: **Turn on / Turn off**, **Default / Strict / Relaxed** presets, and a "Change a rule…" menu. A rule
@@ -35,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Shorter help pages.** A category shows 8 commands a page with ◀ `1/6` ▶ next to ← Back, and the aliases of just
+  those commands. The commands people use most come first (ban, kick, timeout… in Moderation; play, skip,
+  queue… in Music). Commands that describe their own arguments (`addrole <member> <role>`) show them instead
+  of `<text> <text>`.
 - **`,help` matches the requested layout.** A plain home card ("select a category below to view its commands.",
   `prefix: ,`) with one grey button per category. A category is one page: `` `,play <query>` - play a song or
   playlist. `` for every command, then `Aliases: play → p • queue → q`, `prefix: ,`, and a ← Back button. No page

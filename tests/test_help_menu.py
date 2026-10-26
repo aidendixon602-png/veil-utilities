@@ -125,7 +125,59 @@ def test_clicking_a_category_then_back_swaps_the_page_in_place():
 def test_pages_are_built_when_the_menu_opens():
     view = HelpView(_help(), {"Utility": [_cmd("ping")], "Music": [_cmd("play")]})
     assert set(view.pages) == {"Utility", "Music"}
-    assert "`,play`" in view.pages["Music"].description
+    assert "`,play`" in view.pages["Music"][0].description
+
+
+def _many(n, **kw):
+    return [_cmd(f"c{i:02}", f"Command {i}", aliases=[f"a{i:02}"]) for i in range(n)]
+
+
+def test_long_categories_are_split_into_pages_of_eight_with_arrows():
+    view = HelpView(_help(), {"Utility": _many(20)}, start="Utility")
+    assert len(view.pages["Utility"]) == 3
+    kinds = [type(c).__name__ for c in view.children]
+    assert kinds == ["PageButton", "PageCounter", "PageButton", "BackButton"]
+    prev, counter, nxt, back = view.children
+    assert counter.label == "1/3" and prev.disabled and not nxt.disabled and back.label == "← Back"
+    first = view.embed().description
+    assert first.count("\n`,") == 7 and "`,c00`" in first and "`,c08`" not in first
+    assert first.endswith("Aliases: c00 → a00 • c01 → a01 • c02 → a02 • c03 → a03 • c04 → a04 • c05 → a05 • "
+                          "c06 → a06 • c07 → a07")  # only this page's aliases
+
+
+def test_the_arrows_move_between_pages_and_stop_at_the_ends():
+    async def go():
+        view = HelpView(_help(), {"Utility": _many(20)}, start="Utility")
+        nxt = view.children[2]
+        await nxt.callback(_it())
+        assert view.page == 1 and "`,c08`" in view.embed().description and view.children[1].label == "2/3"
+        await view.children[2].callback(_it())
+        assert view.page == 2 and view.children[2].disabled and "`,c19`" in view.embed().description
+        await view.turn_page(_it(), 1)
+        assert view.page == 2  # clamped
+        await view.children[0].callback(_it())
+        assert view.page == 1
+        await view.children[3].callback(_it())  # Back
+        assert view.current is None and view.page == 0
+    asyncio.run(go())
+
+
+def test_short_categories_have_only_the_back_button():
+    view = HelpView(_help(), {"Utility": _many(8)}, start="Utility")
+    assert [type(c).__name__ for c in view.children] == ["BackButton"]
+
+
+def test_the_most_used_commands_come_first():
+    from core.help import page_order
+    names = [c.name for c in page_order("Moderation", [_cmd(n) for n in ("addrole", "warn", "ban", "kick", "zap")])]
+    assert names == ["ban", "kick", "warn", "addrole", "zap"]
+
+
+def test_a_commands_own_usage_text_wins():
+    @commands.command(usage="<member> <role>")
+    async def addrole(ctx, *, args: str):
+        """Add"""
+    assert short_args(addrole) == "<member> <role>"
 
 
 def test_a_person_cannot_open_a_category_above_their_rank():
@@ -367,9 +419,10 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     view = HelpView(h, categories, is_owner=True)
     _fits(h.home_embed(99, categories, True))
     assert len(_buttons(view)) <= 25
-    for label, page in view.pages.items():
-        _fits(page)
-        assert "…and" not in page.description, label  # every command fits; nothing is left out
+    for label, pages in view.pages.items():
+        for page in pages:
+            _fits(page)
+            assert page.description.count("\n`,") <= 7, label  # 8 commands a page at most
 
 
 def test_the_developer_category_lists_the_owner_tools(loaded_bot):
@@ -379,8 +432,8 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, {}, is_owner=True)
-    assert "gitpull" in view.pages["Developer"].description
-    assert view.pages["Developer"].title == "Developer"
+    assert "gitpull" in view.pages["Developer"][0].description  # pinned to the first page
+    assert view.pages["Developer"][0].title == "Developer"
 
 
 def test_dev_and_secret_open_the_developer_category(loaded_bot):

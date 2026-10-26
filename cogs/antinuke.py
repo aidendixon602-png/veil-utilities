@@ -231,7 +231,7 @@ def alert_embed(inc: Incident, footer: str) -> discord.Embed:
     return e
 
 
-DEFAULT = {"enabled": False, "punishment": "ban", "window": 60, "whitelist": [], "admins": [],
+DEFAULT = {"enabled": False, "punishment": "ban", "window": 60, "whitelist": [], "whitelist_roles": [], "admins": [],
            "modules": {}, "presets": {}, "log": None}
 
 
@@ -381,6 +381,9 @@ class Antinuke(commands.Cog):
         except Exception:
             pass
         member = guild.get_member(user_id)
+        trusted_roles = set(cfg.get("whitelist_roles", []))
+        if member and trusted_roles and any(getattr(r, "id", None) in trusted_roles for r in member.roles):
+            return True  # holds a whitelisted role
         if member:
             try:
                 perm_cfg = await self.bot.db.get_config(guild.id, "permlevels")
@@ -1008,27 +1011,46 @@ class Antinuke(commands.Cog):
         await self._update_rule(ctx, "webhook", count, punishment, timeframe)
 
     @antinuke.command(name="whitelist", aliases=["wl", "trust"])
-    async def an_whitelist(self, ctx: Context, user: discord.Member | discord.User):
-        """Add a user or bot to the antinuke whitelist"""
+    async def an_whitelist(self, ctx: Context, target: discord.Role | discord.Member | discord.User = None):
+        """Trust a user, bot or role (everyone with it): `,an whitelist @user` or `,an whitelist @Role`. No target lists them"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
-        if user.id in cfg["whitelist"]:
-            return await ctx.warn(f"{user.mention} is already whitelisted")
-        cfg["whitelist"].append(user.id)
+        if target is None:
+            return await self._show_whitelist(ctx, cfg)
+        key = "whitelist_roles" if isinstance(target, discord.Role) else "whitelist"
+        if isinstance(target, discord.Role) and target.is_default():
+            raise UserError("Whitelisting @everyone would turn the antinuke off for everyone. Pick a role.")
+        listed = cfg.setdefault(key, [])
+        if target.id in listed:
+            return await ctx.warn(f"{target.mention} is already whitelisted")
+        listed.append(target.id)
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"whitelisted {user.mention}")
+        if key == "whitelist_roles":
+            holders = len(getattr(target, "members", []))
+            return await ctx.approve(f"whitelisted {target.mention}: the antinuke now trusts everyone with it "
+                                     f"(**{holders}** member{'s' if holders != 1 else ''} right now)")
+        await ctx.approve(f"whitelisted {target.mention}")
 
     @antinuke.command(name="unwhitelist", aliases=["unwl", "untrust"])
-    async def an_unwhitelist(self, ctx: Context, user: discord.Member | discord.User):
-        """Remove a user or bot from the antinuke whitelist"""
+    async def an_unwhitelist(self, ctx: Context, target: discord.Role | discord.Member | discord.User):
+        """Stop trusting a user, bot or role"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
-        if user.id in cfg["whitelist"]:
-            cfg["whitelist"].remove(user.id)
+        key = "whitelist_roles" if isinstance(target, discord.Role) else "whitelist"
+        listed = cfg.setdefault(key, [])
+        if target.id in listed:
+            listed.remove(target.id)
             await self.save(ctx.guild.id, cfg)
-            await ctx.approve(f"removed {user.mention} from the whitelist")
+            await ctx.approve(f"removed {target.mention} from the whitelist")
         else:
-            await ctx.warn(f"{user.mention} isn't whitelisted")
+            await ctx.warn(f"{target.mention} isn't whitelisted")
+
+    async def _show_whitelist(self, ctx: Context, cfg: dict) -> None:
+        users = " ".join(f"<@{u}>" for u in cfg.get("whitelist", [])) or "none"
+        roles = " ".join(f"<@&{r}>" for r in cfg.get("whitelist_roles", [])) or "none"
+        await ctx.neutral(f"**whitelisted users:** {users}\n**whitelisted roles:** {roles}\n"
+                          f"-# `{ctx.clean_prefix}an whitelist @user` or `@Role` to add, "
+                          f"`{ctx.clean_prefix}an unwhitelist` to remove")
 
     @antinuke.command(name="reset")
     async def an_reset(self, ctx: Context, action: str = None):
@@ -1119,6 +1141,8 @@ class Antinuke(commands.Cog):
         embed = discord.Embed(title="Antinuke Trusted Accounts", color=Colors.mint)
         embed.add_field(name="Admins", value=", ".join(f"<@{u}>" for u in cfg["admins"]) or "none", inline=False)
         embed.add_field(name="Whitelisted", value=", ".join(f"<@{u}>" for u in cfg["whitelist"]) or "none", inline=False)
+        embed.add_field(name="Whitelisted roles", inline=False,
+                        value=", ".join(f"<@&{r}>" for r in cfg.get("whitelist_roles", [])) or "none")
         await ctx.send(embed=embed)
 
     @antinuke.command(name="punishment")

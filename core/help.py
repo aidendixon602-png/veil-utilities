@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import difflib
 import inspect
+import math
 import re
 import typing
 
@@ -34,7 +35,17 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Images", ["Imaging"], []),
 ]
 
-PAGE_SIZE = 10  # only for subcommand lists now; category pages hold every command
+PAGE_SIZE = 10  # subcommand lists on a group's card
+HELP_PAGE_SIZE = 8  # commands per page of a category
+# the commands people reach for most come first; everything else follows alphabetically
+PINNED: dict[str, list[str]] = {
+    "Moderation": ["ban", "kick", "timeout", "untimeout", "warn", "purge", "lock", "unlock", "jail", "unjail",
+                   "unban", "warnings", "cases"],
+    "Music": ["play", "skip", "queue", "pause", "resume", "stop", "volume", "loop", "song"],
+    "Utility": ["userinfo", "avatar", "serverinfo", "ping", "afk", "snipe", "remind", "poll"],
+    "Antinuke": ["antinuke", "antiraid", "antialt"],
+    "Developer": ["gitpull", "restart", "version", "reload", "errors", "eval", "system", "blacklist"],
+}
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
@@ -163,7 +174,11 @@ def _arg_name(name: str, param: inspect.Parameter) -> str:
 
 
 def short_args(cmd) -> str:
-    """`<member> [reason]`: required in angle brackets, optional in square ones, no default values."""
+    """`<member> [reason]`: required in angle brackets, optional in square ones, no default values. A command's own
+    `usage=` wins (commands that parse their arguments by hand say what they take there)."""
+    usage_text = getattr(cmd, "usage", None)
+    if isinstance(usage_text, str) and usage_text.strip():
+        return usage_text.strip()
     out = []
     for name, param in (getattr(cmd, "clean_params", None) or {}).items():
         if name in ("ctx", "self"):  # commands built by a factory can carry these through
@@ -317,6 +332,12 @@ def example_for(cmd, prefix: str) -> str:
 
 # ---------------------------------------------------------------- view components
 
+def page_order(label: str, cmds: list[commands.Command]) -> list[commands.Command]:
+    pinned = PINNED.get(label, [])
+    rank = {name: i for i, name in enumerate(pinned)}
+    return sorted(cmds, key=lambda c: (rank.get(c.name, len(pinned)), c.name))
+
+
 def developer_commands(bot) -> list[commands.Command]:
     """The developer-only commands (bot owner tools), shown to developers as the Developer category."""
     cmds = []
@@ -339,20 +360,37 @@ class CategoryButton(discord.ui.Button["HelpView"]):
 
 
 class BackButton(discord.ui.Button["HelpView"]):
-    """The only button on a category page: back to the home card."""
+    """Back to the home card."""
 
-    def __init__(self):
-        super().__init__(label="← Back", style=discord.ButtonStyle.secondary)
+    def __init__(self, row: int = 0):
+        super().__init__(label="← Back", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.show_home(it)
+
+
+class PageButton(discord.ui.Button["HelpView"]):
+    """◀ / ▶ on a category with more than one page."""
+
+    def __init__(self, step: int, disabled: bool, row: int = 0):
+        super().__init__(emoji="◀" if step < 0 else "▶", style=discord.ButtonStyle.secondary, disabled=disabled,
+                         row=row)
+        self.step = step
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.turn_page(it, self.step)
+
+
+class PageCounter(discord.ui.Button["HelpView"]):
+    def __init__(self, page: int, pages: int, row: int = 0):
+        super().__init__(label=f"{page + 1}/{pages}", style=discord.ButtonStyle.secondary, disabled=True, row=row)
 
 
 BUTTONS_PER_ROW = 5
 
 
 class HelpView(OwnedView):
-    """Home card with a button per category; a category page with a Back button.
+    """Home card with a button per category; a category page with ◀ ▶ (when it has more than one page) and Back.
 
     Every page is built when the menu opens, so a click only swaps the embed: one quick edit."""
 
@@ -363,9 +401,14 @@ class HelpView(OwnedView):
         self.is_owner = is_owner
         self.author_rank = author_rank
         self.message: discord.Message | None = None
-        self.pages = {label: help_cmd.category_embed(label, self.commands_in(label)) for label in self.labels()}
+        self.pages: dict[str, list[discord.Embed]] = {}
+        for label in self.labels():
+            cmds = page_order(label, self.commands_in(label))
+            count_pages = max(1, math.ceil(len(cmds) / HELP_PAGE_SIZE))
+            self.pages[label] = [help_cmd.category_embed(label, cmds, n) for n in range(count_pages)]
         self.home = help_cmd.home_embed(author_rank, categories, is_owner)
         self.current = start if start in self.pages else None
+        self.page = 0
         self._build_items()
 
     @property
@@ -382,11 +425,16 @@ class HelpView(OwnedView):
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank)
 
     def embed(self) -> discord.Embed:
-        return self.home if self.current is None else self.pages[self.current]
+        return self.home if self.current is None else self.pages[self.current][self.page]
 
     def _build_items(self):
         self.clear_items()
         if self.current is not None:
+            count_pages = len(self.pages[self.current])
+            if count_pages > 1:
+                self.add_item(PageButton(-1, disabled=self.page <= 0))
+                self.add_item(PageCounter(self.page, count_pages))
+                self.add_item(PageButton(1, disabled=self.page >= count_pages - 1))
             self.add_item(BackButton())
             return
         for i, label in enumerate(self.labels()):
@@ -395,12 +443,19 @@ class HelpView(OwnedView):
     async def show_category(self, it: discord.Interaction, label: str):
         if label not in self.pages:  # not theirs to open (a stale menu, or a rank that changed)
             return await it.response.send_message("🔒 You can't open that category.", ephemeral=True)
-        self.current = label
+        self.current, self.page = label, 0
         self._build_items()
-        await respond_or_edit(it, self.pages[label], self)
+        await respond_or_edit(it, self.embed(), self)
+
+    async def turn_page(self, it: discord.Interaction, step: int):
+        if self.current is None:
+            return await self.show_home(it)
+        self.page = max(0, min(self.page + step, len(self.pages[self.current]) - 1))
+        self._build_items()
+        await respond_or_edit(it, self.embed(), self)
 
     async def show_home(self, it: discord.Interaction):
-        self.current = None
+        self.current, self.page = None, 0
         self._build_items()
         await respond_or_edit(it, self.home, self)
 
@@ -430,25 +485,16 @@ class Help(commands.HelpCommand):
         return e
 
     def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
-        """One page per category: `,command <args>` - what it does, then the aliases. (`page` is ignored.)"""
+        """One page of a category: up to HELP_PAGE_SIZE commands as `,command <args>` - what it does, then the
+        aliases of just those commands."""
         p = self.context.clean_prefix
-        aliases = " • ".join(f"{cmd.name} → {' '.join(cmd.aliases)}" for cmd in cmds if getattr(cmd, "aliases", None))
+        start = max(0, page) * HELP_PAGE_SIZE
+        shown = cmds[start:start + HELP_PAGE_SIZE]
+        lines = [f"`{p}{cmd.name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}` - "
+                 f"{sentence(description(cmd))}" for cmd in shown] or ["no commands in this category."]
+        aliases = " • ".join(f"{cmd.name} → {' '.join(cmd.aliases)}" for cmd in shown if getattr(cmd, "aliases", None))
         tail = f"\n\nAliases: {aliases}" if aliases else ""
-        for limit in (110, 80, 60, 40):  # shorter descriptions before anything is left out
-            lines = [f"`{p}{cmd.name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}` - "
-                     f"{sentence(description(cmd, limit))}" for cmd in cmds] or ["no commands in this category."]
-            body = "\n".join(lines)
-            if len(body) + len(tail) <= 4096:
-                break
-        if len(body) + len(tail) > 4096:  # never cut a line in half; say how to see the rest
-            kept, size = [], len(tail) + 60
-            for line in lines:
-                if size + len(line) + 1 > 4096:
-                    break
-                kept.append(line)
-                size += len(line) + 1
-            body = "\n".join(kept) + f"\n…and {len(lines) - len(kept)} more: `{p}help <command>`"
-        e = discord.Embed(title=label, description=body + tail)
+        e = discord.Embed(title=label, description=shorten_md("\n".join(lines), 4000 - len(tail)) + tail)
         e.add_field(name=f"prefix: {p}", value="\u200b", inline=False)
         return e
 
