@@ -94,15 +94,15 @@ class AI(commands.Cog):
     async def ask_reset(self, ctx: Context):
         """Forget your conversation in this channel"""
         self.history.pop((ctx.channel.id, ctx.author.id), None)
-        await ctx.approve("Conversation cleared")
+        await ctx.approve("cleared your conversation")
 
     @ask.command(name="provider", aliases=["model", "status"])
     async def ask_provider(self, ctx: Context):
         """Show which AI provider and model the bot is using"""
         model = await self.provider.pick_model(self.bot.session)
-        extra = "\nFalls back to the free endpoint if it fails." if self.fallback else \
-            "\nNo `AI_API_KEY` set — using the free endpoint (slower). A free Groq or Gemini key makes it faster."
-        await ctx.neutral(f"🤖 **{self.provider.name}** · model `{model}`{extra}")
+        extra = "\n-# falls back to the free endpoint if it fails" if self.fallback else \
+            "\n-# no `AI_API_KEY` set, so this uses the free endpoint (slower). A free Groq or Gemini key makes it faster"
+        await ctx.neutral(f"using **{self.provider.name}** · model `{model}`{extra}")
 
     @commands.command(aliases=["tldr"])
     @commands.guild_only()
@@ -132,7 +132,7 @@ class AI(commands.Cog):
         seed = random.randint(1, 2 ** 31)
         url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt[:500])}"
                f"?width=1024&height=1024&nologo=true&safe=true&seed={seed}")
-        msg = await ctx.neutral(f"🎨 Generating **{shorten(prompt, 200)}**…")
+        msg = await ctx.neutral(f"generating **{shorten(prompt, 200)}**…")
         try:
             async with self.bot.session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as r:
                 if r.status != 200 or not r.headers.get("Content-Type", "").startswith("image"):
