@@ -21,7 +21,7 @@ from core.devmenu import (  # noqa: F401  (re-exported: other modules and tests 
     diagnostics_embed,
     logs_embed,
 )
-from core.utils import Colors, OwnedView, respond_or_edit, shorten
+from core.utils import Colors, OwnedView, respond_or_edit, shorten_md
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
@@ -193,7 +193,7 @@ def blurb(cmd, limit: int = 70) -> str:
     text = ((getattr(cmd, "short_doc", None) or "").strip().splitlines() or [""])[0].strip().rstrip(".")
     if not text:
         return "No description yet"
-    return shorten(text[0].upper() + text[1:], limit)
+    return shorten_md(text[0].upper() + text[1:], limit)
 
 
 def sub_count(cmd) -> int:
@@ -442,7 +442,7 @@ class Help(commands.HelpCommand):
             more = f" · {count(subs, 'subcommand')}" if subs else ""
             lines.append(f"`{n:>2}` **{cmd.name}**{alias_hint(cmd)} — {blurb(cmd)}{more}")
         e = discord.Embed(title=f"{CATEGORY_EMOJIS.get(label, '📁')} {label}", color=HELP_COLOR,
-                          description=shorten("\n".join(lines), 4000))
+                          description=shorten_md("\n".join(lines), 4000))
         e.set_footer(text=f"Page {page + 1}/{pages} · {count(len(cmds), 'command')} · {p}help <command> for details")
         return e
 

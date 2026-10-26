@@ -787,8 +787,57 @@ def shorten(text: str, n: int = 1024) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+def shorten_md(text: str, n: int = 1024) -> str:
+    """Like shorten, but never leaves Markdown half-open. Cutting inside `code`, **bold** or a (bracket) would
+    make Discord format everything after it on the same message as code or bold."""
+    if len(text) <= n:
+        return text
+    cut = text[: n - 1]
+    space = cut.rfind(" ")
+    if space > n // 2:  # end on a whole word
+        cut = cut[:space]
+    for mark in ("`", "**", "*", "__", "||", "~~"):
+        while cut.count(mark) % 2:
+            cut = cut[: cut.rfind(mark)]
+    while cut.count("(") > cut.count(")"):
+        cut = cut[: cut.rfind("(")]
+    while cut.count("[") > cut.count("]"):
+        cut = cut[: cut.rfind("[")]
+    return cut.rstrip(" ,;:/-—–(") + "…"
+
+
 def human_join(items: Iterable[str], conj: str = "and") -> str:
     items = list(items)
     if len(items) <= 2:
         return f" {conj} ".join(items)
     return ", ".join(items[:-1]) + f", {conj} {items[-1]}"
+
+
+_KIND_NAMES = {"member": "member", "user": "user", "role": "role", "textchannel": "channel",
+               "voicechannel": "voice channel", "guildchannel": "channel", "int": "number", "float": "number",
+               "bool": "yes/no", "emoji": "emoji", "partialemoji": "emoji", "str": "text"}
+
+
+def input_error_text(error: commands.CommandError) -> str:
+    """A bad argument in plain words, naming what was typed instead of the parameter's internal name."""
+    if isinstance(error, commands.BadUnionArgument):
+        kinds = []
+        for conv in error.converters:
+            name = _KIND_NAMES.get(getattr(conv, "__name__", str(conv)).lower(), getattr(conv, "__name__", "value").lower())
+            if name not in kinds:
+                kinds.append(name)
+        typed = next((getattr(e, "argument", None) for e in error.errors if getattr(e, "argument", None)), None)
+        what = human_join(kinds, "or") or "value"
+        if typed is not None:
+            return f"couldn't find a {what} matching `{typed}`"
+        return f"`{error.param.name}` has to be a {what}"
+    if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
+        return f"couldn't find a member matching `{error.argument}`"
+    if isinstance(error, commands.RoleNotFound):
+        return f"couldn't find a role matching `{error.argument}`"
+    if isinstance(error, commands.ChannelNotFound):
+        return f"couldn't find a channel matching `{error.argument}`"
+    if isinstance(error, commands.MissingRequiredArgument):
+        return f"`{error.param.name}` is missing"
+    text = str(error).strip()
+    return (text[:1].lower() + text[1:]) if text else "that input isn't valid"

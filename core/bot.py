@@ -18,7 +18,7 @@ from core import redact
 from core.config import settings
 from core.help import Help
 from core.net import make_public_session
-from core.utils import Colors, Context, Ignored, UserError, compact_failure, uses_compact_replies
+from core.utils import Colors, Context, Ignored, UserError, compact_failure, input_error_text, uses_compact_replies
 
 log = logging.getLogger("veil")
 
@@ -603,6 +603,8 @@ class Veil(commands.AutoShardedBot):
                 return await ctx.fail(f"failed: couldn't find a role matching `{error.argument}`")
             if isinstance(error, commands.ChannelNotFound):
                 return await ctx.fail(f"failed: couldn't find a channel matching `{error.argument}`")
+            if isinstance(error, commands.BadUnionArgument):  # name what was typed, not the parameter
+                return await ctx.fail(f"failed: {input_error_text(error)}")
             if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
                                   commands.TooManyArguments)):
                 return await ctx.fail(f"failed: {_lower_first(str(error))}")
