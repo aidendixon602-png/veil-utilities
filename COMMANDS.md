@@ -351,8 +351,8 @@ _Keep your server in line_
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `removerole <arg1> <arg2>` (takerole) | Remove a role from a member: `,removerole @User @Role` | manage roles, uperm: admin |
-| `role <arg1> [arg2]` (r, changerole, cr) | Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`) | manage roles, uperm: admin |
-| `role add <arg1> <arg2>` | Add a role to a member: `,role add @User @Role` | manage roles, uperm: admin |
+| `role <arg1> [arg2]` (r, changerole, cr) | Give or take a role: `,r @User @Role` (either order). Has it → removed, doesn't → added | manage roles, uperm: admin |
+| `role add <arg1> <arg2>` | Add a role to a member: `,r add @User @Role` | manage roles, uperm: admin |
 | `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator, manage roles, uperm: headadmin |
 | `role bots <action> <role>` | Add/remove a role for all bots | administrator, manage roles, uperm: headadmin |
 | `role color <role> <color>` (colour) | Change a role's color | manage roles, uperm: admin |
@@ -360,7 +360,7 @@ _Keep your server in line_
 | `role delete <role>` | Delete a role | manage roles, uperm: admin |
 | `role hoist <role>` | Toggle showing a role separately | manage roles, uperm: admin |
 | `role humans <action> <role>` | Add/remove a role for all humans | administrator, manage roles, uperm: headadmin |
-| `role remove <arg1> <arg2>` (rem, del) | Remove a role from a member: `,role remove @User @Role` | manage roles, uperm: admin |
+| `role remove <arg1> <arg2>` (rem, del) | Remove a role from a member: `,r remove @User @Role` | manage roles, uperm: admin |
 | `role rename <role> <name>` | Rename a role | manage roles, uperm: admin |
 | `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles, uperm: admin |
 | `roleblacklist add <role>` | Blacklist a role | manage roles, uperm: admin |
