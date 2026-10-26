@@ -169,6 +169,7 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | `DISCORD_TOKEN` | Your bot token. **Never commit it.** |
 | `OWNER_IDS` | Developer user IDs (comma-separated). They unlock the Secret tools and server authorization |
 | `AUTH_REQUIRED` | `true` = only authorized servers can use the bot |
+| `PRIVATE_MODE` | `true` (default) = only developers, server owners and people with a permission level can run commands; everyone else and DMs are ignored silently. `false` opens public commands to every member |
 | `LOW_MEMORY` | `true` on small hosts: smaller caches and image limits |
 | `ERROR_LOG_CHANNEL` | Channel that receives a traceback for every crash |
 | `ANTINUKE_DEV_ALERTS` | DM developers a "Global antinuke alert" whenever antinuke fires |

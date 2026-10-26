@@ -134,6 +134,7 @@ class Settings:
     auth_log_channel: int | None
     auth_grandfather: bool
     support_url: str | None
+    private_mode: bool
 
     # monitoring
     error_log_channel: int | None
@@ -192,6 +193,7 @@ class Settings:
             auth_log_channel=r.snowflake("AUTH_LOG_CHANNEL"),
             auth_grandfather=r.bool("AUTH_GRANDFATHER", True),
             support_url=r.url("SUPPORT_URL"),
+            private_mode=r.bool("PRIVATE_MODE", True),
             error_log_channel=r.snowflake("ERROR_LOG_CHANNEL"),
             log_file=r.str("LOG_FILE", "veil.log"),
             antinuke_dev_alerts=r.bool("ANTINUKE_DEV_ALERTS", True),

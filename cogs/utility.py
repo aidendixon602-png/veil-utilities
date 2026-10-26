@@ -654,12 +654,8 @@ class Utility(commands.Cog):
         """About the bot"""
         b = self.bot
         from cogs.owner import memory_mb
-        e = discord.Embed(color=Colors.main, title=b.user.name,
-                          description="**veil utilities** — a fast all-in-one bot: antinuke, moderation, VoiceMaster, leveling, music, Last.fm and more.")
+        e = discord.Embed(color=Colors.main, title=b.user.name)
         e.set_thumbnail(url=b.user.display_avatar.url)
-        e.add_field(name="Servers", value=f"{len(b.guilds):,}")
-        e.add_field(name="Users", value=f"{sum(g.member_count or 0 for g in b.guilds):,}")
-        e.add_field(name="Channels", value=f"{sum(len(g.channels) for g in b.guilds):,}")
         e.add_field(name="Commands", value=str(sum(1 for _ in b.walk_commands())))
         e.add_field(name="Uptime", value=fmt_duration(time.time() - b.started_at))
         e.add_field(name="Latency", value=f"{b.latency * 1000:.0f}ms")
@@ -672,15 +668,6 @@ class Utility(commands.Cog):
     async def uptime(self, ctx: Context):
         """How long the bot has been online"""
         await ctx.neutral(f"up for **{fmt_duration(time.time() - self.bot.started_at)}** (since {ts(self.bot.started_at)})")
-
-    @commands.command(aliases=["inv"])
-    async def invite(self, ctx: Context):
-        """Invite the bot"""
-        url = discord.utils.oauth_url(self.bot.user.id, permissions=discord.Permissions(administrator=True),
-                                      scopes=("bot", "applications.commands"))
-        view = discord.ui.View()
-        view.add_item(discord.ui.Button(label="Invite", url=url))
-        await ctx.neutral(f"invite **{self.bot.user.name}** to your server", view=view)
 
 
 async def setup(bot):
