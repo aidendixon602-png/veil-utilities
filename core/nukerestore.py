@@ -170,32 +170,55 @@ async def restore_channels(guild, snaps: list[dict], role_map: dict[int, object]
     return lines
 
 
-COLLAPSIBLE = ("unbanned", "banned again", "restored", "deleted", "banned the bot")
+# how undo lines are grouped in the alert: (pattern, singular, plural, prefix shown before each name)
+_GROUPS = [
+    (re.compile(r"^deleted @(.+)$"), "deleted {n} role they made", "deleted {n} roles they made", "@"),
+    (re.compile(r"^deleted #(.+)$"), "deleted {n} channel they made", "deleted {n} channels they made", "#"),
+    (re.compile(r"^deleted the webhook (.+)$"), "deleted {n} webhook they made", "deleted {n} webhooks they made", ""),
+    (re.compile(r"^deleted the invite (.+)$"), "deleted {n} invite they made", "deleted {n} invites they made", ""),
+    (re.compile(r"^unbanned (.+)$"), "unbanned {n} person they banned", "unbanned {n} people they banned", ""),
+    (re.compile(r"^banned again (.+)$"), "banned {n} person they unbanned again",
+     "banned {n} people they unbanned again", ""),
+    (re.compile(r"^restored #(.+)$"), "rebuilt {n} deleted channel", "rebuilt {n} deleted channels", "#"),
+    (re.compile(r"^restored @(.+)$"), "rebuilt {n} deleted role", "rebuilt {n} deleted roles", "@"),
+    (re.compile(r"^banned the bot (.+)$"), "banned {n} bot they added", "banned {n} bots they added", ""),
+]
 
 
-def collapse(lines: list[str], limit: int = 4) -> list[str]:
-    """'unbanned a', 'unbanned b', 'unbanned c' -> 'unbanned a, b, c'; long lists end in '+N more'."""
-    groups: dict[str, list[str]] = {}
-    order: list[str] = []
+def _natural(name: str):
+    """testnuke-role-2 before testnuke-role-10."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name)]
+
+
+def collapse(lines: list[str], limit: int = 5) -> list[str]:
+    """Group undo lines into one line per kind, with a count and the names in order:
+    'deleted 6 roles they made: @a, @b, @c, @d, @e +1 more'. Lines of other kinds are kept as they are."""
+    groups: dict[int, list[str]] = {}
+    out: list = []
     for line in lines:
-        verb = next((v for v in COLLAPSIBLE if line.startswith(v + " ")), None)
-        if verb is None:
-            order.append(line)
+        for index, (pattern, *_rest) in enumerate(_GROUPS):
+            match = pattern.match(line)
+            if match:
+                if index not in groups:
+                    groups[index] = []
+                    out.append(index)
+                if match.group(1) not in groups[index]:
+                    groups[index].append(match.group(1))
+                break
+        else:
+            if line not in out:
+                out.append(line)
+    result = []
+    for item in out:
+        if isinstance(item, str):
+            result.append(item)
             continue
-        if verb not in groups:
-            groups[verb] = []
-            order.append("\0" + verb)
-        groups[verb].append(line[len(verb) + 1:])
-    out = []
-    for item in order:
-        if not item.startswith("\0"):
-            out.append(item)
-            continue
-        verb = item[1:]
-        things = groups[verb]
-        shown = ", ".join(things[:limit]) + (f" +{len(things) - limit} more" if len(things) > limit else "")
-        out.append(f"{verb} {shown}")
-    return out
+        _, singular, plural, prefix = _GROUPS[item]
+        names = sorted(groups[item], key=_natural)
+        shown = ", ".join(prefix + name for name in names[:limit])
+        more = f" +{len(names) - limit} more" if len(names) > limit else ""
+        result.append((singular if len(names) == 1 else plural).format(n=len(names)) + f": {shown}{more}")
+    return result
 
 
 def display(obj, fallback: str = "someone") -> str:
