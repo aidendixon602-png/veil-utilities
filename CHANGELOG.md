@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Logging rebuilt around per-category channels.** `,logs setup` creates a private **VEIL LOGS** category with
+  `message-logs`, `member-logs`, `role-logs`, `channel-logs`, `voice-logs`, `mod-logs`, `server-logs`,
+  `command-logs` and `antinuke-logs`; `,logs` opens a panel to point each category at a channel (or turn it off).
+  Subcommands: `set <category|all> #channel`, `off`, `auto` (re-detect by channel name), `test`,
+  `ignore add|remove <#channel|@user>` and `cleanup`. `,setuplogs` and `,cleanuplogs` still work.
+  The group is now `logs` (alias `log`).
+- Log entries are compact cards: a one-line headline ("**Message deleted** in #general"), the quoted content,
+  who did it (looked up in the audit log) and a footer with the user/message IDs. Edits, deletes, joins, leaves,
+  role and nickname changes, channel/role/emoji/server changes, voice moves, bans/unbans, kicks, timeouts and
+  command usage each get their own card. Bulk deletes, invites and emoji changes are now logged as well.
+- Kicks and timeouts are logged to the **Moderation** channel alongside bans. Moderation case cards use the same style.
+- The antinuke alert card honours the channel chosen under `,logs` (Antinuke) before falling back to its own `log` setting.
+- The **Unban** button on ban cards is now persistent: it keeps working after a bot restart.
+- The bot no longer creates log channels by itself when it joins a server; run `,logs setup` instead.
 - **`,help` rebuilt.** One dropdown for the categories you may open (with command counts) instead of up to 15
   buttons; numbered lists, 10 per page, with ◀ ▶ and a page counter; 🏠 Home and 🗑 close. `,help <command>`
   now shows a card with syntax, a generated example (commands can set `extras={"example": ...}`), aliases,

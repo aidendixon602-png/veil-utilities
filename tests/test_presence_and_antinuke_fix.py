@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 
 from cogs.antinuke import Antinuke
-from cogs.logging import Logging
 from core.bot import Veil
 
 
@@ -101,51 +100,3 @@ def test_antinuke_permissions_strips_role_and_dms():
     bot_dev.send.assert_awaited_once()
     dev_embed = bot_dev.send.await_args[1]["embed"]
     assert "Antinuke" in dev_embed.title or "Veil" in dev_embed.footer.text
-
-
-def test_ensure_default_channels_with_security():
-    cog = Logging(Veil())
-    created_channels = []
-
-    class MockObj:
-        def __init__(self, id, **kwargs):
-            self.id = id
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-        def __hash__(self):
-            return self.id
-        def __eq__(self, other):
-            return getattr(other, "id", None) == self.id
-
-    async def fake_create_channel(name, **kwargs):
-        ch = SimpleNamespace(id=len(created_channels) + 1, name=name, __class__=discord.TextChannel)
-        created_channels.append(ch)
-        return ch
-
-    async def fake_create_category(name, **kwargs):
-        return SimpleNamespace(id=99, name=name)
-
-    guild = SimpleNamespace(
-        id=10,
-        me=MockObj(2, guild_permissions=SimpleNamespace(manage_channels=True)),
-        default_role=MockObj(1),
-        text_channels=[],
-        categories=[],
-        create_category=fake_create_category,
-        create_text_channel=fake_create_channel,
-        get_channel=lambda cid: None,
-    )
-    cog.bot.db = SimpleNamespace(
-        get_config=AsyncMock(return_value={}),
-        set_config=AsyncMock(),
-    )
-
-    created = asyncio.run(cog.ensure_default_channels(guild, include_security=True))
-    names = [c.name for c in created]
-    assert "join-logs" in names
-    assert "bans" in names
-    assert "command-logs" in names
-    assert "veil-utilities-logging" in names
-    assert "antinuke-logs" in names
-    assert "message-logs" in names
-    assert len(created) == 6

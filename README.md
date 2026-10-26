@@ -135,7 +135,7 @@ python main.py
 
 ```
 ,antinuke enable            ,antiraid massjoin 10 10
-,log set all #logs          ,modlog #mod-logs
+,logs setup                 ,modlog #mod-logs
 ,vm setup                   ,leveling on
 ,fp grant @Mods ban_members, kick_members, moderate_members
 ```

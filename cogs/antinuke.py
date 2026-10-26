@@ -514,6 +514,15 @@ class Antinuke(commands.Cog):
             except (discord.HTTPException, AttributeError):
                 pass
 
+    async def _log_channel(self, guild: discord.Guild, cfg: dict) -> discord.TextChannel | None:
+        """Where alerts are posted: this module's own `log` channel, else the Antinuke channel from `,logs`."""
+        channel = guild.get_channel(cfg.get("log") or 0)
+        if channel:
+            return channel
+        get_cog = getattr(self.bot, "get_cog", None)
+        logs = get_cog("Logging") if get_cog else None
+        return await logs.channel_for(guild, "antinuke") if logs else None
+
     async def _send_alert(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, details: dict) -> None:
         """Send the alert card, or update the existing one if the same user tripped the same module just now."""
         now = time.monotonic()
@@ -535,13 +544,7 @@ class Antinuke(commands.Cog):
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label="Jump to Server", emoji="↗️",
                                         url=f"https://discord.com/channels/{guild.id}"))
-        log_channel = guild.get_channel(cfg.get("log") or 0)
-        if not log_channel:
-            text_chs = list(getattr(guild, "text_channels", []))
-            for name in ("antinuke-logs", "antinuke-log", "security-logs", "veil-utilities-logging"):
-                log_channel = discord.utils.get(text_chs, name=name)
-                if log_channel:
-                    break
+        log_channel = await self._log_channel(guild, cfg)
 
         targets: list[tuple] = [(d, "Antinuke alert") for d in (log_channel, guild.owner) if d]
         if settings.antinuke_dev_alerts:
