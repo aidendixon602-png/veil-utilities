@@ -159,6 +159,7 @@ def test_command_anti_spam_cooldown():
         bot = Veil.__new__(Veil)
         bot.db = db
         bot.auth_required = False
+        bot.private_mode = False
         bot.authorized = set()
         bot.maintenance = None
         bot.killswitch = set()

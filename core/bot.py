@@ -120,6 +120,7 @@ class Veil(commands.AutoShardedBot):
         self.blacklist: set[int] = set()
         self.authorized: set[int] = set()
         self.auth_required = settings.auth_required
+        self.private_mode = settings.private_mode
         # developer controls (persisted in config under guild 0, module "global")
         self.maintenance: str | None = None
         self.maintenance_until: float | None = None
@@ -220,7 +221,6 @@ class Veil(commands.AutoShardedBot):
                     statuses = [
                         f"🛡️ Midtown Events Department • {self.default_prefix}help",
                         f"⚡ veil utilities • {users:,} members",
-                        f"🔒 Zero-Trust Security • {guilds} guilds",
                         f"✨ Protecting Midtown Community • {self.default_prefix}help",
                     ]
                     idx = getattr(self, "_presence_index", 0)
@@ -427,6 +427,20 @@ class Veil(commands.AutoShardedBot):
             return True
         return False
 
+    async def is_trusted(self, ctx: Context) -> bool:
+        """Private mode: a developer, the server owner, or someone given a permission level.
+
+        Stricter than `is_staff_member`: Discord's Administrator / Manage Server alone doesn't count."""
+        if not ctx.guild:
+            return False
+        if ctx.author.id == ctx.guild.owner_id or await self.is_owner(ctx.author):
+            return True
+        from core import perms as _perms
+        if _perms.rank_of(await self.db.get_config(ctx.guild.id, "permlevels"), ctx.author) >= 1:
+            return True
+        fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
+        return any(fake_cfg.get(str(r.id)) for r in getattr(ctx.author, "roles", []))
+
     # ------------------------------------------------------------- checks
     async def _global_check(self, ctx: Context) -> bool:
         if ctx.guild is None and ctx.cog is not None and ctx.cog.qualified_name in GUILD_ONLY_COGS:
@@ -456,6 +470,8 @@ class Veil(commands.AutoShardedBot):
         root_name = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in self.killswitch or root_name in self.killswitch:
             raise UserError(f"`{ctx.command.qualified_name}` has been temporarily disabled by the developers")
+        if self.private_mode and not await self.is_trusted(ctx):
+            raise Ignored()  # a private bot doesn't answer strangers or DMs, not even to say no
         if ctx.guild is None:
             return True
         if not self.is_authorized(ctx.guild.id):

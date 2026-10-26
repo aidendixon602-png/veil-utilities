@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Private mode** (`PRIVATE_MODE`, on by default). Only bot developers, the server owner and members who hold a
+  permission level (directly or through a role, or a fakeperms role) can run commands. Everyone else, including
+  Discord administrators without a level and anyone in DMs, is ignored without a reply. Set `PRIVATE_MODE=false`
+  to open public commands to every member again.
+
+### Removed
+
+- `,invite` (it handed anyone an Administrator invite link).
+- Server, user and channel counts from `,botinfo`, and the "guilds" line from the rotating status.
+
 ### Changed
 
 - **One reply style for the whole bot.** `ctx.approve`, `warn`, `deny` and `neutral` now send a single coloured line

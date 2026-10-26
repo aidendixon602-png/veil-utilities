@@ -1,6 +1,6 @@
 # Command reference
 
-481 commands. Default prefix `,`. `<required>` `[optional]`.
+480 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -510,7 +510,6 @@ _Handy everyday tools_
 | `firstmessage [channel]` (firstmsg) | Jump to the first message in a channel |  |
 | `icon` (servericon) | Get the server icon |  |
 | `inrole <role>` | List members with a role |  |
-| `invite` (inv) | Invite the bot |  |
 | `membercount` (mc) | Member count breakdown |  |
 | `messageboard [days=0]` (topmsgs, topmessages) | Most active members (optionally over the last N days) |  |
 | `messages [member]` (msgs) | Message stats for a member |  |
