@@ -35,6 +35,14 @@ class UserError(commands.CommandError):
     """Raised for user-facing problems; shown as a warning embed."""
 
 
+class MissingRank(UserError):
+    """The author's bot permission rank (uperm) is too low for a command."""
+
+    def __init__(self, rank: str):
+        self.rank = rank
+        super().__init__(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {rank}+) to use.")
+
+
 class Ignored(commands.CheckFailure):
     """Silently swallowed (ignored channels/users)."""
 
@@ -96,6 +104,26 @@ class Context(commands.Context["Veil"]):
 
     async def neutral(self, text: str, **kw):
         return await self._styled(Colors.neutral, text, **kw)
+
+    # compact one-line replies (used by the role commands): a coloured bar and the text, sent as a reply
+    async def compact(self, color: int, text: str, **kw):
+        embed = discord.Embed(description=text, color=color)
+        kw.setdefault("mention_author", False)
+        if getattr(self, "message", None) is not None:
+            kw.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
+        try:
+            return await self.send(embed=embed, **kw)
+        except discord.HTTPException:
+            try:
+                return await self.send(text, mention_author=False)
+            except Exception:
+                return None
+
+    async def done(self, text: str, **kw):
+        return await self.compact(Colors.success, text, **kw)
+
+    async def fail(self, text: str, **kw):
+        return await self.compact(Colors.error, text, **kw)
 
     async def paginate(self, embeds: list[discord.Embed]):
         if not embeds:
@@ -480,7 +508,7 @@ def has_perms(**perms: bool):
             if needed_ranks:
                 needed_ranks.sort(key=lambda x: x[1], reverse=True)
                 top_rank_name = needed_ranks[0][0]
-                raise UserError(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {top_rank_name}+) to use.")
+                raise MissingRank(top_rank_name)
 
             perm_names = ", ".join(f"`{p.replace('_', ' ')}`" for p in still)
             raise UserError(f"🔒 Access Denied: You are missing required bot permissions: {perm_names}")
@@ -565,7 +593,7 @@ def requires_uperm(min_level_or_func="helper"):
             target_info = levels.get(min_level.lower())
             min_rank = target_info["rank"] if target_info else 1
             if author_rank < min_rank:
-                raise UserError(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {min_level.title()}+) to use.")
+                raise MissingRank(min_level.title())
             return True
 
         pred = commands.check(predicate)
@@ -619,6 +647,58 @@ async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
     cog = bot.get_cog("Antinuke") if bot else None
     if cog is not None and ctx.guild is not None:
         await cog.guard(ctx, module, amount)
+
+
+def uses_compact_replies(ctx: Context) -> bool:
+    """True for commands marked extras={"compact": True}, or any subcommand of one."""
+    cmd = getattr(ctx, "command", None)
+    if cmd is None:
+        return False
+    root = getattr(cmd, "root_parent", None) or cmd
+    return bool(cmd.extras.get("compact") or root.extras.get("compact"))
+
+
+def _plain_permission(name: str) -> str:
+    return name.replace("_", " ").replace("guild", "server").title()
+
+
+def _soften(text: str) -> str:
+    """'🔒 Access Denied: You can't ...' -> "you can't ..." (keeps mentions, bold and code as they are)."""
+    text = text.strip()
+    while text and not text[0].isalnum() and text[0] not in "<*`@#":
+        text = text[1:].lstrip()
+    if text.lower().startswith("access denied:"):
+        text = text[len("access denied:"):].lstrip()
+    if text[:1].isupper() and not text.startswith("I "):
+        text = text[0].lower() + text[1:]
+    return text.rstrip(".")
+
+
+def compact_failure(ctx: Context, error: Exception) -> str | None:
+    """The red one-line message for a failed compact command, or None to use the normal error handling."""
+    reason: str | None = None
+    if isinstance(error, MissingRank):
+        reason = f"you need the **{error.rank}** rank or higher (`uperm`)"
+    elif isinstance(error, commands.BotMissingPermissions):
+        reason = "I'm missing " + ", ".join(f"**{_plain_permission(p)}**" for p in error.missing_permissions)
+    elif isinstance(error, commands.MissingPermissions):
+        reason = "you need " + ", ".join(f"**{_plain_permission(p)}**" for p in error.missing_permissions)
+    elif isinstance(error, discord.Forbidden):
+        role = getattr(ctx, "compact_role", None)
+        reason = (f"I'm not allowed to. Move my role above {role.mention} in Server Settings → Roles" if role
+                  else "I'm not allowed to. Check my role position and permissions")
+    elif isinstance(error, commands.RoleNotFound):
+        reason = f"couldn't find a role matching `{error.argument}`"
+    elif isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
+        reason = f"couldn't find a member matching `{error.argument}`"
+    elif isinstance(error, commands.MaxConcurrencyReached):
+        reason = "this is already running"
+    elif isinstance(error, (UserError, commands.BadArgument)):
+        reason = _soften(str(error)) or None
+    if reason is None:
+        return None
+    action = getattr(ctx, "compact_action", None)
+    return f"failed to {action}: {reason}" if action else f"failed: {reason}"
 
 
 def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
