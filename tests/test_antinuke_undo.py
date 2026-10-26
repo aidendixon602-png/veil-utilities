@@ -1,6 +1,7 @@
 """When the antinuke catches someone it puts the server back: unbans their victims, rebuilds deleted channels and
 roles (with members and overwrites), deletes what they created, and keeps undoing anything still in flight."""
 import asyncio
+import json
 import itertools
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,7 +23,8 @@ class FakeDB:
         self.store = {"antinuke": antinuke}
 
     async def get_config(self, gid, module, default=None):
-        return self.store.setdefault(module, {} if default is None else dict(default))
+        # a deep copy, like core.db: the default must never be shared between servers
+        return self.store.setdefault(module, {} if default is None else json.loads(json.dumps(default)))
 
     async def set_config(self, gid, module, data):
         self.store[module] = data

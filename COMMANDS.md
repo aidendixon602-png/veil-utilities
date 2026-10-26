@@ -26,7 +26,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antialt avatar <state>` | Toggle blocking accounts without custom avatars: `antialt avatar on/off` | administrator |
 | `antialt minage [days=0]` (age, days) | Set minimum account age in days before joining is allowed (0 to disable) | administrator |
 | `antialt whitelist <user>` (allow, trust) | Whitelist an alt account so it can join without being blocked | administrator |
-| `antinuke` (an) | View antinuke rules and status overview |  |
+| `antinuke` (an) | Antinuke status and rules, with buttons to turn it on or off, load a preset, or change a rule |  |
 | `antinuke admin <member>` | Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted |  |
 | `antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
 | `antinuke ban [count] [punishment] [timeframe]` | Configure the ban rule: `,an ban 3 ban 60s` |  |
@@ -50,7 +50,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the invite spam rule (many invites made quickly): `,an roleinvite 10 strip 60s` |  |
 | `antinuke serverupdate [count] [punishment] [timeframe]` (server) | Configure the server update rule: `,an serverupdate 1 strip 60s` |  |
 | `antinuke set <action> <arg2> [arg3] [arg4]` (rule, configure) | Configure an antinuke rule: `,an set ban 3 ban 60s` or `,an set ban on 3` |  |
-| `antinuke status` (config, settings) | View antinuke rules and status overview |  |
+| `antinuke status` (config, settings, panel) | Antinuke status and rules, with buttons to change them |  |
 | `antinuke timeout [count] [punishment] [timeframe]` (mute) | Configure the timeout rule: `,an timeout 5 strip 120s` |  |
 | `antinuke toggle` (on/off) | Toggle antinuke on or off |  |
 | `antinuke unwhitelist <user>` (unwl, untrust) | Remove a user or bot from the antinuke whitelist |  |

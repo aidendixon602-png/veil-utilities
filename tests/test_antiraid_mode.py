@@ -1,6 +1,7 @@
 """Raid mode: a join wave pauses invites and DMs (and locks channels when that's on), alerts the antinuke log channel
 and the owner, and undoes exactly what it did once joins go quiet or someone ends it."""
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,7 +17,8 @@ class FakeDB:
         self.store = store
 
     async def get_config(self, gid, module, default=None):
-        return self.store.setdefault(module, {} if default is None else dict(default))
+        # a deep copy, like core.db: the default must never be shared between servers
+        return self.store.setdefault(module, {} if default is None else json.loads(json.dumps(default)))
 
     async def set_config(self, gid, module, data):
         self.store[module] = data

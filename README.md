@@ -47,7 +47,7 @@
 <td width="33%" valign="top">
 
 ### 🛡️ Stops nukes cold
-Audit-log antinuke with per-action thresholds. It **reverts the damage**, punishes the attacker, and DMs the owner a full alert card with every role they held.
+Audit-log antinuke with per-action thresholds. It punishes the attacker, then **puts the server back**: unbans their victims, rebuilds deleted channels and roles (with members and overwrites), and deletes whatever they created. `,an` shows every rule with buttons to turn it on, load a preset or change a rule. A join wave turns on raid mode, which pauses invites and DMs until it's quiet.
 
 </td>
 <td width="33%" valign="top">
@@ -89,7 +89,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 
 | | Module | Highlights |
 |:-:|---|---|
-| 🛡️ | **Antinuke** | 14 attack types (mass ban/kick/timeout/unban, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, auto-revert, ban / kick / strip, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
+| 🛡️ | **Antinuke** | 14 attack types (mass ban/kick/timeout/unban, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, undoes everything the attacker did in the last 10 minutes, ban / kick / strip, a button panel (`,an`), raid mode that pauses invites and DMs, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
 | 🚨 | **Antiraid** | Mass-join raid mode, minimum account age, no-avatar filter, per-user bypass |
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |

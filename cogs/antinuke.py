@@ -9,6 +9,7 @@ from datetime import timedelta
 import discord
 from discord.ext import commands
 
+from core.antinukepanel import AntinukePanel, home_embed
 from core.config import settings
 from core.nukerestore import Snapshots, collapse, display, restore_channels, restore_roles
 from core.utils import Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
@@ -731,38 +732,35 @@ class Antinuke(commands.Cog):
                 inc.messages.append((msg, footer))
 
     # ================================================================ status & rules
-    async def build_status_embed(self, guild_id: int) -> discord.Embed:
-        cfg = await self.cfg(guild_id)
-        is_enabled = bool(cfg.get("enabled", False))
-        state_str = "enabled" if is_enabled else "disabled"
-        lines = []
-        for r in MIDTOWN_RULES:
-            k = r["key"]
-            mod = cfg.get("modules", {}).get(k, {})
-            name = r["name"]
-            extra = r.get("extra", "")
-            th = mod.get("threshold", r["threshold"])
-            win = mod.get("window", r["window"])
-            pun = mod.get("punishment", r["punishment"])
-            tags = "[revert]" if k in UNDOES else None
-            tag_part = f" `{tags}`" if tags else ""
-            lines.append(f"`{name}`{extra} - **{th} in {win}s → {pun}**{tag_part}")
+    async def build_status_embed(self, guild_id: int, prefix: str = ",", guild=None) -> discord.Embed:
+        return home_embed(await self.cfg(guild_id), prefix, guild)
 
-        footer_cmd = (
-            ",an on/off · ,an <action> <count> <punishment> <timeframe> · "
-            ",an whitelist/unwhitelist <user> · ,an reset <action> · ,an preset save/load <name>"
-        )
-        desc = (
-            f"Antinuke is currently **{state_str}**.\n\n"
-            f"**Rules**\n"
-            + "\n".join(lines)
-            + f"\n\n**{footer_cmd}**"
-        )
-        return discord.Embed(
-            title="Antinuke Status",
-            description=desc,
-            color=Colors.mint,
-        )
+    @staticmethod
+    def enable_rules(cfg: dict) -> None:
+        """Turn the antinuke on, filling in any rule the server hasn't set with its default."""
+        cfg["enabled"] = True
+        modules = cfg.setdefault("modules", {})
+        for r in MIDTOWN_RULES:
+            modules.setdefault(r["key"], {"on": True, "threshold": r["threshold"], "window": r["window"],
+                                          "punishment": r["punishment"]})
+        for m in MODULES:
+            modules.setdefault(m, {"on": True, "threshold": DEFAULT_THRESHOLDS.get(m, 3)})
+
+    @staticmethod
+    def apply_preset(cfg: dict, target: dict) -> None:
+        for k, v in target.items():
+            rule_def = RULE_LOOKUP.get(k)
+            cfg.setdefault("modules", {})[k] = {
+                "on": True,
+                "threshold": v.get("threshold", rule_def["threshold"] if rule_def else 3),
+                "window": v.get("window", rule_def["window"] if rule_def else 60),
+                "punishment": v.get("punishment", rule_def["punishment"] if rule_def else "ban"),
+            }
+
+    async def send_panel(self, ctx: Context) -> None:
+        cfg = await self.cfg(ctx.guild.id)
+        panel = AntinukePanel(self, ctx.guild, ctx.author.id, cfg, ctx.clean_prefix)
+        panel.message = await ctx.send(embed=panel.embed(), view=panel)
 
     def resolve_action(self, name: str) -> str | None:
         s = name.lower().replace("_", "").replace(" ", "").replace("-", "")
@@ -825,32 +823,20 @@ class Antinuke(commands.Cog):
     @commands.group(aliases=["an"], invoke_without_command=True)
     @commands.guild_only()
     async def antinuke(self, ctx: Context):
-        """View antinuke rules and status overview"""
-        embed = await self.build_status_embed(ctx.guild.id)
-        await ctx.send(embed=embed)
+        """Antinuke status and rules, with buttons to turn it on or off, load a preset, or change a rule"""
+        await self.send_panel(ctx)
 
-    @antinuke.command(name="status", aliases=["config", "settings"])
+    @antinuke.command(name="status", aliases=["config", "settings", "panel"])
     async def an_status(self, ctx: Context):
-        """View antinuke rules and status overview"""
-        embed = await self.build_status_embed(ctx.guild.id)
-        await ctx.send(embed=embed)
+        """Antinuke status and rules, with buttons to change them"""
+        await self.send_panel(ctx)
 
     @antinuke.command(name="enable", aliases=["on"])
     async def an_enable(self, ctx: Context):
         """Turn antinuke on"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
-        cfg["enabled"] = True
-        for r in MIDTOWN_RULES:
-            k = r["key"]
-            cfg["modules"].setdefault(k, {
-                "on": True,
-                "threshold": r["threshold"],
-                "window": r["window"],
-                "punishment": r["punishment"],
-            })
-        for m in MODULES:
-            cfg["modules"].setdefault(m, {"on": True, "threshold": DEFAULT_THRESHOLDS.get(m, 3)})
+        self.enable_rules(cfg)
         await self.save(ctx.guild.id, cfg)
         await ctx.approve("turned antinuke **on**")
 
@@ -868,16 +854,10 @@ class Antinuke(commands.Cog):
         """Toggle antinuke on or off"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
-        cfg["enabled"] = not cfg.get("enabled", False)
-        if cfg["enabled"]:
-            for r in MIDTOWN_RULES:
-                k = r["key"]
-                cfg["modules"].setdefault(k, {
-                    "on": True,
-                    "threshold": r["threshold"],
-                    "window": r["window"],
-                    "punishment": r["punishment"],
-                })
+        if cfg.get("enabled"):
+            cfg["enabled"] = False
+        else:
+            self.enable_rules(cfg)
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"turned antinuke **{'on' if cfg['enabled'] else 'off'}**")
 
@@ -1116,14 +1096,7 @@ class Antinuke(commands.Cog):
             available = list(PRESETS.keys()) + list(cfg.get("presets", {}).keys())
             raise UserError(f"Preset `{name}` not found. Available presets: {', '.join(f'`{p}`' for p in available)}")
 
-        for k, v in target.items():
-            rule_def = RULE_LOOKUP.get(k)
-            cfg["modules"][k] = {
-                "on": True,
-                "threshold": v.get("threshold", rule_def["threshold"] if rule_def else 3),
-                "window": v.get("window", rule_def["window"] if rule_def else 60),
-                "punishment": v.get("punishment", rule_def["punishment"] if rule_def else "ban"),
-            }
+        self.apply_preset(cfg, target)
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"loaded preset **{name}**")
 
