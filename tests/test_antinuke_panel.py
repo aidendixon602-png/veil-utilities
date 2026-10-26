@@ -5,9 +5,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
+import pytest
 
 from cogs.antinuke import PRESETS, Antinuke
 from core.antinukepanel import RuleSelect
+from core.utils import UserError
 
 OWNER, STRANGER = 1, 2
 
@@ -180,3 +182,56 @@ def test_text_commands_still_work_alongside_the_panel():
     asyncio.run(cog._update_rule(ctx, "ban", 7, "kick", "2m"))
     panel, embed = open_panel(cog, guild)
     assert "`Ban` - 7 in 120s → kick `[revert]`" in embed.description
+
+
+# ------------------------------------------------------------------ whitelisting a role
+
+def _role(rid, name="Trusted", default=False, members=()):
+    return MagicMock(spec=discord.Role, id=rid, mention=f"<@&{rid}>", members=list(members),
+                     is_default=lambda: default)
+
+
+def _wl_ctx(cog, guild):
+    return SimpleNamespace(guild=guild, author=SimpleNamespace(id=OWNER), approve=AsyncMock(), warn=AsyncMock(),
+                           neutral=AsyncMock(), bot=cog.bot, clean_prefix=",")
+
+
+def test_whitelisting_a_role_trusts_everyone_who_has_it():
+    cog, guild = setup()
+    trusted = _role(77, members=[object(), object()])
+    holder = SimpleNamespace(id=50, roles=[SimpleNamespace(id=77)])
+    outsider = SimpleNamespace(id=51, roles=[SimpleNamespace(id=78)])
+    guild.get_member = {50: holder, 51: outsider}.get
+    ctx = _wl_ctx(cog, guild)
+    asyncio.run(Antinuke.an_whitelist.callback(cog, ctx, trusted))
+    assert saved(cog)["whitelist_roles"] == [77] and saved(cog).get("whitelist", []) == []
+    assert "everyone with it (**2** members right now)" in ctx.approve.await_args.args[0]
+    assert asyncio.run(cog._trusted(guild, saved(cog), 50)) is True
+    assert asyncio.run(cog._trusted(guild, saved(cog), 51)) is False
+
+
+def test_everyone_cannot_be_whitelisted():
+    cog, guild = setup()
+    with pytest.raises(UserError, match="turn the antinuke off for everyone"):
+        asyncio.run(Antinuke.an_whitelist.callback(cog, _wl_ctx(cog, guild), _role(10, default=True)))
+
+
+def test_unwhitelisting_a_role_and_listing_the_whitelist():
+    cog, guild = setup()
+    ctx = _wl_ctx(cog, guild)
+    role = _role(77)
+    asyncio.run(Antinuke.an_whitelist.callback(cog, ctx, role))
+    user = SimpleNamespace(id=9, mention="<@9>")
+    asyncio.run(Antinuke.an_whitelist.callback(cog, ctx, user))
+    asyncio.run(Antinuke.an_whitelist.callback(cog, ctx, None))
+    listing = ctx.neutral.await_args.args[0]
+    assert "<@9>" in listing and "<@&77>" in listing
+    asyncio.run(Antinuke.an_unwhitelist.callback(cog, ctx, role))
+    assert saved(cog)["whitelist_roles"] == [] and saved(cog)["whitelist"] == [9]
+
+
+def test_the_panel_counts_whitelisted_roles():
+    cog, guild = setup()
+    cog.bot.db.store["antinuke"] = {"whitelist": [1], "whitelist_roles": [2, 3], "modules": {}}
+    _, embed = open_panel(cog, guild)
+    assert "whitelisted: 1 + 2 roles" in embed.description

@@ -53,9 +53,9 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke status` (config, settings, panel) | Antinuke status and rules, with buttons to change them |  |
 | `antinuke timeout [count] [punishment] [timeframe]` (mute) | Configure the timeout rule: `,an timeout 5 strip 120s` |  |
 | `antinuke toggle` (on/off) | Toggle antinuke on or off |  |
-| `antinuke unwhitelist <user>` (unwl, untrust) | Remove a user or bot from the antinuke whitelist |  |
+| `antinuke unwhitelist <target>` (unwl, untrust) | Stop trusting a user, bot or role |  |
 | `antinuke webhook [count] [punishment] [timeframe]` (webhooks) | Configure the webhook rule: `,an webhook 1 kick 60s` |  |
-| `antinuke whitelist <user>` (wl, trust) | Add a user or bot to the antinuke whitelist |  |
+| `antinuke whitelist [target]` (wl, trust) | Trust a user, bot or role (everyone with it): `,an whitelist @user` or `,an whitelist @Role`. No target lists them |  |
 | `antinuke window <seconds>` | Set the default time window thresholds are counted over |  |
 | `antiraid` (raid) | Filter suspicious joins: mass joins, new accounts, no avatar | administrator |
 | `antiraid age [days=0]` | Punish accounts younger than N days (0 to disable) | administrator |

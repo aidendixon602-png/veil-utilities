@@ -48,7 +48,9 @@ def home_embed(cfg: dict, prefix: str, guild=None) -> discord.Embed:
     an = _an()
     state = "on" if cfg.get("enabled") else "off"
     lines = [f"antinuke is **{state}**.", ""] + [rule_line(cfg, r["key"]) for r in an.MIDTOWN_RULES]
-    extra = [f"whitelisted: {len(cfg.get('whitelist', []))}", f"antinuke admins: {len(cfg.get('admins', []))}"]
+    roles = len(cfg.get("whitelist_roles", []))
+    extra = [f"whitelisted: {len(cfg.get('whitelist', []))}" + (f" + {roles} role{'s' if roles != 1 else ''}" if roles else ""),
+             f"antinuke admins: {len(cfg.get('admins', []))}"]
     log = guild.get_channel(cfg.get("log") or 0) if guild is not None else None
     if log is not None:
         extra.append(f"alerts: {log.mention}")
