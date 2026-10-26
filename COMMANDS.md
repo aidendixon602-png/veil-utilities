@@ -47,7 +47,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke reset [action]` | Reset an action rule or all rules to defaults: `,an reset ban` or `,an reset` |  |
 | `antinuke rolecreate [count] [punishment] [timeframe]` | Configure the role create rule: `,an rolecreate 5 strip 120s` |  |
 | `antinuke roledelete [count] [punishment] [timeframe]` | Configure the role delete rule: `,an roledelete 5 strip 120s` |  |
-| `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the role invite rule: `,an roleinvite 1 strip 60s` |  |
+| `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the invite spam rule (many invites made quickly): `,an roleinvite 10 strip 60s` |  |
 | `antinuke serverupdate [count] [punishment] [timeframe]` (server) | Configure the server update rule: `,an serverupdate 1 strip 60s` |  |
 | `antinuke set <action> <arg2> [arg3] [arg4]` (rule, configure) | Configure an antinuke rule: `,an set ban 3 ban 60s` or `,an set ban on 3` |  |
 | `antinuke status` (config, settings) | View antinuke rules and status overview |  |

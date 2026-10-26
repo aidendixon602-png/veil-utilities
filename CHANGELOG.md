@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The antinuke puts the server back.** When it catches someone it now undoes everything they did in the last 10
+  minutes, not just the action that tripped the rule: unbans the people they banned (and bans again anyone they
+  unbanned), rebuilds deleted channels (same name, category, position, topic, slowmode and permission overwrites)
+  and deleted roles (same name, colour, permissions and position, given back to the members who had them, with
+  their channel overwrites), deletes channels, roles, webhooks and invites they made, removes timeouts, takes
+  permission grants back, bans bots they added, and restores the server name and vanity URL. Anything else they do
+  in the next two minutes (requests already in flight) is undone straight away and added to the same alert. The
+  attacker is punished first and the rebuilding happens after, so they're stopped before the slow part. Long undo
+  lists are shortened in the alert ("unbanned a, b, c, d +6 more"). Deleted messages and emojis can't be brought back.
+
 ### Changed
 
 - **`,help` matches the requested layout.** A plain home card ("select a category below to view its commands.",
@@ -146,6 +158,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Antinuke false alarms.** The Role Invite rule fired on every invite an ordinary member made (1 in 60s), so the
+  owner and developers got an alert for normal invites. It is now **Invite Spam** (10 invites in 60s, which also
+  deletes them), and saved settings still on the old instant rule are moved over once. Other bots creating channels,
+  roles, webhooks or invites as part of their job (ticket, logging and role bots) no longer count; bots deleting or
+  banning still do. Renaming the server isn't treated as an attack; changing the vanity URL still is.
+- **`[revert]` in `,an` was mostly untrue.** It now shows on exactly the rules whose damage is undone.
 - **Command log cards were cluttered.** The user ID wrapped across lines next to the avatar thumbnail and the
   permission read "rank 10000 · granted by Built-in". The card now shows the person in the author line (no
   thumbnail), the command as the card's text, one short line per field (User, Channel · jump, Permission with the

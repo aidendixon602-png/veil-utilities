@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from core.config import settings
+from core.nukerestore import Snapshots, collapse, display, restore_channels, restore_roles
 from core.utils import Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
 
 # verbs for the "that would … at once" message
@@ -39,7 +40,7 @@ MIDTOWN_RULES = [
     {"key": "permissions", "name": "Permission Grant", "extra": " (administrator, ban_members, kick_members, manage_channels, manage_guild, manage_webhooks)", "threshold": 1, "window": 60, "punishment": "strip", "tags": "[revert, user]"},
     {"key": "rolecreate", "name": "Role Create", "threshold": 5, "window": 120, "punishment": "strip", "tags": "[revert]"},
     {"key": "roledelete", "name": "Role Delete", "threshold": 5, "window": 120, "punishment": "strip", "tags": None},
-    {"key": "roleinvite", "name": "Role Invite", "threshold": 1, "window": 60, "punishment": "strip", "tags": "[revert]"},
+    {"key": "roleinvite", "name": "Invite Spam", "threshold": 10, "window": 60, "punishment": "strip", "tags": "[revert]"},
     {"key": "serverupdate", "name": "Server Update", "threshold": 1, "window": 60, "punishment": "strip", "tags": None},
     {"key": "timeout", "name": "Timeout", "threshold": 5, "window": 120, "punishment": "strip", "tags": "[revert]"},
     {"key": "webhook", "name": "Webhook", "threshold": 1, "window": 60, "punishment": "kick", "tags": "[revert]"},
@@ -56,7 +57,7 @@ PRESETS = {
         "permissions": {"threshold": 1, "window": 60, "punishment": "strip"},
         "rolecreate": {"threshold": 5, "window": 120, "punishment": "strip"},
         "roledelete": {"threshold": 5, "window": 120, "punishment": "strip"},
-        "roleinvite": {"threshold": 1, "window": 60, "punishment": "strip"},
+        "roleinvite": {"threshold": 10, "window": 60, "punishment": "strip"},
         "serverupdate": {"threshold": 1, "window": 60, "punishment": "strip"},
         "timeout": {"threshold": 5, "window": 120, "punishment": "strip"},
         "webhook": {"threshold": 1, "window": 60, "punishment": "kick"},
@@ -70,7 +71,7 @@ PRESETS = {
         "permissions": {"threshold": 1, "window": 60, "punishment": "strip"},
         "rolecreate": {"threshold": 1, "window": 60, "punishment": "strip"},
         "roledelete": {"threshold": 1, "window": 60, "punishment": "strip"},
-        "roleinvite": {"threshold": 1, "window": 60, "punishment": "strip"},
+        "roleinvite": {"threshold": 5, "window": 60, "punishment": "strip"},
         "serverupdate": {"threshold": 1, "window": 60, "punishment": "strip"},
         "timeout": {"threshold": 2, "window": 60, "punishment": "strip"},
         "webhook": {"threshold": 1, "window": 60, "punishment": "ban"},
@@ -84,7 +85,7 @@ PRESETS = {
         "permissions": {"threshold": 2, "window": 60, "punishment": "strip"},
         "rolecreate": {"threshold": 10, "window": 180, "punishment": "strip"},
         "roledelete": {"threshold": 10, "window": 180, "punishment": "strip"},
-        "roleinvite": {"threshold": 2, "window": 60, "punishment": "strip"},
+        "roleinvite": {"threshold": 20, "window": 60, "punishment": "strip"},
         "serverupdate": {"threshold": 2, "window": 60, "punishment": "strip"},
         "timeout": {"threshold": 10, "window": 180, "punishment": "strip"},
         "webhook": {"threshold": 2, "window": 60, "punishment": "kick"},
@@ -123,14 +124,27 @@ ACTION_MAP = {
     A.member_update: "timeout", A.unban: "unban",
     A.invite_create: "roleinvite",
 }
-INSTANT = {"botadd", "vanity", "permissions", "prune", "serverupdate", "roleinvite"}  # threshold of 1
+INSTANT = {"botadd", "vanity", "permissions", "prune", "serverupdate"}  # threshold of 1
+# what the antinuke puts right for each kind of action once it catches someone (shown as [revert] in `,an`)
+UNDOES = {
+    "ban": "unbans the people they banned", "unban": "bans the people they unbanned again",
+    "channeldelete": "rebuilds the channels they deleted", "channelcreate": "deletes the channels they made",
+    "roledelete": "rebuilds the roles they deleted and gives them back", "rolecreate": "deletes the roles they made",
+    "webhook": "deletes the webhooks they made", "roleinvite": "deletes the invites they made",
+    "botadd": "bans the bot they added", "permissions": "takes the permissions back",
+    "timeout": "removes the timeouts they gave", "serverupdate": "restores the server name and vanity URL",
+}
+# things other bots create as part of their normal job; destructive actions by bots still count
+BOT_JOBS = {"channelcreate", "rolecreate", "webhook", "roleinvite"}
+LOOKBACK = 600  # seconds: when someone is caught, everything they did in this long is undone
+CAUGHT_FOR = 120  # seconds after being caught during which anything else they do is undone straight away
 LABELS = {
     "ban": "Mass Ban", "kick": "Mass Kick", "prune": "Member Prune",
     "channeldelete": "Channel Delete", "channelcreate": "Channel Create",
     "roledelete": "Role Delete", "rolecreate": "Role Create", "webhook": "Webhook Create",
     "emoji": "Emoji Delete", "botadd": "Bot Add", "vanity": "Vanity Change",
     "serverupdate": "Server Update", "permissions": "Permission Grant",
-    "timeout": "Mass Timeout", "unban": "Mass Unban", "roleinvite": "Role Invite",
+    "timeout": "Mass Timeout", "unban": "Mass Unban", "roleinvite": "Invite Spam",
 }
 
 
@@ -226,14 +240,60 @@ class Antinuke(commands.Cog):
         self.joins: dict[int, deque] = defaultdict(deque)
         self.raid_until: dict[int, float] = {}
         self.incidents: dict[tuple[int, int, str], Incident] = {}
+        self.snapshots = Snapshots()  # recently deleted channels/roles, so they can be rebuilt
+        self.recent: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, user) -> (time, module, entry)
+        self.caught: dict[tuple[int, int], float] = {}  # (guild, user) -> until when follow-ups are undone at once
 
     async def cfg(self, gid):
-        return await self.bot.db.get_config(gid, "antinuke", DEFAULT)
+        cfg = await self.bot.db.get_config(gid, "antinuke", DEFAULT)
+        if self.migrate(cfg):
+            await self.save(gid, cfg)
+        return cfg
+
+    @staticmethod
+    def migrate(cfg: dict) -> bool:
+        """Saved settings from older versions: the invite rule used to fire on every single invite (1 in 60s),
+        so ordinary members making an invite set off an alert. Move those to the new default. True if changed."""
+        rule = (cfg.get("modules") or {}).get("roleinvite")
+        if cfg.get("invite_rule_v2") or not isinstance(rule, dict):
+            return False
+        cfg["invite_rule_v2"] = True
+        if int(rule.get("threshold", 1) or 1) <= 2:
+            rule["threshold"] = RULE_LOOKUP["roleinvite"]["threshold"]
+        return True
 
     async def save(self, gid, data):
         await self.bot.db.set_config(gid, "antinuke", data)
 
     # ================================================================ detection
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        self.snapshots.channel_deleted(channel)
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role):
+        self.snapshots.role_deleted(role)
+
+    @staticmethod
+    def _matters(module: str, entry) -> bool:
+        """Filter the noisy audit events down to the ones that can hurt."""
+        if module in ("vanity", "serverupdate"):  # renaming the server or changing its icon isn't an attack
+            return getattr(entry.before, "vanity_url_code", None) != getattr(entry.after, "vanity_url_code", None)
+        if module in BOT_JOBS and getattr(getattr(entry, "user", None), "bot", False):
+            return False  # ticket, logging and role bots make channels, webhooks and invites all day
+        if module == "timeout":
+            # member_update covers nick changes etc. — only count a timeout being applied
+            return getattr(entry.after, "timed_out_until", None) is not None
+        if module == "permissions":
+            if entry.action == A.role_update:
+                return gained_dangerous(getattr(entry.before, "permissions", None),
+                                        getattr(entry.after, "permissions", None))
+            if entry.action in (A.overwrite_create, A.overwrite_update):
+                return overwrite_gained(entry.before, entry.after)
+            added = getattr(entry.after, "roles", []) or []
+            return any(is_dangerous(r.permissions) for r in added if isinstance(r, discord.Role))
+        return True
+
     @commands.Cog.listener()
     async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
         module = ACTION_MAP.get(entry.action)
@@ -243,33 +303,23 @@ class Antinuke(commands.Cog):
         cfg = await self.cfg(guild.id)
         if not cfg.get("enabled"):
             return
-        mod = cfg["modules"].get(module)
-        if not mod or not mod.get("on"):
-            return
         actor_id = entry.user_id
         if not actor_id or await self._trusted(guild, cfg, actor_id):
             return
-
-        # filter the noisy events down to the dangerous ones
-        if module in ("vanity", "serverupdate"):
-            if getattr(entry.before, "vanity_url_code", None) == getattr(entry.after, "vanity_url_code", None):
-                return
-        if module == "timeout":
-            # member_update covers nick changes etc. — only count a timeout being applied
-            if getattr(entry.after, "timed_out_until", None) is None:
-                return
-        if module == "permissions":
-            if entry.action == A.role_update:
-                if not gained_dangerous(getattr(entry.before, "permissions", None),
-                                        getattr(entry.after, "permissions", None)):
-                    return
-            elif entry.action in (A.overwrite_create, A.overwrite_update):
-                if not overwrite_gained(entry.before, entry.after):
-                    return
-            else:
-                added = getattr(entry.after, "roles", []) or []
-                if not any(is_dangerous(r.permissions) for r in added if isinstance(r, discord.Role)):
-                    return
+        if not self._matters(module, entry):
+            return
+        who = (guild.id, actor_id)
+        t = time.monotonic()
+        if self.caught.get(who, 0) > t:  # already caught: undo whatever else lands straight away
+            return await self._follow_up(guild, actor_id, module, entry)
+        if module in UNDOES:  # remembered even when its own rule is off, so it can be undone if they trip another
+            recent = self.recent[who]
+            recent.append((t, module, entry))
+            while recent and t - recent[0][0] > LOOKBACK:
+                recent.popleft()
+        mod = cfg["modules"].get(module)
+        if not mod or not mod.get("on"):
+            return
 
         rule_def = RULE_LOOKUP.get(module)
         def_th = rule_def["threshold"] if rule_def else 3
@@ -278,14 +328,39 @@ class Antinuke(commands.Cog):
         window = int(mod.get("window", cfg.get("window", def_win)))
         key = (guild.id, actor_id, module)
         q = self.hits[key]
-        t = time.monotonic()
         q.append(t)
         while q and t - q[0] > window:
             q.popleft()
         if len(q) < threshold:
             return
         del self.hits[key]  # don't keep an empty deque per (guild, user, module) forever
-        await self.respond(guild, cfg, actor_id, module, entry, threshold)
+        entries = [(m, e) for _, m, e in self.recent.pop(who, ())]
+        if all(e is not entry for _, e in entries):
+            entries.append((module, entry))
+        self._mark_caught(who, t)
+        await self.respond(guild, cfg, actor_id, module, entry, threshold, entries=entries)
+
+    def _mark_caught(self, who: tuple[int, int], now: float) -> None:
+        for key in [k for k, until in self.caught.items() if until <= now]:
+            del self.caught[key]
+        self.caught[who] = now + CAUGHT_FOR
+
+    async def _follow_up(self, guild: discord.Guild, actor_id: int, module: str, entry) -> None:
+        """Something else done by a user who was just caught (requests already in flight): undo it and add it to
+        their alert."""
+        reason = f"Antinuke: {MODULES.get(module, module)}"
+        lines = await self._revert_all(guild, [(module, entry)], reason, {})
+        inc = next((i for k, i in self.incidents.items() if k[0] == guild.id and k[1] == actor_id), None)
+        if inc is None or not lines:
+            return
+        inc.undone = collapse(inc.undone + [x for x in lines if not x.startswith("⚠️")])
+        inc.problems += [x.removeprefix("⚠️ ") for x in lines if x.startswith("⚠️") and x.removeprefix("⚠️ ")
+                         not in inc.problems]
+        for msg, footer in list(inc.messages):
+            try:
+                await msg.edit(embed=alert_embed(inc, footer))
+            except discord.HTTPException:
+                pass
 
     # ================================================================ bot-command guard
     async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
@@ -343,7 +418,11 @@ class Antinuke(commands.Cog):
                             f"has to do this.")
         if len(q) + amount >= threshold:
             del self.hits[key]
-            await self.respond(guild, cfg, ctx.author.id, module, None, threshold, via=ctx.command.qualified_name)
+            who = (guild.id, ctx.author.id)
+            earlier = [(m, e) for _, m, e in self.recent.pop(who, ())]  # what they did directly in Discord
+            self._mark_caught(who, t)
+            await self.respond(guild, cfg, ctx.author.id, module, None, threshold, via=ctx.command.qualified_name,
+                               entries=earlier)
             raise UserError(f"🛡️ Antinuke blocked this: **{LABELS.get(module, module)}** limit reached "
                             f"({threshold} per {window}s). The server owner has been alerted.")
         q.extend([t] * amount)
@@ -368,7 +447,7 @@ class Antinuke(commands.Cog):
         return done
 
     async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1,
-                      via: str | None = None):
+                      via: str | None = None, entries: list[tuple[str, object]] | None = None):
         actor = guild.get_member(actor_id)
         user = actor or self.bot.get_user(actor_id)
         if user is None:
@@ -392,10 +471,15 @@ class Antinuke(commands.Cog):
         undone = [f"blocked the `{via}` command"] if via else []
         # strip bot-granted powers first, so a kick (or a failed punishment) doesn't leave them armed
         undone += await self._revoke_bot_perms(guild, actor_id)
-        undone += await self._revert(guild, module, entry, reason, stripped)
+        if entries is None:
+            entries = [(module, entry)] if entry is not None else []
+        # permission grants are taken back before the punishment (it decides what is left to strip); everything
+        # slow (rebuilding channels and roles, unbanning) comes after it, so the attacker is stopped first
+        undone += await self._revert_all(guild, [x for x in entries if x[0] == "permissions"], reason, stripped)
         result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped)
+        undone += await self._revert_all(guild, [x for x in entries if x[0] != "permissions"], reason, stripped)
         problems = [line.removeprefix("⚠️ ") for line in undone if line.startswith("⚠️")]
-        undone = [line for line in undone if not line.startswith("⚠️")]
+        undone = collapse([line for line in undone if not line.startswith("⚠️")])
 
         await self._notify_stripped(guild, stripped)
         await self._send_alert(guild, cfg, actor_id, module, dict(
@@ -418,15 +502,79 @@ class Antinuke(commands.Cog):
         except Exception:
             return getattr(member.top_role, "position", 0) < getattr(guild.me.top_role, "position", 0)
 
+    async def _revert_all(self, guild: discord.Guild, entries: list[tuple[str, object]], reason: str,
+                          stripped: dict) -> list[str]:
+        """Undo everything in `entries`. Deleted roles are rebuilt before deleted channels, so channel overwrites
+        that pointed at a deleted role point at its replacement."""
+        lines: list[str] = []
+        wanted: dict[str, list[int]] = {"role": [], "channel": []}
+        for module, entry in entries:
+            if entry is None:
+                continue
+            target_id = getattr(getattr(entry, "target", None), "id", None)
+            if module == "roledelete" and target_id:
+                wanted["role"].append(target_id)
+            elif module == "channeldelete" and target_id:
+                wanted["channel"].append(target_id)
+            else:
+                try:
+                    lines += await self._revert(guild, module, entry, reason, stripped)
+                except Exception as e:  # never let one failed undo stop the rest or the alert
+                    lines.append(f"⚠️ couldn't undo {LABELS.get(module, module).lower()} ({type(e).__name__})")
+        snaps: dict[str, list[dict]] = {"role": [], "channel": []}
+        for kind, ids in wanted.items():
+            for i, object_id in enumerate(ids):
+                snap = await self.snapshots.wait_for(kind, object_id, timeout=3.0 if i == 0 else 0.5)
+                if snap:
+                    snaps[kind].append(snap)
+                else:
+                    lines.append(f"⚠️ couldn't rebuild a deleted {kind}: I had no copy of it")
+        role_map: dict[int, object] = {}
+        if snaps["role"]:
+            role_map, made = await restore_roles(guild, snaps["role"], reason)
+            lines += made
+        if snaps["channel"]:
+            lines += await restore_channels(guild, snaps["channel"], role_map, reason)
+        return lines
+
     async def _revert(self, guild: discord.Guild, module: str, entry, reason: str, stripped: dict) -> list[str]:
-        """Undo what the attacker did where that's safe. Returns lines for the alert ("⚠️ …" for failures)."""
+        """Undo one thing the attacker did where that's safe. Returns lines for the alert ("⚠️ …" for failures)."""
         if entry is None:  # the bot-command guard blocked the action before it happened
             return []
         target = getattr(entry, "target", None)
+        target_id = getattr(target, "id", None)
         try:
             if module == "botadd" and isinstance(target, (discord.Member, discord.User, discord.Object)):
                 await guild.ban(target, reason="Antinuke: unauthorized bot")
-                return ["banned the added bot"]
+                return [f"banned the bot {display(target)}"]
+            if module == "ban" and target_id:
+                await guild.unban(discord.Object(target_id), reason=reason)
+                return [f"unbanned {display(target)}"]
+            if module == "unban" and target_id:
+                await guild.ban(discord.Object(target_id), reason=reason)
+                return [f"banned again {display(target)}"]
+            if module == "channelcreate" and target_id:
+                channel = guild.get_channel(target_id)
+                if channel is not None:
+                    await channel.delete(reason=reason)
+                    return [f"deleted #{display(channel)}"]
+                return []
+            if module == "rolecreate" and target_id:
+                role = guild.get_role(target_id)
+                if role is not None and not getattr(role, "managed", False):
+                    await role.delete(reason=reason)
+                    return [f"deleted @{display(role)}"]
+                return []
+            if module == "webhook" and target_id:
+                hook = await self.bot.fetch_webhook(target_id)
+                await hook.delete(reason=reason)
+                return [f"deleted the webhook {display(hook)}"]
+            if module == "roleinvite":
+                code = getattr(target, "code", None) or getattr(entry.after, "code", None)
+                if code:
+                    await self.bot.delete_invite(code, reason=reason)
+                    return [f"deleted the invite {code}"]
+                return []
             if module == "permissions" and entry.action == A.role_update and isinstance(target, discord.Role):
                 before = getattr(entry.before, "permissions", None)
                 if before is not None:
@@ -454,11 +602,21 @@ class Antinuke(commands.Cog):
             elif module == "timeout" and isinstance(target, discord.Member):
                 await target.timeout(None, reason=reason)
                 return [f"removed the timeout from {target}"]
-            elif module in ("vanity", "serverupdate") and getattr(entry.before, "vanity_url_code", None):
-                await guild.edit(vanity_code=entry.before.vanity_url_code, reason=reason)
-                return ["restored the vanity URL"]
+            elif module in ("vanity", "serverupdate"):
+                changes, done = {}, []
+                before_name = getattr(entry.before, "name", None)
+                if before_name and before_name != getattr(entry.after, "name", None):
+                    changes["name"], done = before_name, done + ["restored the server name"]
+                before_vanity = getattr(entry.before, "vanity_url_code", None)
+                if before_vanity and before_vanity != getattr(entry.after, "vanity_url_code", None):
+                    changes["vanity_code"], done = before_vanity, done + ["restored the vanity URL"]
+                if changes:
+                    await guild.edit(reason=reason, **changes)
+                return done
+        except discord.NotFound:
+            return []  # already gone
         except discord.HTTPException as e:
-            return [f"⚠️ couldn't undo it (Discord said {e.status})"]
+            return [f"⚠️ couldn't undo {LABELS.get(module, module).lower()} (Discord said {e.status})"]
         return []
 
     async def _punish(self, guild: discord.Guild, actor, actor_id: int, module: str, punishment: str, reason: str,
@@ -581,7 +739,7 @@ class Antinuke(commands.Cog):
             th = mod.get("threshold", r["threshold"])
             win = mod.get("window", r["window"])
             pun = mod.get("punishment", r["punishment"])
-            tags = mod.get("tags", r.get("tags"))
+            tags = "[revert]" if k in UNDOES else None
             tag_part = f" `{tags}`" if tags else ""
             lines.append(f"`{name}`{extra} - **{th} in {win}s → {pun}**{tag_part}")
 
@@ -655,8 +813,7 @@ class Antinuke(commands.Cog):
         th = mod.get("threshold", rule["threshold"])
         win = mod.get("window", rule["window"])
         pun = mod.get("punishment", rule["punishment"])
-        tags = mod.get("tags", rule.get("tags"))
-        tag_str = f" `{tags}`" if tags else ""
+        tag_str = f" · {UNDOES[action]}" if action in UNDOES else ""
         await ctx.neutral(f"**{name}** rule: **{th} in {win}s** → {pun}{tag_str}")
 
     # ================================================================ commands
@@ -831,7 +988,7 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="roleinvite", aliases=["invite"])
     async def an_cmd_roleinvite(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the role invite rule: `,an roleinvite 1 strip 60s`"""
+        """Configure the invite spam rule (many invites made quickly): `,an roleinvite 10 strip 60s`"""
         if count is None:
             return await self._show_rule(ctx, "roleinvite")
         if punishment is None or timeframe is None:
