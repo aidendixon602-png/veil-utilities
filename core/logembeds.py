@@ -564,7 +564,10 @@ def voice_changed(m: discord.Member, before: discord.VoiceState, after: discord.
 
 def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = None, ms: float | None = None,
                  error: str | None = None) -> discord.Embed:
-    """One card per command run: who, what, where, with which authority, and how it ended."""
+    """One card per command run: the command, who ran it where, what allowed it, and how it ended.
+
+    Laid out to read at a glance: the person is in the author line (no thumbnail, so the fields get the full width),
+    the command is the card's text, and each field is one short line. IDs are in the footer only."""
     command = getattr(ctx, "command", None)
     if command is not None and (getattr(command, "hidden", False) or getattr(command, "cog_name", None) == "Owner"):
         # developer commands can carry code, queries or secrets, and these cards are readable by server admins
@@ -575,13 +578,14 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
         shown = f"```{shorten(content, 900)}```" if ("\n" in content or len(content) > 100) else f"`{shorten(content, 900)}`"
     failed = error is not None
     jump = getattr(ctx.message, "jump_url", None)
-    where = f"{ctx.channel.mention}" + (f"\n[Jump to message]({jump})" if jump else "")
-    authority = f"**{permission}**" + (f" · rank {rank}" if rank else "") + f"\n-# granted by {granted_by}"
-    fields = [("User", person(ctx.author), True), ("Channel", where, True), ("Permission", authority, True),
-              ("Command", shown, False),
-              ("Result", "❌ Failed" if failed else "✅ Completed", True)]
-    if ms is not None:
-        fields.append(("Took", f"{ms:,.0f} ms", True))
+    where = ctx.channel.mention + (f" · [jump]({jump})" if jump else "")
+    # "rank 10000 / granted by Built-in" were internal numbers: show the level, and which role gave it when one did
+    authority = {"None": "Everyone", "-": "Everyone"}.get(permission, permission)
+    if granted_by and granted_by not in ("Built-in", "-"):
+        authority += f"\n-# via {granted_by}"
+    result = ("❌ Failed" if failed else "✅ Completed") + (f" · {ms:,.0f} ms" if ms is not None else "")
+    fields = [("User", ctx.author.mention, True), ("Channel", where, True), ("Permission", authority, True),
+              ("Result", result, True)]
     if command is not None:
         cog = getattr(command, "cog_name", None)
         if cog:
@@ -591,9 +595,11 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
             fields.append(("Alias used", f"`{invoked}`", True))
     if failed:
         fields.append(("Error", quote(redact.scrub(error), 300), False))
-    return detail(Colors.error if failed else Colors.blurple,
-                  titled("Command Failed" if failed else "Command Used", ctx.author), subject=ctx.author, fields=fields,
-                  ids=[("User ID", ctx.author.id)] + ([("Message ID", ctx.message.id)] if hasattr(ctx.message, "id") else []))
+    embed = detail(Colors.error if failed else Colors.blurple, "Command Failed" if failed else "Command Used",
+                   thumb=None, text=shown, fields=fields,
+                   ids=[("User ID", ctx.author.id)] + ([("Message ID", ctx.message.id)] if hasattr(ctx.message, "id") else []))
+    embed.set_author(name=shorten(name_of(ctx.author), 256), icon_url=avatar_of(ctx.author))
+    return embed
 
 
 def _icon(guild) -> str | None:

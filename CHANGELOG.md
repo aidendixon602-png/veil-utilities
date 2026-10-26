@@ -137,6 +137,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Command log cards were cluttered.** The user ID wrapped across lines next to the avatar thumbnail and the
+  permission read "rank 10000 · granted by Built-in". The card now shows the person in the author line (no
+  thumbnail), the command as the card's text, one short line per field (User, Channel · jump, Permission with the
+  role that gave it, Result with the time, Module) and the IDs once, in the footer.
 - **Secret help: the "Tokens & Secrets" / "Secret Commands" button failed** ("This interaction failed"): it read its
   view after rebuilding it, which detaches the button.
 - **Help lists wrapped onto two lines.** Each entry now fits on one line: the description's first clause without
