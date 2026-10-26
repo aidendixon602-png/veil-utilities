@@ -60,6 +60,14 @@ def intent_plans():
     ]
 
 
+def _lower_first(text: str) -> str:
+    """'Member not found.' -> 'member not found' (keeps 'I ...', mentions, bold and code as they are)."""
+    text = text.strip().rstrip(".")
+    if text[:1].isupper() and not text.startswith(("I ", "I'")):
+        text = text[0].lower() + text[1:]
+    return text
+
+
 class Veil(commands.AutoShardedBot):
     def __init__(self, intents: discord.Intents | None = None, connector: aiohttp.BaseConnector | None = None):
         from core import perms as _perms
@@ -534,11 +542,11 @@ class Veil(commands.AutoShardedBot):
                 )
             if isinstance(error, commands.BotMissingPermissions):
                 perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-                return await ctx.deny(f"I'm missing {perms} permission")
+                return await ctx.fail(f"failed: I'm missing {perms}")
             if isinstance(error, commands.NotOwner):
                 return
             if isinstance(error, commands.NoPrivateMessage):
-                return await ctx.deny("This command can only be used in servers")
+                return await ctx.fail("failed: this command can only be used in servers")
             if isinstance(error, commands.CommandOnCooldown):
                 now = time.monotonic()
                 uid = ctx.author.id
@@ -547,28 +555,28 @@ class Veil(commands.AutoShardedBot):
                     return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=3.5)
                 return
             if isinstance(error, commands.MaxConcurrencyReached):
-                return await ctx.deny("This command is already running")
+                return await ctx.fail("failed: this is already running")
             if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
-                return await ctx.deny(f"I couldn't find a user matching `{error.argument}`")
+                return await ctx.fail(f"failed: couldn't find a member matching `{error.argument}`")
             if isinstance(error, commands.RoleNotFound):
-                return await ctx.deny(f"I couldn't find a role matching `{error.argument}`")
+                return await ctx.fail(f"failed: couldn't find a role matching `{error.argument}`")
             if isinstance(error, commands.ChannelNotFound):
-                return await ctx.deny(f"I couldn't find a channel matching `{error.argument}`")
+                return await ctx.fail(f"failed: couldn't find a channel matching `{error.argument}`")
             if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
                                   commands.TooManyArguments)):
-                return await ctx.deny(str(error))
+                return await ctx.fail(f"failed: {_lower_first(str(error))}")
             if isinstance(error, commands.UserInputError):  # quote errors, bad flags, ...
-                return await ctx.deny(str(error) or "That input isn't valid")
+                return await ctx.fail("failed: " + (_lower_first(str(error)) or "that input isn't valid"))
             if isinstance(error, commands.DisabledCommand):
-                return await ctx.deny("That command is disabled right now")
+                return await ctx.fail("failed: that command is disabled right now")
             if isinstance(error, commands.CheckFailure):
-                return await ctx.deny(str(error) or "You can't use this command")
+                return await ctx.fail("failed: " + (_lower_first(str(error)) or "you can't use this command"))
             if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
-                return await ctx.deny("That took too long, try again in a moment")
+                return await ctx.fail("failed: that took too long, try again in a moment")
             if isinstance(error, discord.Forbidden):
-                return await ctx.deny("I don't have permission to do that (check my role position & permissions)")
+                return await ctx.fail("failed: I'm not allowed to, check my role position and permissions")
             if isinstance(error, discord.HTTPException):
-                return await ctx.deny(f"Discord rejected that: `{error.text or error.status}`")
+                return await ctx.fail(f"failed: Discord rejected that (`{error.text or error.status}`)")
             tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
             log.error("Unhandled error in %s:\n%s", ctx.command, tb)
             self._error_seq += 1

@@ -146,7 +146,7 @@ class Owner(commands.Cog):
             if until and until > time.time():
                 rem = max(1, int(until - time.time()))
                 time_info = f" (<t:{int(until)}:R> / ~{rem}s remaining)"
-            return await ctx.neutral(f"Maintenance is **{'on' if m is not None else 'off'}**{time_info}" + (f": {m}" if m else ""))
+            return await ctx.neutral(f"maintenance is **{'on' if m is not None else 'off'}**{time_info}" + (f": {m}" if m else ""))
 
         if state.lower() in ("on", "enable", "true"):
             parsed_seconds = None
@@ -175,14 +175,14 @@ class Owner(commands.Cog):
                 activity=discord.CustomActivity(name=f"🛠️ Maintenance{f': {reason}' if reason else ''}")
             )
             await self.save_global()
-            await ctx.approve(f"Maintenance mode **on**{time_str} — only developers can use commands")
+            await ctx.approve(f"turned maintenance mode **on**{time_str} · only developers can use commands")
 
         elif state.lower() in ("off", "disable", "false"):
             self.bot.maintenance = None
             self.bot.maintenance_until = None
             await self.bot.update_dynamic_status()
             await self.save_global()
-            await ctx.approve("✅ **Veil Utilities is back online!** Maintenance mode disabled.")
+            await ctx.approve("turned maintenance mode **off** · Veil Utilities is back online")
             if getattr(self.bot, "_maintenance_channel_id", None) and getattr(ctx.channel, "id", None) != self.bot._maintenance_channel_id:
                 try:
                     ch = self.bot.get_channel(self.bot._maintenance_channel_id)
@@ -204,17 +204,19 @@ class Owner(commands.Cog):
         name = cmd.qualified_name
         if name in self.bot.killswitch:
             self.bot.killswitch.discard(name)
-            msg = f"Re-enabled `{name}` everywhere"
+            msg = f"enabled `{name}` everywhere"
         else:
             self.bot.killswitch.add(name)
-            msg = f"Disabled `{name}` everywhere (developers can still use it)"
+            msg = f"disabled `{name}` everywhere · developers can still use it"
         await self.save_global()
         await ctx.approve(msg)
 
     @killswitch.command(name="list", hidden=True)
     async def killswitch_list(self, ctx: Context):
         """List kill-switched commands"""
-        await ctx.neutral(", ".join(f"`{c}`" for c in sorted(self.bot.killswitch)) or "Nothing is kill-switched")
+        if not self.bot.killswitch:
+            return await ctx.warn("nothing is kill-switched")
+        await ctx.neutral(", ".join(f"`{c}`" for c in sorted(self.bot.killswitch)))
 
     # ================================================================ errors & logs
     @commands.command(hidden=True, aliases=["errs"])
@@ -229,7 +231,7 @@ class Owner(commands.Cog):
     async def error(self, ctx: Context, error_id: int = None):
         """Full traceback and context for an error ID (defaults to latest error)"""
         if not self.bot.recent_errors:
-            return await ctx.approve("No recent errors recorded since the last restart.")
+            return await ctx.neutral("no errors recorded since the last restart")
         if error_id is None:
             r = self.bot.recent_errors[-1]
         else:
@@ -247,7 +249,7 @@ class Owner(commands.Cog):
     async def cmd_traceback(self, ctx: Context):
         """Show the most recent exception traceback recorded by the bot"""
         if not self.bot.recent_errors:
-            return await ctx.approve("No recent errors recorded since the last restart.")
+            return await ctx.neutral("no errors recorded since the last restart")
         r = self.bot.recent_errors[-1]
         tb = r.get("traceback", "No traceback available")
         if len(tb) > 3800:
@@ -322,7 +324,7 @@ class Owner(commands.Cog):
                                   file=discord.File(io.BytesIO(data), name))
         except discord.Forbidden:
             raise UserError("I can't DM you — open your DMs and try again")
-        await ctx.approve("Backup sent to your DMs")
+        await ctx.approve("sent the backup to your DMs")
 
     # ================================================================ lookups
     @commands.command(hidden=True)
@@ -376,7 +378,7 @@ class Owner(commands.Cog):
             await user.send(embed=e)
         except discord.HTTPException:
             raise UserError(f"I can't DM **{user}**")
-        await ctx.approve(f"Sent to **{user}**")
+        await ctx.approve(f"sent your message to {user.mention}")
 
     # ================================================================ moderation of the bot itself
     @commands.command(hidden=True)
@@ -386,7 +388,7 @@ class Owner(commands.Cog):
         if not g:
             raise UserError("Not in that server")
         await g.leave()
-        await ctx.approve(f"Left **{g.name}**")
+        await ctx.approve(f"left **{discord.utils.escape_markdown(g.name)}**")
 
     @commands.command(hidden=True)
     async def blacklist(self, ctx: Context, target_id: int, *, reason: str = None):
@@ -397,13 +399,13 @@ class Owner(commands.Cog):
         if target_id in self.bot.blacklist:
             self.bot.blacklist.discard(target_id)
             await self.bot.db.execute("DELETE FROM blacklist WHERE id=?", target_id)
-            return await ctx.approve(f"Unblacklisted `{target_id}`")
+            return await ctx.approve(f"unblacklisted `{target_id}`")
         self.bot.blacklist.add(target_id)
         await self.bot.db.execute("INSERT OR REPLACE INTO blacklist VALUES(?,?)", target_id, reason)
         g = self.bot.get_guild(target_id)
         if g:
             await g.leave()
-        await ctx.approve(f"Blacklisted `{target_id}`" + (f" and left **{g.name}**" if g else ""))
+        await ctx.approve(f"blacklisted `{target_id}`" + (f" and left **{discord.utils.escape_markdown(g.name)}**" if g else ""))
 
     @commands.command(hidden=True, aliases=["bl"])
     async def blacklisted(self, ctx: Context):
@@ -480,9 +482,9 @@ class Owner(commands.Cog):
                 await self.bot.reload_extension(ext)
             except commands.ExtensionError as e:
                 failed.append(f"{ext}: {e}")
-        text = "\n".join(failed) if failed else f"Reloaded {len(exts)} module(s)"
+        text = "\n".join(failed) if failed else f"reloaded **{len(exts)}** module{'' if len(exts) == 1 else 's'}"
         if core_changed_on_disk(self.bot):
-            text += f"\n⚠️ Files in `core/` or `main.py` changed since startup. Run `{ctx.clean_prefix}restart` to load them."
+            text += f"\n-# ⚠️ files in `core/` or `main.py` changed since startup, run `{ctx.clean_prefix}restart` to load them"
         await (ctx.warn(text) if failed else ctx.approve(text))
 
     @commands.command(hidden=True, aliases=["presence", "statusstate"])
@@ -503,7 +505,7 @@ class Owner(commands.Cog):
             g["custom_status_text"] = full_text
             await self.bot.db.set_config(0, "global", g)
             await self.bot.change_presence(status=self.bot.presence_status, activity=discord.CustomActivity(name=full_text))
-            return await ctx.approve(f"Status activity updated to: `{full_text}`")
+            return await ctx.approve(f"set the status to `{full_text}`")
 
         self.bot.presence_status = STATUS_MAP[status_clean]
         g = await self.bot.db.get_config(0, "global")
@@ -518,7 +520,7 @@ class Owner(commands.Cog):
         else:
             await self.bot.update_dynamic_status()
 
-        await ctx.approve(f"Bot presence updated to **{status_clean.upper()}** (persisted across restarts).")
+        await ctx.approve(f"set the presence to **{status_clean.upper()}** · it survives restarts")
 
     @commands.command(hidden=True)
     async def setstatus(self, ctx: Context, *, arg: str):
@@ -536,13 +538,13 @@ class Owner(commands.Cog):
             g.pop("custom_status_text", None)
             await self.bot.db.set_config(0, "global", g)
             await self.bot.update_dynamic_status()
-            await ctx.approve("Status activity reset to Midtown dynamic status rotation.")
+            await ctx.approve("reset the status to the rotating default")
         else:
             g = await self.bot.db.get_config(0, "global")
             g["custom_status_text"] = arg
             await self.bot.db.set_config(0, "global", g)
             await self.bot.change_presence(status=self.bot.presence_status, activity=discord.CustomActivity(name=arg))
-            await ctx.approve(f"Status activity updated to: `{arg}`")
+            await ctx.approve(f"set the status to `{arg}`")
 
     @commands.command(hidden=True, aliases=["reboot"])
     async def restart(self, ctx: Context, seconds: int = 3):
@@ -583,7 +585,7 @@ class Owner(commands.Cog):
     @commands.command(hidden=True)
     async def shutdown(self, ctx: Context):
         """Shut the bot down"""
-        await ctx.approve("Shutting down")
+        await ctx.approve("shutting down")
         self.bot._restart_requested = False
         await self.bot.close()
 
@@ -679,7 +681,7 @@ class Owner(commands.Cog):
                 rows = await self.bot.db.fetchall(clean_q)
                 elapsed_ms = (time.perf_counter() - t_start) * 1000
                 if not rows:
-                    return await ctx.approve(f"Query returned **0** rows (⏱️ {elapsed_ms:.1f}ms).")
+                    return await ctx.neutral(f"query returned **0** rows · {elapsed_ms:.1f}ms")
                 headers = list(rows[0].keys())
                 table_lines = [f"{' | '.join(headers)}", "-" * 50]
                 for r in rows[:25]:
@@ -702,7 +704,7 @@ class Owner(commands.Cog):
             else:
                 await self.bot.db.execute(clean_q)
                 elapsed_ms = (time.perf_counter() - t_start) * 1000
-                await ctx.approve(f"Executed SQL statement successfully (⏱️ {elapsed_ms:.1f}ms).")
+                await ctx.approve(f"ran the statement · {elapsed_ms:.1f}ms")
         except Exception as err:
             elapsed_ms = (time.perf_counter() - t_start) * 1000
             e = discord.Embed(
@@ -800,7 +802,7 @@ class Owner(commands.Cog):
             else:
                 failed += 1
 
-        await ctx.approve(f"Broadcast delivered to **{sent}** servers (**{failed}** failed).")
+        await ctx.approve(f"broadcast reached **{sent}** server{'' if sent == 1 else 's'}" + (f" · **{failed}** failed" if failed else ""))
 
     @commands.command(name="shell", hidden=True, aliases=["sh", "bash", "exec"])
     async def cmd_shell(self, ctx: Context, *, command: str):

@@ -112,3 +112,22 @@ def test_failure_lines_read_the_same_for_every_command(bot):
         assert embed.description == "failed: member `bob` not found"
         assert embed.colour.value == Colors.error
     asyncio.run(go())
+
+
+def test_last_resort_errors_use_the_same_failed_line(bot):
+    async def go():
+        cases = [
+            (commands.NoPrivateMessage(), "failed: this command can only be used in servers"),
+            (commands.DisabledCommand("x"), "failed: that command is disabled right now"),
+            (commands.CheckFailure("You can't do that."), "failed: you can't do that"),
+            (commands.CheckFailure(), "failed: you can't use this command"),
+            (commands.UserInputError("Bad flag."), "failed: bad flag"),
+            (asyncio.TimeoutError(), "failed: that took too long, try again in a moment"),
+        ]
+        for error, expected in cases:
+            ctx = make_ctx(bot, Moderation.stripstaff)
+            await bot.on_command_error(ctx, error)
+            embed = ctx.send.await_args.kwargs["embed"]
+            assert embed.description == expected, type(error).__name__
+            assert embed.colour.value == Colors.error
+    asyncio.run(go())
