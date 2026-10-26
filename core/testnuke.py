@@ -1,4 +1,7 @@
-"""`,testnuke`: a fake nuke in the designated test server, to check the antinuke really catches and undoes one.
+"""`,testnuke`: a fake nuke in the test server, to check the antinuke really catches and undoes one.
+
+The test server is picked in Discord: the first confirmed `,testnuke` makes the server it ran in the test server,
+and `,testserver set` / `,testserver clear` change it. (TEST_GUILD_ID in .env still works and wins if it's set.)
 
 The bot rapidly creates roles and channels named `testnuke-…`. While the test runs, the antinuke treats those
 creations as an attack by a simulated attacker (see cogs.antinuke.TestRun): it counts them against the Role
@@ -35,13 +38,37 @@ def env_developer_only():
     return commands.check(predicate)
 
 
-def test_guild(ctx) -> discord.Guild:
-    """The designated test server, which the command must be run in."""
-    if not settings.test_guild_id:
-        raise UserError("No test server is set. Put its ID in `TEST_GUILD_ID` in the bot's .env and restart.")
-    if ctx.guild is None or ctx.guild.id != settings.test_guild_id:
-        raise UserError("This only runs in the designated test server (`TEST_GUILD_ID`).")
-    return ctx.guild
+async def saved_test_guild_id(bot) -> int | None:
+    """The test server: TEST_GUILD_ID in .env if it's set (it wins), otherwise the one picked with the commands."""
+    if settings.test_guild_id:
+        return settings.test_guild_id
+    g = await bot.db.get_config(0, "global")
+    return g.get("test_guild_id")
+
+
+async def save_test_guild(bot, guild_id: int | None) -> None:
+    g = await bot.db.get_config(0, "global")
+    if guild_id is None:
+        g.pop("test_guild_id", None)
+    else:
+        g["test_guild_id"] = guild_id
+    await bot.db.set_config(0, "global", g)
+
+
+async def test_guild(bot, ctx) -> tuple[discord.Guild, bool]:
+    """(the server to test in, whether it still has to become the test server). The command must run in the test
+    server; with none picked yet, the server it's run in becomes the test server once the test is confirmed."""
+    if ctx.guild is None:
+        raise UserError("Run this in the server you want to test in.")
+    current = await saved_test_guild_id(bot)
+    if current is None:
+        return ctx.guild, True
+    if ctx.guild.id != current:
+        other = bot.get_guild(current) if hasattr(bot, "get_guild") else None
+        name = f"**{discord.utils.escape_markdown(other.name)}**" if other else f"`{current}`"
+        raise UserError(f"Tests only run in the test server ({name}). Run `testserver set` here to make this "
+                        "server the test server instead.")
+    return ctx.guild, False
 
 
 class ConfirmTest(discord.ui.View):
@@ -81,7 +108,8 @@ def rule_limit(cfg: dict, key: str, default: int) -> tuple[bool, int, int]:
     return bool(cfg.get("enabled") and mod.get("on")), int(mod.get("threshold", default)), int(mod.get("window", 120))
 
 
-def warning_embed(guild: discord.Guild, cfg: dict, roles: int, channels: int, prefix: str) -> discord.Embed:
+def warning_embed(guild: discord.Guild, cfg: dict, roles: int, channels: int, prefix: str,
+                  becomes_test_server: bool = False) -> discord.Embed:
     role_on, role_n, role_s = rule_limit(cfg, "rolecreate", 5)
     chan_on, chan_n, chan_s = rule_limit(cfg, "channelcreate", 2)
     lines = [
@@ -93,6 +121,9 @@ def warning_embed(guild: discord.Guild, cfg: dict, roles: int, channels: int, pr
         "• The attacker is simulated: the antinuke alerts and deletes what it catches, but nobody is punished.",
         f"• Anything left over is removed with `{prefix}testcleanup`.",
     ]
+    if becomes_test_server:
+        lines += ["", "📌 No test server is picked yet: confirming makes **this server** the test server, so tests "
+                      f"can only run here from now on (`{prefix}testserver` to change it)."]
     if not cfg.get("enabled"):
         lines += ["", f"⚠️ The antinuke is **off** here, so nothing will be caught. Turn it on with `{prefix}an`."]
     e = discord.Embed(title="⚠️ Test nuke", color=Colors.warn, description="\n".join(lines))
