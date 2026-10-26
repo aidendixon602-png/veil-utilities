@@ -802,6 +802,21 @@ def is_dangerous(perms: discord.Permissions) -> bool:
     return any(getattr(perms, p, False) for p in DANGEROUS_PERMS)
 
 
+async def respond_or_edit(it: discord.Interaction, embed: discord.Embed, view: discord.ui.View | None = None):
+    """Update the message a menu interaction came from (one round trip when it hasn't been acknowledged yet)."""
+    resp = getattr(it, "response", None)
+    is_done = resp.is_done() if resp and hasattr(resp, "is_done") else False
+    kwargs = {"embed": embed}
+    if view is not None:
+        kwargs["view"] = view
+    if is_done and hasattr(it, "edit_original_response"):
+        await it.edit_original_response(**kwargs)
+    elif resp and hasattr(resp, "edit_message"):
+        await resp.edit_message(**kwargs)
+    elif hasattr(it, "edit_original_response"):
+        await it.edit_original_response(**kwargs)
+
+
 def shorten(text: str, n: int = 1024) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 

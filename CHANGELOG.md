@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`,help` rebuilt.** One dropdown for the categories you may open (with command counts) instead of up to 15
+  buttons; numbered lists, 10 per page, with ◀ ▶ and a page counter; 🏠 Home and 🗑 close. `,help <command>`
+  now shows a card with syntax, a generated example (commands can set `extras={"example": ...}`), aliases,
+  and the rank/permissions needed. A mistyped command suggests close matches you are allowed to see.
+- The developer menus (Developer overview, Secret Suite) moved out of `core/help.py` into `core/devmenu.py`.
+- Subcommands such as `role add` are filed under the same category as their group, so the rank needed to see
+  them in help matches where they are listed.
+
 ### Security
 
 - **Web dashboard locked down.** It previously started on every boot, listened on all interfaces and had no
