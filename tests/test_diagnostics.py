@@ -1,11 +1,8 @@
 """Unit tests for startup console diagnostics, brand banner, and logging formatter."""
 import asyncio
 import logging
-import os
 import sys
 
-import discord
-import pytest
 
 from core.bot import Veil
 from core.config import Settings

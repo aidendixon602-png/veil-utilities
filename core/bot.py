@@ -15,7 +15,6 @@ import discord
 from discord.ext import commands, tasks
 
 from core.config import settings
-from core.db import Database
 from core.help import Help
 from core.net import make_public_session
 from core.utils import Colors, Context, Ignored, UserError, compact_failure, uses_compact_replies

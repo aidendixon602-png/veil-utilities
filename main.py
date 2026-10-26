@@ -53,9 +53,10 @@ def auto_sync_git() -> None:
         import subprocess
         git_dir = os.path.join(ROOT, ".git")
         if os.path.exists(git_dir):
-            status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True, timeout=5)
+            status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True, text=True, timeout=5)
             if status.returncode == 0 and status.stdout.strip():
-                return
+                print("Skipping GitHub sync: files in this folder were edited by hand (see `git status`)", flush=True)
+                return  # don't throw those edits away
             r = subprocess.run(["git", "fetch", "origin", "main"], cwd=ROOT, capture_output=True, timeout=10)
             if r.returncode == 0:
                 subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=ROOT, capture_output=True, timeout=10)

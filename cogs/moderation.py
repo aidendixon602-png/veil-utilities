@@ -17,7 +17,7 @@ if not hasattr(_cu, "check_role_assignable"):
     except Exception:
         pass
 
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy, check_hierarchy_async,
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, check_hierarchy_async,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm)
 
@@ -764,13 +764,18 @@ class Moderation(commands.Cog):
         ctx.compact_action = action
         ctx.compact_role = role
 
-    async def _authorize_bled_target(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
-        if await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
-            rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            auth = rbl_cfg.setdefault("authorized", [])
-            if member.id not in auth:
-                auth.append(member.id)
-                await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
+    async def _authorize_bled_target(self, ctx: Context, member: discord.Member, role: discord.Role) -> bool:
+        """Giving someone a blacklisted role (allowed for authorized staff) also authorizes them to hold it.
+        Returns True if they were newly authorized."""
+        if not await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
+            return False
+        rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        auth = rbl_cfg.setdefault("authorized", [])
+        if member.id in auth:
+            return False
+        auth.append(member.id)
+        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
+        return True
 
     async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"add {role.mention} to {member.mention}", role)
@@ -780,9 +785,10 @@ class Moderation(commands.Cog):
             raise UserError("they already have it")
         if is_dangerous(role.permissions):
             await antinuke_guard(ctx, "permissions")
-        await self._authorize_bled_target(ctx, member, role)
+        newly_authorized = await self._authorize_bled_target(ctx, member, role)
         await member.add_roles(role, reason=f"by {ctx.author}")
-        await ctx.done(f"added {role.mention} to {member.mention}")
+        note = " · they're now authorized to hold this blacklisted role" if newly_authorized else ""
+        await ctx.done(f"added {role.mention} to {member.mention}{note}")
 
     async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"remove {role.mention} from {member.mention}", role)
@@ -794,12 +800,12 @@ class Moderation(commands.Cog):
         await ctx.done(f"removed {role.mention} from {member.mention}")
 
     @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True,
-                    extras={"compact": True})
+                    usage="<member> <role>", extras={"compact": True})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
-        """Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`)"""
+        """Give or take a role: `,r @User @Role` (either order). Has it → removed, doesn't → added"""
         if not arg2:
             raise UserError(f"usage: `{ctx.clean_prefix}r <member> <role>` or `{ctx.clean_prefix}r add/remove <member> <role>`")
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
@@ -816,23 +822,23 @@ class Moderation(commands.Cog):
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
         await self._take_role(ctx, member, role)
 
-    @role.command(name="add")
+    @role.command(name="add", usage="<member> <role>")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role_add(self, ctx: Context, arg1: str, *, arg2: str):
-        """Add a role to a member: `,role add @User @Role`"""
+        """Add a role to a member: `,r add @User @Role`"""
         await self._do_role_add(ctx, arg1, arg2)
 
-    @role.command(name="remove", aliases=["rem", "del"])
+    @role.command(name="remove", aliases=["rem", "del"], usage="<member> <role>")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role_remove(self, ctx: Context, arg1: str, *, arg2: str):
-        """Remove a role from a member: `,role remove @User @Role`"""
+        """Remove a role from a member: `,r remove @User @Role`"""
         await self._do_role_remove(ctx, arg1, arg2)
 
-    @commands.command(name="addrole", aliases=["giverole"], extras={"compact": True})
+    @commands.command(name="addrole", aliases=["giverole"], usage="<member> <role>", extras={"compact": True})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -840,16 +846,13 @@ class Moderation(commands.Cog):
         """Add a role to a member: `,addrole @User @Role`"""
         await self._do_role_add(ctx, arg1, arg2)
 
-    @commands.command(name="removerole", aliases=["takerole"], extras={"compact": True})
+    @commands.command(name="removerole", aliases=["takerole"], usage="<member> <role>", extras={"compact": True})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_removerole(self, ctx: Context, arg1: str, *, arg2: str):
         """Remove a role from a member: `,removerole @User @Role`"""
         await self._do_role_remove(ctx, arg1, arg2)
-
-    async def _blacklisted(self, guild_id: int, role_id: int) -> bool:
-        return await is_role_blacklisted(guild_id, role_id, self.bot.db)
 
     @role.command(name="create")
     @requires_uperm("admin")
@@ -1750,8 +1753,14 @@ class Moderation(commands.Cog):
             checks["Anti-Raid / Anti-Alt"] = "⚪ Off"
 
         # 6. Default Logging coverage
-        log_cfg = await self.bot.db.get_config(ctx.guild.id, "logging")
-        has_logging = bool(log_cfg)
+        # ask the logging cog, so both `log set` channels and auto-detected channel names count
+        logging_cog = self.bot.get_cog("Logging")
+        has_logging = False
+        if logging_cog is not None:
+            for kind in ("bans", "commands", "joinleave", "members", "roles", "channels", "server"):
+                if await logging_cog.channel_for(ctx.guild, kind):
+                    has_logging = True
+                    break
         veil_log = discord.utils.get(ctx.guild.text_channels, name="veil-utilities-logging")
         if has_logging or veil_log:
             checks["Audit Trail & Logs"] = f"🟢 Active ({'#veil-utilities-logging' if veil_log else 'Configured'})"

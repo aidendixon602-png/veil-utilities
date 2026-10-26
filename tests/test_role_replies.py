@@ -169,3 +169,76 @@ def test_mass_role_rejects_anything_but_add_or_remove(bot):
             await cog._mass_role(ctx, "foo", role, lambda m: True, "everyone")
         member.remove_roles.assert_not_awaited()
     asyncio.run(go())
+
+
+# ------------------------------------------------------------------ with the bot's real Context class
+# The mocks above stand in for Context; these use the real class, so a missing helper (like the AttributeError
+# seen after a half-reloaded update) fails here instead of in Discord.
+
+def real_ctx(bot, guild, author, command):
+    from discord.ext.commands.view import StringView
+    message = MagicMock()
+    message.guild, message.author = guild, author
+    message.to_reference.return_value = "REF"
+    ctx = Context(message=message, bot=bot, view=StringView(""), prefix=",", command=command)
+    ctx.send = AsyncMock()  # stop at the Discord API boundary
+    return ctx
+
+
+def sent_embed(ctx):
+    return ctx.send.await_args.kwargs["embed"]
+
+
+def test_real_context_has_the_compact_helpers():
+    for name in ("compact", "done", "fail"):
+        assert callable(getattr(Context, name, None)), name
+
+
+def test_r_end_to_end_with_real_context(bot):
+    async def go():
+        guild = _mock_guild(1)
+        author = _mock_member(guild.owner_id)
+        target = _mock_member(50)
+        role = _mock_role(60, "Media", pos=10)
+        cog = Moderation(bot)
+        cog._resolve_member_role = AsyncMock(return_value=(target, role))
+        ctx = real_ctx(bot, guild, author, Moderation.role)
+        await Moderation.role.callback(cog, ctx, "50", arg2="60")
+        embed = sent_embed(ctx)
+        assert embed.description == "added <@&60> to <@50>"
+        assert embed.colour.value == Colors.success
+        assert embed.author.name is None and embed.footer.text is None
+    asyncio.run(go())
+
+
+def test_failure_end_to_end_with_real_context(bot):
+    async def go():
+        guild = _mock_guild(1)
+        ctx = real_ctx(bot, guild, _mock_member(77), Moderation.role)
+        await bot.on_command_error(ctx, MissingRank("Admin"))
+        embed = sent_embed(ctx)
+        assert embed.description == "failed: you need the **Admin** rank or higher (`uperm`)"
+        assert embed.colour.value == Colors.error
+    asyncio.run(go())
+
+
+def test_giving_a_blacklisted_role_says_the_member_was_authorized(bot):
+    async def go():
+        guild = _mock_guild(1)
+        author = _mock_member(guild.owner_id)
+        target = _mock_member(50)
+        role = _mock_role(60, "Bled", pos=10)
+        await bot.db.set_config(1, "roleblacklist", {"roles": [60], "authorized": []})
+        cog = Moderation(bot)
+        cog._resolve_member_role = AsyncMock(return_value=(target, role))
+        ctx = real_ctx(bot, guild, author, Moderation.role)
+        await Moderation.role.callback(cog, ctx, "50", arg2="60")
+        assert sent_embed(ctx).description == (
+            "added <@&60> to <@50> · they're now authorized to hold this blacklisted role")
+    asyncio.run(go())
+
+
+def test_role_commands_show_member_role_usage():
+    for cmd in (Moderation.role, Moderation.role_add, Moderation.role_remove,
+                Moderation.cmd_addrole, Moderation.cmd_removerole):
+        assert cmd.signature == "<member> <role>", cmd.qualified_name
