@@ -127,8 +127,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signs people in with Discord and only lets server owners (and `OWNER_IDS`) edit a server. Forms carry CSRF
   tokens, cross-site POSTs are refused, and server names are HTML-escaped.
 
+### Added
+
+- **Log setup in every server, automatically.** On every start, and whenever the bot joins a server, it runs the
+  log setup in each server it's allowed in and can manage channels in (one at a time, a short pause between
+  servers). `,logs setup on` / `,logs setup off` (developers) switch this for every server; it is on by default.
+  `,logs setup` still sets up just the current server.
+- **VEIL LOGS sits at the top** of the channel list (above every other category).
+
 ### Fixed
 
+- **`,logs setup` missed the old catch-all channel.** `#veil-utilities-logging` is now filed under VEIL LOGS too once
+  it stops receiving logs (still never deleted).
 - **`,logs setup` didn't move or update anything** when the server already had log channels ("Everything was
   already set up"). It now gives every category its own channel when several share the old catch-all
   `#veil-utilities-logging` (the dedicated ones like `#bans` or `#command-logs` are kept), moves every log channel

@@ -312,7 +312,7 @@ _Log server events to channels_
 | `logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild |
 | `logs off <category>` (disable) | Stop a category (or `all`) from being logged | manage guild |
 | `logs set <category> [channel]` | Send a category to a channel: `logs set messages #logs`. Use `off` to stop it or `auto` to find it by name | manage guild |
-| `logs setup` (init, default, defaults, create) | Give every log category its own private channel and move the log channels under VEIL LOGS | manage guild |
+| `logs setup [mode]` (init, default, defaults, create) | Give every log category its own private channel under VEIL LOGS (at the top). `on`/`off`: do it in every server automatically | manage guild |
 | `logs test` | Send a test line to every category that has a channel, so you can see what's missing permissions | manage guild |
 | `setuplogs` (setupchannels, autologs) | Create a private channel for every log category (same as `logs setup`) | manage guild |
 
