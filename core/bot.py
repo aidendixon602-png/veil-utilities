@@ -505,8 +505,22 @@ class Veil(commands.AutoShardedBot):
             if isinstance(error, commands.MissingRequiredArgument):
                 return await ctx.send_help(ctx.command)
             if isinstance(error, commands.MissingPermissions):
-                perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-                return await ctx.warn(f"You're missing {perms} permission")
+                perms_list = error.missing_permissions
+                needed_rank = "Admin"
+                if "administrator" in perms_list:
+                    needed_rank = "Supreme Leader"
+                elif any(p in perms_list for p in ("manage_guild", "manage_webhooks")):
+                    needed_rank = "Head Admin"
+                elif any(p in perms_list for p in ("manage_roles", "ban_members", "manage_channels")):
+                    needed_rank = "Admin"
+                elif any(p in perms_list for p in ("kick_members", "moderate_members", "manage_nicknames")):
+                    needed_rank = "Mod"
+                elif any(p in perms_list for p in ("manage_messages",)):
+                    needed_rank = "Helper"
+
+                return await ctx.warn(
+                    f"🔒 Access Denied: This command requires bot permission rank **{needed_rank}+** (`uperm`) to use."
+                )
             if isinstance(error, commands.BotMissingPermissions):
                 perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
                 return await ctx.warn(f"I'm missing {perms} permission")

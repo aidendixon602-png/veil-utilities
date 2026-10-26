@@ -455,14 +455,33 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
 
 
 def has_perms(**perms: bool):
-    """Like has_permissions, but also honours roles granted *fake permissions* via the bot."""
+    """Like has_permissions, but strictly enforces bot permission ranks (uperm) and fakeperms."""
 
     async def predicate(ctx: Context) -> bool:
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
         still = await missing_perms(ctx, **perms)
         if still:
-            raise commands.MissingPermissions(still)
+            needed_ranks = []
+            for p in still:
+                if p == "administrator":
+                    needed_ranks.append(("Supreme Leader", 7))
+                elif p in ("manage_guild", "manage_webhooks"):
+                    needed_ranks.append(("Head Admin", 4))
+                elif p in ("manage_roles", "ban_members", "manage_channels"):
+                    needed_ranks.append(("Admin", 3))
+                elif p in ("kick_members", "moderate_members", "manage_nicknames"):
+                    needed_ranks.append(("Mod", 2))
+                elif p in ("manage_messages",):
+                    needed_ranks.append(("Helper", 1))
+
+            if needed_ranks:
+                needed_ranks.sort(key=lambda x: x[1], reverse=True)
+                top_rank_name = needed_ranks[0][0]
+                raise UserError(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {top_rank_name}+) to use.")
+
+            perm_names = ", ".join(f"`{p.replace('_', ' ')}`" for p in still)
+            raise UserError(f"🔒 Access Denied: You are missing required bot permissions: {perm_names}")
         return True
 
     pred = commands.check(predicate)
@@ -544,7 +563,7 @@ def requires_uperm(min_level_or_func="helper"):
             target_info = levels.get(min_level.lower())
             min_rank = target_info["rank"] if target_info else 1
             if author_rank < min_rank:
-                raise UserError(f"🔒 This command requires a **user permission** (`uperm` {min_level.title()}+) to use.")
+                raise UserError(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {min_level.title()}+) to use.")
             return True
 
         pred = commands.check(predicate)
