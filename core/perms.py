@@ -115,10 +115,7 @@ CODE_USERS: dict[int | str, str] = {
 }
 
 # CODE_ROLES: Map role IDs (int or str) or exact role names (str) to level keys
-CODE_ROLES: dict[int | str, str] = {
-    "HR | Branch Management": "admin",
-    "Office of Lilz": "helper",
-}
+CODE_ROLES: dict[int | str, str] = {}
 
 # =====================================================================
 # BOT PERMISSION RANKS

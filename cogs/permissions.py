@@ -28,10 +28,12 @@ class Permissions(commands.Cog):
                              has_admin=False)
 
     # ============================================================ userperm
-    @commands.group(aliases=["perm", "perms", "uperm", "ups"], invoke_without_command=True)
+    @commands.group(aliases=["perm", "perms", "uperm", "ups"], case_insensitive=True, invoke_without_command=True)
     @commands.guild_only()
-    async def userperm(self, ctx: Context):
-        """Manage members' and roles' permission levels. Shows levels if no subcommand given."""
+    async def userperm(self, ctx: Context, *, target: discord.Member | discord.Role = None):
+        """Manage members' and roles' permission levels. Checks target if given, or shows levels."""
+        if target:
+            return await self.up_check(ctx, target)
         await self.permlevels(ctx)
 
     @userperm.command(name="add", aliases=["set", "give"])
@@ -83,7 +85,7 @@ class Permissions(commands.Cog):
             await self.save(ctx.guild.id, cfg)
             await ctx.approve(f"Set {target.mention}'s permission level to **{info['name']}**.")
 
-    @userperm.group(name="remove", aliases=["rem", "delete", "unset"], invoke_without_command=True)
+    @userperm.group(name="remove", aliases=["rem", "delete", "unset", "clear"], case_insensitive=True, invoke_without_command=True)
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
     async def up_remove(self, ctx: Context, target: discord.Member | discord.Role):
@@ -93,6 +95,11 @@ class Permissions(commands.Cog):
         if isinstance(target, discord.Member):
             users = cfg.get("users", {})
             if str(target.id) not in users:
+                roles_cfg = cfg.get("roles", {})
+                member_perm_roles = [r for r in getattr(target, "roles", []) if str(r.id) in roles_cfg]
+                if member_perm_roles:
+                    role_names = ", ".join(r.name for r in member_perm_roles)
+                    raise UserError(f"{target.mention} has no direct user assignment, but has role(s) with permissions: `{role_names}`. Run `{ctx.clean_prefix}perm remove @Role` to remove the role's permission level.")
                 raise UserError(f"{target.mention} has no direct permission level")
             target_rank = perms.rank_of(cfg, target, is_owner=target.id == ctx.guild.owner_id,
                                         is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
@@ -207,7 +214,7 @@ class Permissions(commands.Cog):
         await ctx.send(embed=e)
 
     # ============================================================ levels
-    @commands.group(aliases=["plevels", "plvl"], invoke_without_command=True)
+    @commands.group(aliases=["plevels", "plvl"], case_insensitive=True, invoke_without_command=True)
     @has_perms(manage_messages=True)
     @commands.guild_only()
     async def permlevels(self, ctx: Context):

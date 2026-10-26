@@ -424,11 +424,11 @@ _Assign named permission levels to members_
 | `permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) |  |
 | `permlevels rank <key> <rank>` | Change a level's rank (server owner) |  |
 | `permlevels rename <key> <name>` | Rename a level (server owner) |  |
-| `userperm` (perm, perms, uperm, ups) | Manage members' and roles' permission levels. Shows levels if no subcommand given. |  |
+| `userperm [target]` (perm, perms, uperm, ups) | Manage members' and roles' permission levels. Checks target if given, or shows levels. |  |
 | `userperm add <target> <level>` (set, give) | Assign a permission level to a member or a role | administrator, uperm: headadmin |
 | `userperm check [target]` (view, info) | Check a member's or role's permission level and what it grants |  |
 | `userperm list` (all) | List members and roles with a permission level | administrator |
-| `userperm remove <target>` (rem, delete, unset) | Remove a member's or role's permission level | administrator, uperm: headadmin |
+| `userperm remove <target>` (rem, delete, unset, clear) | Remove a member's or role's permission level | administrator, uperm: headadmin |
 | `userperm remove deleted` | Purge permission levels for members who left the server | administrator, uperm: headadmin |
 
 ## ⚙️ Settings
