@@ -458,23 +458,32 @@ def cmd_ctx(content=",ban @x spam", name="ban", invoked="ban"):
 def test_command_card_shows_who_where_the_authority_and_how_it_went():
     e = fmt.command_used(cmd_ctx(), "Admin", "Owner", rank=3, ms=84.4)
     f = fields(e)
-    assert e.title == "Command Used — ham" and e.color.value == Colors.blurple
-    assert f["Command"] == "`,ban @x spam`" and f["User"].startswith("<@7>")
-    assert "[Jump to message](https://discord.com/channels/10/5/900)" in f["Channel"]
-    assert f["Permission"] == "**Admin** · rank 3\n-# granted by Owner"
-    assert f["Result"] == "✅ Completed" and f["Took"] == "84 ms" and f["Module"] == "Moderation"
-    assert "Alias used" not in f and "Error" not in f
+    assert e.title == "Command Used" and e.color.value == Colors.blurple
+    assert e.author.name == "ham" and e.author.icon_url == "https://cdn.example/a.png"
+    assert e.description == "`,ban @x spam`" and f["User"] == "<@7>"
+    assert f["Channel"] == "<#5> · [jump](https://discord.com/channels/10/5/900)"
+    assert f["Permission"] == "Admin\n-# via Owner"
+    assert f["Result"] == "✅ Completed · 84 ms" and f["Module"] == "Moderation"
+    assert "Alias used" not in f and "Error" not in f and "Took" not in f
+    assert e.thumbnail.url is None  # no thumbnail: the three columns get the full width and don't wrap
     assert e.footer.text == "User ID: 7 · Message ID: 900"
+
+
+def test_command_card_hides_internal_numbers():
+    f = fields(fmt.command_used(cmd_ctx(), "Bot Developer", "Built-in", rank=10000, ms=721))
+    assert f["Permission"] == "Bot Developer"
+    assert "10000" not in str(f) and "Built-in" not in str(f)
+    assert fields(fmt.command_used(cmd_ctx(), "None", "-"))["Permission"] == "Everyone"
 
 
 def test_command_card_handles_long_commands_aliases_and_failures():
     long = cmd_ctx("a\nb")
-    assert fields(fmt.command_used(long, "None", "-"))["Command"] == "```a\nb```"
+    assert fmt.command_used(long, "None", "-").description == "```a\nb```"
     aliased = cmd_ctx(",b @x", invoked="b")
     assert fields(fmt.command_used(aliased, "None", "-"))["Alias used"] == "`b`"
     failed = fmt.command_used(cmd_ctx(), "None", "-", error="You need the Admin permission level")
     f = fields(failed)
-    assert failed.title == "Command Failed — ham" and failed.color.value == Colors.error
+    assert failed.title == "Command Failed" and failed.color.value == Colors.error
     assert f["Result"] == "❌ Failed" and f["Error"] == "> You need the Admin permission level"
 
 
@@ -674,8 +683,8 @@ def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
                               invoked_with="ping")
         await cog.on_command_completion(ctx)
         card = channel.send.await_args.kwargs["embed"]
-        assert fields(card)["Command"] == "`,ping`" and fields(card)["Permission"].startswith("**Server Owner**")
-        assert fields(card)["Result"] == "✅ Completed"
+        assert card.description == "`,ping`" and fields(card)["Permission"] == "Server Owner"
+        assert fields(card)["Result"].startswith("✅ Completed")
         channel.send.reset_mock()
         ctx.author = member(8, "ignored")
         await cog.on_command_completion(ctx)
@@ -701,7 +710,7 @@ def test_the_command_card_says_how_long_it_took():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_completion(ctx)
-        assert fields(channel.send.await_args.kwargs["embed"])["Took"].endswith(" ms")
+        assert fields(channel.send.await_args.kwargs["embed"])["Result"].endswith(" ms")
     asyncio.run(go())
 
 
@@ -711,8 +720,8 @@ def test_failed_commands_get_a_card_with_the_reason():
         await cog.on_command(ctx)
         await cog.on_command_error(ctx, UserError("that member is above you"))
         card = channel.send.await_args.kwargs["embed"]
-        assert card.title == "Command Failed — owner" and card.color.value == Colors.error
-        assert fields(card)["Error"] == "> that member is above you" and fields(card)["Result"] == "❌ Failed"
+        assert card.title == "Command Failed" and card.author.name.endswith("owner") and card.color.value == Colors.error
+        assert fields(card)["Error"] == "> that member is above you" and fields(card)["Result"].startswith("❌ Failed")
         crash = commands.CommandInvokeError(ValueError("boom"))
         await cog.on_command_error(ctx, crash)
         assert fields(channel.send.await_args.kwargs["embed"])["Error"] == "> ValueError: boom"

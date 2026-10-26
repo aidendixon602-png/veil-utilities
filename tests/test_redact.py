@@ -41,14 +41,14 @@ def _fields(embed):
 
 def test_developer_command_logs_hide_their_arguments():
     card = logembeds.command_used(_ctx(",eval print(bot.http.token)", hidden=True, cog="Owner"), "Bot Developer", "Built-in")
-    shown = _fields(card)["Command"]
+    shown = card.description
     assert "print" not in shown and "arguments hidden" in shown and ",eval" in shown
 
 
 def test_ordinary_command_logs_still_show_the_command_but_scrubbed():
     token = "MTIzNDU2Nzg5MDEyMzQ1Njc4.GabcDE." + "x" * 38
     card = logembeds.command_used(_ctx(f",say {token}"), "Admin", "role")
-    assert ",say" in _fields(card)["Command"] and token not in _fields(card)["Command"]
+    assert ",say" in card.description and token not in card.description
 
 
 def test_failed_command_reasons_are_scrubbed():
