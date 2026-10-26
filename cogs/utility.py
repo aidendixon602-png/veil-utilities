@@ -160,7 +160,7 @@ class Utility(commands.Cog):
         """Clear snipe history for this channel"""
         for d in (self.deleted, self.edited, self.reactions):
             d.pop(ctx.channel.id, None)
-        await ctx.message.add_reaction("✅")
+        await ctx.approve("cleared the snipe history for this channel")
 
     @commands.command()
     @has_perms(manage_guild=True)
@@ -169,7 +169,7 @@ class Utility(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "settings")
         cfg["snipe_disabled"] = not cfg.get("snipe_disabled")
         await self.bot.db.set_config(ctx.guild.id, "settings", cfg)
-        await ctx.approve(f"Snipe is now **{'disabled' if cfg['snipe_disabled'] else 'enabled'}**")
+        await ctx.approve(f"turned snipe **{'off' if cfg['snipe_disabled'] else 'on'}** for this server")
 
     # ================================================================ afk
     @commands.command()
@@ -178,7 +178,7 @@ class Utility(commands.Cog):
         """Set an AFK status; people who mention you are told"""
         await self.bot.db.execute("INSERT OR REPLACE INTO afk VALUES(?,?,?,?)", ctx.guild.id, ctx.author.id,
                                   shorten(reason, 200), now())
-        await ctx.approve(f"You're now AFK: **{shorten(reason, 200)}**")
+        await ctx.approve(f"you're now AFK: **{shorten(reason, 200)}**")
 
     @commands.Cog.listener()
     async def on_message(self, m: discord.Message):
@@ -194,13 +194,13 @@ class Utility(commands.Cog):
         if row and not m.content.lower().lstrip(",.!?;").startswith("afk"):
             await self.bot.db.execute("DELETE FROM afk WHERE guild_id=? AND user_id=?", m.guild.id, m.author.id)
             await m.channel.send(embed=discord.Embed(color=Colors.neutral,
-                                 description=f"👋 Welcome back {m.author.mention}, you were away for **{fmt_duration(now() - row['since'])}**"),
+                                 description=f"welcome back {m.author.mention}, you were away for **{fmt_duration(now() - row['since'])}**"),
                                  delete_after=10)
         for user in m.mentions[:5]:
             r = await self.bot.db.fetchone("SELECT reason, since FROM afk WHERE guild_id=? AND user_id=?", m.guild.id, user.id)
             if r and user != m.author:
                 await m.reply(embed=discord.Embed(color=Colors.neutral,
-                              description=f"💤 {user.mention} is AFK: **{r['reason']}** — {ts(r['since'])}"), delete_after=15)
+                              description=f"{user.mention} is AFK: **{r['reason']}** · {ts(r['since'])}"), delete_after=15)
 
     # ================================================================ reminders
     @commands.group(aliases=["remindme", "reminder"], invoke_without_command=True)
@@ -219,7 +219,11 @@ class Utility(commands.Cog):
     async def remind_list(self, ctx: Context):
         """Your reminders"""
         rows = await self.bot.db.fetchall("SELECT * FROM reminders WHERE user_id=? ORDER BY due", ctx.author.id)
-        await ctx.paginate(chunk_embeds("Your reminders", [f"`{r['id']}` {ts(r['due'])} — {shorten(r['content'], 80)}" for r in rows], numbered=False))
+        if not rows:
+            return await ctx.warn("you have no reminders")
+        await ctx.paginate(chunk_embeds(f"Your reminders ({len(rows)})",
+                                        [f"`{r['id']}` {ts(r['due'])} — {shorten(r['content'], 80)}" for r in rows],
+                                        numbered=False))
 
     @remind.command(name="delete", aliases=["remove", "cancel"])
     async def remind_delete(self, ctx: Context, reminder_id: int):
@@ -227,7 +231,7 @@ class Utility(commands.Cog):
         cur = await self.bot.db.execute("DELETE FROM reminders WHERE id=? AND user_id=?", reminder_id, ctx.author.id)
         if not cur.rowcount:
             raise UserError("No reminder with that ID")
-        await ctx.approve("Deleted reminder")
+        await ctx.approve(f"deleted reminder `{reminder_id}`")
 
     @tasks.loop(seconds=10)
     async def reminder_loop(self):
@@ -394,7 +398,7 @@ class Utility(commands.Cog):
         """Jump to the first message in a channel"""
         channel = channel or ctx.channel
         async for m in channel.history(limit=1, oldest_first=True):
-            return await ctx.neutral(f"[First message in {channel.mention}]({m.jump_url}) by {m.author.mention} {ts(m.created_at)}")
+            return await ctx.neutral(f"[first message in {channel.mention}]({m.jump_url}) by {m.author.mention} {ts(m.created_at)}")
         raise UserError("No messages found")
 
     # ================================================================ emojis
@@ -425,9 +429,9 @@ class Utility(commands.Cog):
             try:
                 added.append(str(await ctx.guild.create_custom_emoji(name=name, image=data, reason=f"by {ctx.author}")))
             except discord.HTTPException as e:
-                await ctx.warn(f"Couldn't add `{name}`: {e.text}")
+                await ctx.warn(f"couldn't add `{name}`: {e.text}")
         if added:
-            await ctx.approve(f"Added {' '.join(added)}")
+            await ctx.approve(f"added {' '.join(added)}")
 
     # ================================================================ embeds / say
     @commands.command(aliases=["ce", "embed"])
@@ -507,9 +511,9 @@ class Utility(commands.Cog):
             ctx.guild.id, member.id
         )
         if not rows:
-            return await ctx.neutral(f"No notes for {member.mention}.")
+            return await ctx.warn(f"{member.mention} has no notes")
         lines = [f"`#{r['id']}` {r['note']} — <@{r['author_id']}> ({ts(r['created_at'], 'R')})" for r in rows]
-        await ctx.paginate(chunk_embeds(f"Notes for {member}", lines))
+        await ctx.paginate(chunk_embeds(f"Notes for {member} ({len(rows)})", lines))
 
     @notes.command(name="add")
     @has_perms(manage_messages=True)
@@ -522,7 +526,7 @@ class Utility(commands.Cog):
             "INSERT INTO member_notes(guild_id, user_id, author_id, note, created_at) VALUES(?,?,?,?,?)",
             ctx.guild.id, member.id, ctx.author.id, note, now()
         )
-        await ctx.approve(f"Added note for {member.mention}.")
+        await ctx.approve(f"added a note for {member.mention}")
 
     @notes.command(name="clear", aliases=["remove", "del"])
     @has_perms(manage_messages=True)
@@ -533,7 +537,7 @@ class Utility(commands.Cog):
             "DELETE FROM member_notes WHERE guild_id=? AND user_id=?",
             ctx.guild.id, member.id
         )
-        await ctx.approve(f"Cleared notes for {member.mention}.")
+        await ctx.approve(f"cleared the notes for {member.mention}")
 
     # ================================================================ polls / misc
     @commands.command()
@@ -623,6 +627,8 @@ class Utility(commands.Cog):
         else:
             rows = await self.bot.db.fetchall("SELECT user_id, SUM(count) c FROM msgstats WHERE guild_id=? "
                                               "GROUP BY user_id ORDER BY c DESC LIMIT 100", ctx.guild.id)
+        if not rows:
+            return await ctx.warn("no messages have been counted yet")
         await ctx.paginate(chunk_embeds(f"Top chatters{f' ({days}d)' if days else ''}",
                                         [f"<@{r['user_id']}> — **{r['c']:,}** messages" for r in rows]))
 
@@ -631,17 +637,17 @@ class Utility(commands.Cog):
     async def ping(self, ctx: Context):
         """Latency"""
         t = time.perf_counter()
-        msg = await ctx.neutral("🏓 …")
+        msg = await ctx.neutral("pinging…")
         api = (time.perf_counter() - t) * 1000
         t_db = time.perf_counter()
         try:
             await self.bot.db.fetchone("SELECT 1")
             db_ms = (time.perf_counter() - t_db) * 1000
-            db_str = f" • Database **{db_ms:.1f}ms**"
+            db_str = f" · database **{db_ms:.1f}ms**"
         except Exception:
             db_str = ""
         await msg.edit(embed=discord.Embed(color=Colors.neutral,
-                       description=f"🏓 Gateway **{self.bot.latency * 1000:.0f}ms** • API **{api:.0f}ms**{db_str}"))
+                       description=f"gateway **{self.bot.latency * 1000:.0f}ms** · api **{api:.0f}ms**{db_str}"))
 
     @commands.command(aliases=["bi", "about", "stats"])
     async def botinfo(self, ctx: Context):
@@ -665,7 +671,7 @@ class Utility(commands.Cog):
     @commands.command(aliases=["up"])
     async def uptime(self, ctx: Context):
         """How long the bot has been online"""
-        await ctx.neutral(f"⏱️ Up for **{fmt_duration(time.time() - self.bot.started_at)}** (since {ts(self.bot.started_at)})")
+        await ctx.neutral(f"up for **{fmt_duration(time.time() - self.bot.started_at)}** (since {ts(self.bot.started_at)})")
 
     @commands.command(aliases=["inv"])
     async def invite(self, ctx: Context):
@@ -674,7 +680,7 @@ class Utility(commands.Cog):
                                       scopes=("bot", "applications.commands"))
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label="Invite", url=url))
-        await ctx.neutral(f"Invite **{self.bot.user.name}** to your server", view=view)
+        await ctx.neutral(f"invite **{self.bot.user.name}** to your server", view=view)
 
 
 async def setup(bot):

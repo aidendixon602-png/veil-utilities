@@ -198,7 +198,7 @@ class Authorization(commands.Cog):
         """Authorize a server ID to use the bot"""
         if not await self.authorize(guild_id, ctx.author.id, note):
             raise UserError(f"`{guild_id}` is already authorized")
-        await ctx.approve(f"Authorized `{guild_id}` — they can invite the bot now")
+        await ctx.approve(f"authorized `{guild_id}` · they can invite the bot now")
 
     @commands.command(name="unauthorize", hidden=True, aliases=["deauth", "unauth"])
     async def unauthorize_server(self, ctx: Context, guild_id: int):
@@ -209,7 +209,7 @@ class Authorization(commands.Cog):
         if guild:
             await self.notify_guild(guild)
             await guild.leave()
-        await ctx.approve(f"Revoked `{guild_id}`" + (f" and left **{guild.name}**" if guild else ""))
+        await ctx.approve(f"revoked `{guild_id}`" + (f" and left **{guild.name}**" if guild else ""))
 
     @commands.command(hidden=True, aliases=["authlist", "authorizedservers"])
     async def authorized(self, ctx: Context):

@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same look the role commands already had. Every command error is now a red `failed: reason` line;
   only the cooldown nudge stays amber. Missing Discord permissions on ordinary commands keep their rank wording.
   The reply rules are in CONTRIBUTING.md.
+- **Utility, permissions, automod and AI replies redone** in the shared style: `turned snipe off for this server`,
+  `you're now AFK: lunch`, `added a note for @user`, `set @user's permission level to Admin`, `turned the invites
+  filter on`, `blocked spoiler`. Every toggle (link allow-list, blocked words and patterns, filter exemptions,
+  uwulock) says which way it went instead of "toggled".
+- `permission check` / `up check` answers with a plain grey note (`@user has the Admin permission level`) instead of an
+  amber warning; `clearsnipe` replies with a line instead of only a ✅ reaction; `ping` and `uptime` lost their emoji.
+- Empty lists say so (`you have no reminders`, `@user has no notes`, `no words or patterns are blocked`, `no messages
+  have been counted yet`) and list titles show the total.
 - **Server-setup replies redone** (settings, welcome/goodbye/boost, autoroles, starboard, counters, bump, levels,
   VoiceMaster, tickets, giveaways) in the shared style: `set the server prefix to !`, `turned leveling on`,
   `<#chat> no longer gives XP`, `added @Support to the support roles`, `locked your channel`. Toggles say which way
