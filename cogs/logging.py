@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import io
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import aiohttp
 import discord
@@ -70,18 +70,41 @@ def canon(name: str) -> str | None:
     return flat if flat in KINDS else None
 
 
+SHARED_NAMES = {"veil-utilities-logging", "logs", "bot-logs"}  # catch-all channels from older setups
+LOG_LIKE_NAMES = {"bans", "punishments", "modlog", "veil-security"}  # log channels without "log" in the name
+
+
+def _shared(channel, uses: dict[int, int]) -> bool:
+    """A catch-all log channel: an old one-channel-for-everything name, or several categories pointed at it."""
+    return channel.name.lower() in SHARED_NAMES or uses.get(channel.id, 0) > 1
+
+
+def _is_log_channel(channel) -> bool:
+    """Safe to file under VEIL LOGS: made by the bot or named like a log channel (never e.g. #roles or #general)."""
+    name = channel.name.lower()
+    topic = getattr(channel, "topic", None)
+    return "log" in name or name in LOG_LIKE_NAMES or (isinstance(topic, str) and topic.startswith("Veil Utilities ·"))
+
+
+@dataclass
+class SetupReport:
+    created: list = field(default_factory=list)
+    moved: list = field(default_factory=list)
+    unused: list = field(default_factory=list)  # got logs before, not any more (left in place)
+    category: object = None
+
+
 def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
     """The channel a category logs to: the one set in the config, else a channel with a recognisable name."""
     chain = [kind] + (["members"] if kind == "joinleave" else [])  # joins and leaves ride with the member log
-    for key in chain:
+    text_channels = list(getattr(guild, "text_channels", []))
+    for key in chain:  # a category's own setting, then a channel named for it, before falling back to the next
         value = cfg.get(key)
         if value == OFF:
             return None
         channel = guild.get_channel(value or 0)
         if isinstance(channel, discord.TextChannel):
             return channel
-    text_channels = list(getattr(guild, "text_channels", []))
-    for key in chain:
         for channel in text_channels:
             if channel.name.lower() in KINDS[key].names:
                 return channel
@@ -268,7 +291,7 @@ class LogPanel(OwnedView):
         if not self.guild.me.guild_permissions.manage_channels:
             return await it.response.send_message("I need the **Manage Channels** permission to create them.", ephemeral=True)
         await it.response.defer()
-        await self.cog.ensure_default_channels(self.guild)
+        await self.cog.organize(self.guild)
         self.cfg = await self.cog.config(self.guild)
         self.rebuild()
         await it.edit_original_response(embed=self.embed(), view=self)
@@ -358,9 +381,21 @@ class Logging(commands.Cog):
     async def ensure_default_channels(self, guild: discord.Guild, kinds: tuple[str, ...] | None = None
                                       ) -> list[discord.TextChannel]:
         """Create the private log channels that are missing (under a VEIL LOGS category) and point the config at them."""
+        return (await self.organize(guild, kinds)).created
+
+    async def organize(self, guild: discord.Guild, kinds: tuple[str, ...] | None = None) -> SetupReport:
+        """Give every log category its own private channel and keep all log channels together under VEIL LOGS.
+
+        * A category with no channel, or one sharing a catch-all channel with others (the old single
+          `#veil-utilities-logging` setup), gets its own channel: an existing one with the right name, else a new one.
+        * A category pointed at a channel of its own is left where it is (e.g. Moderation → `#bans`).
+        * Every channel the logs end up in that is clearly a log channel is moved into VEIL LOGS. Its permissions are
+          kept as they are. Channels that no longer receive logs are listed so you can delete them, never deleted.
+        """
+        report = SetupReport()
         me = getattr(guild, "me", None)
         if not me or not getattr(me.guild_permissions, "manage_channels", False):
-            return []
+            return report
         text_channels = list(getattr(guild, "text_channels", []))
         categories = list(getattr(guild, "categories", []))
         if not text_channels and hasattr(guild, "fetch_channels"):
@@ -372,45 +407,73 @@ class Logging(commands.Cog):
                 pass
         existing = {c.name.lower(): c for c in text_channels}
         cfg = await self.config(guild)
+        before = {k: _channel_for(guild, cfg, k) for k in KINDS}
+        uses: dict[int, int] = {}
+        for key in SETUP_KINDS:
+            if before[key] is not None:
+                uses[before[key].id] = uses.get(before[key].id, 0) + 1
 
         todo = []
         for key in kinds or SETUP_KINDS:
             kind = KINDS[key]
             if not kind.channel or cfg.get(key) == OFF:
                 continue  # not created by default, or switched off on purpose
-            if isinstance(guild.get_channel(cfg.get(key) or 0), discord.TextChannel):
-                continue  # already pointed somewhere
+            current = guild.get_channel(cfg.get(key) or 0)
+            if isinstance(current, discord.TextChannel) and not _shared(current, uses):
+                continue  # pointed at a channel of its own: keep it
             todo.append(kind)
-        if not todo:
-            return []
 
         private = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
             me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, attach_files=True),
         }
-        category = discord.utils.get(categories, name=CATEGORY_NAME)
-        if not category and any(k.channel not in existing for k in todo):
-            try:
-                category = await guild.create_category(CATEGORY_NAME, overwrites=private,
-                                                       reason="Veil Utilities: log channels")
-            except discord.HTTPException:
-                category = None
+        category = next((c for c in categories if c.name.upper() == CATEGORY_NAME), None)
 
-        created = []
+        async def ensure_category():
+            nonlocal category
+            if category is None:
+                try:
+                    category = await guild.create_category(CATEGORY_NAME, overwrites=private,
+                                                           reason="Veil Utilities: log channels")
+                except discord.HTTPException:
+                    category = None
+            return category
+
         for kind in todo:
             channel = existing.get(kind.channel)
             if channel is None:
                 try:
                     channel = await guild.create_text_channel(
-                        kind.channel, category=category, topic=f"Veil Utilities · {kind.blurb}",
+                        kind.channel, category=await ensure_category(), topic=f"Veil Utilities · {kind.blurb}",
                         overwrites=private, reason="Veil Utilities: log channel")
                 except discord.HTTPException:
                     continue
-                created.append(channel)
+                report.created.append(channel)
                 existing[kind.channel] = channel
             cfg[kind.key] = channel.id
-        await self.save(guild, cfg)
-        return created
+        if todo:
+            await self.save(guild, cfg)
+
+        after = {k: _channel_for(guild, cfg, k) for k in KINDS}
+        destinations = list({c.id: c for c in after.values() if c is not None}.values())
+        for channel in destinations:
+            if channel in report.created or not _is_log_channel(channel):
+                continue
+            if category is not None and getattr(channel, "category_id", None) == category.id:
+                continue
+            target = await ensure_category()
+            if target is None:
+                break
+            try:
+                await channel.edit(category=target, reason="Veil Utilities: keep log channels together")
+                report.moved.append(channel)
+            except discord.HTTPException:
+                pass
+        still_used = {c.id for c in destinations}
+        report.unused = [c for c in {c.id: c for c in before.values() if c is not None}.values()
+                         if c.id not in still_used]
+        report.category = category
+        return report
 
     # ------------------------------------------------------------ commands
     @commands.group(aliases=["log"], invoke_without_command=True)
@@ -467,15 +530,30 @@ class Logging(commands.Cog):
     @logs.command(name="setup", aliases=["init", "default", "defaults", "create"])
     @has_perms(manage_guild=True)
     async def logs_setup(self, ctx: Context):
-        """Create a private channel for every log category under VEIL LOGS (skips ones you already set)"""
+        """Give every log category its own private channel and move the log channels under VEIL LOGS"""
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need the `Manage Channels` permission to create the log channels.")
-        created = await self.ensure_default_channels(ctx.guild)
+        async with ctx.typing():
+            report = await self.organize(ctx.guild)
+            try:  # the bot's own #veil-errors / #veil-auth, if this is the server they live in
+                from core import devchannels
+                await devchannels.ensure(self.bot)
+            except Exception:
+                pass
         cfg = await self.config(ctx.guild)
         lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values() if k.channel]
-        note = f"Created {len(created)} channel(s) under **{CATEGORY_NAME}**." if created else "Everything was already set up."
+        notes = []
+        if report.created:
+            notes.append(f"Created {len(report.created)} channel(s) under **{CATEGORY_NAME}**.")
+        if report.moved:
+            notes.append(f"Moved {', '.join(c.mention for c in report.moved)} into **{CATEGORY_NAME}**.")
+        if report.unused:
+            many = len(report.unused) > 1
+            notes.append(f"{', '.join(c.mention for c in report.unused)} {'are' if many else 'is'} no longer used for "
+                         f"logs; delete {'them' if many else 'it'} if you don't need {'them' if many else 'it'}.")
         await ctx.send(embed=discord.Embed(title="Logging set up", color=Colors.success,
-                                           description="\n".join(lines) + f"\n\n{note}"))
+                                           description="\n".join(lines) + "\n\n" +
+                                           ("\n".join(notes) or "Everything was already set up.")))
 
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)
