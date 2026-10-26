@@ -137,6 +137,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Secret help: the "Tokens & Secrets" / "Secret Commands" button failed** ("This interaction failed"): it read its
+  view after rebuilding it, which detaches the button.
+- **Help lists wrapped onto two lines.** Each entry now fits on one line: the description's first clause without
+  asides or examples (those stay on `help <command>`), only the two shortest aliases, no "+N" alias count and no
+  subcommand count on list pages. Every help button was clicked through in a test harness (375 as a developer, 61 as
+  a member) with no errors.
 - **`,logs setup` missed the old catch-all channel.** `#veil-utilities-logging` is now filed under VEIL LOGS too once
   it stops receiving logs (still never deleted).
 - **`,logs setup` didn't move or update anything** when the server already had log channels ("Everything was

@@ -352,15 +352,12 @@ class SecretTokensButton(discord.ui.Button["SecretHelpView"]):
         super().__init__(label=label, emoji=emoji, style=style, row=1)
 
     async def callback(self, it: discord.Interaction):
+        view = self.view  # rebuilding the view detaches this button, so self.view is None afterwards
         if not it.response.is_done():
             await it.response.defer()
-        if self.view.category == "tokens":
-            self.view.category = "all"
-        else:
-            self.view.category = "tokens"
-        self.view._build_items()
-        embed = self.view.get_embed()
-        await it.edit_original_response(embed=embed, view=self.view)
+        view.category = "all" if view.category == "tokens" else "tokens"
+        view._build_items()
+        await it.edit_original_response(embed=view.get_embed(), view=view)
 
 
 class SecretRefreshButton(discord.ui.Button["SecretHelpView"]):

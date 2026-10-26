@@ -43,6 +43,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
 
 PAGE_SIZE = 10
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
+MAX_ALIAS_LENGTH = 10
 HELP_COLOR = Colors.blurple
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
@@ -188,9 +189,17 @@ def count(n: int, singular: str, plural: str | None = None) -> str:
     return f"{n} {singular if n == 1 else plural or singular + 's'}"
 
 
-def blurb(cmd, limit: int = 70) -> str:
-    """One-line description for list pages."""
-    text = ((getattr(cmd, "short_doc", None) or "").strip().splitlines() or [""])[0].strip().rstrip(".")
+_ASIDE = re.compile(r"\s*\([^()]*\)")  # "(or reset)", "(0–150)": detail for the command's own page
+_CLAUSE = re.compile(r"\s+[—–-]\s+|;\s|:\s|\.\s")
+LINE_WIDTH = 70  # characters that fit on one line of a help list in Discord, number badge included
+
+
+def blurb(cmd, limit: int = 60) -> str:
+    """One short line for list pages: the description's first clause without asides, so every entry fits on one
+    line. Examples, notes in brackets and "see ..." tails stay on the command's own page (`help <command>`)."""
+    text = ((getattr(cmd, "short_doc", None) or "").strip().splitlines() or [""])[0].strip()
+    text = _ASIDE.sub("", text)
+    text = _CLAUSE.split(text, maxsplit=1)[0].strip().rstrip(".,")
     if not text:
         return "No description yet"
     return shorten_md(text[0].upper() + text[1:], limit)
@@ -203,12 +212,11 @@ def sub_count(cmd) -> int:
 
 
 def alias_hint(cmd) -> str:
-    aliases = list(getattr(cmd, "aliases", None) or [])
+    """The shortest one or two aliases, in brackets. Long ones crowd the line; all of them are on the command's page."""
+    aliases = sorted((a for a in getattr(cmd, "aliases", None) or [] if len(a) <= MAX_ALIAS_LENGTH), key=len)
     if not aliases:
         return ""
-    shown = ", ".join(aliases[:MAX_ALIASES_SHOWN])
-    extra = len(aliases) - MAX_ALIASES_SHOWN
-    return f" *({shown}{f' +{extra}' if extra > 0 else ''})*"
+    return f" *({', '.join(aliases[:MAX_ALIASES_SHOWN])})*"
 
 
 _EXAMPLE_BY_NAME = {
@@ -438,9 +446,11 @@ class Help(commands.HelpCommand):
         if not cmds:
             lines.append("No commands in this category.")
         for n, cmd in enumerate(cmds[start:start + PAGE_SIZE], start=start + 1):
-            subs = sub_count(cmd)
-            more = f" · {count(subs, 'subcommand')}" if subs else ""
-            lines.append(f"`{n:>2}` **{cmd.name}**{alias_hint(cmd)} — {blurb(cmd)}{more}")
+            hint = alias_hint(cmd)
+            # keep each entry on one line: the description gets whatever room the name and aliases leave
+            # (subcommands, examples and the full description are on the command's own page)
+            room = LINE_WIDTH - 6 - len(cmd.name) - len(hint.replace("*", ""))
+            lines.append(f"`{n:>2}` **{cmd.name}**{hint} — {blurb(cmd, max(24, room))}")
         e = discord.Embed(title=f"{CATEGORY_EMOJIS.get(label, '📁')} {label}", color=HELP_COLOR,
                           description=shorten_md("\n".join(lines), 4000))
         e.set_footer(text=f"Page {page + 1}/{pages} · {count(len(cmds), 'command')} · {p}help <command> for details")

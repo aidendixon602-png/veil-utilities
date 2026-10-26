@@ -255,11 +255,11 @@ def test_list_lines_are_numbered_with_short_aliases_and_blurbs():
     lines = embed.description.splitlines()
     assert "`" in embed.title or "Utility" in embed.title
     assert any(line == "` 1` **userinfo** *(ui, info)* — Show profile info" for line in lines)
-    assert any(line == "` 2` **role** *(r, cr +2)* — Toggle a role" for line in lines)
+    assert any(line == "` 2` **role** *(r, x)* — Toggle a role" for line in lines)  # the two shortest, no "+2"
     assert embed.footer.text == "Page 1/1 · 2 commands · ,help <command> for details"
 
 
-def test_groups_show_how_many_subcommands_they_hold():
+def test_group_lines_stay_on_one_line():
     @commands.group()
     async def role(ctx):
         """Manage roles"""
@@ -273,7 +273,7 @@ def test_groups_show_how_many_subcommands_they_hold():
         """Remove"""
 
     line = _help().category_embed("Roles", [role]).description.splitlines()[-1]
-    assert line.endswith("— Manage roles · 2 subcommands")
+    assert line.endswith("— Manage roles")  # list lines stay on one line; subcommands are on the command's page
 
 
 def test_empty_category_says_so():
@@ -501,3 +501,28 @@ def test_group_card_has_no_trailing_blank_line(loaded_bot):
     asyncio.run(h.send_group_help(loaded_bot.get_command("role")))
     subs = next(f.value for f in sent[0].fields if f.name == "Subcommands")
     assert subs == subs.rstrip() and "**add**" in subs and "**remove**" in subs
+
+
+@pytest.mark.parametrize("doc,expected", [
+    ("Set an AFK status; people who mention you are told", "Set an AFK status"),
+    ("Send a message from an embed script — see `embedhelp`", "Send a message from an embed script"),
+    ("Turn an existing embed into a script (reply to it or give a link)", "Turn an existing embed into a script"),
+    ("Change (or reset) a member's nickname", "Change a member's nickname"),
+    ("Ban a member (or any user by ID). Add `--purge` to delete their messages", "Ban a member"),
+    ("Seek to a time: `seek 1:30`", "Seek to a time"),
+    ("Set volume (0–150)", "Set volume"),
+])
+def test_list_blurbs_are_the_first_clause_without_asides(doc, expected):
+    assert blurb(_cmd("x", doc)) == expected
+
+
+def test_list_lines_fit_on_one_line():
+    h = _help()
+    cmds = [_cmd("antighostping", "Configure anti-ghostping detection to catch deleted mentions and more",
+                 ["ghostping", "antighost"]),
+            _cmd("cleanuplogs", "Delete duplicate log channels the bot created", ["cleanuplogchannels"])]
+    for line in h.category_embed("Automod", cmds).description.splitlines():
+        if line.startswith("`"):
+            plain = line.replace("*", "").replace("`", "")
+            assert len(plain) <= 70, plain
+            assert "cleanuplogchannels" not in line  # long aliases crowd the line; they're on the command's page

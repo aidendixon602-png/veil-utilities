@@ -34,7 +34,7 @@ def test_short_text_is_left_alone():
 
 def test_the_bump_line_on_the_server_page_is_cut_cleanly():
     cmd = SimpleNamespace(short_doc=BUMP)
-    assert h.blurb(cmd) == "Remind the server to /bump on Disboard every 2 hours…"
+    assert h.blurb(cmd) == "Remind the server to /bump on Disboard every 2 hours"
 
 
 def _union_error(typed):
@@ -73,3 +73,21 @@ def test_the_command_log_says_what_went_wrong_without_class_names(monkeypatch):
     reason = cog._log_command.call_args.args[1]
     assert reason == "Couldn't find a member or user matching `$`"
     assert "BadUnionArgument" not in reason
+
+
+def test_the_secret_tokens_button_works_after_the_view_rebuilds():
+    """It used to read self.view after rebuilding, which detaches the button: 'This interaction failed'."""
+    from core.devmenu import SecretHelpView, SecretTokensButton
+    from core.bot import Veil
+    ctx = SimpleNamespace(bot=Veil(), author=SimpleNamespace(id=1), clean_prefix=",", prefix=",")
+    view = SecretHelpView(ctx, initial_category="all")
+    button = next(i for i in view.children if isinstance(i, SecretTokensButton))
+    it = MagicMock()
+    it.response.is_done.return_value = True
+    it.edit_original_response = AsyncMock()
+    asyncio.run(button.callback(it))
+    assert view.category == "tokens"
+    assert it.edit_original_response.await_args.kwargs["view"] is view
+    again = next(i for i in view.children if isinstance(i, SecretTokensButton))
+    asyncio.run(again.callback(it))
+    assert view.category == "all"
