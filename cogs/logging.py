@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging as std_logging
 import time
 from dataclasses import dataclass, field
 
@@ -70,6 +71,8 @@ def canon(name: str) -> str | None:
     return flat if flat in KINDS else None
 
 
+log = std_logging.getLogger("veil.logs")
+
 SHARED_NAMES = {"veil-utilities-logging", "logs", "bot-logs"}  # catch-all channels from older setups
 LOG_LIKE_NAMES = {"bans", "punishments", "modlog", "veil-security"}  # log channels without "log" in the name
 
@@ -90,8 +93,23 @@ def _is_log_channel(channel) -> bool:
 class SetupReport:
     created: list = field(default_factory=list)
     moved: list = field(default_factory=list)
-    unused: list = field(default_factory=list)  # got logs before, not any more (left in place)
+    unused: list = field(default_factory=list)  # got logs before, not any more (filed under VEIL LOGS, not deleted)
     category: object = None
+    raised: bool = False  # VEIL LOGS was moved to the top of the channel list
+
+
+async def _to_top(guild, category) -> bool:
+    """Put VEIL LOGS above every other category (channels without a category always sit above all of them)."""
+    others = sorted((c for c in getattr(guild, "categories", []) or [] if c.id != category.id),
+                    key=lambda c: (getattr(c, "position", 0), c.id))
+    mine = getattr(category, "position", None)
+    if not others or (isinstance(mine, int) and all(mine < getattr(c, "position", 0) for c in others)):
+        return False
+    try:
+        await category.edit(position=0, reason="Veil Utilities: log channels at the top")
+        return True
+    except (discord.HTTPException, AttributeError, TypeError):
+        return False
 
 
 def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
@@ -456,7 +474,11 @@ class Logging(commands.Cog):
 
         after = {k: _channel_for(guild, cfg, k) for k in KINDS}
         destinations = list({c.id: c for c in after.values() if c is not None}.values())
-        for channel in destinations:
+        still_used = {c.id for c in destinations}
+        report.unused = [c for c in {c.id: c for c in before.values() if c is not None}.values()
+                         if c.id not in still_used]
+        # every log channel goes in, including a catch-all that no longer gets logs (it is filed, not deleted)
+        for channel in destinations + report.unused:
             if channel in report.created or not _is_log_channel(channel):
                 continue
             if category is not None and getattr(channel, "category_id", None) == category.id:
@@ -469,11 +491,71 @@ class Logging(commands.Cog):
                 report.moved.append(channel)
             except discord.HTTPException:
                 pass
-        still_used = {c.id for c in destinations}
-        report.unused = [c for c in {c.id: c for c in before.values() if c is not None}.values()
-                         if c.id not in still_used]
         report.category = category
+        if category is not None:
+            report.raised = await _to_top(guild, category)
         return report
+
+    # ------------------------------------------------------------ every server, automatically
+    async def auto_setup_enabled(self) -> bool:
+        g = await self.bot.db.get_config(0, "global")
+        return g.get("auto_log_setup", True)  # on unless a developer ran `,logs setup off`
+
+    async def set_auto_setup(self, enabled: bool) -> None:
+        g = await self.bot.db.get_config(0, "global")
+        g["auto_log_setup"] = enabled
+        await self.bot.db.set_config(0, "global", g)
+
+    def _eligible(self, guild) -> bool:
+        """A server the bot is allowed to work in and can manage channels in."""
+        me = getattr(guild, "me", None)
+        is_authorized = getattr(self.bot, "is_authorized", lambda gid: True)
+        return bool(me and getattr(me.guild_permissions, "manage_channels", False) and is_authorized(guild.id))
+
+    async def organize_everywhere(self, pause: float = 2.0) -> dict[str, int]:
+        """Run the log setup in every server the bot is in; a short pause between servers keeps it off rate limits."""
+        totals = {"servers": 0, "created": 0, "moved": 0, "skipped": 0}
+        for guild in list(getattr(self.bot, "guilds", [])):
+            if not self._eligible(guild):
+                totals["skipped"] += 1
+                continue
+            try:
+                report = await self.organize(guild)
+            except Exception:
+                log.exception("Log setup failed in %s (%s)", getattr(guild, "name", "?"), guild.id)
+                totals["skipped"] += 1
+                continue
+            totals["servers"] += 1
+            totals["created"] += len(report.created)
+            totals["moved"] += len(report.moved)
+            if pause:
+                await asyncio.sleep(pause)
+        try:
+            from core import devchannels
+            await devchannels.ensure(self.bot)
+        except Exception:
+            pass
+        return totals
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if getattr(self, "_auto_setup_started", False):  # on_ready fires again after every reconnect
+            return
+        self._auto_setup_started = True
+        if await self.auto_setup_enabled():
+            totals = await self.organize_everywhere()
+            log.info("Log setup on start: %d server(s), %d channel(s) created, %d moved",
+                     totals["servers"], totals["created"], totals["moved"])
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild):
+        await asyncio.sleep(5)  # let the authorization check leave an unauthorized server first
+        if self.bot.get_guild(guild.id) is None or not self._eligible(guild) or not await self.auto_setup_enabled():
+            return
+        try:
+            await self.organize(guild)
+        except Exception:
+            log.exception("Log setup failed in %s (%s)", guild.name, guild.id)
 
     # ------------------------------------------------------------ commands
     @commands.group(aliases=["log"], invoke_without_command=True)
@@ -529,8 +611,10 @@ class Logging(commands.Cog):
 
     @logs.command(name="setup", aliases=["init", "default", "defaults", "create"])
     @has_perms(manage_guild=True)
-    async def logs_setup(self, ctx: Context):
-        """Give every log category its own private channel and move the log channels under VEIL LOGS"""
+    async def logs_setup(self, ctx: Context, mode: str = None):
+        """Give every log category its own private channel under VEIL LOGS (at the top). `on`/`off`: do it in every server automatically"""
+        if mode is not None:
+            return await self._set_auto(ctx, mode)
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need the `Manage Channels` permission to create the log channels.")
         async with ctx.typing():
@@ -547,13 +631,36 @@ class Logging(commands.Cog):
             notes.append(f"Created {len(report.created)} channel(s) under **{CATEGORY_NAME}**.")
         if report.moved:
             notes.append(f"Moved {', '.join(c.mention for c in report.moved)} into **{CATEGORY_NAME}**.")
+        if report.raised:
+            notes.append(f"Moved **{CATEGORY_NAME}** to the top of the channel list.")
         if report.unused:
             many = len(report.unused) > 1
             notes.append(f"{', '.join(c.mention for c in report.unused)} {'are' if many else 'is'} no longer used for "
                          f"logs; delete {'them' if many else 'it'} if you don't need {'them' if many else 'it'}.")
-        await ctx.send(embed=discord.Embed(title="Logging set up", color=Colors.success,
-                                           description="\n".join(lines) + "\n\n" +
-                                           ("\n".join(notes) or "Everything was already set up.")))
+        auto = "on" if await self.auto_setup_enabled() else "off"
+        await ctx.send(embed=discord.Embed(
+            title="Logging set up", color=Colors.success,
+            description="\n".join(lines) + "\n\n" + ("\n".join(notes) or "Everything was already set up.")
+            + f"\n-# Automatic setup in every server is {auto}"))
+
+    async def _set_auto(self, ctx: Context, mode: str):
+        from core import perms as _perms
+        if not (_perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)):
+            raise UserError("Only bot developers can switch automatic log setup for every server.")
+        flag = mode.lower()
+        if flag in ("on", "enable", "enabled", "true", "yes"):
+            await self.set_auto_setup(True)
+            async with ctx.typing():
+                totals = await self.organize_everywhere(pause=1.0)
+            text = (f"automatic log setup is **on** for every server: set up **{totals['servers']}** server(s), "
+                    f"created **{totals['created']}** channel(s), moved **{totals['moved']}**")
+            if totals["skipped"]:
+                text += f" · skipped **{totals['skipped']}** where I can't manage channels"
+            return await ctx.approve(text + ". New servers get set up when I join them.")
+        if flag in ("off", "disable", "disabled", "false", "no"):
+            await self.set_auto_setup(False)
+            return await ctx.approve("automatic log setup is **off**: `logs setup` only runs where you use it")
+        raise UserError("Use `logs setup` to set up this server, or `logs setup on` / `logs setup off`.")
 
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)

@@ -1104,13 +1104,13 @@ def test_setup_splits_the_old_catch_all_channel_and_files_log_channels_under_vei
         assert {c.name for c in report.created} == {"message-logs", "member-logs", "role-logs", "channel-logs",
                                                     "voice-logs", "server-logs"}
         assert all(kwargs["category"].id == 50 for _, kwargs in created)       # made inside the existing category
-        assert {c.name for c in report.moved} == {"join-logs", "bans", "command-logs"}
-        for ch in (joins, bans, cmds):
+        assert {c.name for c in report.moved} == {"join-logs", "bans", "command-logs", "veil-utilities-logging"}
+        for ch in (joins, bans, cmds, veil):
             assert ch.edit.await_args.kwargs["category"].id == 50
         anti.edit.assert_not_awaited()                                         # already there
-        general.edit.assert_not_awaited() and roles.edit.assert_not_awaited()  # never touch non-log channels
-        veil.edit.assert_not_awaited()
-        assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # listed, not deleted
+        general.edit.assert_not_awaited()                                      # never touch non-log channels
+        roles.edit.assert_not_awaited()
+        assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # filed and listed, not deleted
         veil.delete.assert_not_awaited()
         assert store["logs"]["bans"] == 3 and store["logs"]["commands"] == 4  # dedicated ones kept
         assert store["logs"]["messages"] != 1
@@ -1134,3 +1134,117 @@ def test_a_channel_named_for_joins_beats_the_member_log_fallback():
     guild = make_guild([joins, members])
     assert L._channel_for(guild, {"members": 8}, "joinleave") is joins
     assert L._channel_for(guild, {"members": 8, "joinleave": OFF}, "joinleave") is None
+
+
+def cat(cid, name, position):
+    return SimpleNamespace(id=cid, name=name, position=position, edit=AsyncMock())
+
+
+def test_veil_logs_is_moved_to_the_top_of_the_channel_list():
+    async def go():
+        guild, _ = creating_guild([text_channel(1, "message-logs")])
+        text, voice, logs = cat(40, "Text Channels", 0), cat(41, "Voice Channels", 1), cat(50, "VEIL LOGS", 2)
+        guild.categories = [text, voice, logs]
+        cog, _ = make_cog()
+        report = await cog.organize(guild)
+        assert report.raised
+        assert logs.edit.await_args.kwargs["position"] == 0
+        text.edit.assert_not_awaited() and voice.edit.assert_not_awaited()
+    asyncio.run(go())
+
+
+def test_veil_logs_already_on_top_is_left_alone():
+    async def go():
+        guild, _ = creating_guild([text_channel(1, "message-logs")])
+        logs, text = cat(50, "VEIL LOGS", 0), cat(40, "Text Channels", 1)
+        guild.categories = [logs, text]
+        cog, _ = make_cog()
+        report = await cog.organize(guild)
+        assert not report.raised and logs.edit.await_count == 0
+    asyncio.run(go())
+
+
+def everywhere_cog(guilds, global_cfg=None, authorized=lambda gid: True):
+    cog, store = make_cog()
+    store["global"] = dict(global_cfg or {})
+    cog.bot.guilds = guilds
+    cog.bot.is_authorized = authorized
+    cog.bot.get_guild = lambda gid: next((g for g in guilds if g.id == gid), None)
+    return cog, store
+
+
+def test_setup_runs_in_every_server_it_may_work_in(monkeypatch):
+    async def go():
+        a, _ = creating_guild(gid=1)
+        b, _ = creating_guild(gid=2)
+        no_perms, _ = creating_guild(gid=3, manage_channels=False)
+        unauthorized, _ = creating_guild(gid=4)
+        cog, _ = everywhere_cog([a, b, no_perms, unauthorized], authorized=lambda gid: gid != 4)
+        seen = []
+        real = cog.organize
+
+        async def spy(guild, kinds=None):
+            seen.append(guild.id)
+            return await real(guild, kinds)
+        cog.organize = spy
+        monkeypatch.setattr("core.devchannels.ensure", AsyncMock())
+        totals = await cog.organize_everywhere(pause=0)
+        assert seen == [1, 2]
+        assert totals["servers"] == 2 and totals["skipped"] == 2 and totals["created"] == 18
+    asyncio.run(go())
+
+
+def test_automatic_setup_is_on_by_default_and_runs_once_per_start(monkeypatch):
+    async def go():
+        cog, _ = everywhere_cog([])
+        assert await cog.auto_setup_enabled() is True
+        cog.organize_everywhere = AsyncMock(return_value={"servers": 0, "created": 0, "moved": 0, "skipped": 0})
+        await cog.on_ready()
+        await cog.on_ready()  # a reconnect
+        cog.organize_everywhere.assert_awaited_once()
+    asyncio.run(go())
+
+
+def test_automatic_setup_can_be_switched_off():
+    async def go():
+        cog, store = everywhere_cog([], {"auto_log_setup": False})
+        cog.organize_everywhere = AsyncMock()
+        await cog.on_ready()
+        cog.organize_everywhere.assert_not_awaited()
+    asyncio.run(go())
+
+
+def test_a_new_server_is_set_up_when_the_bot_joins(monkeypatch):
+    async def go():
+        guild, _ = creating_guild(gid=7)
+        cog, _ = everywhere_cog([guild])
+        cog.organize = AsyncMock()
+        monkeypatch.setattr(L.asyncio, "sleep", AsyncMock())
+        await cog.on_guild_join(guild)
+        cog.organize.assert_awaited_once_with(guild)
+    asyncio.run(go())
+
+
+def _setup_ctx(is_dev):
+    ctx = MagicMock()
+    ctx.approve = AsyncMock()
+    ctx.typing = MagicMock(return_value=AsyncMock())
+    ctx.author = SimpleNamespace(id=5)
+    return ctx
+
+
+def test_only_developers_switch_automatic_setup(monkeypatch):
+    async def go():
+        cog, store = everywhere_cog([])
+        monkeypatch.setattr("core.perms.is_bot_developer", lambda user, bot: False)
+        with pytest.raises(L.UserError):
+            await cog._set_auto(_setup_ctx(False), "off")
+        monkeypatch.setattr("core.perms.is_bot_developer", lambda user, bot: True)
+        cog.organize_everywhere = AsyncMock(return_value={"servers": 3, "created": 4, "moved": 5, "skipped": 0})
+        ctx = _setup_ctx(True)
+        await cog._set_auto(ctx, "on")
+        assert store["global"]["auto_log_setup"] is True
+        assert "**3** server(s)" in ctx.approve.await_args.args[0]
+        await cog._set_auto(ctx, "off")
+        assert store["global"]["auto_log_setup"] is False
+    asyncio.run(go())
