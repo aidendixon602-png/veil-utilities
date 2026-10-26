@@ -5,7 +5,7 @@ Security model
 * Off unless ``DASHBOARD_ENABLED=true``.
 * Without Discord login configured it only listens on 127.0.0.1, and the person at that machine is treated as a
   bot owner. Requests must use a localhost address in the Host header, which blocks DNS-rebinding tricks.
-* With ``DISCORD_CLIENT_ID``, ``DISCORD_CLIENT_SECRET`` and ``DASHBOARD_URL`` set, people sign in with Discord
+* With ``DISCORD_CLIENT_SECRET`` and ``DASHBOARD_URL`` set (the client ID comes from the bot itself), people sign in with Discord
   (``identify`` scope only) and each server is shown only to its owner or to a bot owner. This mirrors the
   Discord commands: only the server owner can change antinuke admins, which this page edits.
 * Login cookies are HMAC-signed, every form carries a CSRF token, cross-site POSTs are refused, and every value
@@ -150,7 +150,7 @@ class DashboardServer:
         wanted = host or ("0.0.0.0" if self.login_enabled else "127.0.0.1")
         if self.local_mode and not _is_loopback(wanted):
             log.warning("Dashboard: ignoring DASHBOARD_HOST=%s. Without Discord login configured it only listens on "
-                        "127.0.0.1 (set DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET and DASHBOARD_URL to make it public)",
+                        "127.0.0.1 (set DISCORD_CLIENT_SECRET and DASHBOARD_URL to make it public)",
                         wanted)
             wanted = "127.0.0.1"
         self.host = wanted
@@ -168,7 +168,7 @@ class DashboardServer:
             port=settings.dashboard_port,
             host=settings.dashboard_host,
             public_url=settings.dashboard_url,
-            client_id=settings.discord_client_id,
+            client_id=settings.discord_client_id or getattr(bot, "application_id", None),
             client_secret=settings.discord_client_secret,
             secret=settings.dashboard_secret,
         )

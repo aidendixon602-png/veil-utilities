@@ -27,7 +27,7 @@ patch release and you'll be credited in the changelog (unless you'd rather stay 
 
 Things that are **by design**, not bugs:
 
-- Bot developers (`OWNER_IDS`) can do everything, everywhere — guard those IDs carefully.
+- Bot developers can do everything, everywhere. They are the owner (or team members) of the bot's Discord application plus any `OWNER_IDS`, so guard that Discord account and team carefully.
 - Servers must be authorized by a developer when `AUTH_REQUIRED=true`.
 - The bot needs Administrator to do its job; it refuses moderation configuration without it.
 

@@ -1,6 +1,6 @@
 """Developer-only dangerous tools, shown under the red Secret help button.
 
-Everything here is restricted to the bot's developers (OWNER_IDS):
+Everything here is restricted to the bot's developers:
 strip/unstrip, massunrole, revert, network hardban/genreban, join-leave logs, and antinuke presets.
 """
 from __future__ import annotations

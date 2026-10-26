@@ -118,7 +118,7 @@ class OwnedView(discord.ui.View):
     """A button menu only the person who ran the command can use.
 
     Everyone else gets a private "this isn't yours" message. When `allow_developers` is on, the bot's
-    developers (OWNER_IDS) can also use it, e.g. to help someone navigate a menu.
+    developers can also use it, e.g. to help someone navigate a menu.
     """
 
     def __init__(self, author_id: int, *, timeout: float | None = 180, allow_developers: bool = True):

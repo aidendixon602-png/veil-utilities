@@ -23,6 +23,10 @@ ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 # are logged with "Permission: Bot Developer" and "Granted By: Built-in".
 BOT_DEVELOPERS: list[int] = []
 
+# Filled at startup with the owner (or team members) of the bot's Discord application, so developers are
+# recognised everywhere without listing their IDs in OWNER_IDS (see Veil.discover_developers).
+DISCOVERED_DEVELOPERS: set[int] = set()
+
 
 def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:
     """Check if a user is a recognized bot developer.
@@ -42,7 +46,7 @@ def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None,
             uid = int(uid)
         except (ValueError, TypeError):
             return False
-    if uid in BOT_DEVELOPERS:
+    if uid in BOT_DEVELOPERS or uid in DISCOVERED_DEVELOPERS:
         return True
     try:
         from core.config import settings

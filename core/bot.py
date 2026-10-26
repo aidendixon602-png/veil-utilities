@@ -131,10 +131,31 @@ class Veil(commands.AutoShardedBot):
         self._cmd_cooldowns: dict[int, list[float]] = defaultdict(list)
         self._spam_warned: dict[int, float] = {}
         self._restart_requested: bool = False
+        self.dev_channels: dict[str, int] = {}  # private error/auth channels the bot made (core/devchannels.py)
+        self._dev_channels_ready = False
 
     # ------------------------------------------------------------- setup
+    async def discover_developers(self) -> None:
+        """Developers = the IDs in OWNER_IDS plus the owner (or every member of the team) of the bot's Discord
+        application, so nobody has to look up and paste their own ID."""
+        if self.user is None:  # not logged in (docs/tooling build the bot without connecting)
+            return
+        try:
+            app = await asyncio.wait_for(self.application_info(), timeout=15)
+        except Exception as e:  # never let this stop the bot from starting
+            log.warning("Couldn't read the bot's Discord application (%s): developers are only the IDs in OWNER_IDS",
+                        e or type(e).__name__)
+            return
+        from core import perms as _perms
+        found = {app.owner.id} | ({m.id for m in app.team.members} if app.team else set())
+        _perms.DISCOVERED_DEVELOPERS.update(found)
+        self.owner_ids = frozenset(set(self.owner_ids or ()) | found)
+        log.info("Developers: %d (%d from OWNER_IDS, the rest from the Discord application)",
+                 len(self.owner_ids), len(settings.owner_ids))
+
     async def setup_hook(self) -> None:
         await self.db.connect()
+        await self.discover_developers()
         self.session = aiohttp.ClientSession(headers={"User-Agent": "veil-utilities-discord-bot/1.0"},
                                              timeout=aiohttp.ClientTimeout(total=15))
         self.public_session = make_public_session(headers={"User-Agent": "veil-utilities-discord-bot/1.0"})
@@ -156,6 +177,7 @@ class Veil(commands.AutoShardedBot):
         self.maintenance_until = g.get("maintenance_until")
         self._maintenance_channel_id = g.get("maintenance_channel_id")
         self.killswitch = set(g.get("killswitch", []))
+        self.dev_channels = dict(g.get("dev_channels", {}))
         for ext in EXTENSIONS:
             try:
                 await self.load_extension(ext)
@@ -249,7 +271,13 @@ class Veil(commands.AutoShardedBot):
                  self.user, len(self.guilds), commands_total, self.default_prefix)
         await self.update_dynamic_status()
         await self.check_restart_notification()
-
+        if not self._dev_channels_ready:  # on_ready fires again after every reconnect
+            self._dev_channels_ready = True
+            try:
+                from core import devchannels
+                await devchannels.ensure(self)
+            except Exception:
+                log.exception("Setting up the developer channels failed")
 
     async def check_restart_notification(self):
         state_file = ".restart_state.json"
@@ -602,7 +630,7 @@ class Veil(commands.AutoShardedBot):
                       "error": f"{type(error).__name__}: {error}", "traceback": tb}
             self.recent_errors.appendleft(record)
             # don't echo the exception message itself: it can contain file paths, SQL or other internals.
-            # developers can see the full details with the error ID (and in ERROR_LOG_CHANNEL).
+            # developers can see the full details with the error ID (and in the private #veil-errors channel).
             try:
                 await ctx.send(embed=discord.Embed(
                     color=Colors.error,
@@ -610,7 +638,8 @@ class Veil(commands.AutoShardedBot):
                                 f"It has been reported — error ID `{record['id']}`."))
             except discord.HTTPException:
                 pass
-            channel = self.get_channel(settings.error_log_channel or 0)
+            from core import devchannels
+            channel = devchannels.channel_for(self, "errors")
             if channel:
                 e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",
                                   description=f"```py\n{tb[-3900:]}```", timestamp=discord.utils.utcnow())

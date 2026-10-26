@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **IDs are set up by the bot.** `OWNER_IDS` is optional now: developers are the owner (or all team members) of the
+  bot's Discord application, found at startup, plus any IDs you still list. The dashboard login reads the Client ID
+  from the bot itself, so only `DISCORD_CLIENT_SECRET` and `DASHBOARD_URL` are needed. Crash tracebacks and
+  unauthorized-server alerts go to private `#veil-errors` / `#veil-auth` channels the bot creates once in a server a
+  developer owns or is in (visible only to the bot and developers; made again if deleted). `OWNER_IDS`,
+  `ERROR_LOG_CHANNEL`, `AUTH_LOG_CHANNEL` and `DISCORD_CLIENT_ID` still work as overrides.
 - **Private mode** (`PRIVATE_MODE`, on by default). Only bot developers, the server owner and members who hold a
   permission level (directly or through a role, or a fakeperms role) can run commands. Everyone else, including
   Discord administrators without a level and anyone in DMs, is ignored without a reply. Set `PRIVATE_MODE=false`
