@@ -7,6 +7,7 @@ import copy
 import gzip
 import io
 import json
+import logging
 import os
 import platform
 import sqlite3
@@ -19,10 +20,11 @@ import traceback
 import discord
 from discord.ext import commands
 
-from core import gitinfo
+from core import gitinfo, redact
 from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, fmt_duration, shorten, ts
 
+log = logging.getLogger("veil.owner")
 BOT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # code that is imported once at startup and can't be swapped safely while the bot runs
 RESTART_PATHS = ("core/", "main.py")
@@ -223,7 +225,7 @@ class Owner(commands.Cog):
     @commands.command(hidden=True, aliases=["errs"])
     async def errors(self, ctx: Context):
         """Recent command errors (since the last restart)"""
-        lines = [f"`#{r['id']}` **{r['command']}** {ts(r['time'])} — {shorten(r['error'], 90)}"
+        lines = [f"`#{r['id']}` **{r['command']}** {ts(r['time'])} — {shorten(redact.scrub(r['error']), 90)}"
                  for r in self.bot.recent_errors]
         await ctx.paginate(chunk_embeds("Recent errors", lines, numbered=False) or
                            [discord.Embed(color=Colors.success, description="✅ No errors since the last restart")])
@@ -239,12 +241,13 @@ class Owner(commands.Cog):
             r = next((x for x in self.bot.recent_errors if x["id"] == error_id), None)
             if not r:
                 raise UserError(f"No recent error with ID `#{error_id}`")
-        e = discord.Embed(color=Colors.error, title=f"Error #{r['id']} in {r['command']}", description=f"`{r['error']}`")
+        e = discord.Embed(color=Colors.error, title=f"Error #{r['id']} in {r['command']}",
+                          description=f"`{redact.scrub(r['error'])}`")
         e.add_field(name="Message", value=r["content"] or "—", inline=False)
         e.add_field(name="User", value=f"<@{r['user']}> (`{r['user']}`)")
         e.add_field(name="Server", value=f"`{r['guild']}`")
         e.add_field(name="When", value=ts(r["time"]))
-        await ctx.send(embed=e, file=discord.File(io.BytesIO(r["traceback"].encode()), f"error-{r['id']}.txt"))
+        await ctx.send(embed=e, file=discord.File(io.BytesIO(redact.scrub(r["traceback"]).encode()), f"error-{r['id']}.txt"))
 
     @commands.command(name="traceback", hidden=True, aliases=["tb", "lasttraceback", "lastlog"])
     async def cmd_traceback(self, ctx: Context):
@@ -252,7 +255,7 @@ class Owner(commands.Cog):
         if not self.bot.recent_errors:
             return await ctx.neutral("no errors recorded since the last restart")
         r = self.bot.recent_errors[-1]
-        tb = r.get("traceback", "No traceback available")
+        tb = redact.scrub(r.get("traceback", "No traceback available"))
         if len(tb) > 3800:
             tb = tb[-3800:]
         e = discord.Embed(
@@ -418,33 +421,33 @@ class Owner(commands.Cog):
     # ================================================================ process
     @commands.command(hidden=True, aliases=["pull", "updatebot", "botupdate", "syncgit"])
     async def gitpull(self, ctx: Context):
-        """Pull the latest code from GitHub main; reloads changed cogs, or restarts if core files changed"""
-        msg = await ctx.send("🔄 Pulling latest commits from GitHub...")
+        """Pull the latest update; reloads changed cogs, or restarts if core files changed"""
+        msg = await ctx.send("🔄 Pulling the latest update...")
         try:
             result = await asyncio.to_thread(gitinfo.pull, BOT_ROOT)
         except Exception as e:
-            return await msg.edit(content=f"❌ Failed to git pull: `{e}`")
+            return await msg.edit(content=f"❌ Failed to pull the update: `{redact.scrub(e)}`")
+        # Everything below is posted where server administrators can read it: short commit IDs only, never the
+        # account, repository, remote address or commit titles (those go to the host console).
         if not result.ok:
-            return await msg.edit(content=f"❌ Couldn't pull from GitHub: {result.error}")
+            return await msg.edit(content=f"❌ Couldn't pull the update: {redact.scrub(result.error)}")
 
         new = result.new
-        slug = gitinfo.repo_slug(result.remote)
-        source = f"`{slug}`" if slug else (f"`{result.remote}`" if result.remote else "an unknown remote")
         notes = []
+        slug = gitinfo.repo_slug(result.remote)
         if slug and slug.lower() != gitinfo.EXPECTED_REPO.lower():
-            notes.append(f"⚠️ This folder pulls from {source}, not `{gitinfo.EXPECTED_REPO}`. "
-                         "Fix the Git repo address in the host panel.")
+            log.warning("This folder pulls from %s, not %s", slug, gitinfo.EXPECTED_REPO)
+            notes.append("⚠️ This folder pulls from a different repository than the bot expects. "
+                         "Fix the Git repo address in the host panel (the console says which).")
         # what the running process has loaded can lag the files (a restart skipped, a host that pulled on its own)
         loaded = getattr(self.bot, "loaded_commit", "")
         base = loaded if isinstance(loaded, str) and loaded else result.old
         changed = result.changed if base == result.old else gitinfo.changed_files(BOT_ROOT, base, new)
         if base == new:
-            text = f"✅ Already up to date (`{new[:7]}`) · {shorten(result.subject, 80)}\n-# from {source}"
-            return await msg.edit(content="\n".join([text, *notes]))
+            return await msg.edit(content="\n".join([f"✅ Already up to date (`{new[:7]}`)", *notes]))
 
         plan = plan_update(changed, set(self.bot.extensions))
-        head = (f"**Git Sync**: `{base[:7]}` → `{new[:7]}` · "
-                f"{len(changed) if changed is not None else '?'} file(s) changed\n-# {shorten(result.subject, 80)} · from {source}")
+        head = f"**Update**: `{base[:7]}` → `{new[:7]}` · {len(changed) if changed is not None else '?'} file(s) changed"
         if plan.deps_changed:
             notes.append("⚠️ `requirements.txt` changed: restart from your hosting panel so new packages install.")
 
@@ -452,8 +455,7 @@ class Owner(commands.Cog):
             desc = head + "\n\n🔁 " + plan.restart_reason + " Restarting so everything loads fresh…"
             if notes:
                 desc += "\n" + "\n".join(notes)
-            await msg.edit(content=None, embed=discord.Embed(title="Bot Updated via GitHub", color=Colors.warn,
-                                                             description=desc))
+            await msg.edit(content=None, embed=discord.Embed(title="Bot Updated", color=Colors.warn, description=desc))
             return await self._restart(ctx, msg)
 
         reloaded, failed = [], []
@@ -462,7 +464,7 @@ class Owner(commands.Cog):
                 await self.bot.reload_extension(ext)
                 reloaded.append(ext.removeprefix("cogs."))
             except Exception as e:
-                failed.append(f"{ext.removeprefix('cogs.')}: {e}")
+                failed.append(f"{ext.removeprefix('cogs.')}: {redact.scrub(e)}")
         if not failed:
             self.bot.loaded_commit = new
 
@@ -473,27 +475,23 @@ class Owner(commands.Cog):
             desc += f"\n❌ **Failed ({len(failed)})**: " + ", ".join(f"`{f}`" for f in failed)
         if notes:
             desc += "\n" + "\n".join(notes)
-        await msg.edit(content=None, embed=discord.Embed(title="Bot Updated via GitHub", description=desc,
+        await msg.edit(content=None, embed=discord.Embed(title="Bot Updated", description=desc,
                                                          color=Colors.success if not failed else Colors.warn))
 
     @commands.command(hidden=True, aliases=["ver", "build"])
     async def version(self, ctx: Context):
-        """Which commit the bot is running, what's on disk and what GitHub's main is, with what to do about a mismatch"""
+        """Which update the bot is running, what's on disk and what's the latest, with what to do about a mismatch"""
         async with ctx.typing():
             snap = await asyncio.to_thread(gitinfo.snapshot, BOT_ROOT)
             remote_sha, remote_error = await asyncio.to_thread(gitinfo.remote_head, BOT_ROOT)
         loaded = getattr(self.bot, "loaded_commit", "")
         loaded = loaded if isinstance(loaded, str) else ""
-        loaded_subject = await asyncio.to_thread(gitinfo.subject_of, BOT_ROOT, loaded)
-        ok, advice = gitinfo.verdict(loaded, snap.sha, remote_sha, remote_error, snap.slug)
+        ok, advice = gitinfo.verdict(loaded, snap.sha, remote_sha, redact.scrub(remote_error), snap.slug)
 
-        def line(label: str, sha: str, subject: str = "") -> str:
-            return f"**{label}** `{sha[:7] or 'unknown'}`" + (f" · {shorten(subject, 70)}" if subject else "")
-
-        lines = [line("Running", loaded, loaded_subject),
-                 line("On disk", snap.sha, snap.subject),
-                 line("GitHub main", remote_sha) if remote_sha else "**GitHub main** unavailable",
-                 f"**Pulls from** `{snap.slug or snap.remote or 'no remote'}` · branch `{snap.branch or 'unknown'}`"]
+        # short commit IDs only: no account, repository, remote address or commit titles in a channel
+        lines = [f"**Running** `{loaded[:7] or 'unknown'}`",
+                 f"**On disk** `{snap.short}`",
+                 f"**Latest** `{remote_sha[:7]}`" if remote_sha else "**Latest** unavailable"]
         if snap.edited:
             lines.append(f"**Edited by hand** {snap.edited} tracked file(s)")
         lines += ["", ("✅ " if ok else "⚠️ ") + advice]
@@ -650,7 +648,7 @@ class Owner(commands.Cog):
         try:
             exec(body, env)
         except Exception:
-            tb = traceback.format_exc()
+            tb = redact.scrub(traceback.format_exc())
             return await ctx.send(embed=discord.Embed(
                 title="❌ Syntax / Compile Error",
                 description=f"```py\n{tb[-1800:]}```",
@@ -662,7 +660,7 @@ class Owner(commands.Cog):
             with contextlib.redirect_stdout(stdout):
                 ret = await _eval_fn()
         except Exception:
-            tb = traceback.format_exc()
+            tb = redact.scrub(traceback.format_exc())
             elapsed_ms = (time.perf_counter() - t_start) * 1000
             e = discord.Embed(
                 title="❌ Execution Error",

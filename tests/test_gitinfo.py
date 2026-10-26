@@ -170,6 +170,7 @@ def test_verdict_prefers_the_most_useful_advice():
     ok, text = gitinfo.verdict(sha_a, sha_b, sha_b, "", repo)
     assert not ok and ",restart" in text
     ok, text = gitinfo.verdict(sha_a, sha_a, "", "Permission denied", repo)
-    assert not ok and "Couldn't reach GitHub" in text
+    assert not ok and "Couldn't check for updates" in text
     ok, text = gitinfo.verdict(sha_a, sha_a, sha_a, "", "someone/else")
-    assert not ok and "someone/else" in text
+    assert not ok and "different repository" in text
+    assert "someone" not in text and "else" not in text.replace("Fix the Git repo address", "")

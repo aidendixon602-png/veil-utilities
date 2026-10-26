@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Status:** the bot's presence is now only `Protecting X guilds | Y users` (refreshed when it joins or leaves a
+  server and every 5 minutes). The rotating lines and the `STATUS` setting are gone; a status saved by an older
+  version is cleared once. Developers can still override it with `,setstatus`.
+- **`#veil-errors` and `#veil-auth` live under VEIL LOGS**, the same category as the server's log channels (made if
+  missing); channels created earlier at the top level are moved in on the next start.
+
+### Security
+
+- **Nothing private is posted where server admins can read it.** Tracebacks, error reasons, `,eval`/`,error`
+  output, `,gitpull` and `,version` are scrubbed of bot tokens and every secret from `.env`, GitHub tokens,
+  credentials in URLs, GitHub addresses, the repository owner/name and the bot's folder path. `,gitpull`/`,version`
+  show short commit IDs only (no repository, account or commit titles). Command log cards for developer commands
+  show the command name with "arguments hidden".
+
 ### Added
 
 - **`,version` and a self-explaining update.** `,version` shows the commit the bot is running, the one on disk and

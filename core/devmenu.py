@@ -71,9 +71,9 @@ SECRET_CATEGORIES = {
     "runtime": {
         "title": "⚙️ Runtime & Process Management",
         "badge": "Runtime",
-        "desc": "Bot lifecycle, hot-reloading from GitHub, maintenance, and emergency killswitches.",
+        "desc": "Bot lifecycle, hot-reloading updates, maintenance, and emergency killswitches.",
         "commands": [
-            ("gitpull", "", "Pull GitHub main: reloads changed cogs, restarts by itself if core files changed"),
+            ("gitpull", "", "Pull the latest update: reloads changed cogs, restarts by itself if core files changed"),
             ("restart", "[seconds=3]", "Restart in a fresh process (loads all code from disk) and announce when back"),
             ("reload", "[module]", "Reload one cog or all cogs (core/ changes need restart)"),
             ("shutdown", "", "Safely shut down the bot container process"),

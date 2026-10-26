@@ -134,12 +134,13 @@ or run `,gitpull` in Discord. `,gitpull` reloads changed cogs straight away and 
 changed. If `requirements.txt` changed, restart from the panel so new packages get installed. Your `.env` and database stay untouched because they aren't in git.
 
 ## 5. Checking that the host really runs the newest code
-- **`,version`** (developers) shows the commit the bot is running, the commit on disk and GitHub's `main`, where the
-  folder pulls from, and what to do if they differ (`,gitpull`, `,restart`, or fixing the repo address).
+- **`,version`** (developers) shows the commit the bot is running, the commit on disk and the latest one, and what
+  to do if they differ (`,gitpull`, `,restart`, or fixing the repo address). Only short commit IDs are posted in
+  Discord: the repository, account and commit titles stay in the host console.
 - **The console** prints one `[git]` line on every start: `updated abc1234 -> def5678`, `up to date at …`, or
   `sync FAILED, still running …` with the reason (GitHub login rejected, host can't reach GitHub, wrong repo address,
   folder isn't a git checkout). The startup box also lists the **Running Commit**.
-- **`,gitpull`** reports the same reasons in Discord instead of a bare error, and names the repo it pulled from.
+- **`,gitpull`** reports the same reasons in Discord instead of a bare error.
 - Files edited by hand on the host no longer stop updates: your changes are saved to `local-edits-<date>.patch` in
   the bot folder and the sync carries on. Set `AUTO_SYNC_GIT=0` in `.env` to stop the bot pulling at all.
 

@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterable
 
 import discord
 
+from core import redact
 from core.utils import Colors, fmt_duration, shorten, ts
 
 AUDIT_SETTLE = 0.6  # seconds to let Discord write the audit-log entry before we look for it
@@ -564,9 +565,14 @@ def voice_changed(m: discord.Member, before: discord.VoiceState, after: discord.
 def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = None, ms: float | None = None,
                  error: str | None = None) -> discord.Embed:
     """One card per command run: who, what, where, with which authority, and how it ended."""
-    content = ctx.message.content.strip()
-    shown = f"```{shorten(content, 900)}```" if ("\n" in content or len(content) > 100) else f"`{shorten(content, 900)}`"
     command = getattr(ctx, "command", None)
+    if command is not None and (getattr(command, "hidden", False) or getattr(command, "cog_name", None) == "Owner"):
+        # developer commands can carry code, queries or secrets, and these cards are readable by server admins
+        content = f"{getattr(ctx, 'prefix', '') or ''}{command.qualified_name}"
+        shown = f"`{content}` · arguments hidden"
+    else:
+        content = redact.scrub(ctx.message.content.strip())
+        shown = f"```{shorten(content, 900)}```" if ("\n" in content or len(content) > 100) else f"`{shorten(content, 900)}`"
     failed = error is not None
     jump = getattr(ctx.message, "jump_url", None)
     where = f"{ctx.channel.mention}" + (f"\n[Jump to message]({jump})" if jump else "")
@@ -584,7 +590,7 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
         if invoked and invoked != command.name.lower() and invoked in [a.lower() for a in getattr(command, "aliases", [])]:
             fields.append(("Alias used", f"`{invoked}`", True))
     if failed:
-        fields.append(("Error", quote(error, 300), False))
+        fields.append(("Error", quote(redact.scrub(error), 300), False))
     return detail(Colors.error if failed else Colors.blurple,
                   titled("Command Failed" if failed else "Command Used", ctx.author), subject=ctx.author, fields=fields,
                   ids=[("User ID", ctx.author.id)] + ([("Message ID", ctx.message.id)] if hasattr(ctx.message, "id") else []))

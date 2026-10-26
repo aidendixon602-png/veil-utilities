@@ -14,6 +14,7 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
+from core import redact
 from core.config import settings
 from core.help import Help
 from core.net import make_public_session
@@ -68,6 +69,11 @@ def _lower_first(text: str) -> str:
     return text
 
 
+def protecting_text(guilds: int, users: int) -> str:
+    """'Protecting 3 guilds | 1,204 users' (singular when there is exactly one)."""
+    return f"Protecting {guilds:,} guild{'' if guilds == 1 else 's'} | {users:,} user{'' if users == 1 else 's'}"
+
+
 class Veil(commands.AutoShardedBot):
     def __init__(self, intents: discord.Intents | None = None, connector: aiohttp.BaseConnector | None = None):
         from core import perms as _perms
@@ -89,11 +95,6 @@ class Veil(commands.AutoShardedBot):
             except Exception:
                 connector = None
 
-        initial_status_text = (
-            settings.status
-            if settings.status and settings.status not in ("veil utilities | ,help", "default", "dynamic")
-            else f"🛡️ Midtown Events Department • {settings.prefix}help"
-        )
         super().__init__(
             command_prefix=self._get_prefix,
             intents=intents or discord.Intents.all(),
@@ -103,7 +104,7 @@ class Veil(commands.AutoShardedBot):
             owner_ids=owners or None,
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, replied_user=False),
             status=self.presence_status,
-            activity=discord.CustomActivity(name=initial_status_text),
+            # no activity until the guilds are known (on_ready): "Protecting 0 guilds" would flash first
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
             proxy=settings.proxy,
@@ -173,6 +174,8 @@ class Veil(commands.AutoShardedBot):
         }
         if persisted_status and persisted_status in STATUS_MAP:
             self.presence_status = STATUS_MAP[persisted_status]
+        if self.forget_old_status(g):
+            await self.db.set_config(0, "global", g)
         self.maintenance = g.get("maintenance")
         self.maintenance_until = g.get("maintenance_until")
         self._maintenance_channel_id = g.get("maintenance_channel_id")
@@ -216,7 +219,7 @@ class Veil(commands.AutoShardedBot):
                 await session.close()
         await self.db.close()
 
-    @tasks.loop(minutes=1.5)
+    @tasks.loop(minutes=5)  # member counts drift; joins and leaves of servers refresh it straight away
     async def presence_rotator(self):
         await self.update_dynamic_status()
 
@@ -224,36 +227,30 @@ class Veil(commands.AutoShardedBot):
     async def before_presence_rotator(self):
         await self.wait_until_ready()
 
+    @staticmethod
+    def forget_old_status(g: dict) -> bool:
+        """Once: drop a status text saved by an older version (they rotated lines and could save a custom one) so
+        the "Protecting X guilds | Y users" line shows. `,setstatus <text>` still works afterwards. True if changed."""
+        if g.get("status_v2"):
+            return False
+        g.pop("custom_status_text", None)
+        g["status_v2"] = True
+        return True
+
+    def protecting_text(self) -> str:
+        """The status line: how many servers and users the bot protects (users are summed over the servers)."""
+        return protecting_text(len(self.guilds), sum(g.member_count or 0 for g in self.guilds))
+
     async def update_dynamic_status(self):
         try:
-            users = sum(g.member_count or 0 for g in self.guilds)
-            guilds = len(self.guilds)
-            custom_text = None
+            custom_text = None  # only a developer's `,setstatus <text>` replaces the default line
             if hasattr(self, "db") and getattr(self.db, "is_connected", True):
                 try:
                     g = await self.db.get_config(0, "global")
                     custom_text = g.get("custom_status_text")
                 except Exception:
                     pass
-            if custom_text:
-                text = custom_text
-            else:
-                status_template = settings.status
-                if not status_template or status_template in ("veil utilities | ,help", "default", "dynamic", "🛡️ Midtown Events Department • ,help"):
-                    statuses = [
-                        f"🛡️ Midtown Events Department • {self.default_prefix}help",
-                        f"⚡ veil utilities • {users:,} members",
-                        f"✨ Protecting Midtown Community • {self.default_prefix}help",
-                    ]
-                    idx = getattr(self, "_presence_index", 0)
-                    text = statuses[idx % len(statuses)]
-                    self._presence_index = idx + 1
-                else:
-                    try:
-                        text = status_template.format(users=users, guilds=guilds, prefix=self.default_prefix)
-                    except Exception:
-                        text = status_template
-            activity = discord.CustomActivity(name=text)
+            activity = discord.CustomActivity(name=custom_text or self.protecting_text())
             await self.change_presence(status=self.presence_status, activity=activity)
         except Exception:
             pass
@@ -622,12 +619,13 @@ class Veil(commands.AutoShardedBot):
             if isinstance(error, discord.HTTPException):
                 return await ctx.fail(f"failed: Discord rejected that (`{error.text or error.status}`)")
             tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-            log.error("Unhandled error in %s:\n%s", ctx.command, tb)
+            log.error("Unhandled error in %s:\n%s", ctx.command, tb)  # the host console keeps everything
             self._error_seq += 1
+            # what is remembered and posted is scrubbed: server admins can read the channels and commands that show it
             record = {"id": self._error_seq, "command": ctx.command.qualified_name if ctx.command else "?",
-                      "content": ctx.message.content[:300], "user": ctx.author.id,
+                      "content": redact.scrub(ctx.message.content[:300]), "user": ctx.author.id,
                       "guild": ctx.guild.id if ctx.guild else None, "time": time.time(),
-                      "error": f"{type(error).__name__}: {error}", "traceback": tb}
+                      "error": redact.scrub(f"{type(error).__name__}: {error}"), "traceback": redact.scrub(tb)}
             self.recent_errors.appendleft(record)
             # don't echo the exception message itself: it can contain file paths, SQL or other internals.
             # developers can see the full details with the error ID (and in the private #veil-errors channel).

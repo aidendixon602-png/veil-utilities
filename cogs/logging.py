@@ -13,11 +13,12 @@ import aiohttp
 import discord
 from discord.ext import commands
 
+from core import devchannels
 from core import logembeds as fmt
 from core.utils import Colors, Context, Ignored, OwnedView, UserError, has_perms, respond_or_edit
 
 OFF = -1  # stored instead of a channel id when a category is switched off on purpose
-CATEGORY_NAME = "VEIL LOGS"
+CATEGORY_NAME = devchannels.LOGS_CATEGORY
 
 
 @dataclass(frozen=True)
