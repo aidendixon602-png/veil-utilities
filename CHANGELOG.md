@@ -129,6 +129,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`,logs setup` didn't move or update anything** when the server already had log channels ("Everything was
+  already set up"). It now gives every category its own channel when several share the old catch-all
+  `#veil-utilities-logging` (the dedicated ones like `#bans` or `#command-logs` are kept), moves every log channel
+  into VEIL LOGS (permissions untouched; channels like `#general` or `#roles` are never moved), lists channels that no
+  longer get logs instead of deleting them, and also files `#veil-errors`/`#veil-auth` there. A channel named
+  `join-logs` now wins over the member-log fallback for joins and leaves.
 - **Help pages broke their own formatting.** A description cut short inside `code` (e.g. `bump`) left a backtick
   open, so the rest of the page rendered as code with raw `**` showing. Descriptions are now shortened at a word
   and never leave code, bold, spoilers or brackets open.

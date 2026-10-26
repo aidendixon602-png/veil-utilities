@@ -36,7 +36,8 @@ class Obj(SimpleNamespace):
 def text_channel(cid: int, name: str, *, can_send: bool = True):
     ch = MagicMock(spec=discord.TextChannel)  # a spec'd mock really is a TextChannel as far as isinstance goes
     ch.id, ch.name, ch.mention = cid, name, f"<#{cid}>"
-    ch.send, ch.delete = AsyncMock(), AsyncMock()
+    ch.send, ch.delete, ch.edit = AsyncMock(), AsyncMock(), AsyncMock()
+    ch.category_id, ch.topic = None, None
     ch.permissions_for.return_value = SimpleNamespace(view_channel=can_send, send_messages=can_send, embed_links=can_send)
     return ch
 
@@ -169,7 +170,9 @@ def creating_guild(existing=(), **kw):
         return ch
 
     async def create_category(name, **kwargs):
-        return SimpleNamespace(id=99, name=name)
+        cat = SimpleNamespace(id=99, name=name)
+        guild.categories.append(cat)
+        return cat
 
     guild = make_guild(existing, **kw)
     guild.create_text_channel, guild.create_category = create_text_channel, create_category
@@ -1081,3 +1084,53 @@ def test_every_log_command_needs_manage_server(loaded_bot):
     for cmd in [loaded_bot.get_command("logs"), *loaded_bot.get_command("logs").walk_commands(),
                 loaded_bot.get_command("setuplogs")]:
         assert getattr(cmd.callback, "__veil_perms__", None) or cmd.checks, cmd.qualified_name
+
+
+def test_setup_splits_the_old_catch_all_channel_and_files_log_channels_under_veil_logs():
+    """The server from the screenshot: everything pointed at #veil-utilities-logging, log channels at the top."""
+    async def go():
+        veil = text_channel(1, "veil-utilities-logging")
+        joins, bans, cmds, anti = (text_channel(2, "join-logs"), text_channel(3, "bans"),
+                                   text_channel(4, "command-logs"), text_channel(5, "antinuke-logs"))
+        general, roles = text_channel(6, "general"), text_channel(7, "roles")
+        anti.category_id = 50
+        guild, created = creating_guild([veil, joins, bans, cmds, anti, general, roles])
+        guild.categories = [SimpleNamespace(id=50, name="VEIL LOGS")]
+        shared = {k: 1 for k in ("messages", "members", "roles", "channels", "voice", "server")}
+        cog, store = make_cog({**shared, "bans": 3, "commands": 4, "antinuke": 5})
+
+        report = await cog.organize(guild)
+
+        assert {c.name for c in report.created} == {"message-logs", "member-logs", "role-logs", "channel-logs",
+                                                    "voice-logs", "server-logs"}
+        assert all(kwargs["category"].id == 50 for _, kwargs in created)       # made inside the existing category
+        assert {c.name for c in report.moved} == {"join-logs", "bans", "command-logs"}
+        for ch in (joins, bans, cmds):
+            assert ch.edit.await_args.kwargs["category"].id == 50
+        anti.edit.assert_not_awaited()                                         # already there
+        general.edit.assert_not_awaited() and roles.edit.assert_not_awaited()  # never touch non-log channels
+        veil.edit.assert_not_awaited()
+        assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # listed, not deleted
+        veil.delete.assert_not_awaited()
+        assert store["logs"]["bans"] == 3 and store["logs"]["commands"] == 4  # dedicated ones kept
+        assert store["logs"]["messages"] != 1
+    asyncio.run(go())
+
+
+def test_a_second_setup_changes_nothing():
+    async def go():
+        guild, created = creating_guild()
+        cog, _ = make_cog()
+        await cog.organize(guild)
+        for ch, _ in created:
+            ch.category_id = 99
+        again = await cog.organize(guild)
+        assert not again.created and not again.moved and not again.unused
+    asyncio.run(go())
+
+
+def test_a_channel_named_for_joins_beats_the_member_log_fallback():
+    joins, members = text_channel(2, "join-logs"), text_channel(8, "member-logs")
+    guild = make_guild([joins, members])
+    assert L._channel_for(guild, {"members": 8}, "joinleave") is joins
+    assert L._channel_for(guild, {"members": 8, "joinleave": OFF}, "joinleave") is None
