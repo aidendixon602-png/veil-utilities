@@ -1,4 +1,4 @@
-"""The ,help menu: slim home card, category dropdown, numbered paged lists and one card per command."""
+"""The ,help menu: plain home card, one button per category, numbered paged lists and one card per command."""
 from __future__ import annotations
 
 import asyncio
@@ -12,10 +12,11 @@ import pytest
 from discord.ext import commands, tasks
 
 from core.bot import EXTENSIONS, Veil
+from core.utils import Colors
 from core.help import (
     CATEGORIES,
     PAGE_SIZE,
-    CategorySelect,
+    CategoryButton,
     CloseButton,
     Help,
     HelpView,
@@ -40,20 +41,20 @@ def _cmd(name: str, doc: str = "Does a thing", aliases=(), sig: str = ""):
     return SimpleNamespace(name=name, qualified_name=name, short_doc=doc, aliases=list(aliases), signature=sig)
 
 
-def _select(view: HelpView) -> CategorySelect:
-    return next(c for c in view.children if isinstance(c, CategorySelect))
+def _buttons(view: HelpView) -> list[CategoryButton]:
+    return [c for c in view.children if isinstance(c, CategoryButton)]
 
 
 def _labels(view: HelpView) -> list[str]:
-    return [o.label for o in _select(view).options]
+    return [b.label for b in _buttons(view)]
 
 
 ALL = {label: [] for label, _, _ in CATEGORIES}
 
 
-# ------------------------------------------------------------------ the dropdown
+# ------------------------------------------------------------------ the category buttons
 
-def test_dropdown_only_lists_categories_the_person_may_open():
+def test_buttons_only_list_categories_the_person_may_open():
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == {"Utility", "Music", "VoiceMaster", "Community"}
     helper = _labels(HelpView(_help(), ALL, author_rank=1))
     assert "Moderation" in helper and "Roles" not in helper and "Antinuke" not in helper
@@ -65,32 +66,60 @@ def test_dropdown_only_lists_categories_the_person_may_open():
     assert "Developer" not in head and "Secret" not in head
 
 
-def test_developers_get_the_extra_developer_entries():
-    labels = _labels(HelpView(_help(), ALL, is_owner=True))
+def test_developers_get_the_extra_developer_buttons_and_secret_is_red():
+    view = HelpView(_help(), ALL, is_owner=True)
+    labels = _labels(view)
     assert labels[-2:] == ["Developer", "Secret"]
     assert "Antinuke" in labels
+    styles = {b.label: b.style for b in _buttons(view)}
+    assert styles["Secret"] == discord.ButtonStyle.danger
+    assert styles["Utility"] == discord.ButtonStyle.secondary
 
 
-def test_options_describe_count_and_purpose_within_discords_limits():
-    cats = {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]}
-    view = HelpView(_help(), cats)
-    utility = next(o for o in _select(view).options if o.label == "Utility")
-    assert utility.description.startswith("2 commands · ")
-    assert all(len(o.description) <= 100 for o in _select(view).options)
-    assert len(_select(view).options) <= 25
+def test_buttons_are_plain_text_in_rows_of_five_with_the_usual_order():
+    view = HelpView(_help(), ALL, author_rank=99, is_owner=True)
+    assert _labels(view) == ["Utility", "Music", "Moderation", "Roles", "Permissions",
+                             "Antinuke", "Automod", "Server", "VoiceMaster", "Community",
+                             "Developer", "Secret"]
+    assert all(b.emoji is None for b in _buttons(view))
+    assert [b.row for b in _buttons(view)] == [0] * 5 + [1] * 5 + [2] * 2
 
 
-def test_current_category_is_marked_selected():
+def test_buttons_fit_discords_five_by_five_grid():
+    for rank, owner in ((0, False), (3, False), (99, True)):
+        view = HelpView(_help(), ALL, author_rank=rank, is_owner=owner, start="Utility")
+        rows: dict[int, int] = {}
+        for child in view.children:
+            rows[child.row] = rows.get(child.row, 0) + 1
+        assert max(rows) <= 4 and max(rows.values()) <= 5
+
+
+def test_current_category_is_highlighted():
     view = HelpView(_help(), {"Utility": [], "Music": []}, start="Music")
-    assert [o.label for o in _select(view).options if o.default] == ["Music"]
-    assert not any(o.default for o in _select(HelpView(_help(), {"Utility": []})).options)
+    styles = {b.label: b.style for b in _buttons(view)}
+    assert styles["Music"] == discord.ButtonStyle.primary and styles["Utility"] == discord.ButtonStyle.secondary
+    plain = HelpView(_help(), {"Utility": []})
+    assert all(b.style == discord.ButtonStyle.secondary for b in _buttons(plain))
+
+
+def test_clicking_a_button_opens_that_category():
+    async def go():
+        view = HelpView(_help(), {"Utility": [_cmd("ping", "Check latency")], "Music": []})
+        button = next(b for b in _buttons(view) if b.label == "Utility")
+        it = SimpleNamespace(response=SimpleNamespace(edit_message=AsyncMock()), user=SimpleNamespace(id=42))
+        await button.callback(it)
+        return view
+
+    view = asyncio.run(go())
+    assert view.current == "Utility"
+    assert next(b for b in _buttons(view) if b.label == "Utility").style == discord.ButtonStyle.primary
 
 
 # ------------------------------------------------------------------ buttons and paging
 
-def test_home_has_only_the_close_button_and_no_pager():
-    view = HelpView(_help(), {"Utility": []})
-    assert [type(c) for c in view.children if not isinstance(c, CategorySelect)] == [CloseButton]
+def test_home_is_just_the_category_buttons():
+    view = HelpView(_help(), {"Utility": [], "Music": []})
+    assert all(isinstance(c, CategoryButton) for c in view.children)
 
 
 def test_category_view_adds_home_and_pages_only_when_the_list_is_long():
@@ -179,7 +208,7 @@ def test_non_developers_cannot_open_the_developer_menus():
 
 def test_close_button_deletes_the_menu():
     async def go():
-        view = HelpView(_help(), {"Utility": []})
+        view = HelpView(_help(), {"Utility": []}, start="Utility")
         close = next(c for c in view.children if isinstance(c, CloseButton))
         it = SimpleNamespace(response=SimpleNamespace(defer=AsyncMock()), delete_original_response=AsyncMock())
         await close.callback(it)
@@ -199,17 +228,21 @@ def test_menu_message_is_deleted_on_timeout():
 
 # ------------------------------------------------------------------ the home card
 
-def test_home_card_is_slim_and_counts_only_what_the_person_can_see():
+def test_home_card_is_the_plain_prompt_with_the_prefix():
+    bot = SimpleNamespace(user=SimpleNamespace(name="Veil Utilities", display_avatar=SimpleNamespace(url="https://x/a.png")),
+                          is_owner=AsyncMock(return_value=False))
     h = _help()
-    cats = {"Utility": [_cmd("a"), _cmd("b")], "Moderation": [_cmd("ban")], "Antinuke": [_cmd("an")]}
-    public = h.home_embed(0, cats)
-    assert "**Prefix** `,` · 1 category · 2 commands" in public.description
-    assert "`,`" in public.description and ",help <command>" in public.description
-    assert not public.fields and public.title is None
-    staff = h.home_embed(1, cats)
-    assert "2 categories · 3 commands" in staff.description
-    dev = h.home_embed(0, cats, is_owner=True)
-    assert "3 categories · 4 commands" in dev.description
+    h.context.bot = bot
+    card = h.home_embed(0, {"Utility": [_cmd("a")]})
+    assert card.description == "Select a category below to view its commands.\nprefix: ,"
+    assert card.author.name == "Veil Utilities" and card.author.icon_url == "https://x/a.png"
+    assert card.colour.value == Colors.blurple
+    assert not card.fields and card.title is None and card.footer.text is None
+
+
+def test_home_card_copes_with_a_bot_that_has_no_user_yet():
+    card = _help().home_embed(0, {})
+    assert card.description.startswith("Select a category below") and card.author.name is None
 
 
 # ------------------------------------------------------------------ category lists
@@ -401,7 +434,7 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     categories = category_commands(loaded_bot)
     view = HelpView(h, categories, is_owner=True)
     _fits(h.home_embed(99, categories, True))
-    assert len(_select(view).options) <= 25
+    assert len(_buttons(view)) <= 20
     for label, cmds in categories.items():
         view.current = label
         for page in range(view.pages()):
