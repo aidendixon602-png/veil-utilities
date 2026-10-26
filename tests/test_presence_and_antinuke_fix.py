@@ -13,13 +13,13 @@ def test_presence_custom_and_dynamic():
     bot.change_presence = AsyncMock()
     bot.default_prefix = ","
     guild_mock = SimpleNamespace(id=1, member_count=50)
-    bot._guilds = {1: guild_mock}
+    bot._connection._guilds = {1: guild_mock}
 
     # 1. Dynamic status test
     asyncio.run(bot.update_dynamic_status())
     bot.change_presence.assert_called_once()
     act = bot.change_presence.call_args[1]["activity"]
-    assert "🛡️ Midtown Events Department • ,help" in act.name
+    assert act.name == "Protecting 1 guild | 50 users"
 
     # 2. Custom status override
     bot.change_presence.reset_mock()

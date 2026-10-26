@@ -80,26 +80,53 @@ def test_gitpull_with_cog_change_reloads_only_that_cog(monkeypatch):
 def test_gitpull_reports_a_failed_fetch_in_plain_words(monkeypatch):
     failed = gitinfo.PullResult(False, "Permission denied (publickey) — The host can't log in to GitHub.")
     cog, bot, msg = _run_gitpull(monkeypatch, None, result=failed)
-    assert "Couldn't pull from GitHub" in msg.edit.call_args.kwargs["content"]
+    assert "Couldn't pull the update" in msg.edit.call_args.kwargs["content"]
     assert "can't log in" in msg.edit.call_args.kwargs["content"]
     cog._restart.assert_not_awaited()
 
 
-def test_gitpull_up_to_date_names_the_repo_it_pulled_from(monkeypatch):
-    same = gitinfo.PullResult(True, old="c" * 40, new="c" * 40, subject="Latest",
+def test_gitpull_failures_never_show_the_repository_address(monkeypatch):
+    failed = gitinfo.PullResult(False, "fatal: unable to access 'https://user:ghp_" + "a" * 30 +
+                                "@github.com/someone/else.git/': Could not resolve host")
+    _, _, msg = _run_gitpull(monkeypatch, None, result=failed)
+    text = msg.edit.call_args.kwargs["content"]
+    assert "someone" not in text and "github.com/" not in text and "ghp_" not in text
+
+
+def _posted(msg) -> str:
+    kwargs = msg.edit.call_args.kwargs
+    embed = kwargs.get("embed")
+    return (kwargs.get("content") or "") + (embed.title or "" if embed else "") + (embed.description or "" if embed else "")
+
+
+def test_gitpull_up_to_date_shows_no_repository_details(monkeypatch):
+    same = gitinfo.PullResult(True, old="c" * 40, new="c" * 40, subject="Merge pull request #24 from someone/branch",
                               remote="git@github.com:aidendixon602-png/veil-utilities.git")
     _, _, msg = _run_gitpull(monkeypatch, None, result=same, loaded="c" * 40)
-    text = msg.edit.call_args.kwargs["content"]
-    assert "Already up to date" in text and "aidendixon602-png/veil-utilities" in text
-    assert "not `" not in text  # right repo: no warning
+    text = _posted(msg)
+    assert "Already up to date" in text and "ccccccc" in text
+    for private in ("aidendixon602", "veil-utilities", "github", "someone", "Merge pull request"):
+        assert private.lower() not in text.lower()
 
 
-def test_gitpull_warns_when_the_folder_pulls_from_another_repo(monkeypatch):
+def test_gitpull_update_card_shows_no_repository_details(monkeypatch):
+    result = gitinfo.PullResult(True, old="a" * 40, new="b" * 40, subject="Merge pull request #9 from someone/x",
+                                remote="https://github.com/someone/else.git", changed=["cogs/moderation.py"])
+    _, _, msg = _run_gitpull(monkeypatch, None, result=result, loaded="a" * 40)
+    text = _posted(msg)
+    assert "aaaaaaa" in text and "bbbbbbb" in text
+    for private in ("someone", "else.git", "github", "Merge pull request"):
+        assert private.lower() not in text.lower()
+
+
+def test_gitpull_warns_without_naming_the_other_repository(monkeypatch, caplog):
     other = gitinfo.PullResult(True, old="c" * 40, new="c" * 40, subject="x",
                                remote="https://github.com/someone/else.git")
-    _, _, msg = _run_gitpull(monkeypatch, None, result=other, loaded="c" * 40)
-    assert "someone/else" in msg.edit.call_args.kwargs["content"]
-    assert "not `aidendixon602-png/veil-utilities`" in msg.edit.call_args.kwargs["content"]
+    with caplog.at_level("WARNING", logger="veil.owner"):
+        _, _, msg = _run_gitpull(monkeypatch, None, result=other, loaded="c" * 40)
+    assert "different repository" in msg.edit.call_args.kwargs["content"]
+    assert "someone" not in msg.edit.call_args.kwargs["content"]
+    assert "someone/else" in caplog.text  # the host console still says which
 
 
 def test_gitpull_applies_files_that_are_newer_than_the_running_bot(monkeypatch):

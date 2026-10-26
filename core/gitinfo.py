@@ -177,12 +177,13 @@ def pull(root: str, timeout: int = 60) -> PullResult:
 
 def verdict(loaded: str, disk: str, remote: str, remote_error: str, slug: str | None) -> tuple[bool, str]:
     """(is everything current?, what to do next) from the commit the bot loaded, the one on disk and GitHub's."""
-    if slug and slug.lower() != EXPECTED_REPO.lower():
-        return False, f"This folder pulls from `{slug}`, not `{EXPECTED_REPO}`. Fix the Git repo address in the host panel."
+    if slug and slug.lower() != EXPECTED_REPO.lower():  # no names here: this text is posted in Discord
+        return False, ("This folder pulls from a different repository than the bot expects. "
+                       "Fix the Git repo address in the host panel (the console says which).")
     if remote_error:
-        return False, f"Couldn't reach GitHub: {remote_error}"
+        return False, f"Couldn't check for updates: {remote_error}"
     if remote and disk and remote != disk:
-        return False, "GitHub has newer code than this folder. Run `,gitpull`."
+        return False, "A newer update is available. Run `,gitpull`."
     if loaded and disk and loaded != disk:
         return False, "The files on disk are newer than the running bot. Run `,restart`."
-    return True, "Running the latest code from GitHub."
+    return True, "Running the latest code."

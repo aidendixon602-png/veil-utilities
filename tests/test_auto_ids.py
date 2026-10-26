@@ -110,7 +110,7 @@ class FakeDB:
 
 
 def make_guild(gid, *, owner=STRANGER, members=(), admin=True):
-    guild = Obj(id=gid, name=f"guild{gid}", owner_id=owner, default_role=Obj(),
+    guild = Obj(id=gid, name=f"guild{gid}", owner_id=owner, default_role=Obj(), categories=[],
                 me=Obj(guild_permissions=discord.Permissions(administrator=admin)),
                 members={m: Obj(id=m) for m in members})
     guild.get_member = lambda uid: guild.members.get(uid)
@@ -121,13 +121,27 @@ def make_bot(*guilds):
     ids = itertools.count(1000)
     channels: dict[int, SimpleNamespace] = {}
     created = []
+    made_categories = []
 
     def attach(guild):
+        async def create_category(name, **kw):
+            cat = SimpleNamespace(id=next(ids), name=name, guild=guild, kwargs=kw)
+            guild.categories.append(cat)
+            made_categories.append(cat)
+            return cat
+
         async def create_text_channel(name, **kw):
-            ch = SimpleNamespace(id=next(ids), name=name, guild=guild, kwargs=kw)
+            ch = SimpleNamespace(id=next(ids), name=name, guild=guild, kwargs=kw, category=kw.get("category"))
+            ch.category_id = ch.category.id if ch.category else None
+
+            async def edit(**changes):
+                ch.category = changes.get("category", ch.category)
+                ch.category_id = ch.category.id if ch.category else None
+            ch.edit = AsyncMock(side_effect=edit)
             channels[ch.id] = ch
             created.append(ch)
             return ch
+        guild.create_category = AsyncMock(side_effect=create_category)
         guild.create_text_channel = AsyncMock(side_effect=create_text_channel)
 
     for g in guilds:
@@ -135,6 +149,7 @@ def make_bot(*guilds):
     bot = SimpleNamespace(guilds=list(guilds), owner_ids=frozenset([DEV]), is_authorized=lambda gid: True,
                           get_guild=lambda gid: next((g for g in guilds if g.id == gid), None),
                           get_channel=channels.get, db=FakeDB(), dev_channels={})
+    bot.made_categories = made_categories
     return bot, channels, created
 
 
@@ -228,3 +243,61 @@ def test_the_authorization_alert_goes_to_the_auto_made_channel():
     bot, _, created = make_bot(home)
     asyncio.run(devchannels.ensure(bot))
     assert devchannels.channel_for(bot, "auth") is created[1]
+
+
+def test_both_channels_are_made_under_the_veil_logs_category():
+    home = make_guild(3, owner=DEV)
+    bot, _, created = make_bot(home)
+    asyncio.run(devchannels.ensure(bot))
+    assert [c.name for c in bot.made_categories] == ["VEIL LOGS"]
+    category = bot.made_categories[0]
+    assert all(c.category is category for c in created)
+    # the category is as private as the log channels ,logs setup puts in it
+    assert category.kwargs["overwrites"][home.default_role].view_channel is False
+    assert category.kwargs["overwrites"][home.me].view_channel is True
+
+
+def test_an_existing_veil_logs_category_is_reused_whatever_its_case():
+    home = make_guild(3, owner=DEV)
+    existing = SimpleNamespace(id=7, name="Veil Logs", guild=home)
+    home.categories.append(existing)
+    bot, _, created = make_bot(home)
+    asyncio.run(devchannels.ensure(bot))
+    assert not bot.made_categories
+    assert all(c.category is existing for c in created)
+
+
+def test_the_category_is_not_made_twice_on_the_next_start():
+    home = make_guild(3, owner=DEV)
+    bot, _, created = make_bot(home)
+    asyncio.run(devchannels.ensure(bot))
+    asyncio.run(devchannels.ensure(bot))
+    assert len(bot.made_categories) == 1 and len(created) == 2
+
+
+def test_channels_made_earlier_outside_the_category_are_moved_in():
+    home = make_guild(3, owner=DEV)
+    bot, channels, created = make_bot(home)
+    # what an older version left behind: both channels at the top level of the server
+    for name, key in (("veil-errors", "errors"), ("veil-auth", "auth")):
+        ch = asyncio.run(home.create_text_channel(name))
+        bot.dev_channels[key] = ch.id
+    bot.dev_channels["guild"] = 3
+    asyncio.run(devchannels.ensure(bot))
+    category = bot.made_categories[0]
+    assert len(created) == 2                       # nothing was made again
+    assert all(c.category is category for c in created)
+    assert all(c.edit.await_count == 1 for c in created)
+
+
+def test_a_refused_category_still_gets_the_channels():
+    home = make_guild(3, owner=DEV)
+    bot, _, created = make_bot(home)
+    home.create_category = AsyncMock(side_effect=discord.Forbidden(SimpleNamespace(status=403, reason="x"), "no"))
+    stored = asyncio.run(devchannels.ensure(bot))
+    assert {"errors", "auth"} <= set(stored) and all(c.category is None for c in created)
+
+
+def test_the_logs_cog_uses_the_same_category_name():
+    from cogs import logging as logs_cog
+    assert logs_cog.CATEGORY_NAME == devchannels.LOGS_CATEGORY == "VEIL LOGS"

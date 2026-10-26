@@ -210,25 +210,17 @@ def test_unassigned_member_gets_no_bot_perm():
     assert rank == 0
 
 
-def test_dynamic_presence_rotation():
+def test_presence_is_only_the_protecting_line():
     bot = Veil()
     bot.change_presence = AsyncMock()
     bot.default_prefix = ","
-    guild_mock = SimpleNamespace(id=1, member_count=100)
-    bot._guilds = {1: guild_mock}
+    bot._connection._guilds = {1: SimpleNamespace(id=1, member_count=100), 2: SimpleNamespace(id=2, member_count=1204)}
 
-    # First rotation call
-    asyncio.run(bot.update_dynamic_status())
-    bot.change_presence.assert_called_once()
-    act1 = bot.change_presence.call_args[1]["activity"]
-    assert "Midtown Events Department" in act1.name
-
-    # Second rotation call
-    bot.change_presence.reset_mock()
-    asyncio.run(bot.update_dynamic_status())
-    bot.change_presence.assert_called_once()
-    act2 = bot.change_presence.call_args[1]["activity"]
-    assert "veil utilities" in act2.name
+    for _ in range(3):  # it used to rotate through several lines; now every refresh says the same thing
+        bot.change_presence.reset_mock()
+        asyncio.run(bot.update_dynamic_status())
+        bot.change_presence.assert_called_once()
+        assert bot.change_presence.call_args[1]["activity"].name == "Protecting 2 guilds | 1,304 users"
 
 
 def test_command_category_and_rank_resolution():
@@ -394,3 +386,19 @@ def test_help_view_on_timeout_deletes_message():
 
     asyncio.run(view.on_timeout())
     assert msg.delete.called
+
+
+def test_presence_text_pluralises_and_groups_thousands():
+    from core.bot import protecting_text
+    assert protecting_text(1, 1) == "Protecting 1 guild | 1 user"
+    assert protecting_text(0, 0) == "Protecting 0 guilds | 0 users"
+    assert protecting_text(12, 3456789) == "Protecting 12 guilds | 3,456,789 users"
+
+
+def test_an_old_saved_status_is_forgotten_once_so_the_new_line_shows():
+    saved = {"custom_status_text": "✨ Protecting Midtown Community • ,help", "presence_status": "dnd"}
+    assert Veil.forget_old_status(saved) is True
+    assert "custom_status_text" not in saved and saved["presence_status"] == "dnd"
+    saved["custom_status_text"] = "set later with ,setstatus"
+    assert Veil.forget_old_status(saved) is False       # only ever once
+    assert saved["custom_status_text"] == "set later with ,setstatus"
