@@ -46,22 +46,54 @@ def load_env_file(path: str) -> None:
 
 
 def auto_sync_git() -> None:
-    """If running in a git repo on a host like Wispbyte, auto-pull latest commits from GitHub."""
+    """Pull GitHub's main on boot and say what happened, so a host never quietly keeps running old code."""
+    already_synced = os.environ.pop("VEIL_SYNCED", None) == "1"  # set by the re-exec below, once per boot
+    if already_synced:
+        return
     if os.environ.get("AUTO_SYNC_GIT", "1") == "0":
+        print("[git] auto-sync is off (AUTO_SYNC_GIT=0): running whatever is in this folder", flush=True)
         return
     try:
-        import subprocess
-        git_dir = os.path.join(ROOT, ".git")
-        if os.path.exists(git_dir):
-            status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True, text=True, timeout=5)
-            if status.returncode == 0 and status.stdout.strip():
-                print("Skipping GitHub sync: files in this folder were edited by hand (see `git status`)", flush=True)
-                return  # don't throw those edits away
-            r = subprocess.run(["git", "fetch", "origin", "main"], cwd=ROOT, capture_output=True, timeout=10)
-            if r.returncode == 0:
-                subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=ROOT, capture_output=True, timeout=10)
-    except Exception:
-        pass
+        from core import gitinfo
+        if not os.path.exists(os.path.join(ROOT, ".git")):
+            print("[git] this folder isn't a git checkout, so nothing is pulled. Set the Git repo in the panel "
+                  "or upload the files by hand.", flush=True)
+            return
+        before = gitinfo.snapshot(ROOT)
+        if before.slug and before.slug.lower() != gitinfo.EXPECTED_REPO.lower():
+            print(f"[git] WARNING: this folder pulls from {before.slug}, not {gitinfo.EXPECTED_REPO}", flush=True)
+        if before.edited:
+            patch = os.path.join(ROOT, time.strftime("local-edits-%Y%m%d-%H%M%S.patch"))
+            try:
+                diff = gitinfo._git(ROOT, "diff", "HEAD").stdout
+                with open(patch, "w", encoding="utf-8") as f:
+                    f.write(diff)
+                print(f"[git] {before.edited} file(s) were edited by hand; saved your changes to "
+                      f"{os.path.basename(patch)} and syncing anyway", flush=True)
+            except Exception:
+                print(f"[git] {before.edited} file(s) were edited by hand and couldn't be saved; "
+                      "not syncing (set AUTO_SYNC_GIT=0 to silence this)", flush=True)
+                return
+        result = gitinfo.pull(ROOT)
+        if not result.ok:
+            print(f"[git] sync FAILED, still running {before.short}: {result.error}", flush=True)
+        elif result.updated:
+            print(f"[git] updated {result.old[:7]} -> {result.new[:7]}: {result.subject}", flush=True)
+            if result.changed is None or "main.py" in result.changed:
+                os.environ["VEIL_SYNCED"] = "1"  # main.py itself changed: start again so the new one runs
+                try:
+                    sys.stdout.flush()
+                    os.execv(sys.executable, [sys.executable, os.path.join(ROOT, "main.py"), *sys.argv[1:]])
+                except OSError:
+                    os.environ.pop("VEIL_SYNCED", None)
+        else:
+            print(f"[git] up to date at {result.new[:7]}: {result.subject}", flush=True)
+    except Exception as e:
+        print(f"[git] sync error: {e}", flush=True)
+    finally:
+        # drop the copies loaded for the sync so the bot imports whatever is on disk now
+        for name in [m for m in sys.modules if m == "core" or m.startswith("core.")]:
+            del sys.modules[name]
 
 
 auto_sync_git()

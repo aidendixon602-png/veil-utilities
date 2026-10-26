@@ -122,6 +122,18 @@ def format_box(title: str, items: list[tuple[str, str]], width: int = 70, color:
     return "\n".join(lines)
 
 
+def _commit_text() -> str:
+    """The commit this folder is on, so the startup banner shows which code is running."""
+    try:
+        from core import gitinfo
+        snap = gitinfo.snapshot(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    except Exception:
+        return "unknown"
+    if not snap.sha:
+        return "unknown (not a git checkout)"
+    return f"{snap.short} · {snap.subject[:60]}" if snap.subject else snap.short
+
+
 def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
     """Gather environment and configuration diagnostics for startup."""
     import discord
@@ -144,6 +156,7 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
 
     diag = [
         ("Bot Runtime:", f"Python {platform.python_version()} ({platform.system()} {platform.machine()})"),
+        ("Running Commit:", _commit_text()),
         ("Discord API:", f"discord.py v{discord.__version__}"),
         ("Command Prefix:", f"{settings.prefix} (Default)"),
         ("Bot Developers:", f"{len(settings.owner_ids)} authorized developer(s)" if settings.owner_ids

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`,version` and a self-explaining update.** `,version` shows the commit the bot is running, the one on disk and
+  GitHub's `main`, where the folder pulls from, and what to do about a mismatch. The console prints a `[git]` line on
+  every start (updated / up to date / sync failed and why), the startup box shows the running commit, and `,gitpull`
+  names the repo it pulled from and explains failures (login rejected, GitHub unreachable, wrong repo address, not a
+  git checkout) instead of a bare git error.
 - **Detailed log cards.** Every log is now a titled card (`Roles Added — Name`) with the person's avatar and labelled
   fields instead of a one-line note. Each one shows who it is about (mention, username and ID), who caused it from
   the audit log (or "Unknown" when Discord doesn't say), and context: account age and join date, role count, the
@@ -108,6 +113,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hosts could keep running old code without saying so.** The start-up sync swallowed every failure, gave up when
+  any file had been edited by hand, and reset to `origin/main`, which a checkout cloned for another branch never
+  refreshes. It now resets to the commit it just fetched, saves hand edits to `local-edits-*.patch` and carries on,
+  says what happened, and restarts itself once if `main.py` changed in the pull. `,gitpull` also applies files that
+  are newer than the running bot even when the folder is already up to date.
 - Dashboard home page crashed with a `KeyError` (unescaped CSS braces in a `.format()` template).
 - Dashboard antinuke punishment was saved as `action`, which the antinuke never reads; it now sets `punishment`.
 - Dashboard log channels were saved under `logging.channels`, which nothing reads; they now go to `logs`.
