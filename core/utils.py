@@ -57,6 +57,8 @@ class Context(commands.Context["Veil"]):
             return None
         from core import perms
         cmd = self.command.qualified_name if self.command else ""
+        if cmd in ("userperm check", "perm check", "perms check", "uperm check", "permission check", "userperm"):
+            cmd = "permission check"
         seg = f"{self.clean_prefix}{cmd}".rstrip()
         try:
             cfg = await self.bot.db.get_config(self.guild.id, "permlevels")
@@ -65,7 +67,7 @@ class Context(commands.Context["Veil"]):
             lab = perms.label(cfg, self.author, is_owner=is_owner, is_dev=is_dev)
         except Exception:
             lab = None
-        return f"{seg} · {lab}" if lab else (seg or None)
+        return f"{seg} • {lab}" if lab else (seg or None)
 
     async def _styled(self, color: int, text: str, **kw):
         embed = discord.Embed(description=text, color=color)

@@ -28,12 +28,28 @@ class Permissions(commands.Cog):
                              has_admin=False)
 
     # ============================================================ userperm
-    @commands.group(aliases=["perm", "perms", "uperm", "ups"], case_insensitive=True, invoke_without_command=True)
+    @commands.group(aliases=["perm", "perms", "uperm", "ups", "permission", "permissions"], case_insensitive=True, invoke_without_command=True)
     @commands.guild_only()
-    async def userperm(self, ctx: Context, *, target: discord.Member | discord.Role = None):
+    async def userperm(self, ctx: Context, *, target: str = None):
         """Manage members' and roles' permission levels. Checks target if given, or shows levels."""
         if target:
-            return await self.up_check(ctx, target)
+            clean = target.strip()
+            words = clean.split(maxsplit=1)
+            if words[0].lower() in ("check", "view", "info"):
+                clean = words[1] if len(words) > 1 else None
+            if clean:
+                obj = None
+                try:
+                    obj = await commands.MemberConverter().convert(ctx, clean)
+                except Exception:
+                    try:
+                        obj = await commands.RoleConverter().convert(ctx, clean)
+                    except Exception:
+                        pass
+                if obj:
+                    return await self.up_check(ctx, obj)
+                raise UserError(f"Could not find member or role `{clean}`.")
+            return await self.up_check(ctx, ctx.author)
         await self.permlevels(ctx)
 
     @userperm.command(name="add", aliases=["set", "give"])
@@ -161,7 +177,7 @@ class Permissions(commands.Cog):
     @userperm.command(name="check", aliases=["view", "info"])
     @commands.guild_only()
     async def up_check(self, ctx: Context, target: discord.Member | discord.Role = None):
-        """Check a member's or role's permission level and what it grants"""
+        """Check a member's or role's permission level"""
         target = target or ctx.author
         cfg = await self.cfg(ctx.guild.id)
         levels = perms.all_levels(cfg)
@@ -174,44 +190,22 @@ class Permissions(commands.Cog):
                 or perms.CODE_ROLES.get(target.name.lower())
                 or (cfg.get("roles") or {}).get(str(target.id))
             )
-            e = discord.Embed(color=target.color if target.color.value else Colors.blurple)
-            e.title = f"Role: {target.name}"
-            if not rkey or rkey not in levels:
-                e.description = f"{target.mention} has no assigned permission level."
-            else:
-                info = levels[rkey]
-                e.add_field(name="Level", value=f"**{info['name']}**")
-                e.add_field(name="Rank", value=str(info["rank"]))
-                grants = "Everything (administrator)" if "administrator" in info["perms"] \
-                    else ", ".join(f"`{p.replace('_', ' ')}`" for p in info["perms"]) or "nothing"
-                e.add_field(name="Grants", value=grants, inline=False)
-            return await ctx.send(embed=e)
+            rname = levels[rkey]["name"] if (rkey and rkey in levels) else "None"
+            return await ctx.warn(f"{target.mention} - **{rname}**")
 
         if target != ctx.author and not ctx.author.guild_permissions.manage_messages:
             actor = await self.actor_rank(ctx)
             if actor < 1:
                 raise UserError("You can only check your own permission level")
 
-        e = discord.Embed(color=Colors.blurple)
-        e.set_author(name=f"{target}", icon_url=target.display_avatar.url)
-        name, source, rank = perms.member_level_info(cfg, target,
-                                                      is_owner=target.id == ctx.guild.owner_id,
-                                                      is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target))
-        if not name:
-            e.description = f"{target.mention} has no permission level."
-        else:
-            e.add_field(name="Level", value=f"**{name}**")
-            e.add_field(name="Rank", value=str(rank))
-            e.add_field(name="Granted By", value=source or "Permission system")
-            ukey = perms.user_key(cfg, target.id)
-            info = levels.get(ukey)
-            if not info and name in [lv["name"] for lv in levels.values()]:
-                info = next(lv for lv in levels.values() if lv["name"] == name)
-            if info:
-                grants = "Everything (administrator)" if "administrator" in info["perms"] \
-                    else ", ".join(f"`{p.replace('_', ' ')}`" for p in info["perms"]) or "nothing"
-                e.add_field(name="Grants", value=grants, inline=False)
-        await ctx.send(embed=e)
+        name, source, rank = perms.member_level_info(
+            cfg,
+            target,
+            is_owner=target.id == ctx.guild.owner_id,
+            is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
+        )
+        display_name = name or "None"
+        await ctx.warn(f"{target.mention} - **{display_name}**")
 
     # ============================================================ levels
     @commands.group(aliases=["plevels", "plvl"], case_insensitive=True, invoke_without_command=True)
