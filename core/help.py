@@ -1,27 +1,17 @@
-"""Public ,help: a plain home card with one button per category, numbered paged lists and one card per command.
-
-The developer-only menus (Developer overview, Secret Suite) live in core/devmenu.py.
+"""Public ,help: a plain home card and one dropdown of categories. Each category is a single page of command names;
+`,help <command>` has the details. Developers get a Developer category in the same dropdown, in the same style.
 """
 from __future__ import annotations
 
 import difflib
 import inspect
-import math
 import re
 import typing
 
 import discord
 from discord.ext import commands
 
-from core.devmenu import (  # noqa: F401  (re-exported: other modules and tests import these from core.help)
-    SECRET_CATEGORIES,
-    DeveloperView,
-    SecretHelpView,
-    developer_embed,
-    diagnostics_embed,
-    logs_embed,
-)
-from core.utils import Colors, OwnedView, respond_or_edit, shorten_md
+from core.utils import Colors, OwnedView, respond_or_edit, shorten, shorten_md
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
@@ -41,7 +31,8 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Community", ["Levels", "Giveaways", "Tickets", "Feeds", "Integrations", "Fun", "Imaging", "AI"], []),
 ]
 
-PAGE_SIZE = 10
+PAGE_SIZE = 10  # only for subcommand lists now; category pages hold every command
+DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
 HELP_COLOR = Colors.blurple
@@ -71,7 +62,6 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "VoiceMaster": "🎙️",
     "Community": "✨",
     "Developer": "⚡",
-    "Secret": "🔑",
 }
 
 # One short line per category: shown under the list title.
@@ -86,8 +76,7 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Server": "Server setup, welcome messages and settings",
     "VoiceMaster": "Temporary voice channels and VC controls",
     "Community": "Levels, tickets, giveaways, feeds, AI and fun",
-    "Developer": "Bot telemetry and diagnostics",
-    "Secret": "Developer command suite",
+    "Developer": "Bot owner tools: updates, restarts, blacklist, eval",
 }
 
 
@@ -269,146 +258,75 @@ def example_for(cmd, prefix: str) -> str:
 
 # ---------------------------------------------------------------- view components
 
-class CategoryButton(discord.ui.Button["HelpView"]):
-    """One plain button per category; the open one is highlighted and Secret stays red."""
-
-    def __init__(self, label: str, row: int, selected: bool = False):
-        style = (discord.ButtonStyle.primary if selected
-                 else discord.ButtonStyle.danger if label == "Secret" else discord.ButtonStyle.secondary)
-        super().__init__(label=label, style=style, row=row)
-        self.category = label
-
-    async def callback(self, it: discord.Interaction):
-        await self.view.show_category(it, self.category)
+def developer_commands(bot) -> list[commands.Command]:
+    """The developer-only commands (bot owner tools), shown to developers as the Developer category."""
+    cmds = []
+    for cog_name in sorted(HIDDEN_COGS):
+        cog = bot.get_cog(cog_name) if bot is not None and hasattr(bot, "get_cog") else None
+        if cog:
+            cmds += [c for c in cog.get_commands() if c.parent is None]
+    return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
 
 
-class PrevButton(discord.ui.Button["HelpView"]):
-    def __init__(self, disabled: bool, row: int = 3):
-        super().__init__(emoji="◀", style=discord.ButtonStyle.secondary, disabled=disabled, row=row)
+class CategorySelect(discord.ui.Select["HelpView"]):
+    """The one control on the menu: pick a category, the page swaps in place."""
 
-    async def callback(self, it: discord.Interaction):
-        await self.view.change_page(it, -1)
-
-
-class PageIndicator(discord.ui.Button["HelpView"]):
-    def __init__(self, page: int, pages: int, row: int = 3):
-        super().__init__(label=f"{page + 1}/{pages}", style=discord.ButtonStyle.secondary, disabled=True, row=row)
-
-
-class NextButton(discord.ui.Button["HelpView"]):
-    def __init__(self, disabled: bool, row: int = 3):
-        super().__init__(emoji="▶", style=discord.ButtonStyle.secondary, disabled=disabled, row=row)
+    def __init__(self, labels: list[str], current: str | None):
+        options = [discord.SelectOption(label=label, value=label, emoji=CATEGORY_EMOJIS.get(label),
+                                        description=CATEGORY_DESCRIPTIONS.get(label) or None,
+                                        default=(label == current))
+                   for label in labels[:25]]
+        super().__init__(placeholder="Choose a category", options=options, min_values=1, max_values=1)
 
     async def callback(self, it: discord.Interaction):
-        await self.view.change_page(it, 1)
-
-
-class HomeButton(discord.ui.Button["HelpView"]):
-    def __init__(self, row: int = 3):
-        super().__init__(label="Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=row)
-
-    async def callback(self, it: discord.Interaction):
-        await self.view.show_home(it)
-
-
-class CloseButton(discord.ui.Button["HelpView"]):
-    def __init__(self, row: int = 3):
-        super().__init__(emoji="🗑️", style=discord.ButtonStyle.secondary, row=row)
-
-    async def callback(self, it: discord.Interaction):
-        self.view.stop()
-        await it.response.defer()
-        try:
-            await it.delete_original_response()
-        except discord.HTTPException:
-            pass
-
-
-BUTTONS_PER_ROW = 5
-MAX_CATEGORY_ROWS = 4  # the last row is kept for the pager / Home / close
+        await self.view.show_category(it, self.values[0])
 
 
 class HelpView(OwnedView):
-    """Home card with a button per category; a pager appears on lists longer than a page."""
+    """The home card or a category page, with a single category dropdown under it.
+
+    Every page is built when the menu opens, so picking a category only swaps the embed: one quick edit, no
+    lookups while Discord shows the loading dots."""
 
     def __init__(self, help_cmd: Help, categories: dict[str, list[commands.Command]], start: str | None = None,
                  is_owner: bool = False, author_rank: int = 0):
         super().__init__(help_cmd.context.author.id, timeout=180)
         self.help_cmd, self.categories = help_cmd, categories
-        self.current = start
         self.is_owner = is_owner
         self.author_rank = author_rank
-        self.page = 0
         self.message: discord.Message | None = None
+        self.pages = {label: help_cmd.category_embed(label, self.commands_in(label)) for label in self.labels()}
+        self.current = start if start in self.pages else None
         self._build_items()
 
-    # -- what this person can see
     @property
     def bot(self):
         return getattr(getattr(self.help_cmd, "context", None), "bot", None)
 
     def labels(self) -> list[str]:
-        return category_labels(self.categories, self.is_owner, self.author_rank)
+        names = category_labels(self.categories, self.is_owner, self.author_rank)
+        return names + (["Developer"] if self.is_owner else [])
 
     def commands_in(self, label: str | None) -> list[commands.Command]:
+        if label == "Developer":
+            return developer_commands(self.bot) if self.is_owner else []
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank)
 
-    def pages(self) -> int:
-        return max(1, math.ceil(len(self.commands_in(self.current)) / PAGE_SIZE))
-
-    # -- layout
-    def _category_names(self) -> list[str]:
-        names = self.labels()
-        if self.is_owner:
-            names += ["Developer", "Secret"]
-        return names[:BUTTONS_PER_ROW * MAX_CATEGORY_ROWS]
+    def embed(self) -> discord.Embed:
+        if self.current is None:
+            return self.help_cmd.home_embed(self.author_rank, self.categories, self.is_owner)
+        return self.pages[self.current]
 
     def _build_items(self):
         self.clear_items()
-        names = self._category_names()
-        for i, label in enumerate(names):
-            self.add_item(CategoryButton(label, i // BUTTONS_PER_ROW, selected=(label == self.current)))
-        if self.current is None:
-            return  # the home card is just the category buttons
-        row = min(max(1, math.ceil(len(names) / BUTTONS_PER_ROW)), MAX_CATEGORY_ROWS)
-        pages = self.pages()
-        if pages > 1:
-            self.add_item(PrevButton(self.page <= 0, row))
-            self.add_item(PageIndicator(self.page, pages, row))
-            self.add_item(NextButton(self.page >= pages - 1, row))
-        self.add_item(HomeButton(row))
-        self.add_item(CloseButton(row))
-
-    # -- navigation
-    async def show_home(self, it: discord.Interaction):
-        self.current, self.page = None, 0
-        self._build_items()
-        await respond_or_edit(it, self.help_cmd.home_embed(self.author_rank, self.categories, self.is_owner), self)
+        self.add_item(CategorySelect(self.labels(), self.current))
 
     async def show_category(self, it: discord.Interaction, label: str):
-        if label in ("Developer", "Secret"):
-            if not self.is_owner:
-                return await it.response.send_message("🔒 This category is restricted to bot developers.", ephemeral=True)
-            self.current, self.page = label, 0
-            if label == "Developer":
-                view = DeveloperView(self.help_cmd, it.user.id)
-                embed = await self.help_cmd.developer_embed()
-            else:
-                view = SecretHelpView(self.help_cmd.context, help_cmd=self.help_cmd, initial_category="tokens")
-                embed = view.get_embed()
-            return await respond_or_edit(it, embed, view)
-
-        if not self.is_owner and self.author_rank < CATEGORY_MIN_RANKS.get(label, 0):
-            return await it.response.send_message("🔒 You do not have permission to view this category.", ephemeral=True)
-
-        self.current, self.page = label, 0
+        if label not in self.pages:  # not theirs to open (a stale menu, or a rank that changed)
+            return await it.response.send_message("🔒 You can't open that category.", ephemeral=True)
+        self.current = label
         self._build_items()
-        await respond_or_edit(it, self.help_cmd.category_embed(label, self.commands_in(label), 0), self)
-
-    async def change_page(self, it: discord.Interaction, delta: int):
-        self.page = max(0, min(self.page + delta, self.pages() - 1))
-        self._build_items()
-        await respond_or_edit(it, self.help_cmd.category_embed(self.current, self.commands_in(self.current), self.page), self)
+        await respond_or_edit(it, self.pages[label], self)
 
     async def on_timeout(self):
         if self.message:
@@ -436,24 +354,12 @@ class Help(commands.HelpCommand):
         return e
 
     def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
+        """Every command in the category on one page, names only. (`page` is ignored; kept for old callers.)"""
         p = self.context.clean_prefix
-        pages = max(1, math.ceil(len(cmds) / PAGE_SIZE))
-        page = max(0, min(page, pages - 1))
-        start = page * PAGE_SIZE
-        lines = []
-        if CATEGORY_DESCRIPTIONS.get(label):
-            lines.append(f"-# {CATEGORY_DESCRIPTIONS[label]}\n")
-        if not cmds:
-            lines.append("No commands in this category.")
-        for n, cmd in enumerate(cmds[start:start + PAGE_SIZE], start=start + 1):
-            hint = alias_hint(cmd)
-            # keep each entry on one line: the description gets whatever room the name and aliases leave
-            # (subcommands, examples and the full description are on the command's own page)
-            room = LINE_WIDTH - 6 - len(cmd.name) - len(hint.replace("*", ""))
-            lines.append(f"`{n:>2}` **{cmd.name}**{hint} — {blurb(cmd, max(24, room))}")
-        e = discord.Embed(title=f"{CATEGORY_EMOJIS.get(label, '📁')} {label}", color=HELP_COLOR,
-                          description=shorten_md("\n".join(lines), 4000))
-        e.set_footer(text=f"Page {page + 1}/{pages} · {count(len(cmds), 'command')} · {p}help <command> for details")
+        names = " · ".join(re.sub(r"([_*~|`])", r"\\\1", c.name) for c in cmds) or "No commands in this category."
+        e = discord.Embed(title=f"{CATEGORY_EMOJIS.get(label, '📁')} {label} · {count(len(cmds), 'command')}",
+                          color=HELP_COLOR, description=shorten(names, 4000))
+        e.set_footer(text=f"{p}help <command> for details")
         return e
 
     def command_embed(self, cmd: commands.Command) -> discord.Embed:
@@ -485,22 +391,6 @@ class Help(commands.HelpCommand):
         e.set_footer(text=f"Module: {module}" + (f" · {count(subs, 'subcommand')}" if subs else "")
                      + " · <required> [optional]")
         return e
-
-    # developer menus live in core/devmenu.py; these stay as thin wrappers for the views and tests
-    async def developer_embed(self) -> discord.Embed:
-        return await developer_embed(self.context)
-
-    async def diagnostics_embed(self) -> discord.Embed:
-        return await diagnostics_embed(self.context)
-
-    async def logs_embed(self) -> discord.Embed:
-        return await logs_embed(self.context)
-
-    def secret_embed(self) -> discord.Embed:
-        return SecretHelpView(self.context, help_cmd=self).get_embed()
-
-    def tokens_embed(self) -> discord.Embed:
-        return SecretHelpView(self.context, help_cmd=self, initial_category="tokens").build_tokens_embed()
 
     # ------------------------------------------------------------ who is asking
     async def is_owner_check(self) -> bool:
@@ -539,40 +429,16 @@ class Help(commands.HelpCommand):
         return 0
 
     # ------------------------------------------------------------ entry points
-    async def show_home_interaction(self, it: discord.Interaction):
-        """Back to the home card from the developer menus."""
-        categories = category_commands(self.context.bot)
-        is_owner = await self.is_owner_check()
-        rank = await self.get_author_rank()
-        view = HelpView(self, categories, None, is_owner=is_owner, author_rank=rank)
-        view.message = getattr(it, "message", None)
-        await respond_or_edit(it, self.home_embed(rank, categories, is_owner), view)
-
     async def open_menu(self, start: str | None = None):
         categories = category_commands(self.context.bot)
         is_owner = await self.is_owner_check()
         rank = await self.get_author_rank()
-        wanted = (start or "").lower()
-
-        if is_owner and wanted in ("secret", "tokens", "secrets", "secretsuite"):
-            view = SecretHelpView(self.context, help_cmd=self,
-                                  initial_category="tokens" if wanted in ("tokens", "secrets") else "all")
-            view.message = await self.context.send(embed=view.get_embed(), view=view)
-            return
-        if is_owner and wanted in ("dev", "developer"):
-            view = DeveloperView(self, self.context.author.id)
-            view.message = await self.context.send(embed=await self.developer_embed(), view=view)
-            return
-
+        if (start or "").lower() in DEVELOPER_WORDS:
+            start = "Developer" if is_owner else None
         if start is not None and not is_owner and rank < CATEGORY_MIN_RANKS.get(start, 0):
             return await self.send_error_message(f'No command or category called "{start}" found.')
-
-        view = HelpView(self, categories, start if start in categories else None, is_owner=is_owner, author_rank=rank)
-        if view.current is None:
-            embed = self.home_embed(rank, categories, is_owner)
-        else:
-            embed = self.category_embed(start, view.commands_in(start), 0)
-        view.message = await self.context.send(embed=embed, view=view)
+        view = HelpView(self, categories, start, is_owner=is_owner, author_rank=rank)
+        view.message = await self.context.send(embed=view.embed(), view=view)
 
     async def command_callback(self, ctx, /, *, command: str | None = None):
         if command:
@@ -586,10 +452,10 @@ class Help(commands.HelpCommand):
                     if not ctx.bot.get_command(wanted):
                         await self.prepare_help_command(ctx, command)
                         return await self.open_menu(label)
-            if wanted in ("dev", "developer", "secret", "tokens", "secrets", "secretsuite"):
+            if wanted in DEVELOPER_WORDS:
                 if is_owner:
                     await self.prepare_help_command(ctx, command)
-                    return await self.open_menu("developer" if wanted in ("dev", "developer") else wanted)
+                    return await self.open_menu("Developer")
                 return await self.send_error_message("No command or category called that")
         return await super().command_callback(ctx, command=command)
 

@@ -16,7 +16,7 @@
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
 
-[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Developer suite](SECRET_COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 <details>
 <summary><b>📑 Contents</b></summary>
@@ -110,10 +110,10 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 <br/>
 
 <div align="center">
-<img src="assets/help-preview.svg" alt="The ,help menu: category buttons and a paged command list" width="720"/>
+<img src="assets/help-preview.png" alt="The ,help menu: one category dropdown and every command name on one page" width="560"/>
 </div>
 
-One plain button per category you're allowed to open, numbered lists 10 to a page with ◀ ▶, 🏠 Home and 🗑 close. `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Developer** and **Secret** buttons only appear for developers. Every bot response also replies to your message (without pinging).
+One dropdown of the categories you're allowed to open; each category is a single page with every command name (no paging). `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Developer** category only appears for developers. Every bot response also replies to your message (without pinging).
 The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>
@@ -167,7 +167,7 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | Variable | Purpose |
 |---|---|
 | `DISCORD_TOKEN` | Your bot token. **Never commit it.** |
-| `OWNER_IDS` | Optional. Developers are found automatically (the owner or team of your bot's Discord application); list IDs here only to add more. Developers unlock the Secret tools and server authorization |
+| `OWNER_IDS` | Optional. Developers are found automatically (the owner or team of your bot's Discord application); list IDs here only to add more. Developers unlock the Developer commands and server authorization |
 | `AUTH_REQUIRED` | `true` = only authorized servers can use the bot |
 | `PRIVATE_MODE` | `true` (default) = only developers, server owners and people with a permission level can run commands; everyone else and DMs are ignored silently. `false` opens public commands to every member |
 | `LOW_MEMORY` | `true` on small hosts: smaller caches and image limits |
@@ -188,7 +188,7 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 
 ## 👑 Developer tools
 
-Hidden from everyone else and listed under **Secret** in the help menu (or `,secret` / `,developer`):
+Hidden from everyone else and listed under **Developer** in the help menu (or `,dev` / `,secret`):
 
 | Command | What it does |
 |---|---|
@@ -229,8 +229,7 @@ veil-utilities/
 │   ├── config.py            typed, validated settings loaded from .env
 │   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
 │   ├── dashboard.py         opt-in web dashboard with Discord login
-│   ├── help.py              the ,help menu: category buttons, paged lists, command cards
-│   ├── devmenu.py           developer-only menus (telemetry, Secret Suite)
+│   ├── help.py              the ,help menu: category dropdown, one page per category, command cards
 │   ├── modlog.py            numbered moderation cases
 │   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
 │   ├── perms.py             named permission levels & staff hierarchy
@@ -244,7 +243,6 @@ veil-utilities/
 ├── tests/                   216 tests + docs check; all run on every push
 ├── lavalink/                optional music server config
 ├── COMMANDS.md              auto-generated reference of all 473 commands
-├── SECRET_COMMANDS.md       complete reference of all 40 developer secret suite commands
 ├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
 ├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE
 └── .github/                 CI, dependabot, issue and PR templates
@@ -259,7 +257,7 @@ veil-utilities/
 - [x] PostgreSQL backend option for large deployments
 - [x] Audit pass over automod · logging · permissions cogs
 - [x] Developer lockdown: hidden commands are invisible to non-developers
-- [x] Interactive Secret Developer Suite with real-time telemetry card
+- [x] Developer commands in the same help dropdown (developers only)
 - [x] Automatic developer authorization & BLED bypass
 - [ ] More image filters and AI models
 

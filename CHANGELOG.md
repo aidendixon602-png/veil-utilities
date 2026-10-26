@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`,help` is one dropdown and one page per category.** The 12 category buttons, the ◀ ▶ page row, Home and close
+  are gone: a single "Choose a category" dropdown, and each category shows every command name on one page (Community
+  was 9 pages). `,help <command>` still has the details. Every page is built when the menu opens, so a choice is one
+  quick edit.
+- **Developer and Secret menus folded into help.** Developers get a **Developer** category in the same dropdown,
+  in the same style, listing every developer command. `,dev`, `,secret` and `,help dev` open it. The old telemetry
+  card and the Secret suite (which showed the token's last characters and parts of passwords in the channel) are
+  removed; `,system`, `,version` and `,errors` still give live details.
 - **Status:** the bot's presence is now only `Protecting X guilds | Y users` (refreshed when it joins or leaves a
   server and every 5 minutes). The rotating lines and the `STATUS` setting are gone; a status saved by an older
   version is cleared once. Developers can still override it with `,setstatus`.

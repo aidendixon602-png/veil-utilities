@@ -891,24 +891,12 @@ class Owner(commands.Cog):
         except Exception as exc:
             await msg.edit(content=f"❌ Shell execution error: `{exc}`")
 
-    @commands.command(name="developer", hidden=True, aliases=["dev"])
+    @commands.command(name="developer", hidden=True, aliases=["dev", "secret", "devcommands", "secretcommands", "devhelp"])
     async def cmd_developer(self, ctx: Context):
-        """Display the developer telemetry card and interactive controls"""
+        """Open help on the Developer category (every developer command, same layout as the rest of help)"""
         help_cmd = ctx.bot.help_command.copy()
         help_cmd.context = ctx
-        embed = await help_cmd.developer_embed()
-        from core.help import DeveloperView
-        view = DeveloperView(help_cmd, ctx.author.id)
-        msg = await ctx.send(embed=embed, view=view)
-        view.message = msg
-
-    @commands.command(name="secret", hidden=True, aliases=["devcommands", "secretcommands", "devhelp"])
-    async def cmd_secret(self, ctx: Context, category: str = None):
-        """Open the interactive Secret Developer Commands Suite"""
-        from core.help import SecretHelpView
-        view = SecretHelpView(ctx, initial_category=category)
-        embed = view.get_embed()
-        view.message = await ctx.send(embed=embed, view=view)
+        await help_cmd.open_menu("Developer")
 
 
 async def setup(bot):
