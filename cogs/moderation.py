@@ -240,7 +240,7 @@ class Moderation(commands.Cog):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
         await ctx.guild.ban(user, reason=f"{ctx.author} ({ctx.author.id}): {reason}", delete_message_seconds=delete)
         num = await create_case(self.bot, ctx.guild, "ban", user, ctx.author, reason)
-        await ctx.approve(f"Banned **{user}** • case `#{num}`")
+        await ctx.approve(f"banned {user.mention} · case #{num}")
 
     @commands.command()
     @requires_uperm("admin")
@@ -250,14 +250,14 @@ class Moderation(commands.Cog):
         """Unban a user"""
         gb = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
         if gb and not await self.bot.is_owner(ctx.author):
-            raise UserError(f"**{user}** is hardbanned across the network — a developer must lift it with `unhardban`")
+            raise UserError(f"{user.mention} is hardbanned across the network, a developer must lift it with `unhardban`")
         await antinuke_guard(ctx, "unban")
         try:
             await ctx.guild.unban(user, reason=f"{ctx.author}: {reason}")
         except discord.NotFound:
-            raise UserError(f"**{user}** isn't banned")
+            raise UserError(f"{user.mention} isn't banned")
         num = await create_case(self.bot, ctx.guild, "unban", user, ctx.author, reason)
-        await ctx.approve(f"Unbanned **{user}** • case `#{num}`")
+        await ctx.approve(f"unbanned {user.mention} · case #{num}")
 
     @commands.command()
     @requires_uperm("admin")
@@ -270,7 +270,7 @@ class Moderation(commands.Cog):
         await member.ban(reason=f"softban by {ctx.author}: {reason}", delete_message_seconds=604800)
         await ctx.guild.unban(member, reason="softban")
         num = await create_case(self.bot, ctx.guild, "softban", member, ctx.author, reason)
-        await ctx.approve(f"Softbanned **{member}** • case `#{num}`")
+        await ctx.approve(f"softbanned {member.mention} · case #{num}")
 
     @commands.command(aliases=["banrecent"])
     @requires_uperm("admin")
@@ -279,7 +279,7 @@ class Moderation(commands.Cog):
     async def massban(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
         """Ban everyone who joined in the last N minutes (raid cleanup)"""
         if not 1 <= minutes <= 10080:
-            raise UserError("Minutes must be between 1 and 10080 (one week)")
+            raise UserError("minutes must be between 1 and 10080 (one week)")
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
         is_owner = ctx.author.id == ctx.guild.owner_id
         # respect the invoker's hierarchy too — fake-permission admins must not be able to sweep up senior staff
@@ -293,13 +293,13 @@ class Moderation(commands.Cog):
             and (is_owner or _perms.rank_of(pl_cfg, m, is_owner=False, is_dev=False, has_admin=False) == 0)
         ]
         if not targets:
-            raise UserError("Nobody joined in that window")
-        if not await ctx.confirm(f"Ban **{len(targets)}** members who joined in the last {minutes} minutes?"):
-            return await ctx.neutral("Cancelled")
+            raise UserError("nobody joined in that window")
+        if not await ctx.confirm(f"ban **{len(targets)}** members who joined in the last {fmt_duration(minutes * 60)}?"):
+            return await ctx.neutral("cancelled")
         await antinuke_guard(ctx, "ban", len(targets))
         result = await ctx.guild.bulk_ban(targets, reason=f"massban by {ctx.author}: {reason}")
         await create_case(self.bot, ctx.guild, "massban", ctx.author, ctx.author, f"{len(result.banned)} users: {reason}")
-        await ctx.approve(f"Banned **{len(result.banned)}** members ({len(result.failed)} failed)")
+        await ctx.approve(f"banned **{len(result.banned)}** members" + (f" · {len(result.failed)} failed" if result.failed else ""))
 
     @commands.command(aliases=["kickrecent"])
     @requires_uperm("admin")
@@ -308,7 +308,7 @@ class Moderation(commands.Cog):
     async def masskick(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
         """Kick everyone who joined in the last N minutes (raid cleanup)"""
         if not 1 <= minutes <= 10080:
-            raise UserError("Minutes must be between 1 and 10080 (one week)")
+            raise UserError("minutes must be between 1 and 10080 (one week)")
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
         is_owner = ctx.author.id == ctx.guild.owner_id
         pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and ctx.bot) else {}
@@ -321,9 +321,9 @@ class Moderation(commands.Cog):
             and (is_owner or _perms.rank_of(pl_cfg, m, is_owner=False, is_dev=False, has_admin=False) == 0)
         ]
         if not targets:
-            raise UserError("Nobody joined in that window")
-        if not await ctx.confirm(f"Kick **{len(targets)}** members who joined in the last {minutes} minutes?"):
-            return await ctx.neutral("Cancelled")
+            raise UserError("nobody joined in that window")
+        if not await ctx.confirm(f"kick **{len(targets)}** members who joined in the last {fmt_duration(minutes * 60)}?"):
+            return await ctx.neutral("cancelled")
         await antinuke_guard(ctx, "kick", len(targets))
         done, failed = 0, 0
         for m in targets:
@@ -333,7 +333,7 @@ class Moderation(commands.Cog):
             except discord.HTTPException:
                 failed += 1
         await create_case(self.bot, ctx.guild, "masskick", ctx.author, ctx.author, f"{done} users: {reason}")
-        await ctx.approve(f"Kicked **{done}** members ({failed} failed)")
+        await ctx.approve(f"kicked **{done}** members" + (f" · {failed} failed" if failed else ""))
 
     # ================================================================ kick / timeout
     @commands.command()
@@ -347,7 +347,7 @@ class Moderation(commands.Cog):
         await dm_target(member, ctx.guild, "kicked", ctx.author, reason)
         await member.kick(reason=f"{ctx.author}: {reason}")
         num = await create_case(self.bot, ctx.guild, "kick", member, ctx.author, reason)
-        await ctx.approve(f"Kicked **{member}** • case `#{num}`")
+        await ctx.approve(f"kicked {member.mention} · case #{num}")
 
     @commands.command(aliases=["mute", "to", "tmute"])
     @requires_uperm("mod")
@@ -358,13 +358,13 @@ class Moderation(commands.Cog):
         await check_hierarchy_async(ctx, member, "timeout")
         duration = duration or timedelta(minutes=5)
         if duration > timedelta(days=28):
-            raise UserError("Timeouts can be at most 28 days")
+            raise UserError("timeouts can be at most 28 days")
         await antinuke_guard(ctx, "timeout")
         await member.timeout(duration, reason=f"{ctx.author}: {reason}")
         human = fmt_duration(duration.total_seconds())
         await dm_target(member, ctx.guild, "timed out", ctx.author, reason, human)
         num = await create_case(self.bot, ctx.guild, f"timeout ({human})", member, ctx.author, reason)
-        await ctx.approve(f"Timed out **{member}** for **{human}** • case `#{num}`")
+        await ctx.approve(f"timed out {member.mention} for **{human}** · case #{num}")
 
     @commands.group(aliases=["unmute", "untime", "uto"], invoke_without_command=True)
     @requires_uperm("mod")
@@ -376,7 +376,7 @@ class Moderation(commands.Cog):
             raise UserError(f"{member.mention} isn't timed out")
         await member.timeout(None, reason=f"{ctx.author}: {reason}")
         await create_case(self.bot, ctx.guild, "untimeout", member, ctx.author, reason)
-        await ctx.approve(f"{member.mention}'s timeout has been removed.")
+        await ctx.approve(f"removed the timeout from {member.mention}")
 
     @untimeout.command(name="all")
     @requires_uperm("admin")
@@ -386,7 +386,7 @@ class Moderation(commands.Cog):
         """Remove timeouts from every timed-out member"""
         timed = [m for m in ctx.guild.members if m.is_timed_out()]
         if not timed:
-            raise UserError("Nobody is timed out")
+            raise UserError("nobody is timed out")
         done = 0
         for m in timed:
             try:
@@ -394,7 +394,7 @@ class Moderation(commands.Cog):
                 done += 1
             except discord.HTTPException:
                 pass
-        await ctx.approve(f"Removed timeouts from **{done}** member(s).")
+        await ctx.approve(f"removed the timeout from **{done}** member{'' if done == 1 else 's'}")
 
     # ================================================================ warns
     @commands.command()
@@ -409,7 +409,7 @@ class Moderation(commands.Cog):
                                             ctx.guild.id, member.id))["c"]
         await dm_target(member, ctx.guild, "warned", ctx.author, reason)
         num = await create_case(self.bot, ctx.guild, "warn", member, ctx.author, reason)
-        await ctx.approve(f"Warned **{member}** (warning **{count}**) • case `#{num}`")
+        await ctx.approve(f"warned {member.mention} (warning **{count}**) · case #{num}")
         # escalation
         rules = await self._cfg(ctx.guild.id, "warnpunish")
         action = rules.get(str(count))
@@ -424,7 +424,7 @@ class Moderation(commands.Cog):
                 elif action.startswith("timeout"):
                     secs = int(action.split(":")[1])
                     await member.timeout(timedelta(seconds=secs), reason=f"Reached {count} warnings")
-                await ctx.neutral(f"⚡ Auto-punishment: **{action.split(':')[0]}** for reaching {count} warnings")
+                await ctx.warn(f"{member.mention} reached **{count}** warnings, so I applied the auto-punishment: **{action.split(':')[0]}**")
             except discord.HTTPException:
                 pass
 
@@ -442,9 +442,9 @@ class Moderation(commands.Cog):
         elif action in ("timeout", "mute"):
             rules[str(warnings)] = f"timeout:{int((duration or timedelta(hours=1)).total_seconds())}"
         else:
-            raise UserError("Action must be `timeout`, `kick`, `ban` or `none`")
+            raise UserError("action must be `timeout`, `kick`, `ban` or `none`")
         await self.bot.db.set_config(ctx.guild.id, "warnpunish", rules)
-        await ctx.approve(f"At **{warnings}** warnings → **{action}**")
+        await ctx.approve(f"at **{warnings}** warnings: **{action}**" if action != "none" else f"removed the auto-punishment at **{warnings}** warnings")
 
     @commands.command(aliases=["warns"])
     @has_perms(moderate_members=True)
@@ -452,8 +452,10 @@ class Moderation(commands.Cog):
         """List a member's warnings"""
         rows = await self.bot.db.fetchall("SELECT * FROM warns WHERE guild_id=? AND user_id=? ORDER BY id DESC",
                                           ctx.guild.id, member.id)
+        if not rows:
+            return await ctx.warn(f"{member.mention} has no warnings")
         lines = [f"**ID {r['id']}** by <@{r['mod_id']}> {ts(r['created_at'])}\n> {r['reason']}" for r in rows]
-        await ctx.paginate(chunk_embeds(f"Warnings for {member}", lines, 5, numbered=False))
+        await ctx.paginate(chunk_embeds(f"Warnings for {member} ({len(rows)})", lines, 5, numbered=False))
 
     @commands.command(aliases=["clearwarnings"])
     @requires_uperm("mod")
@@ -463,9 +465,9 @@ class Moderation(commands.Cog):
         self._check_warn_target(ctx, member, "clear warnings for")
         cur = await self.bot.db.execute("DELETE FROM warns WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
         if cur.rowcount == 0:
-            raise UserError(f"**{member}** has no warnings")
+            raise UserError(f"{member.mention} has no warnings")
         await create_case(self.bot, ctx.guild, "clearwarns", member, ctx.author, f"Cleared {cur.rowcount} warning(s)")
-        await ctx.approve(f"Cleared **{cur.rowcount}** warning(s) for **{member}**")
+        await ctx.approve(f"cleared **{cur.rowcount}** warning{'' if cur.rowcount == 1 else 's'} for {member.mention}")
 
     @commands.command(aliases=["unwarn"])
     @requires_uperm("mod")
@@ -474,23 +476,23 @@ class Moderation(commands.Cog):
         """Delete a single warning by ID"""
         row = await self.bot.db.fetchone("SELECT user_id FROM warns WHERE guild_id=? AND id=?", ctx.guild.id, warn_id)
         if row is None:
-            raise UserError("No warning with that ID")
+            raise UserError("there is no warning with that ID")
         target = ctx.guild.get_member(row["user_id"]) or discord.Object(row["user_id"])
         self._check_warn_target(ctx, target, "remove warnings from")
         await self.bot.db.execute("DELETE FROM warns WHERE guild_id=? AND id=?", ctx.guild.id, warn_id)
-        await ctx.approve(f"Deleted warning `{warn_id}`")
+        await ctx.approve(f"deleted warning `{warn_id}`")
 
     @staticmethod
     def _check_warn_target(ctx: Context, target, action: str) -> None:
         """Mods can't wipe their own record or the record of someone at/above their top role."""
         if ctx.bot.owner_ids and target.id in ctx.bot.owner_ids:
-            raise UserError(f"You can't {action} a bot developer")
+            raise UserError(f"you can't {action} a bot developer")
         if ctx.author.id == ctx.guild.owner_id:
             return
         if target.id == ctx.author.id:
-            raise UserError(f"You can't {action} yourself")
+            raise UserError(f"you can't {action} yourself")
         if isinstance(target, discord.Member) and target.top_role >= ctx.author.top_role:
-            raise UserError(f"You can't {action} {target.mention}, their top role is equal or higher than yours")
+            raise UserError(f"you can't {action} {target.mention}, their top role is equal or higher than yours")
 
     # ================================================================ cases
     @commands.command(aliases=["history", "modlogs"])
@@ -503,8 +505,10 @@ class Moderation(commands.Cog):
         else:
             rows = await self.bot.db.fetchall("SELECT * FROM cases WHERE guild_id=? ORDER BY case_num DESC LIMIT 200",
                                               ctx.guild.id)
-        await ctx.paginate(chunk_embeds(f"Cases{f' for {user}' if user else ''}", [case_line(r) for r in rows], 6,
-                                        numbered=False))
+        if not rows:
+            return await ctx.warn(f"{user.mention} has no cases" if user else "this server has no cases yet")
+        await ctx.paginate(chunk_embeds(f"Cases{f' for {user}' if user else ''} ({len(rows)})",
+                                        [case_line(r) for r in rows], 6, numbered=False))
 
     @commands.command()
     @has_perms(moderate_members=True)
@@ -513,14 +517,14 @@ class Moderation(commands.Cog):
         row = await self.bot.db.fetchone("SELECT mod_id, user_id FROM cases WHERE guild_id=? AND case_num=?",
                                          ctx.guild.id, case)
         if row is None:
-            raise UserError(f"Case `#{case}` doesn't exist")
+            raise UserError(f"case `#{case}` doesn't exist")
         if row["user_id"] == ctx.author.id and ctx.author.id != ctx.guild.owner_id:
-            raise UserError("You can't edit a case about yourself")
+            raise UserError("you can't edit a case about yourself")
         if row["mod_id"] != ctx.author.id and await missing_perms(ctx, manage_guild=True):
-            raise UserError("You can only edit the reason on your own cases (Manage Server can edit any)")
+            raise UserError("you can only edit the reason on your own cases (Manage Server can edit any)")
         await self.bot.db.execute("UPDATE cases SET reason=? WHERE guild_id=? AND case_num=?",
                                   shorten(reason, 1000), ctx.guild.id, case)
-        await ctx.approve(f"Updated reason for case `#{case}`")
+        await ctx.approve(f"updated the reason on case #{case}")
 
     # ================================================================ purge
     async def _purge(self, ctx: Context, amount: int, check=lambda m: True):
@@ -542,7 +546,7 @@ class Moderation(commands.Cog):
 
         deleted = await ctx.channel.purge(limit=min(amount * 5, 2000), check=pred, bulk=True,
                                           reason=f"purge by {ctx.author}")
-        await ctx.approve(f"Purged **{len(deleted)}** messages", delete_after=4)
+        await ctx.approve(f"purged **{len(deleted)}** message{'' if len(deleted) == 1 else 's'}", delete_after=4)
 
     @commands.group(aliases=["clear", "c", "prune"], invoke_without_command=True)
     @requires_uperm("helper")
@@ -604,9 +608,12 @@ class Moderation(commands.Cog):
     @has_perms(manage_messages=True)
     async def purge_after(self, ctx: Context, message_id: int):
         """Delete every message after a message ID"""
-        await ctx.message.delete()
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
         deleted = await ctx.channel.purge(limit=1000, after=discord.Object(message_id), check=lambda m: not m.pinned)
-        await ctx.approve(f"Purged **{len(deleted)}** messages", delete_after=4)
+        await ctx.approve(f"purged **{len(deleted)}** message{'' if len(deleted) == 1 else 's'}", delete_after=4)
 
     @commands.command(aliases=["bc"])
     @requires_uperm("helper")
@@ -628,7 +635,7 @@ class Moderation(commands.Cog):
         ow.add_reactions = False
         ow.create_public_threads = False
         await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"lock by {ctx.author}: {reason}")
-        await ctx.approve(f"Locked {channel.mention}")
+        await ctx.approve(f"locked {channel.mention}")
 
     @commands.command()
     @requires_uperm("admin")
@@ -641,7 +648,7 @@ class Moderation(commands.Cog):
         ow.add_reactions = None
         ow.create_public_threads = None
         await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"unlock by {ctx.author}: {reason}")
-        await ctx.approve(f"Unlocked {channel.mention}")
+        await ctx.approve(f"unlocked {channel.mention}")
 
     @commands.command()
     @requires_uperm("headadmin")
@@ -664,7 +671,7 @@ class Moderation(commands.Cog):
                 locked += 1
             except discord.HTTPException:
                 pass
-        await ctx.approve(f"Locked **{locked}** channels")
+        await ctx.approve(f"locked **{locked}** channel{'' if locked == 1 else 's'}")
 
     @commands.command()
     @requires_uperm("headadmin")
@@ -682,7 +689,7 @@ class Moderation(commands.Cog):
                     n += 1
                 except discord.HTTPException:
                     pass
-        await ctx.approve(f"Unlocked **{n}** channels")
+        await ctx.approve(f"unlocked **{n}** channel{'' if n == 1 else 's'}")
 
     @commands.command()
     @requires_uperm("admin")
@@ -693,7 +700,7 @@ class Moderation(commands.Cog):
         ow = channel.overwrites_for(ctx.guild.default_role)
         ow.view_channel = False
         await channel.set_permissions(ctx.guild.default_role, overwrite=ow)
-        await ctx.approve(f"Hid {channel.mention}")
+        await ctx.approve(f"hid {channel.mention} from @everyone")
 
     @commands.command(aliases=["reveal"])
     @requires_uperm("admin")
@@ -704,7 +711,7 @@ class Moderation(commands.Cog):
         ow = channel.overwrites_for(ctx.guild.default_role)
         ow.view_channel = None
         await channel.set_permissions(ctx.guild.default_role, overwrite=ow)
-        await ctx.approve(f"Revealed {channel.mention}")
+        await ctx.approve(f"revealed {channel.mention}")
 
     @commands.command(aliases=["sm"])
     @requires_uperm("admin")
@@ -714,9 +721,9 @@ class Moderation(commands.Cog):
         channel = channel or ctx.channel
         secs = 0 if delay in ("0", "off") else int(parse_duration(delay).total_seconds())
         if secs > 21600:
-            raise UserError("Slowmode can be at most 6 hours")
+            raise UserError("slowmode can be at most 6 hours")
         await channel.edit(slowmode_delay=secs)
-        await ctx.approve(f"Slowmode in {channel.mention} set to **{fmt_duration(secs)}**" if secs else f"Disabled slowmode in {channel.mention}")
+        await ctx.approve(f"set slowmode in {channel.mention} to **{fmt_duration(secs)}**" if secs else f"turned off slowmode in {channel.mention}")
 
     @commands.command()
     @requires_uperm("headadmin")
@@ -724,8 +731,8 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_channels=True)
     async def nuke(self, ctx: Context):
         """Clone this channel and delete the original (wipes all messages)"""
-        if not await ctx.confirm(f"Nuke {ctx.channel.mention}? This deletes every message."):
-            return await ctx.neutral("Cancelled")
+        if not await ctx.confirm(f"nuke {ctx.channel.mention}? every message in it will be deleted"):
+            return await ctx.neutral("cancelled")
         await antinuke_guard(ctx, "channeldelete")
         new = await ctx.channel.clone(reason=f"nuked by {ctx.author}")
         await new.edit(position=ctx.channel.position)
@@ -983,7 +990,7 @@ class Moderation(commands.Cog):
             raise UserError(f"{member.mention} has no staff roles I can remove")
         await member.remove_roles(*roles, reason=f"stripstaff by {ctx.author}")
         await create_case(self.bot, ctx.guild, "stripstaff", member, ctx.author, f"removed {len(roles)} roles")
-        await ctx.approve(f"Stripped **{len(roles)}** staff roles from {member.mention}")
+        await ctx.approve(f"stripped **{len(roles)}** staff role{'' if len(roles) == 1 else 's'} from {member.mention}")
 
     @commands.command(aliases=["rolelist"])
     @commands.guild_only()
@@ -1045,7 +1052,7 @@ class Moderation(commands.Cog):
             del pcfg["roles"][str(role.id)]
             await self.bot.db.set_config(ctx.guild.id, "permlevels", pcfg)
 
-        await ctx.approve(f"{role.mention} has been blacklisted.")
+        await ctx.approve(f"blacklisted {role.mention}")
 
     @roleblacklist.command(name="remove", aliases=["rem", "delete"])
     @requires_uperm("admin")
@@ -1057,10 +1064,10 @@ class Moderation(commands.Cog):
         if role.lower() == "deleted":
             gone = [rid for rid in roles if ctx.guild.get_role(rid) is None]
             if not gone:
-                return await ctx.warn("No deleted roles in the blacklist.")
+                return await ctx.warn("no deleted roles in the blacklist")
             cfg["roles"] = [rid for rid in roles if rid not in gone]
             await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-            return await ctx.approve(f"Removed **{len(gone)}** deleted role(s) from the blacklist.")
+            return await ctx.approve(f"removed **{len(gone)}** deleted role{'' if len(gone) == 1 else 's'} from the blacklist")
 
         if role.isdigit() and int(role) in roles:
             rid = int(role)
@@ -1074,7 +1081,7 @@ class Moderation(commands.Cog):
             raise UserError(f"{resolved_mention} isn't blacklisted")
         roles.remove(rid)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"{resolved_mention} has been unblacklisted.")
+        await ctx.approve(f"unblacklisted {resolved_mention}")
 
     @roleblacklist.command(name="list")
     @has_perms(manage_roles=True)
@@ -1083,9 +1090,9 @@ class Moderation(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         roles = cfg.get("roles", [])
         if not roles:
-            return await ctx.neutral("No roles are currently blacklisted in this server.")
+            return await ctx.warn("no roles are blacklisted")
         lines = [f"<@&{rid}> (`{rid}`)" for rid in roles]
-        await ctx.paginate(chunk_embeds("Blacklisted roles", lines, numbered=False))
+        await ctx.paginate(chunk_embeds(f"Blacklisted roles ({len(lines)})", lines, numbered=False))
 
     async def _scan_guild_bled(self, ctx: Context, cfg: dict, b_roles: set[int]):
         if not b_roles:
@@ -1170,7 +1177,7 @@ class Moderation(commands.Cog):
                     break
 
         if not member:
-            return await ctx.warn(f"I couldn't find a member matching `{target}`. Run `{ctx.clean_prefix}checkbled` without arguments to scan the whole server.")
+            raise UserError(f"couldn't find a member matching `{target}`, run `{ctx.clean_prefix}checkbled` without arguments to scan the whole server")
 
         held = [r for r in getattr(member, "roles", []) if r.id in b_roles]
         is_auth = self._is_role_authorized(ctx.guild, member, cfg)
@@ -1227,7 +1234,7 @@ class Moderation(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = set(cfg.get("roles", []))
         if not b_roles:
-            raise UserError("No roles are blacklisted in this server.")
+            raise UserError("no roles are blacklisted")
 
         top_pos = getattr(getattr(ctx.guild.me, "top_role", None), "position", 999999)
         done = 0
@@ -1246,8 +1253,8 @@ class Moderation(commands.Cog):
                     pass
 
         if not done:
-            return await ctx.approve("No unauthorized members were holding blacklisted roles.")
-        await ctx.approve(f"Stripped **{removed_count}** blacklisted role(s) from **{done}** member(s).")
+            return await ctx.neutral("nobody is holding a blacklisted role without authorization")
+        await ctx.approve(f"stripped **{removed_count}** blacklisted role{'' if removed_count == 1 else 's'} from **{done}** member{'' if done == 1 else 's'}")
 
     @roleblacklist.command(name="strip", aliases=["purge", "clean"])
     @requires_uperm("headadmin")
@@ -1291,16 +1298,16 @@ class Moderation(commands.Cog):
             raise UserError("🔒 You must have **Head Admin** uperm (rank 4+) or be the Server Owner to authorize members for blacklisted roles.")
 
         if _perms.is_bot_developer(target, self.bot):
-            return await ctx.approve(f"{target.mention} is a bot developer and is automatically authorized across the bot.")
+            return await ctx.neutral(f"{target.mention} is a bot developer and is always authorized")
         if target.id == ctx.guild.owner_id:
-            return await ctx.approve(f"{target.mention} is the server owner and is automatically authorized.")
+            return await ctx.neutral(f"{target.mention} is the server owner and is always authorized")
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         auth = cfg.setdefault("authorized", [])
         if target.id in auth:
-            raise UserError(f"{target.mention} is already authorized.")
+            raise UserError(f"{target.mention} is already authorized")
         auth.append(target.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"{target.mention} is now authorized to hold blacklisted roles.")
+        await ctx.approve(f"authorized {target.mention} to hold blacklisted roles")
 
     @roleblacklist.command(name="unauthorize", aliases=["unauth", "unwhitelist"])
     @requires_uperm("headadmin")
@@ -1328,16 +1335,16 @@ class Moderation(commands.Cog):
             raise UserError("🔒 You must have **Head Admin** uperm (rank 4+) or be the Server Owner to revoke role blacklist authorizations.")
 
         if _perms.is_bot_developer(target, self.bot):
-            raise UserError(f"{target.mention} is a bot developer and cannot be unauthorized.")
+            raise UserError(f"{target.mention} is a bot developer and can't be unauthorized")
         if target.id == ctx.guild.owner_id:
-            raise UserError(f"{target.mention} is the server owner and cannot be unauthorized.")
+            raise UserError(f"{target.mention} is the server owner and can't be unauthorized")
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         auth = cfg.setdefault("authorized", [])
         if target.id not in auth:
-            raise UserError(f"{target.mention} isn't authorized.")
+            raise UserError(f"{target.mention} isn't authorized")
         auth.remove(target.id)
         await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"{target.mention} is no longer authorized.")
+        await ctx.approve(f"removed {target.mention}'s authorization")
 
     @roleblacklist.command(name="authorized", aliases=["allowed"])
     @has_perms(manage_roles=True)
@@ -1383,13 +1390,9 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     pass
         if not changed:
-            raise UserError(f"No roles below me had `{perm}`.")
-        e = discord.Embed(color=Colors.success, description=f"Removed `{perm}` from **{len(changed)}** role(s).")
-        e.add_field(name=f"Updated ({len(changed)})", value=shorten(", ".join(changed), 1024))
-        e.set_author(name=ctx.guild.me.display_name, icon_url=ctx.guild.me.display_avatar.url)
-        e.set_footer(text=f"{ctx.clean_prefix}removepermall")
-        e.timestamp = discord.utils.utcnow()
-        await ctx.send(embed=e)
+            raise UserError(f"no roles below me had `{perm}`")
+        await ctx.approve(f"removed `{perm}` from **{len(changed)}** role{'' if len(changed) == 1 else 's'}\n"
+                          f"-# {shorten(', '.join(changed), 900)}")
 
     @commands.command(aliases=["apa"])
     @has_perms(administrator=True)
@@ -1402,8 +1405,8 @@ class Moderation(commands.Cog):
         if perm not in VALID_PERMS:
             raise UserError(f"`{perm}` isn't a valid permission")
         if perm in DANGEROUS_PERMS:
-            raise UserError(f"`{perm}` is too dangerous to grant to every role at once — that's indistinguishable "
-                            f"from a nuke. Grant it per role, or use fake permissions (`fp grant`) instead.")
+            raise UserError(f"`{perm}` is too dangerous to grant to every role at once, that looks exactly like a nuke. "
+                            f"Grant it per role, or use fake permissions (`fp grant`) instead")
         changed = []
         for r in self._eligible_roles(ctx):
             if not getattr(r.permissions, perm):
@@ -1414,13 +1417,9 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     pass
         if not changed:
-            raise UserError(f"Every role below me already had `{perm}`.")
-        e = discord.Embed(color=Colors.success, description=f"Added `{perm}` to **{len(changed)}** role(s).")
-        e.add_field(name=f"Updated ({len(changed)})", value=shorten(", ".join(changed), 1024))
-        e.set_author(name=ctx.guild.me.display_name, icon_url=ctx.guild.me.display_avatar.url)
-        e.set_footer(text=f"{ctx.clean_prefix}addpermall")
-        e.timestamp = discord.utils.utcnow()
-        await ctx.send(embed=e)
+            raise UserError(f"every role below me already had `{perm}`")
+        await ctx.approve(f"added `{perm}` to **{len(changed)}** role{'' if len(changed) == 1 else 's'}\n"
+                          f"-# {shorten(', '.join(changed), 900)}")
 
     # ================================================================ nicknames
     @commands.command(aliases=["nick"])
@@ -1431,7 +1430,8 @@ class Moderation(commands.Cog):
         if member != ctx.author:
             await check_hierarchy_async(ctx, member, "rename")
         await member.edit(nick=nickname)
-        await ctx.approve(f"{'Set' if nickname else 'Reset'} {member.mention}'s nickname")
+        await ctx.approve(f"changed {member.mention}'s nickname to **{discord.utils.escape_markdown(nickname)}**" if nickname
+                          else f"reset {member.mention}'s nickname")
 
     @commands.command(aliases=["fn", "forcenick"])
     @requires_uperm("mod")
@@ -1443,11 +1443,11 @@ class Moderation(commands.Cog):
         if nickname:
             fn[str(member.id)] = nickname
             await member.edit(nick=nickname)
-            msg = f"Locked {member.mention}'s nickname to **{nickname}**"
+            msg = f"locked {member.mention}'s nickname to **{discord.utils.escape_markdown(nickname)}**"
         else:
             fn.pop(str(member.id), None)
             await member.edit(nick=None)
-            msg = f"Unlocked {member.mention}'s nickname"
+            msg = f"unlocked {member.mention}'s nickname"
         await self.bot.db.set_config(ctx.guild.id, "forcenick", fn)
         await ctx.approve(msg)
 
@@ -1508,11 +1508,11 @@ class Moderation(commands.Cog):
         """Jail a member: strips their roles and confines them to #jail"""
         from core import perms as _perms
         if _perms.is_bot_developer(member, self.bot):
-            raise UserError("You cannot jail a bot developer.")
+            raise UserError("you can't jail a bot developer")
         cfg = await self._cfg(ctx.guild.id, "jail")
         role = ctx.guild.get_role(cfg.get("role", 0))
         if not role:
-            raise UserError(f"Jail isn't set up — run `{ctx.clean_prefix}jail setup`")
+            raise UserError(f"jail isn't set up, run `{ctx.clean_prefix}jail setup`")
         await check_hierarchy_async(ctx, member, "jail")
         if str(member.id) in cfg.get("jailed", {}):
             raise UserError(f"{member.mention} is already jailed")
@@ -1522,7 +1522,7 @@ class Moderation(commands.Cog):
         cfg.setdefault("jailed", {})[str(member.id)] = removed
         await self.bot.db.set_config(ctx.guild.id, "jail", cfg)
         num = await create_case(self.bot, ctx.guild, "jail", member, ctx.author, reason)
-        await ctx.approve(f"Jailed **{member}** • case `#{num}`")
+        await ctx.approve(f"jailed {member.mention} · case #{num}")
         ch = ctx.guild.get_channel(cfg.get("channel", 0))
         if ch:
             await ch.send(f"{member.mention}, you've been jailed. Reason: {reason or 'No reason provided'}")
@@ -1534,7 +1534,7 @@ class Moderation(commands.Cog):
         """Create the jail role and channel"""
         cfg = await self._cfg(ctx.guild.id, "jail")
         role = ctx.guild.get_role(cfg.get("role", 0)) or await ctx.guild.create_role(name="jailed", reason="jail setup")
-        msg = await ctx.neutral("⏳ Setting up jail…")
+        msg = await ctx.neutral("setting up jail…")
         for ch in ctx.guild.channels:
             try:
                 await ch.set_permissions(role, view_channel=False, reason="jail setup")
@@ -1547,7 +1547,7 @@ class Moderation(commands.Cog):
         cfg.update(role=role.id, channel=channel.id)
         await self.bot.db.set_config(ctx.guild.id, "jail", cfg)
         await msg.edit(embed=discord.Embed(color=Colors.success,
-                                           description=f"✅ Jail ready: {role.mention} in {channel.mention}"))
+                                           description=f"set up jail: {role.mention} in {channel.mention}"))
 
     @jail.command(name="list")
     @requires_uperm("mod")
@@ -1555,7 +1555,10 @@ class Moderation(commands.Cog):
     async def jail_list(self, ctx: Context):
         """List jailed members"""
         cfg = await self._cfg(ctx.guild.id, "jail")
-        await ctx.paginate(chunk_embeds("Jailed", [f"<@{u}>" for u in cfg.get("jailed", {})]))
+        jailed = cfg.get("jailed", {})
+        if not jailed:
+            return await ctx.warn("nobody is jailed")
+        await ctx.paginate(chunk_embeds(f"Jailed ({len(jailed)})", [f"<@{u}>" for u in jailed]))
 
     @commands.command()
     @requires_uperm("mod")
@@ -1574,7 +1577,7 @@ class Moderation(commands.Cog):
         await member.edit(roles=list(dict.fromkeys(new)), reason=f"unjailed by {ctx.author}: {reason}")
         await self.bot.db.set_config(ctx.guild.id, "jail", cfg)
         await create_case(self.bot, ctx.guild, "unjail", member, ctx.author, reason)
-        await ctx.approve(f"Released **{member}**")
+        await ctx.approve(f"released {member.mention} from jail")
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -1620,7 +1623,7 @@ class Moderation(commands.Cog):
         """Instantly isolate a suspected raider or malicious member, stripping their roles"""
         from core import perms as _perms
         if _perms.is_bot_developer(member, self.bot):
-            raise UserError("You cannot quarantine a bot developer.")
+            raise UserError("you can't quarantine a bot developer")
         await check_hierarchy_async(ctx, member, "quarantine")
         cfg = await self._cfg(ctx.guild.id, "quarantine")
         if str(member.id) in cfg.get("quarantined", {}):
@@ -1654,7 +1657,7 @@ class Moderation(commands.Cog):
             cfg["role"] = q_role.id
         await self.bot.db.set_config(ctx.guild.id, "quarantine", cfg)
         num = await create_case(self.bot, ctx.guild, "quarantine", member, ctx.author, reason)
-        await ctx.approve(f"Quarantined **{member}** • case `#{num}` (stripped **{len(removed)}** role(s))")
+        await ctx.approve(f"quarantined {member.mention} · case #{num} · stripped **{len(removed)}** role{'' if len(removed) == 1 else 's'}")
 
     @commands.command(aliases=["unfreeze", "release"])
     @requires_uperm("mod")
@@ -1679,14 +1682,14 @@ class Moderation(commands.Cog):
         await member.edit(roles=list(dict.fromkeys(cleaned)), reason=f"Unquarantined by {ctx.author}: {reason}")
         await self.bot.db.set_config(ctx.guild.id, "quarantine", cfg)
         await create_case(self.bot, ctx.guild, "unquarantine", member, ctx.author, reason)
-        await ctx.approve(f"Released **{member}** from quarantine • restored **{len(restore_roles)}** role(s)")
+        await ctx.approve(f"released {member.mention} from quarantine · restored **{len(restore_roles)}** role{'' if len(restore_roles) == 1 else 's'}")
 
     # ================================================================ security scan
     @commands.command(aliases=["secscan", "auditsec", "serveraudit"])
     @has_perms(manage_guild=True)
     async def security(self, ctx: Context):
         """Run a comprehensive security audit of this Discord server"""
-        msg = await ctx.neutral("🔍 Analyzing server security configuration, attack vectors, and role health…")
+        msg = await ctx.neutral("scanning the server…")
 
         score = 100
         findings: list[str] = []

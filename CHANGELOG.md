@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same look the role commands already had. Every command error is now a red `failed: reason` line;
   only the cooldown nudge stays amber. Missing Discord permissions on ordinary commands keep their rank wording.
   The reply rules are in CONTRIBUTING.md.
+- **Moderation replies redone.** Every moderation command answers in the shared style with a mention and the case
+  number: `banned @user · case #12`, `timed out @user for 10 minutes · case #13`, `warned @user (warning 3) · case #14`,
+  `locked #general`, `purged 12 messages`. Same for kick, softban, unban, jail, quarantine, nicknames, slowmode, the
+  role blacklist and `addpermall`/`removepermall` (which no longer build their own embed with a footer).
+  Failures read `failed: reason` in lower case. Mass bans and kicks say how long the window was and only mention
+  failures when there are some.
+- Empty lists now say so (`@user has no warnings`, `this server has no cases yet`, `nobody is jailed`,
+  `no roles are blacklisted`) instead of sending nothing, and list titles show the total.
+- `purge after` no longer errors when the command message was already deleted.
 - **Logging rebuilt around per-category channels.** `,logs setup` creates a private **VEIL LOGS** category with
   `message-logs`, `member-logs`, `role-logs`, `channel-logs`, `voice-logs`, `mod-logs`, `server-logs`,
   `command-logs` and `antinuke-logs`; `,logs` opens a panel to point each category at a channel (or turn it off).

@@ -418,11 +418,11 @@ def test_dev_automatic_authorization(bot):
             await check_role_assignable(non_dev_ctx, blacklisted_role)
 
         # Bot Developer cannot be quarantined
-        with pytest.raises(UserError, match="cannot quarantine a bot developer"):
+        with pytest.raises(UserError, match="can.t quarantine a bot developer"):
             await Moderation.quarantine.callback(mod_cog, non_dev_ctx, dev_member)
 
         # Bot Developer cannot be jailed
-        with pytest.raises(UserError, match="cannot jail a bot developer"):
+        with pytest.raises(UserError, match="can.t jail a bot developer"):
             await Moderation.jail.callback(mod_cog, non_dev_ctx, dev_member)
 
     asyncio.run(_run())
