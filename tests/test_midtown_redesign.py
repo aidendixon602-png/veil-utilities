@@ -34,7 +34,7 @@ def test_help_home_view_has_no_secret_or_dev_buttons():
 
 def test_help_category_view_has_back_button():
     view = HelpView(_help(), {"Utility": []}, start="Utility")
-    assert any(isinstance(b, BackButton) and b.label == "Back" for b in view.children)
+    assert any(isinstance(b, BackButton) and b.label == "Home" for b in view.children)
 
 
 def test_help_back_button_returns_to_home():
@@ -61,12 +61,17 @@ def test_category_embed_formatting():
 
     assert "Utility" in embed.title
     assert embed.color.value == Colors.main
-    assert "**`,userinfo`** `[user]` — Show profile info." in embed.description
-    assert "**`,serverinfo`** — Server stats." in embed.description
-    assert "**Aliases:**" in embed.description
-    assert "`userinfo` ➔ `ui`, `info`" in embed.description
-    assert "`serverinfo` ➔ `si`" in embed.description
-    assert "Page 1 of 1 • 2 commands • Midtown Events Department" in embed.footer.text
+    assert "**`,userinfo`** `[user]` — Show profile info. · *ui, info*" in embed.description
+    assert "**`,serverinfo`** — Server stats. · *si*" in embed.description
+    assert "Aliases" not in embed.description and "help <command>" not in embed.description
+    assert embed.footer.text == "Page 1 of 1 • 2 commands • ,help <command> for details"
+
+
+def test_long_alias_lists_are_capped():
+    h = _help()
+    cmd = SimpleNamespace(name="role", signature="", short_doc="Toggle a role", aliases=["r", "cr", "changerole", "rl", "x"])
+    embed = h.category_embed("Roles", [cmd], page=0)
+    assert "· *r, cr, changerole +2*" in embed.description
 
 
 def test_perm_alias_on_userperm():

@@ -49,6 +49,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
 ]
 
 PAGE_SIZE = 15
+MAX_ALIASES_SHOWN = 3  # per command on category pages; the rest show as "+N" (all are listed in ,help <command>)
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
     "Utility": 0,       # Public
@@ -135,9 +136,9 @@ SECRET_CATEGORIES = {
         "badge": "Runtime",
         "desc": "Bot lifecycle, hot-reloading from GitHub, maintenance, and emergency killswitches.",
         "commands": [
-            ("gitpull", "", "Fetch latest code from GitHub main & hot-reload all cogs live"),
-            ("restart", "[seconds=3]", "In-process graceful restart with automatic reconnection"),
-            ("reload", "[module]", "Reload a specific module or all extensions"),
+            ("gitpull", "", "Pull GitHub main: reloads changed cogs, restarts by itself if core files changed"),
+            ("restart", "[seconds=3]", "Restart in a fresh process (loads all code from disk) and announce when back"),
+            ("reload", "[module]", "Reload one cog or all cogs (core/ changes need restart)"),
             ("shutdown", "", "Safely shut down the bot container process"),
             ("maintenance", "<on/off> [time] [reason]", "Toggle global maintenance mode with alert timer"),
             ("killswitch", "<command>", "Instantly disable or re-enable any command bot-wide"),
@@ -289,7 +290,7 @@ class CategoryButton(discord.ui.Button["HelpView"]):
 
 class BackButton(discord.ui.Button["HelpView"]):
     def __init__(self, row: int = 0):
-        super().__init__(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label="Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, it: discord.Interaction):
         await self.view.show_home(it)
@@ -840,7 +841,7 @@ class Help(commands.HelpCommand):
     def home_embed(self, author_rank: int = 0) -> discord.Embed:
         bot = self.context.bot
         p = self.context.clean_prefix
-        total_cmds = sum(1 for _ in bot.walk_commands()) if hasattr(bot, "walk_commands") else 474
+        total_cmds = sum(1 for _ in bot.walk_commands()) if hasattr(bot, "walk_commands") else 0
         e = discord.Embed(
             title="Veil Utilities • Command Portal",
             color=Colors.main,
@@ -914,27 +915,20 @@ class Help(commands.HelpCommand):
                         doc += "."
                 else:
                     doc = "No description provided."
-                lines.append(f"• **`{p}{cmd.name}`**{sig} — {doc}")
-
-        # Aliases section
-        aliases_parts = []
-        for c in page_cmds:
-            if c.aliases:
-                alias_str = ", ".join(f"`{a}`" for a in c.aliases)
-                aliases_parts.append(f"`{c.name}` ➔ {alias_str}")
+                aliases = list(getattr(cmd, "aliases", None) or [])
+                aka = ""
+                if aliases:
+                    shown = ", ".join(aliases[:MAX_ALIASES_SHOWN])
+                    extra = len(aliases) - MAX_ALIASES_SHOWN
+                    aka = f" · *{shown}{f' +{extra}' if extra > 0 else ''}*"
+                lines.append(f"• **`{p}{cmd.name}`**{sig} — {doc}{aka}")
 
         body = "\n".join(lines)
-        if aliases_parts:
-            aliases_text = " • ".join(aliases_parts)
-            body += f"\n\n> 💬 **Aliases:** {aliases_text}"
-
-        body += f"\n\n*Use `{p}help <command>` for detailed syntax and subcommands.*"
-
         if len(body) > 4000:
             body = body[:3990].rsplit("\n", 1)[0] + "\n…"
         e.description = body
 
-        e.set_footer(text=f"Page {page + 1} of {total_pages} • {len(cmds)} commands • Midtown Events Department")
+        e.set_footer(text=f"Page {page + 1} of {total_pages} • {len(cmds)} commands • {p}help <command> for details")
         return e
 
     async def developer_embed(self) -> discord.Embed:
