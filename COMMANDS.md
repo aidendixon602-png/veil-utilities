@@ -86,7 +86,7 @@ _Automatic chat filters_
 | `filter newlines [limit=0]` | Block messages with N+ line breaks (0 disables) | manage guild |
 | `filter regex <pattern>` | Toggle a blocked regex pattern | manage guild |
 | `filter spam [messages=0] [seconds=5]` | Limit messages per N seconds: `filter spam 5 5` (0 disables) | manage guild |
-| `filter word <word>` (words, add) | Toggle a blocked word (end with * to match partial words) | manage guild |
+| `filter word <word>` (words, add) | Toggle a blocked word (end with `*` to match partial words) | manage guild |
 | `filter zalgo <state>` | Block zalgo/glitch text | manage guild |
 
 ## 🧩 Config

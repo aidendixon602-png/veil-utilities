@@ -129,6 +129,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Help pages broke their own formatting.** A description cut short inside `code` (e.g. `bump`) left a backtick
+  open, so the rest of the page rendered as code with raw `**` showing. Descriptions are now shortened at a word
+  and never leave code, bold, spoilers or brackets open.
+- **Bad member arguments said `could not convert "user" into Member or User`.** The reply and the command log
+  now say what was typed: `couldn't find a member or user matching $`, without exception class names.
 - **Hosts could keep running old code without saying so.** The start-up sync swallowed every failure, gave up when
   any file had been edited by hand, and reset to `origin/main`, which a checkout cloned for another branch never
   refreshes. It now resets to the commit it just fetched, saves hand edits to `local-edits-*.patch` and carries on,

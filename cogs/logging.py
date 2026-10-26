@@ -15,7 +15,7 @@ from discord.ext import commands
 
 from core import devchannels
 from core import logembeds as fmt
-from core.utils import Colors, Context, Ignored, OwnedView, UserError, has_perms, respond_or_edit
+from core.utils import Colors, Context, Ignored, OwnedView, UserError, has_perms, input_error_text, respond_or_edit
 
 OFF = -1  # stored instead of a channel id when a category is switched off on purpose
 CATEGORY_NAME = devchannels.LOGS_CATEGORY
@@ -619,8 +619,14 @@ class Logging(commands.Cog):
         if isinstance(error, (Ignored, commands.CommandNotFound, commands.CommandOnCooldown)):
             return
         original = getattr(error, "original", error)
-        reason = str(original).strip() or type(original).__name__
-        await self._log_command(ctx, f"{type(original).__name__}: {reason}" if not isinstance(original, UserError) else reason)
+        if isinstance(original, commands.UserInputError):  # typed something wrong: say what, in plain words
+            reason = input_error_text(original)
+            reason = reason[:1].upper() + reason[1:]
+        elif isinstance(original, (UserError, commands.CheckFailure)):
+            reason = str(original).strip() or "Not allowed"
+        else:
+            reason = f"{type(original).__name__}: {str(original).strip() or 'no details'}"
+        await self._log_command(ctx, reason)
 
     # ------------------------------------------------------------ messages
     @commands.Cog.listener()

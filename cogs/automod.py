@@ -331,7 +331,7 @@ class Automod(commands.Cog):
     @filter.command(name="word", aliases=["words", "add"])
     @has_perms(manage_guild=True)
     async def f_word(self, ctx, *, word: str):
-        """Toggle a blocked word (end with * to match partial words)"""
+        """Toggle a blocked word (end with `*` to match partial words)"""
         if len(word) > 100:
             raise UserError("Words can be at most 100 characters")
         cfg = await self.cfg(ctx.guild.id)
