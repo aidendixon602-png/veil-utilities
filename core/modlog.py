@@ -18,9 +18,12 @@ async def create_case(bot, guild: discord.Guild, action: str, target: discord.ab
     settings = await bot.db.get_config(guild.id, "settings")
     channel = guild.get_channel(settings.get("modlog", 0))
     if channel:
-        mention = target.mention if hasattr(target, "mention") else f"<@{target.id}>"
-        embed = fmt.card(Colors.main, moderator, f"**Case #{num}** · {action.title()}\n{mention}{fmt.why(reason)}",
-                         ids=[("User ID", target.id), ("Case", num)])
+        shown = target if hasattr(target, "mention") and hasattr(target, "name") else None
+        fields = [("User", fmt.person(shown) if shown else f"<@{target.id}>\n`{target.id}`", True),
+                  ("Moderator", fmt.person(moderator), True), ("Action", action.title(), True),
+                  ("Reason", fmt.quote(reason, 600) if reason else "*No reason given*", False)]
+        embed = fmt.detail(Colors.main, f"Case #{num} — {action.title()}", subject=shown, fields=fields,
+                           ids=[("User ID", target.id), ("Case", num)])
         try:
             await channel.send(embed=embed)
         except discord.HTTPException:

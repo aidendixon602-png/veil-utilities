@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Detailed log cards.** Every log is now a titled card (`Roles Added — Name`) with the person's avatar and labelled
+  fields instead of a one-line note. Each one shows who it is about (mention, username and ID), who caused it from
+  the audit log (or "Unknown" when Discord doesn't say), and context: account age and join date, role count, the
+  full list of roles added or removed with their IDs and a ⚠️ for dangerous permissions (administrator, manage roles,
+  kick/ban…), reasons, jump links, channel and role facts (colour, position, topic, slowmode), invite limits and
+  usage, who moved where in voice, and the IDs in the footer. One timestamp, shown in each viewer's own time.
+- **Command logs redone.** Each card shows who ran it, the full command, the channel with a jump link, the permission
+  level and rank that allowed it and who granted it, whether it completed (with how long it took) or failed (with the
+  reason), the module and the alias used. Failed commands are logged too. Moderation case cards use the same layout.
 - **IDs are set up by the bot.** `OWNER_IDS` is optional now: developers are the owner (or all team members) of the
   bot's Discord application, found at startup, plus any IDs you still list. The dashboard login reads the Client ID
   from the bot itself, so only `DISCORD_CLIENT_SECRET` and `DASHBOARD_URL` are needed. Crash tracebacks and
@@ -73,8 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Subcommands: `set <category|all> #channel`, `off`, `auto` (re-detect by channel name), `test`,
   `ignore add|remove <#channel|@user>` and `cleanup`. `,setuplogs` and `,cleanuplogs` still work.
   The group is now `logs` (alias `log`).
-- Log entries are compact cards: a one-line headline ("**Message deleted** in #general"), the quoted content,
-  who did it (looked up in the audit log) and a footer with the user/message IDs. Edits, deletes, joins, leaves,
+- Log entries (now detailed cards, see Added above): who did it (looked up in the audit log) and a footer with the user/message IDs. Edits, deletes, joins, leaves,
   role and nickname changes, channel/role/emoji/server changes, voice moves, bans/unbans, kicks, timeouts and
   command usage each get their own card. Bulk deletes, invites and emoji changes are now logged as well.
 - Kicks and timeouts are logged to the **Moderation** channel alongside bans. Moderation case cards use the same style.

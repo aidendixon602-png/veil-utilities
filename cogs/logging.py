@@ -1,4 +1,4 @@
-"""Server logs: one channel per category, compact embeds, set up and managed with `,logs`.
+"""Server logs: one channel per category, detailed cards, set up and managed with `,logs`.
 
 The look of each log is in core/logembeds.py; this file decides which channel gets what, and who may change it.
 """
@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import time
 from dataclasses import dataclass
 
 import aiohttp
@@ -13,7 +14,7 @@ import discord
 from discord.ext import commands
 
 from core import logembeds as fmt
-from core.utils import Colors, Context, OwnedView, UserError, has_perms, respond_or_edit
+from core.utils import Colors, Context, Ignored, OwnedView, UserError, has_perms, respond_or_edit
 
 OFF = -1  # stored instead of a channel id when a category is switched off on purpose
 CATEGORY_NAME = "VEIL LOGS"
@@ -581,8 +582,11 @@ class Logging(commands.Cog):
 
     # ------------------------------------------------------------ commands run
     @commands.Cog.listener()
-    async def on_command_completion(self, ctx: Context):
-        if not ctx.guild or ctx.author.bot:
+    async def on_command(self, ctx: Context):
+        ctx._log_started = time.perf_counter()  # so the card can say how long the command took
+
+    async def _log_command(self, ctx: Context, error: str | None = None):
+        if not ctx.guild or ctx.author.bot or ctx.command is None:
             return
         channel = await self.route(ctx.guild, "commands", channel_id=ctx.channel.id, user_id=ctx.author.id)
         if not channel:
@@ -591,7 +595,7 @@ class Logging(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
         is_dev = _perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)
         is_owner = ctx.author.id == ctx.guild.owner_id
-        level, granted_by, _ = _perms.member_level_info(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
+        level, granted_by, rank = _perms.member_level_info(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
         if is_dev:
             permission, granted = "Bot Developer", "Built-in"
         elif level and granted_by:
@@ -599,8 +603,23 @@ class Logging(commands.Cog):
         elif is_owner:
             permission, granted = "Server Owner", "Built-in"
         else:
-            permission, granted = "None", "-"
-        await self.post(channel, fmt.command_used(ctx, permission, granted))
+            permission, granted, rank = "None", "-", None
+        started = getattr(ctx, "_log_started", None)
+        ms = (time.perf_counter() - started) * 1000 if started is not None else None
+        await self.post(channel, fmt.command_used(ctx, permission, granted, rank=rank, ms=ms, error=error))
+
+    @commands.Cog.listener()
+    async def on_command_completion(self, ctx: Context):
+        await self._log_command(ctx)
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx: Context, error: commands.CommandError):
+        # failures are worth a card too (who tried what, and why it didn't work); noise is not
+        if isinstance(error, (Ignored, commands.CommandNotFound, commands.CommandOnCooldown)):
+            return
+        original = getattr(error, "original", error)
+        reason = str(original).strip() or type(original).__name__
+        await self._log_command(ctx, f"{type(original).__name__}: {reason}" if not isinstance(original, UserError) else reason)
 
     # ------------------------------------------------------------ messages
     @commands.Cog.listener()
