@@ -154,6 +154,7 @@ def test_mask_url_hides_tokens():
     ("fatal: could not read Username for 'https://github.com': terminal prompts disabled", "can't log in"),
     ("fatal: unable to access 'https://github.com/a/b/': Could not resolve host: github.com", "couldn't reach GitHub"),
     ("fatal: couldn't find remote ref main", "no `main` branch"),
+    ("fatal: '/gone.git' does not appear to be a git repository", "address is wrong"),
 ])
 def test_explain_failure(stderr, words):
     assert words in gitinfo.explain_failure(stderr)

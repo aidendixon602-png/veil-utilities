@@ -41,8 +41,10 @@ def explain_failure(stderr: str) -> str:
         hint = "The host couldn't reach GitHub. Try again in a minute; if it keeps failing, the host's network is blocking it."
     elif "couldn't find remote ref" in low:
         hint = f"The remote has no `{BRANCH}` branch."
-    elif "no such remote" in low or "does not appear to be a git repository" in low:
+    elif "no such remote" in low:
         hint = f"This checkout has no `{REMOTE}` remote pointing at GitHub."
+    elif "does not appear to be a git repository" in low:
+        hint = "The Git repo address is wrong, or the repo was renamed or deleted."
     else:
         hint = ""
     first = text.splitlines()[0][:300] if text else ""
