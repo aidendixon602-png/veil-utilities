@@ -65,13 +65,13 @@ def test_midtown_antinuke_status_embed_format():
         assert "`Ban` - **3 in 60s → ban** `[revert]`" in embed.description
         assert "`Bot Add` - **1 in 60s → ban** `[revert]`" in embed.description
         assert "`Channel Create` - **2 in 120s → kick** `[revert]`" in embed.description
-        assert "`Channel Delete` - **2 in 120s → ban**" in embed.description
+        assert "`Channel Delete` - **2 in 120s → ban** `[revert]`" in embed.description
         assert "`Kick` - **3 in 120s → ban**" in embed.description
-        assert "`Permission Grant` (administrator, ban_members, kick_members, manage_channels, manage_guild, manage_webhooks) - **1 in 60s → strip** `[revert, user]`" in embed.description
+        assert "`Permission Grant` (administrator, ban_members, kick_members, manage_channels, manage_guild, manage_webhooks) - **1 in 60s → strip** `[revert]`" in embed.description
         assert "`Role Create` - **5 in 120s → strip** `[revert]`" in embed.description
-        assert "`Role Delete` - **5 in 120s → strip**" in embed.description
-        assert "`Role Invite` - **1 in 60s → strip** `[revert]`" in embed.description
-        assert "`Server Update` - **1 in 60s → strip**" in embed.description
+        assert "`Role Delete` - **5 in 120s → strip** `[revert]`" in embed.description
+        assert "`Invite Spam` - **10 in 60s → strip** `[revert]`" in embed.description
+        assert "`Server Update` - **1 in 60s → strip** `[revert]`" in embed.description
         assert "`Timeout` - **5 in 120s → strip** `[revert]`" in embed.description
         assert "`Webhook` - **1 in 60s → kick** `[revert]`" in embed.description
 

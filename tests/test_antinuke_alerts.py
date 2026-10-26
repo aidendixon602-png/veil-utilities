@@ -35,7 +35,7 @@ def setup(attacker_top=10):
 
     guild = SimpleNamespace(
         id=10, name="Test", owner_id=OWNER, owner=SimpleNamespace(id=OWNER, send=AsyncMock(side_effect=owner_send)),
-        me=SimpleNamespace(top_role=SimpleNamespace(position=50)), text_channels=[], ban=AsyncMock(),
+        me=SimpleNamespace(top_role=SimpleNamespace(position=50)), text_channels=[], ban=AsyncMock(), unban=AsyncMock(),
         get_member=lambda uid: {ATTACKER: attacker, VICTIM: victim}.get(uid),
         get_channel=lambda _id: None, get_role=lambda _id: None,
     )
