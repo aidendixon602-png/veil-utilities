@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Clearer antinuke alerts, and test alerts reach the developers.** The card now says in one line who went over
+  which limit ("@user went over the **Mass Ban** limit (3 in 60s)."), then the punishment, then a **Put back**
+  list grouped by kind ("deleted 6 roles they made: @testnuke-role-1, … +1 more", "unbanned 3 people they banned:
+  alice, bob, carol") instead of one line per item. The attacker's name and ID sit under their mention, their roles
+  only show when they had any, and the footer names the server. Test cards are amber, say what *would* have
+  happened ("would have stripped their staff roles") and drop the attacker fields. `,testnuke` alerts are also
+  DM'd to every developer in `OWNER_IDS` (never to the server owner), with an **Open server** button; the copy in
+  the log channel has no button.
+
 - **The test server is picked in Discord, not .env.** With no test server yet, `,testnuke`'s warning says that
   confirming makes the current server the test server (cancelling doesn't). `,testserver` shows it,
   `,testserver set` makes the current server the test server and `,testserver clear` forgets it (`OWNER_IDS`

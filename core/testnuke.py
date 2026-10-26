@@ -162,6 +162,11 @@ async def run_test(antinuke, guild: discord.Guild, started_by: int, roles: int, 
             if not roles_left and not channels_left:
                 break
             await asyncio.sleep(0.5)
+        # the antinuke deletes first and alerts after: give the alert a moment so the report counts it
+        try:
+            await asyncio.wait_for(run.alerted.wait(), timeout=max(0.1, min(5.0, deadline - time.monotonic())))
+        except asyncio.TimeoutError:
+            pass
         roles_left, channels_left = left()
     finally:
         antinuke.end_test(guild.id)

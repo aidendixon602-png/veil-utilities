@@ -88,7 +88,7 @@ def test_bot_mediated_bans_hit_the_threshold_and_get_punished():
         dev = next(u for u in cog.bot.dms if u.id == DEV)
         dev.send.assert_awaited_once()             # developers get the global alert
         alert = dev.send.await_args.kwargs["embed"]
-        assert "via bot command `ban`" in str([f.value for f in alert.fields])
+        assert "using `ban`" in alert.description  # done through the bot's own command
     run(_run)
 
 
@@ -133,7 +133,7 @@ def test_granting_staff_permissions_is_instant():
         guild.ban.assert_not_awaited()
         dev = next(u for u in cog.bot.dms if u.id == DEV)
         alert = dev.send.await_args.kwargs["embed"]
-        assert next(f.value for f in alert.fields if f.name == "Result").startswith("Nothing to strip")
+        assert "**Punishment:** Nothing to strip" in alert.description
     run(_run)
 
 

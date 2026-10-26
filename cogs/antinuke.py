@@ -172,7 +172,7 @@ def overwrite_gained(before, after) -> bool:
     return bool(added & OVERWRITE_DANGEROUS.value)
 
 
-PUNISH_VERBS = {"ban": "ban", "kick": "kick", "strip": "strip the staff roles of"}
+PUNISH_DONE = {"ban": "banned them", "kick": "kicked them", "strip": "stripped their staff roles"}
 TEST_PREFIX = "testnuke-"  # names of everything ,testnuke creates, so the antinuke and ,testcleanup can tell
 
 
@@ -185,6 +185,7 @@ class TestRun:
         self.guild_id, self.started_by = guild_id, started_by
         self.created: set[int] = set()
         self.incidents: list[Incident] = []
+        self.alerted = asyncio.Event()  # set once an alert for this test has gone out
         self.started = time.monotonic()
 
     def owns(self, entry) -> bool:
@@ -234,31 +235,39 @@ def _bullets(lines: list[str]) -> str:
 
 
 def alert_embed(inc: Incident, footer: str) -> discord.Embed:
-    """The alert card sent to the log channel, server owner and developers."""
+    """The alert card: who, which limit, what happened to them, and what was put back, in that order."""
     label = LABELS.get(inc.module, inc.module)
-    title = f"🧪 Antinuke test: {label}" if inc.test else f"Antinuke triggered: {label}"
-    e = discord.Embed(title=title, color=Colors.warn if inc.test else Colors.error, timestamp=discord.utils.utcnow())
     name = getattr(inc.user, "name", None) or "Unknown user"
-    is_bot = bool(getattr(inc.user, "bot", False))
-    avatar = getattr(getattr(inc.user, "display_avatar", None), "url", None)
-    e.set_author(name=name, icon_url=avatar)
-    e.add_field(name="User", value="simulated attacker (`,testnuke`)" if inc.test else
-                f"{discord.utils.escape_markdown(name)}{' (bot)' if is_bot else ''}\n`{inc.actor_id}`")
-    e.add_field(name="Server", value=f"{discord.utils.escape_markdown(inc.guild.name)}\n`{inc.guild.id}`")
-    e.add_field(name="Limit", value=f"{inc.threshold} in {inc.window}s"
-                                    + (f"\nvia bot command `{inc.via}`" if inc.via else ""))
-    e.add_field(name="Result", value=inc.result, inline=False)
-    if inc.undone:
-        e.add_field(name="Undone", value=_bullets(inc.undone), inline=False)
+    if inc.test:
+        title, color = f"🧪 Antinuke test: {label}", Colors.warn
+        who = "`,testnuke` (a simulated attacker)"
+    else:
+        title, color = f"🛡️ Antinuke: {label}", Colors.error
+        who = getattr(inc.user, "mention", None) or f"**{discord.utils.escape_markdown(name)}**"
+    lines = [f"{who} went over the **{label}** limit ({inc.threshold} in {inc.window}s)"
+             + (f" using `{inc.via}`" if inc.via else "") + ".",
+             "", f"**Punishment:** {inc.result}"]
+    if inc.test:
+        lines.append("-# nobody was punished: this was a test")
+    e = discord.Embed(title=title, color=color, description="\n".join(lines), timestamp=discord.utils.utcnow())
+    undone = collapse(inc.undone)
+    if undone:
+        e.add_field(name="Put back", value=_bullets(undone), inline=False)
     if inc.problems:
         e.add_field(name="Problems", value=_bullets(inc.problems), inline=False)
-    roles = ", ".join(inc.roles)
-    e.add_field(name="Their roles (highest first)", inline=False,
-                value=(roles[:1020] + "…") if len(roles) > 1024 else (roles or "None"))
+    if not inc.test:
+        bot_tag = " 🤖" if getattr(inc.user, "bot", False) else ""
+        e.add_field(name="Attacker", value=f"{who}{bot_tag}\n-# {discord.utils.escape_markdown(name)} · {inc.actor_id}")
+        if inc.roles:
+            roles = ", ".join(inc.roles)
+            e.add_field(name="Their roles", value=(roles[:1020] + "…") if len(roles) > 1024 else roles)
+        avatar = getattr(getattr(inc.user, "display_avatar", None), "url", None)
+        if avatar:
+            e.set_thumbnail(url=avatar)
     if inc.count > 1:
         secs = max(1, int(inc.last - inc.first))
         e.add_field(name="Repeated", value=f"{inc.count} times in {secs}s", inline=False)
-    e.set_footer(text=footer)
+    e.set_footer(text=f"{inc.guild.name} · {footer}")
     return e
 
 
@@ -411,7 +420,7 @@ class Antinuke(commands.Cog):
         inc = next((i for k, i in self.incidents.items() if k[0] == guild.id and k[1] == actor_id), None)
         if inc is None or not lines:
             return
-        inc.undone = collapse(inc.undone + [x for x in lines if not x.startswith("⚠️")])
+        inc.undone += [x for x in lines if not x.startswith("⚠️")]
         inc.problems += [x.removeprefix("⚠️ ") for x in lines if x.startswith("⚠️") and x.removeprefix("⚠️ ")
                          not in inc.problems]
         for msg, footer in list(inc.messages):
@@ -540,13 +549,13 @@ class Antinuke(commands.Cog):
         # slow (rebuilding channels and roles, unbanning) comes after it, so the attacker is stopped first
         undone += await self._revert_all(guild, [x for x in entries if x[0] == "permissions"], reason, stripped)
         if test is not None:  # the attacker is simulated: say what would have happened, punish nobody
-            result = f"Test: would {PUNISH_VERBS.get(punishment, punishment)} the attacker (nobody was punished)"
+            result = f"would have {PUNISH_DONE.get(punishment, punishment)}"
             roles_held = []
         else:
             result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped)
         undone += await self._revert_all(guild, [x for x in entries if x[0] != "permissions"], reason, stripped)
         problems = [line.removeprefix("⚠️ ") for line in undone if line.startswith("⚠️")]
-        undone = collapse([line for line in undone if not line.startswith("⚠️")])
+        undone = [line for line in undone if not line.startswith("⚠️")]
 
         if test is None:
             await self._notify_stripped(guild, stripped)
@@ -771,35 +780,42 @@ class Antinuke(commands.Cog):
         if test is not None:
             test.incidents.append(inc)
 
-        view = discord.ui.View()
-        view.add_item(discord.ui.Button(label="Jump to Server", emoji="↗️",
-                                        url=f"https://discord.com/channels/{guild.id}"))
+        jump = discord.ui.View()
+        jump.add_item(discord.ui.Button(label="Open server", url=f"https://discord.com/channels/{guild.id}"))
         log_channel = await self._log_channel(guild, cfg)
 
-        if test is not None:  # a test only tells the log channel; the developer gets the summary in the channel
-            targets: list[tuple] = [(log_channel, "Antinuke test · simulated attacker · nobody was punished")] \
-                if log_channel else []
+        if test is not None:  # a test: the log channel and the developers set in .env (OWNER_IDS), not the owner
+            targets: list[tuple] = [(log_channel, "test run")] if log_channel else []
+            dev_ids, dev_footer = sorted(settings.owner_ids), "test run · sent to developers"
         else:
-            targets = [(d, "Antinuke alert") for d in (log_channel, guild.owner) if d]
-        if settings.antinuke_dev_alerts and test is None:
-            from cogs.authorization import developers
-            for uid in await developers(self.bot):
-                if uid == guild.owner_id:
-                    continue  # already got the owner copy
-                try:
-                    dev = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
-                except discord.HTTPException:
-                    dev = None
-                if dev:
-                    targets.append((dev, "Global antinuke alert • Veil Developers"))
+            targets = [(d, "antinuke alert") for d in (log_channel, guild.owner) if d]
+            dev_ids, dev_footer = [], "antinuke alert · sent to developers"
+            if settings.antinuke_dev_alerts:
+                from cogs.authorization import developers
+                dev_ids = sorted(await developers(self.bot))
+        for uid in dev_ids:
+            if uid == guild.owner_id and test is None:
+                continue  # already got the owner copy
+            try:
+                dev = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+            except discord.HTTPException:
+                dev = None
+            if dev:
+                targets.append((dev, dev_footer))
 
         for dest, footer in targets:
+            in_server = dest is log_channel
             try:
-                msg = await dest.send(embed=alert_embed(inc, footer), view=view)
-            except (discord.HTTPException, AttributeError):
+                if in_server:
+                    msg = await dest.send(embed=alert_embed(inc, footer))
+                else:  # a DM: a button back to the server helps; in the server's own channel it doesn't
+                    msg = await dest.send(embed=alert_embed(inc, footer), view=jump)
+            except (discord.HTTPException, AttributeError, TypeError):
                 continue
             if msg is not None and hasattr(msg, "edit"):
                 inc.messages.append((msg, footer))
+        if test is not None:
+            test.alerted.set()
 
     # ================================================================ status & rules
     async def build_status_embed(self, guild_id: int, prefix: str = ",", guild=None) -> discord.Embed:
