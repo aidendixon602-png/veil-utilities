@@ -470,10 +470,13 @@ def test_strict_roleblacklist_uperm_gating(bot):
     asyncio.run(_run())
 
 
-def test_authorized_author_can_assign_blacklisted_role(bot):
+def test_authorized_author_can_assign_blacklisted_role(bot, monkeypatch):
+    from core import perms as _perms
+    monkeypatch.setattr(_perms, "BOT_DEVELOPERS", [4242])
+
     async def _run():
         guild = _mock_guild(123)
-        dev_author = _mock_member(1277709272041394187)
+        dev_author = _mock_member(4242)
         dev_author.guild = guild
         target = _mock_member(666)
         target.guild = guild

@@ -21,9 +21,7 @@ ADMIN_RANK = 900  # a real Discord administrator with no assigned level
 # =====================================================================
 # User IDs listed here receive the Bot Developer permission level and
 # are logged with "Permission: Bot Developer" and "Granted By: Built-in".
-BOT_DEVELOPERS: list[int] = [
-    1277709272041394187,  # varricy
-]
+BOT_DEVELOPERS: list[int] = []
 
 
 def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:
@@ -110,9 +108,7 @@ ALL_BOT_PERMS: list[str] = [
 # with "Granted By: Built-in".
 #
 # CODE_USERS: Map user IDs (int or str) to level keys
-CODE_USERS: dict[int | str, str] = {
-    1277709272041394187: "supremeleader",
-}
+CODE_USERS: dict[int | str, str] = {}
 
 # CODE_ROLES: Map role IDs (int or str) or exact role names (str) to level keys
 CODE_ROLES: dict[int | str, str] = {}

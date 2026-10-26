@@ -231,8 +231,8 @@ class TestPermissionHierarchy:
         # 1. Dev passes
         ctx_dev = SimpleNamespace(
             guild=SimpleNamespace(id=1, owner_id=100),
-            author=SimpleNamespace(id=1277709272041394187, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
-            bot=SimpleNamespace(owner_ids=frozenset({1277709272041394187}), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
+            author=SimpleNamespace(id=4242, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+            bot=SimpleNamespace(owner_ids=frozenset({4242}), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
         )
         assert asyncio.run(predicate(ctx_dev)) is True
 
