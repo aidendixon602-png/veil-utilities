@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Commands clean up after themselves.** Once a command has run, the message that ran it is deleted, and the
+  bot's replies follow 15 seconds later. Menus (`,help`, `,an`, paged lists) go when they close instead. Lasting
+  things stay: giveaways, button-role and ticket panels (anything with buttons that never expire), and what `poll`
+  and `createembed` post. Error replies are cleaned up too; a command that was silently ignored leaves the message
+  alone. `,restart` / `,gitpull` messages are tidied once the bot is back. The message log, snipe and ghost-ping
+  detection ignore these deletions. `,autoclean on|off|<seconds>` (Manage Server) changes it per server.
+
 - **`,testnuke` and `,testcleanup` (developers).** `,testnuke [roles] [channels]` creates roles and channels named
   `testnuke-…` as fast as Discord allows in the designated test server (`TEST_GUILD_ID` in `.env`), by default one
   more of each than the Role Create / Channel Create rules allow. It first shows a warning (the counts, the
@@ -192,6 +199,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"The application didn't respond in time".** Clicking a menu that had expired (timed out, or from before a
+  restart) got no answer. Now the bot takes its dead buttons off and says privately that it expired, and any click
+  whose handler hasn't answered in 2.5 seconds is acknowledged before Discord gives up. `,help` stays open for
+  5 minutes instead of 3.
+- **Editing a message no longer runs a command.** It used to re-run an edited message as a command, so a message
+  could be turned into a different command afterwards.
 - **Antinuke false alarms.** The Role Invite rule fired on every invite an ordinary member made (1 in 60s), so the
   owner and developers got an alert for normal invites. It is now **Invite Spam** (10 invites in 60s, which also
   deletes them), and saved settings still on the old instant rule are moved over once. Other bots creating channels,
