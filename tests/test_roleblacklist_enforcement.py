@@ -78,6 +78,9 @@ def _mock_context(bot, guild, author):
     ctx.neutral = AsyncMock()
     ctx.warn = AsyncMock()
     ctx.send = AsyncMock()
+    ctx.done = AsyncMock()
+    ctx.fail = AsyncMock()
+    ctx.compact = AsyncMock()
     return ctx
 
 

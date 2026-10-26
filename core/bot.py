@@ -18,7 +18,7 @@ from core.config import settings
 from core.db import Database
 from core.help import Help
 from core.net import make_public_session
-from core.utils import Colors, Context, Ignored, UserError
+from core.utils import Colors, Context, Ignored, UserError, compact_failure, uses_compact_replies
 
 log = logging.getLogger("veil")
 
@@ -502,6 +502,11 @@ class Veil(commands.AutoShardedBot):
             error = getattr(error, "original", error)
             if isinstance(error, (commands.CommandNotFound, Ignored)):
                 return
+            if uses_compact_replies(ctx) and not (isinstance(error, UserError) and (
+                    "staff-only" in str(error) or "restricted to" in str(error))):
+                text = compact_failure(ctx, error)
+                if text:
+                    return await ctx.fail(text)
             if isinstance(error, UserError):
                 err_msg = str(error)
                 del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None

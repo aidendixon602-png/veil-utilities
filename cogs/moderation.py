@@ -757,59 +757,64 @@ class Moderation(commands.Cog):
             raise UserError(f"Member `{arg2}` not found.")
         return member, role
 
-    @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True)
-    @requires_uperm("admin")
-    @has_perms(manage_roles=True)
-    @commands.bot_has_permissions(manage_roles=True)
-    async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
-        """Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`)"""
-        if not arg2:
-            raise UserError(f"Usage: `{ctx.clean_prefix}role <member> <role>` or `{ctx.clean_prefix}role add/remove <member> <role>`")
-        member, role = await self._resolve_member_role(ctx, arg1, arg2)
-        if role in member.roles:
-            check_role(ctx, role)
-            await check_hierarchy_async(ctx, member, "modify roles on")
-            await member.remove_roles(role, reason=f"by {ctx.author}")
-            await ctx.approve(f"Removed {role.mention} from {member.mention}")
-        else:
-            await check_role_assignable(ctx, role)
-            await check_hierarchy_async(ctx, member, "modify roles on")
-            if is_dangerous(role.permissions):
-                await antinuke_guard(ctx, "permissions")
-            if await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
-                rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-                auth = rbl_cfg.setdefault("authorized", [])
-                if member.id not in auth:
-                    auth.append(member.id)
-                    await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
-            await member.add_roles(role, reason=f"by {ctx.author}")
-            await ctx.approve(f"Added {role.mention} to {member.mention}")
+    # Role commands reply in the compact style (core.utils.Context.done / .fail): a green line on success,
+    # a red "failed to …: reason" line on any problem. compact_action / compact_role feed that failure line.
+    @staticmethod
+    def _role_target(ctx: Context, action: str, role: discord.Role) -> None:
+        ctx.compact_action = action
+        ctx.compact_role = role
 
-    async def _do_role_add(self, ctx: Context, arg1: str, arg2: str):
-        member, role = await self._resolve_member_role(ctx, arg1, arg2)
-        await check_role_assignable(ctx, role)
-        await check_hierarchy_async(ctx, member, "modify roles on")
-        if role in member.roles:
-            raise UserError(f"{member.mention} already has {role.mention}")
-        if is_dangerous(role.permissions):
-            await antinuke_guard(ctx, "permissions")
+    async def _authorize_bled_target(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         if await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
             rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
             auth = rbl_cfg.setdefault("authorized", [])
             if member.id not in auth:
                 auth.append(member.id)
                 await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
-        await member.add_roles(role, reason=f"by {ctx.author}")
-        await ctx.approve(f"Added {role.mention} to {member.mention}")
 
-    async def _do_role_remove(self, ctx: Context, arg1: str, arg2: str):
-        member, role = await self._resolve_member_role(ctx, arg1, arg2)
+    async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
+        self._role_target(ctx, f"add {role.mention} to {member.mention}", role)
+        await check_role_assignable(ctx, role)
+        await check_hierarchy_async(ctx, member, "modify roles on")
+        if role in member.roles:
+            raise UserError("they already have it")
+        if is_dangerous(role.permissions):
+            await antinuke_guard(ctx, "permissions")
+        await self._authorize_bled_target(ctx, member, role)
+        await member.add_roles(role, reason=f"by {ctx.author}")
+        await ctx.done(f"added {role.mention} to {member.mention}")
+
+    async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
+        self._role_target(ctx, f"remove {role.mention} from {member.mention}", role)
         check_role(ctx, role)
         await check_hierarchy_async(ctx, member, "modify roles on")
         if role not in member.roles:
-            raise UserError(f"{member.mention} doesn't have {role.mention}")
+            raise UserError("they don't have it")
         await member.remove_roles(role, reason=f"by {ctx.author}")
-        await ctx.approve(f"Removed {role.mention} from {member.mention}")
+        await ctx.done(f"removed {role.mention} from {member.mention}")
+
+    @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True,
+                    extras={"compact": True})
+    @requires_uperm("admin")
+    @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
+        """Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`)"""
+        if not arg2:
+            raise UserError(f"usage: `{ctx.clean_prefix}r <member> <role>` or `{ctx.clean_prefix}r add/remove <member> <role>`")
+        member, role = await self._resolve_member_role(ctx, arg1, arg2)
+        if role in member.roles:
+            await self._take_role(ctx, member, role)
+        else:
+            await self._give_role(ctx, member, role)
+
+    async def _do_role_add(self, ctx: Context, arg1: str, arg2: str):
+        member, role = await self._resolve_member_role(ctx, arg1, arg2)
+        await self._give_role(ctx, member, role)
+
+    async def _do_role_remove(self, ctx: Context, arg1: str, arg2: str):
+        member, role = await self._resolve_member_role(ctx, arg1, arg2)
+        await self._take_role(ctx, member, role)
 
     @role.command(name="add")
     @requires_uperm("admin")
@@ -827,7 +832,7 @@ class Moderation(commands.Cog):
         """Remove a role from a member: `,role remove @User @Role`"""
         await self._do_role_remove(ctx, arg1, arg2)
 
-    @commands.command(name="addrole", aliases=["giverole"])
+    @commands.command(name="addrole", aliases=["giverole"], extras={"compact": True})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -835,7 +840,7 @@ class Moderation(commands.Cog):
         """Add a role to a member: `,addrole @User @Role`"""
         await self._do_role_add(ctx, arg1, arg2)
 
-    @commands.command(name="removerole", aliases=["takerole"])
+    @commands.command(name="removerole", aliases=["takerole"], extras={"compact": True})
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
@@ -849,58 +854,74 @@ class Moderation(commands.Cog):
     @role.command(name="create")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
     async def role_create(self, ctx: Context, *, name: str):
         """Create a role"""
+        ctx.compact_action = f"create **{discord.utils.escape_markdown(name)}**"
         await antinuke_guard(ctx, "rolecreate")
         r = await ctx.guild.create_role(name=name, reason=f"by {ctx.author}")
-        await ctx.approve(f"Created {r.mention}")
+        await ctx.done(f"created {r.mention}")
 
     @role.command(name="delete")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
     async def role_delete(self, ctx: Context, *, role: discord.Role):
         """Delete a role"""
+        self._role_target(ctx, f"delete {role.mention}", role)
         check_role(ctx, role)
         await antinuke_guard(ctx, "roledelete")
         await role.delete(reason=f"by {ctx.author}")
-        await ctx.approve(f"Deleted **{role.name}**")
+        await ctx.done(f"deleted **{discord.utils.escape_markdown(role.name)}**")
 
     @role.command(name="color", aliases=["colour"])
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
     async def role_color(self, ctx: Context, role: discord.Role, color: discord.Color):
         """Change a role's color"""
+        self._role_target(ctx, f"change {role.mention}'s color", role)
         check_role(ctx, role)
         await role.edit(color=color)
-        await ctx.approve(f"Changed {role.mention}'s color to `{color}`")
+        await ctx.done(f"changed {role.mention}'s color to `{color}`")
 
     @role.command(name="rename")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
     async def role_rename(self, ctx: Context, role: discord.Role, *, name: str):
         """Rename a role"""
+        self._role_target(ctx, f"rename {role.mention}", role)
         check_role(ctx, role)
+        old = role.name
         await role.edit(name=name)
-        await ctx.approve(f"Renamed role to {role.mention}")
+        await ctx.done(f"renamed **{discord.utils.escape_markdown(old)}** to {role.mention}")
 
     @role.command(name="hoist")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
     async def role_hoist(self, ctx: Context, *, role: discord.Role):
         """Toggle showing a role separately"""
+        self._role_target(ctx, f"change {role.mention}", role)
         check_role(ctx, role)
         await role.edit(hoist=not role.hoist)
-        await ctx.approve(f"{role.mention} is {'now' if not role.hoist else 'no longer'} hoisted")
+        await ctx.done(f"{role.mention} is {'now' if not role.hoist else 'no longer'} shown separately")
 
-    async def _mass_role(self, ctx: Context, role: discord.Role, add: bool, which):
+    async def _mass_role(self, ctx: Context, action: str, role: discord.Role, which, who: str):
+        action = action.lower()
+        if action not in ("add", "remove"):
+            raise UserError(f"use `add` or `remove`, e.g. `{ctx.clean_prefix}r {ctx.command.name} add @Role`")
+        add = action == "add"
+        self._role_target(ctx, f"{action} {role.mention} {'to' if add else 'from'} {who}", role)
         if add:
             await check_role_assignable(ctx, role)
         else:
             check_role(ctx, role)
         targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))]
         if not targets:
-            raise UserError("Nobody to update")
-        msg = await ctx.neutral(f"⏳ Updating **{len(targets)}** members…")
+            raise UserError("nobody to update")
+        msg = await ctx.compact(Colors.neutral, f"⏳ updating **{len(targets)}** members…")
         done = 0
         for m in targets:
             try:
@@ -908,33 +929,43 @@ class Moderation(commands.Cog):
                 done += 1
             except discord.HTTPException:
                 pass
-        await msg.edit(embed=discord.Embed(color=Colors.success,
-                                           description=f"✅ {'Added' if add else 'Removed'} {role.mention} "
-                                                       f"{'to' if add else 'from'} **{done}** members"))
+        skipped = len(targets) - done
+        text = f"{'added' if add else 'removed'} {role.mention} {'to' if add else 'from'} **{done}** members"
+        if skipped:
+            text += f" (couldn't update **{skipped}**)"
+        embed = discord.Embed(color=Colors.success if done else Colors.error,
+                              description=text if done else f"failed to {action} {role.mention}: couldn't update anyone")
+        try:
+            await msg.edit(embed=embed)
+        except (AttributeError, discord.HTTPException):
+            await (ctx.done(text) if done else ctx.fail(embed.description))
 
     @role.command(name="all")
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_all(self, ctx: Context, action: str, *, role: discord.Role):
         """Add/remove a role for everyone: `role all add @Role`"""
-        await self._mass_role(ctx, role, action.lower() == "add", lambda m: True)
+        await self._mass_role(ctx, action, role, lambda m: True, "everyone")
 
     @role.command(name="humans")
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_humans(self, ctx: Context, action: str, *, role: discord.Role):
         """Add/remove a role for all humans"""
-        await self._mass_role(ctx, role, action.lower() == "add", lambda m: not m.bot)
+        await self._mass_role(ctx, action, role, lambda m: not m.bot, "all humans")
 
     @role.command(name="bots")
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_bots(self, ctx: Context, action: str, *, role: discord.Role):
         """Add/remove a role for all bots"""
-        await self._mass_role(ctx, role, action.lower() == "add", lambda m: m.bot)
+        await self._mass_role(ctx, action, role, lambda m: m.bot, "all bots")
 
     @commands.command()
     @requires_uperm("headadmin")
