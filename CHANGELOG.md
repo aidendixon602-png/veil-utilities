@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Help categories list what each command does.** Instead of a code block of names, each category shows one
+  command per line with a short description (and how many subcommands it has), ten per page with ◀ ▶ buttons
+  under the category menu.
+
+### Changed
+
 - **Command logs are cards now.** Each person gets one card with their name and avatar on top and their level
   and ID underneath; every command they run within two minutes is added to it as a line (time, command,
   channel, how long or why it failed, jump link). The card turns red when their latest command failed. Leaving

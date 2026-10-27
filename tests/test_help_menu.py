@@ -184,14 +184,29 @@ def test_menu_message_is_deleted_on_timeout():
 
 # ------------------------------------------------------------------ category cards
 
-def test_a_category_lists_every_command_in_one_code_block():
+def test_a_category_lists_each_command_with_what_it_does():
     @commands.group(aliases=["r"])
     async def role(ctx):
         """Role tools"""
 
-    page = _help().category_embed("Roles", [_cmd("autorole"), role, _cmd("vanity")])
-    assert page.title == "Roles" and page.description == "```\nautorole, role*, vanity\n```"
-    assert page.footer.text == "3 commands · * has subcommands · ,help <command> for more"
+    @role.command()
+    async def add(ctx):
+        """Add"""
+
+    page = _help().category_embed("Roles", [_cmd("autorole", "Give a role to new members"), role, _cmd("vanity")])
+    assert page.title == "Roles"
+    assert page.description.splitlines() == ["`,autorole` · Give a role to new members",
+                                             "`,role` · Role tools · *1 subcommand*",
+                                             "`,vanity` · " + page.description.splitlines()[2].split(" · ", 1)[1]]
+    assert page.footer.text == "3 commands · ,help <command> for details"
+
+
+def test_long_categories_are_split_into_pages_with_buttons():
+    cmds = [_cmd(f"c{i:02}", f"Command {i}") for i in range(23)]
+    pages = _help().category_pages("Fun", cmds)
+    assert len(pages) == 3 and len(pages[0].description.splitlines()) == 10
+    assert pages[0].footer.text.startswith("page 1/3 · 23 commands")
+    assert "`,c20`" in pages[2].description
 
 
 def test_arguments_read_like_the_reference():
@@ -380,7 +395,9 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     assert len(_select(view).options) <= 25
     for label, page in view.pages.items():
         _fits(page)
-        assert page.description.startswith("```") and page.description.endswith("```"), label
+        assert "```" not in page.description and page.description.startswith("`,"), label
+        for extra in view.books[label][1:]:
+            _fits(extra)
 
 
 def test_the_developer_category_lists_the_owner_tools(loaded_bot):
@@ -499,3 +516,19 @@ def test_parameters_come_from_a_commands_own_usage_line():
 
     fields = {f.name: f.value for f in _help().command_embed(role).fields}
     assert fields["Parameters"] == "member, role"
+
+
+def test_long_categories_get_page_buttons(loaded_bot):
+    from core.help import PageButton
+    h = Help()
+    h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
+    view = HelpView(h, category_commands(loaded_bot), is_owner=True)
+    long = next(label for label, pages in view.books.items() if len(pages) > 1)
+    view.current, view.page = long, 0
+    view._build_items()
+    back, forward = [b for b in view.children if isinstance(b, PageButton)]
+    assert back.disabled and not forward.disabled
+    assert view.embed() is view.books[long][0]
+    view.current, view.page = None, 0  # home: just the dropdown
+    view._build_items()
+    assert not any(isinstance(b, PageButton) for b in view.children)
