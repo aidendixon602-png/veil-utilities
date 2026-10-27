@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The seven levels are back, and each one sees more of `,help`.** Helper, Moderator, Admin, Head Admin, Bot
+  Manager, Overseer and Supreme Leader are separate levels again (Developer and Owner stay automatic on top);
+  anyone saved as Co-Owner becomes Supreme Leader and anyone saved as Manager becomes Overseer (the same
+  permissions). In `,help`, each level up opens one more category: Helper gets Moderation, Admin adds Roles,
+  Head Admin adds Server, Bot Manager adds Automod, Overseer adds Permissions and Supreme Leader adds Antinuke;
+  inside each category, commands above your level are hidden, so Moderator also sees more than Helper.
+
 - **`,presence clear` clears the status.** It used to save the word "clear" as the status text; now `clear`,
   `reset`, `default`, `none` (with `,presence` or `,setstatus`) remove the custom text and bring back the
   "Protecting X guilds | Y users" line, keeping online/idle/dnd as it was.

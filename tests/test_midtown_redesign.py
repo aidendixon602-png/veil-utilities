@@ -172,7 +172,7 @@ def test_code_defined_permissions():
     try:
         u = SimpleNamespace(id=12345, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Co-Owner"  # set up with the old key: still resolves
+        assert name == "Supreme Leader"
         assert source == "Built-in"
         assert rank == 7
 

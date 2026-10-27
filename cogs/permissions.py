@@ -16,7 +16,7 @@ class Permissions(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        """Move every server's saved levels to the current names (Supreme Leader -> Co-Owner, ...)."""
+        """Move every server's saved levels to the current names (Mod -> Moderator, ...)."""
         db = getattr(self.bot, "db", None)
         guilds_with = getattr(db, "guilds_with", None)
         if guilds_with is None:

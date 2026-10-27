@@ -60,16 +60,27 @@ ALL = {label: [] for label, _, _ in CATEGORIES}
 # ------------------------------------------------------------------ the home card and its buttons
 
 def test_buttons_only_list_categories_the_person_may_open():
-    assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == {"Utility", "Music", "VoiceMaster", "Community",
-                                                                     "Fun", "Images"}
-    helper = _labels(HelpView(_help(), ALL, author_rank=1))
-    assert "Moderation" in helper and "Roles" not in helper and "Antinuke" not in helper
-    admin = _labels(HelpView(_help(), ALL, author_rank=3))
-    assert {"Moderation", "Roles", "Automod", "Server"} <= set(admin)
-    assert "Antinuke" not in admin and "Permissions" not in admin
-    head = _labels(HelpView(_help(), ALL, author_rank=4))
-    assert {"Antinuke", "Permissions"} <= set(head)
-    assert "Developer" not in head
+    public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images"}
+    assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
+    # each level up opens one more staff category
+    expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
+                4: {"Moderation", "Roles", "Server"}, 5: {"Moderation", "Roles", "Server", "Automod"},
+                6: {"Moderation", "Roles", "Server", "Automod", "Permissions"},
+                7: {"Moderation", "Roles", "Server", "Automod", "Permissions", "Antinuke"}}
+    for rank, staff in expected.items():
+        assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
+    assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
+
+
+def test_inside_a_category_commands_above_your_level_are_hidden():
+    from core.help import min_rank_for_command
+    kick = SimpleNamespace(callback=SimpleNamespace(__veil_perms__=["kick_members", "uperm: moderator"]),
+                           cog_name="Moderation", qualified_name="kick", name="kick")
+    purge = SimpleNamespace(callback=SimpleNamespace(__veil_perms__=["manage_messages"]), cog_name="Moderation",
+                            qualified_name="purge", name="purge")
+    admin_only = SimpleNamespace(callback=SimpleNamespace(__veil_perms__=["administrator"]), cog_name="Moderation",
+                                 qualified_name="x", name="x")
+    assert (min_rank_for_command(purge), min_rank_for_command(kick), min_rank_for_command(admin_only)) == (1, 2, 7)
 
 
 def test_buttons_are_plain_grey_text_in_rows_of_five():

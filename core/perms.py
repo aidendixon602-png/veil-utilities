@@ -6,11 +6,11 @@ needing dangerous native Discord permissions. Config lives per-guild under the "
 
     {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-The hierarchy, highest first: Developer, Owner, Co-Owner, Manager, Head Admin, Admin, Moderator, Helper.
-Developer (the bot's developers) and Owner (the server owner) are automatic and can't be assigned.
+The hierarchy, highest first: Developer, Owner, Supreme Leader, Overseer, Bot Manager, Head Admin, Admin,
+Moderator, Helper. Developer (the bot's developers) and Owner (the server owner) are automatic and can't be assigned.
 
-Older names still work wherever a level is typed (and saved assignments are migrated): Supreme Leader is now
-Co-Owner, Overseer and Bot Manager are now Manager, and Mod is now Moderator.
+Older names still work wherever a level is typed (and saved assignments are migrated): Mod is now Moderator, and
+the short-lived Co-Owner / Manager names map back to Supreme Leader / Overseer.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import discord
 DEV_RANK = 10_000
 OWNER_RANK = 1_000
 ADMIN_RANK = 900  # a real Discord administrator with no assigned level
-COOWNER_RANK = 7  # the top assignable level (Administrator)
+COOWNER_RANK = 7  # the top assignable level, Supreme Leader (Administrator)
 DEV_NAME = "Developer"
 OWNER_NAME = "Owner"
 
@@ -130,23 +130,30 @@ CODE_ROLES: dict[int | str, str] = {}
 # key -> (display name, rank, granted bot-permissions). Assignable with `perm add` / `uperm add`.
 # Ranks only order the levels (higher = more power); servers can change them with `permlevels rank`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
-    "helper":    ("Helper", 1, ["manage_messages"]),
-    "moderator": ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
-    "admin":     ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                               "manage_nicknames", "manage_roles", "manage_channels"]),
-    "headadmin": ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                                    "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
-                                    "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "manager":   ("Manager", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
-    "coowner":   ("Co-Owner", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
+    "helper":        ("Helper", 1, ["manage_messages"]),
+    "moderator":     ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                    "manage_nicknames", "manage_roles", "manage_channels"]),
+    "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+                                        "manage_webhooks", "manage_expressions", "mention_everyone"]),
+    "botmanager":    ("Bot Manager", 5, [
+        "manage_messages", "kick_members", "ban_members", "moderate_members",
+        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+        "manage_webhooks", "manage_expressions", "manage_events", "manage_threads",
+        "mention_everyone", "view_audit_log", "create_instant_invite",
+    ]),
+    "overseer":      ("Overseer", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
+    "supremeleader": ("Supreme Leader", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
 }
 
 # Old level keys -> the level that replaced them. Saved assignments are migrated, and typing an old name works.
+# (A short-lived rename called Supreme Leader "Co-Owner" and merged Overseer + Bot Manager into "Manager";
+# those come back as Supreme Leader and Overseer, which kept Manager's exact permissions.)
 LEGACY_KEYS: dict[str, str] = {
     "mod": "moderator",
-    "botmanager": "manager",
-    "overseer": "manager",
-    "supremeleader": "coowner",
+    "coowner": "supremeleader",
+    "manager": "overseer",
 }
 
 # Shown in the level list but handed out automatically, never via `perm add` / `uperm add`
@@ -161,8 +168,9 @@ RESERVED_ALIASES: dict[str, str] = {"serverowner": "owner", "botdev": "developer
 HIERARCHY_ORDER: list[str] = [
     DEV_NAME,
     OWNER_NAME,
-    "Co-Owner",
-    "Manager",
+    "Supreme Leader",
+    "Overseer",
+    "Bot Manager",
     "Head Admin",
     "Admin",
     "Moderator",
@@ -173,8 +181,9 @@ HIERARCHY_ORDER: list[str] = [
 HIERARCHY_KEYS: list[str] = [
     "developer",
     "owner",
-    "coowner",
-    "manager",
+    "supremeleader",
+    "overseer",
+    "botmanager",
     "headadmin",
     "admin",
     "moderator",
@@ -183,7 +192,7 @@ HIERARCHY_KEYS: list[str] = [
 
 
 def canonical(key: str | None) -> str | None:
-    """A level key as it's called now (`supremeleader` -> `coowner`); other keys come back unchanged."""
+    """A level key as it's called now (`mod` -> `moderator`); other keys come back unchanged."""
     if key is None:
         return None
     return LEGACY_KEYS.get(key, key)
@@ -267,7 +276,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 
     Returns:
         (level_name, granted_by, rank)
-        e.g. ("Co-Owner", "Permissions attached to user", 7)
+        e.g. ("Supreme Leader", "Permissions attached to user", 7)
              ("Admin", "@HR | Branch Management", 3)
              ("Helper", "@Office of Lilz", 1)
              ("Developer", "Built-in", 10000)

@@ -58,12 +58,22 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Community": 0,     # Public
     "Fun": 0,           # Public
     "Images": 0,        # Public
-    "Moderation": 1,    # Helper+ (rank 1)
-    "Roles": 3,         # Admin+ (rank 3)
-    "Automod": 3,       # Admin+ (rank 3)
-    "Server": 3,        # Admin+ (rank 3)
-    "Antinuke": 4,      # Head Admin+ (rank 4)
-    "Permissions": 4,   # Head Admin+ (rank 4)
+    # each level up opens one more staff category (inside each one, commands you can't run stay hidden)
+    "Moderation": 1,    # Helper+ (Moderator+ also sees kick, timeout, warn...)
+    "Roles": 3,         # Admin+
+    "Server": 4,        # Head Admin+
+    "Automod": 5,       # Bot Manager+
+    "Permissions": 6,   # Overseer+
+    "Antinuke": 7,      # Supreme Leader+
+}
+
+# the level a Discord permission checked by a command maps to (matches has_perms' "you need ..." messages)
+PERM_RANKS: dict[str, int] = {
+    "administrator": 7,
+    "manage_guild": 4, "manage_webhooks": 4, "manage_expressions": 4, "mention_everyone": 4,
+    "manage_roles": 3, "ban_members": 3, "manage_channels": 3,
+    "kick_members": 2, "moderate_members": 2, "manage_nicknames": 2,
+    "manage_messages": 1,
 }
 
 CATEGORY_EMOJIS: dict[str, str] = {
@@ -131,6 +141,8 @@ def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
     perms_list = getattr(callback, "__veil_perms__", [])
     uperm_rank = 0
     for p in perms_list:
+        if isinstance(p, str) and p in PERM_RANKS:  # has_perms(...): the level that grants that permission
+            uperm_rank = max(uperm_rank, PERM_RANKS[p])
         if isinstance(p, str) and p.startswith("uperm:"):
             from core.perms import PRESETS, canonical
             lvl = canonical(p.split(":", 1)[1].strip().lower())
