@@ -83,7 +83,7 @@ def test_the_home_card_shows_the_state_and_offers_the_main_controls():
     assert embed.title == "Antinuke" and embed.description.startswith("antinuke is **off**.")
     assert labels(panel) == ["Turn on", "Default", "Strict", "Relaxed"]
     (select,) = [i for i in panel.children if isinstance(i, RuleSelect)]
-    assert len(select.options) == 12 and select.options[0].label == "Ban"
+    assert len(select.options) == 17 and select.options[0].label == "Ban"
 
 
 def test_turning_it_on_fills_in_every_rule_and_flips_the_button():

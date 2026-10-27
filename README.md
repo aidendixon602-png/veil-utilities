@@ -88,7 +88,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 
 | | Module | Highlights |
 |:-:|---|---|
-| 🛡️ | **Antinuke** | 14 attack types (mass ban/kick/timeout/unban, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, undoes everything the attacker did in the last 10 minutes, ban / kick / strip, a button panel (`,an`), raid mode that pauses invites and DMs, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
+| 🛡️ | **Antinuke** | 17 attack types (mass ban/kick/timeout/unban, channel & role deletes and edits, mass role changes on members, webhooks and webhook @everyone spam, bot adds, emoji deletes, prunes, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, undoes everything the attacker did in the last 10 minutes, ban / kick / strip, a button panel (`,an`), raid mode that pauses invites and DMs, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
 | 🚨 | **Antiraid** | Mass-join raid mode, minimum account age, no-avatar filter, per-user bypass |
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |
