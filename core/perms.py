@@ -6,7 +6,11 @@ needing dangerous native Discord permissions. Config lives per-guild under the "
 
     {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-Server Owner and Bot Developer are automatic built-in ranks that cannot be manually assigned.
+The hierarchy, highest first: Developer, Owner, Co-Owner, Manager, Head Admin, Admin, Moderator, Helper.
+Developer (the bot's developers) and Owner (the server owner) are automatic and can't be assigned.
+
+Older names still work wherever a level is typed (and saved assignments are migrated): Supreme Leader is now
+Co-Owner, Overseer and Bot Manager are now Manager, and Mod is now Moderator.
 """
 from __future__ import annotations
 
@@ -15,6 +19,9 @@ import discord
 DEV_RANK = 10_000
 OWNER_RANK = 1_000
 ADMIN_RANK = 900  # a real Discord administrator with no assigned level
+COOWNER_RANK = 7  # the top assignable level (Administrator)
+DEV_NAME = "Developer"
+OWNER_NAME = "Owner"
 
 # =====================================================================
 # BOT DEVELOPERS (Editable directly in this file)
@@ -121,61 +128,94 @@ CODE_ROLES: dict[int | str, str] = {}
 # BOT PERMISSION RANKS
 # =====================================================================
 # key -> (display name, rank, granted bot-permissions). Assignable with `perm add` / `uperm add`.
+# Ranks only order the levels (higher = more power); servers can change them with `permlevels rank`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
-    "helper":        ("Helper", 1, ["manage_messages"]),
-    "mod":           ("Mod", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
-    "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                                    "manage_nicknames", "manage_roles", "manage_channels"]),
-    "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                                        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
-                                        "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "botmanager":    ("Bot Manager", 5, [
-        "manage_messages", "kick_members", "ban_members", "moderate_members",
-        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
-        "manage_webhooks", "manage_expressions", "manage_events", "manage_threads",
-        "mention_everyone", "view_audit_log", "create_instant_invite",
-    ]),
-    "overseer":      ("Overseer", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
-    "supremeleader": ("Supreme Leader", 7, ["administrator"] + ALL_BOT_PERMS),
+    "helper":    ("Helper", 1, ["manage_messages"]),
+    "moderator": ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "admin":     ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                               "manage_nicknames", "manage_roles", "manage_channels"]),
+    "headadmin": ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                    "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+                                    "manage_webhooks", "manage_expressions", "mention_everyone"]),
+    "manager":   ("Manager", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
+    "coowner":   ("Co-Owner", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
+}
+
+# Old level keys -> the level that replaced them. Saved assignments are migrated, and typing an old name works.
+LEGACY_KEYS: dict[str, str] = {
+    "mod": "moderator",
+    "botmanager": "manager",
+    "overseer": "manager",
+    "supremeleader": "coowner",
 }
 
 # Shown in the level list but handed out automatically, never via `perm add` / `uperm add`
 RESERVED: dict[str, tuple[str, int]] = {
-    "serverowner": ("Server Owner", OWNER_RANK),
-    "botdev":      ("Bot Developer", DEV_RANK),
+    "owner":     (OWNER_NAME, OWNER_RANK),
+    "developer": (DEV_NAME, DEV_RANK),
 }
+RESERVED_ALIASES: dict[str, str] = {"serverowner": "owner", "botdev": "developer", "botdeveloper": "developer",
+                                    "dev": "developer"}
 
 # Permission hierarchy display order (highest to lowest)
 HIERARCHY_ORDER: list[str] = [
-    "Bot Developer",
-    "Server Owner",
-    "Supreme Leader",
-    "Overseer",
-    "Bot Manager",
+    DEV_NAME,
+    OWNER_NAME,
+    "Co-Owner",
+    "Manager",
     "Head Admin",
     "Admin",
-    "Mod",
+    "Moderator",
     "Helper",
 ]
 
 # Permission hierarchy keys (highest to lowest)
 HIERARCHY_KEYS: list[str] = [
-    "botdev",
-    "serverowner",
-    "supremeleader",
-    "overseer",
-    "botmanager",
+    "developer",
+    "owner",
+    "coowner",
+    "manager",
     "headadmin",
     "admin",
-    "mod",
+    "moderator",
     "helper",
 ]
+
+
+def canonical(key: str | None) -> str | None:
+    """A level key as it's called now (`supremeleader` -> `coowner`); other keys come back unchanged."""
+    if key is None:
+        return None
+    return LEGACY_KEYS.get(key, key)
+
+
+def migrate(cfg: dict) -> bool:
+    """Rewrite old level keys in a server's saved assignments and overrides. True when anything changed."""
+    changed = False
+    for bucket in ("users", "roles"):
+        entries = cfg.get(bucket) or {}
+        for target, key in list(entries.items()):
+            new = canonical(key)
+            if new != key:
+                entries[target] = new
+                changed = True
+    overrides = cfg.get("overrides") or {}
+    for old, new in LEGACY_KEYS.items():
+        if old in overrides:
+            data = overrides.pop(old)
+            if new not in overrides:  # two old levels became one: the first one found keeps its settings
+                data.pop("name", None)  # an old custom name ("Supreme Leader") would hide the new one
+                if data:
+                    overrides[new] = data
+            changed = True
+    return changed
 
 
 def all_levels(cfg: dict) -> dict[str, dict]:
     """Assignable levels merged with any per-guild overrides."""
     merged = {k: {"name": n, "rank": r, "perms": list(p)} for k, (n, r, p) in PRESETS.items()}
     for key, data in (cfg.get("overrides") or {}).items():
+        key = canonical(key)
         base = merged.get(key, {"name": key.replace("_", " ").title(), "rank": 0, "perms": []})
         merged[key] = {
             "name": data.get("name", base["name"]),
@@ -195,11 +235,14 @@ def resolve_key(cfg: dict, text: str) -> str | None:
     for key, data in all_levels(cfg).items():
         if flat == key or flat == _flat(data["name"]):
             return key
+    if flat in LEGACY_KEYS:  # "supreme leader", "bot manager", "overseer", "mod"
+        return LEGACY_KEYS[flat]
     return None
 
 
 def is_reserved(text: str) -> str | None:
     flat = _flat(text)
+    flat = RESERVED_ALIASES.get(flat, flat)
     for key, (name, _) in RESERVED.items():
         if flat == key or flat == _flat(name):
             return name
@@ -207,11 +250,11 @@ def is_reserved(text: str) -> str | None:
 
 
 def user_key(cfg: dict, user_id: int) -> str | None:
-    return (cfg.get("users") or {}).get(str(user_id))
+    return canonical((cfg.get("users") or {}).get(str(user_id)))
 
 
 def role_key(cfg: dict, role_id: int) -> str | None:
-    return (cfg.get("roles") or {}).get(str(role_id))
+    return canonical((cfg.get("roles") or {}).get(str(role_id)))
 
 
 def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = False, is_dev: bool = False) -> tuple[str | None, str | None, int]:
@@ -224,22 +267,22 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 
     Returns:
         (level_name, granted_by, rank)
-        e.g. ("Supreme Leader", "Permissions attached to user", 7)
+        e.g. ("Co-Owner", "Permissions attached to user", 7)
              ("Admin", "@HR | Branch Management", 3)
              ("Helper", "@Office of Lilz", 1)
-             ("Bot Developer", "Built-in", 10000)
-             ("Server Owner", "Built-in", 1000)
+             ("Developer", "Built-in", 10000)
+             ("Owner", "Built-in", 1000)
     """
     mid = getattr(member, "id", 0)
     if is_dev or is_bot_developer(member):
-        return "Bot Developer", "Built-in", DEV_RANK
+        return DEV_NAME, "Built-in", DEV_RANK
     if is_owner:
-        return "Server Owner", "Built-in", OWNER_RANK
+        return OWNER_NAME, "Built-in", OWNER_RANK
 
     levels = all_levels(cfg)
 
     # 1. Bot Code Assignments (built through the bot code -> "Built-in")
-    ukey_code = CODE_USERS.get(mid) or CODE_USERS.get(str(mid))
+    ukey_code = canonical(CODE_USERS.get(mid) or CODE_USERS.get(str(mid)))
     if ukey_code and ukey_code in levels:
         info = levels[ukey_code]
         return info["name"], "Built-in", info["rank"]
@@ -247,7 +290,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
     for r in getattr(member, "roles", []):
         r_name = getattr(r, "name", "")
         r_id = getattr(r, "id", 0)
-        rkey_code = (
+        rkey_code = canonical(
             CODE_ROLES.get(r_id)
             or CODE_ROLES.get(str(r_id))
             or CODE_ROLES.get(r_name)
@@ -269,7 +312,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
     best_role = None
     best_rank = 0
     for r in getattr(member, "roles", []):
-        rkey = roles_cfg.get(str(r.id))
+        rkey = canonical(roles_cfg.get(str(r.id)))
         if rkey and rkey in levels:
             r_info = levels[rkey]
             if r_info["rank"] > best_rank:
@@ -286,7 +329,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 def level_perms(cfg: dict, member_or_id: discord.Member | int) -> set[str]:
     levels = all_levels(cfg)
     if isinstance(member_or_id, int):
-        key = CODE_USERS.get(member_or_id) or CODE_USERS.get(str(member_or_id)) or user_key(cfg, member_or_id)
+        key = canonical(CODE_USERS.get(member_or_id) or CODE_USERS.get(str(member_or_id))) or user_key(cfg, member_or_id)
         lv = levels.get(key) if key else None
         return set(lv["perms"]) if lv else set()
 

@@ -93,7 +93,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |
 | 🎙️ | **VoiceMaster** | Join-to-create channels with a button panel: lock, hide, rename, limit, claim, transfer. Remembers each user's settings |
-| 🔑 | **Permissions** | Named per-member levels (Helper → Supreme Leader, plus automatic Server Owner & Bot Dev), role blacklist, `removepermall` to strip a permission from every role after a raid |
+| 🔑 | **Permissions** | Named levels for members and roles: Helper → Moderator → Admin → Head Admin → Manager → Co-Owner, plus automatic Owner & Developer, role blacklist, `removepermall` to strip a permission from every role after a raid |
 | 🧩 | **Server** | Welcome / goodbye / boost, autoroles, reaction & button roles, autoresponders, sticky messages, starboard, counters, bump reminders, vanity rewards |
 | 📈 | **Levels** | Message **and** voice XP, role rewards, XP multipliers, leaderboard |
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |

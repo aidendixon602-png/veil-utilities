@@ -122,11 +122,11 @@ def test_level_rename_and_rank_lines(bot):
     async def go():
         cog, ctx = Permissions(bot), make_ctx()
         await Permissions.pl_rename.callback(cog, ctx, "mod", name="Janitor")
-        assert said(ctx) == "renamed `mod` to **Janitor**"
+        assert said(ctx) == "renamed `moderator` to **Janitor**"  # the old name still finds it
         await Permissions.pl_rank.callback(cog, ctx, "mod", 50)
-        assert said(ctx) == "set `mod` to rank **50**"
+        assert said(ctx) == "set `moderator` to rank **50**"
         await Permissions.pl_grant.callback(cog, ctx, "mod", "ban_members")
-        assert said(ctx).startswith("`mod` now grants `ban_members`") or said(ctx).startswith("`mod` no longer grants")
+        assert said(ctx).startswith("`moderator` now grants `ban_members`") or said(ctx).startswith("`moderator` no longer grants")
         assert not said(ctx).endswith(".")
     run(go())
 
