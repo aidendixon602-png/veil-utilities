@@ -268,6 +268,8 @@ class Fun(commands.Cog):
     @commands.bot_has_permissions(manage_webhooks=True, manage_messages=True)
     async def uwulock(self, ctx: Context, member: discord.Member):
         """Toggle forcing someone's messages into uwu speak"""
+        from core.utils import check_target
+        check_target(ctx, member, "uwulock")
         cfg = await self.bot.db.get_config(ctx.guild.id, "uwulock")
         locked = cfg.setdefault("users", [])
         if member.id in locked:

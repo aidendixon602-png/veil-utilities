@@ -709,15 +709,30 @@ def compact_failure(ctx: Context, error: Exception) -> str | None:
     return f"failed to {action}: {reason}" if action else f"failed: {reason}"
 
 
+def check_target(ctx: Context, target: discord.abc.Snowflake, action: str = "moderate") -> None:
+    """Who nobody can moderate, whatever their own rank: themselves, a bot developer, the server owner and the bot.
+
+    Works on anyone, member of the server or not (a ban by user ID, a network ban), so commands that accept a plain
+    user ID can't get around it."""
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
+    tid = getattr(target, "id", target)
+    if tid == ctx.author.id:
+        raise UserError(f"You can't {action} yourself")
+    guild = getattr(ctx, "guild", None)
+    mine = {getattr(getattr(bot, "user", None), "id", None), getattr(getattr(guild, "me", None), "id", None)} - {None}
+    if tid in mine:
+        raise UserError(f"I can't {action} myself")
+    if _perms.is_bot_developer(tid, bot):
+        raise UserError(f"You can't {action} a bot developer")
+    if guild is not None and tid == getattr(guild, "owner_id", None):
+        raise UserError(f"You can't {action} the server owner")
+
+
 def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
-    if target.id == ctx.author.id:
-        raise UserError(f"You can't {action} yourself")
-    if _perms.is_bot_developer(target, bot):
-        raise UserError(f"You can't {action} a bot developer")
-    if target.id == ctx.guild.owner_id:
-        raise UserError(f"You can't {action} the server owner")
+    check_target(ctx, target, action)
     if target == ctx.guild.me:
         raise UserError(f"I can't {action} myself")
     is_dev = _perms.is_bot_developer(ctx.author, bot)
