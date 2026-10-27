@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Stronger antinuke (ideas from Wick, Bleed and Security).**
+  - **Fixed:** giving a member a role with dangerous permissions wasn't watched at all; it's now caught as a
+    Permission Grant and the role is taken back, even when Discord sends the member or role as a bare ID.
+  - **Member Roles** (5 in 60s): mass adding or removing members' roles, the quiet first step of many nukes
+    (stripping staff). Roles taken are given back and roles handed out are taken back.
+  - **Channel Edit** / **Role Edit** (4 in 60s): mass renaming or re-configuring channels and roles; names,
+    topics, settings, colours and permissions are restored. Dragging things into a new order doesn't count.
+  - **Emoji Delete** (3 in 60s) and **Member Prune** (instant) are now rules in `,an`.
+  - **Webhook spam:** a webhook pinging @everyone/@here twice in 30s is deleted along with what it sent.
+  - Other bots doing their usual job (ticket bots renaming channels, role and verification bots) don't count.
+  - Servers that already have the antinuke on get the new rules switched on with these defaults (once);
+    the presets include them too.
+
 - **A greed / bleed look.** Replies are one line with an emoji and your mention ("✅ @you: banned @x",
   "⚠️ @you: ...", "❌ @you: ...") in soft green / yellow / red, without the old "failed:" prefix. `,help` has a
   category dropdown; each category lists its commands in one code block (groups marked with *); `,help <command>`
