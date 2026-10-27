@@ -139,11 +139,40 @@ def test_a_button_runs_the_real_command_for_that_member():
     view = asyncio.run(StaffPanel.build(ctx, member, "Admin panel", ADMIN_MEMBER_ACTIONS))
     it = SimpleNamespace(response=SimpleNamespace(is_done=lambda: False, defer=AsyncMock()),
                          followup=SimpleNamespace(send=AsyncMock()))
-    asyncio.run(view.act(it, "ban", {"reason": "raid"}))
+    asyncio.run(view.act(it, "ban", {"reason": "raid"}, label="Ban"))
     cmd, kwargs = ctx.invoke.await_args.args[0], ctx.invoke.await_args.kwargs
     assert cmd.qualified_name == "ban" and kwargs == {"reason": "raid", "user": member}  # ban calls it `user`
-    assert ctx.command == "mod-cmd"  # put back afterwards
-    ctx.bot.dispatch.assert_called_once_with("command_completion", ctx)  # it shows in the command log
+    assert ctx.command == "mod-cmd"  # the panel's own context is never touched
+    event, run = ctx.bot.dispatch.call_args.args  # it shows in the command log...
+    assert event == "command_completion" and run is not ctx
+    assert run.command.qualified_name == "ban" and run.panel_action == "Ban"  # ...as the button, not as ,admin
+
+
+def test_the_log_line_names_the_button_and_points_at_the_panel():
+    from core import logembeds
+    ctx = SimpleNamespace(command=SimpleNamespace(qualified_name="lockdown", hidden=False, cog_name="Moderation"),
+                          panel_action="Lockdown", panel_name="admin", panel_jump="https://discord.com/x/panel",
+                          prefix=",", author=SimpleNamespace(mention="<@9>"), channel=SimpleNamespace(mention="<#1>"),
+                          message=SimpleNamespace(content=",admin", jump_url="https://discord.com/x/deleted"))
+    line = logembeds.command_used(ctx, "Admin", "-", ms=1200)
+    assert "pressed **Lockdown** on the `,admin` panel" in line and "x/panel" in line and "1.2s" in line
+    failed = logembeds.command_used(ctx, "Admin", "-", error="Lockdown is already on")
+    assert "❌" in failed
+    assert "failed: Lockdown is already on" in failed
+
+
+def test_a_failed_button_is_logged_with_why():
+    ctx = _ctx({"kick"})
+    ctx.invoke = AsyncMock(side_effect=UserError("they left"))
+    logs = SimpleNamespace(_log_command=AsyncMock())
+    ctx.bot.get_cog = lambda name: logs if name == "Logging" else None
+    view = asyncio.run(StaffPanel.build(ctx, SimpleNamespace(id=50), "Moderator panel", MOD_ACTIONS))
+    it = SimpleNamespace(response=SimpleNamespace(is_done=lambda: False, defer=AsyncMock()),
+                         followup=SimpleNamespace(send=AsyncMock()))
+    asyncio.run(view.act(it, "kick", {}, label="Kick"))
+    run, reason = logs._log_command.await_args.args
+    assert run.panel_action == "Kick" and reason == "they left"
+    assert "they left" in it.followup.send.await_args.args[0]
 
 
 def test_a_blocked_action_says_why_privately():

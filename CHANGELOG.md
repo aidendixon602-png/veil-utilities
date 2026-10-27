@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Panel buttons show up properly in the command log.** Pressing a button on `,mod` / `,admin` used to log as
+  another `,admin`, timed from when the panel was opened (24s, 61s...). It now reads "pressed **Lockdown** on the
+  `,admin` panel", with its own time and a link to the panel, and a button that didn't work is logged with why.
+
 ### Changed
 
 - **Music keeps working when your Lavalink server is down.** With `LAVALINK_URI` set, the free public nodes now

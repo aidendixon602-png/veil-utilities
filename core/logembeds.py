@@ -631,6 +631,16 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
     """A feed line per command run: who ran what where, and how it ended (or why it failed)."""
     command = getattr(ctx, "command", None)
     hidden = command is not None and (getattr(command, "hidden", False) or getattr(command, "cog_name", None) == "Owner")
+    action = getattr(ctx, "panel_action", None)
+    if action:  # a button on the ,mod / ,admin panel: say which button, and point at the panel
+        panel = f"`{getattr(ctx, 'prefix', '') or ''}{getattr(ctx, 'panel_name', None) or 'panel'}`"
+        jump = getattr(ctx, "panel_jump", None) or getattr(ctx.message, "jump_url", None)
+        where = f"in {ctx.channel.mention}" + (f" · [jump]({jump})" if jump else "")
+        did = f"{ctx.author.mention} pressed **{action}** on the {panel} panel {where}"
+        if error is not None:
+            return feed_line("❌", f"{did} · failed: {shorten(redact.scrub(error).replace(chr(10), ' '), 200)}")
+        took = _took(ms)
+        return feed_line("🔘", did + (f" · {took}" if took else ""))
     if hidden:
         # developer commands can carry code, queries or secrets, and these lines are readable by server admins
         shown = f"`{getattr(ctx, 'prefix', '') or ''}{command.qualified_name}` (arguments hidden)"
