@@ -23,6 +23,10 @@ class Colors:
     orange = 0xE67E22
     error = 0xF04747
     neutral = 0x2B2D31
+    # the reply palette (soft, like greed / bleed): ✅ green, ⚠️ yellow, ❌ red
+    approve = 0xA4EB78
+    caution = 0xFFC56E
+    deny = 0xFF6464
 
 
 class E:  # emojis
@@ -64,11 +68,23 @@ class Context(commands.Context["Veil"]):
         autoclean.track(self, message, kwargs.get("view"))  # cleaned up after the command, if the server wants
         return message
 
-    # ---- replies: every plain answer is one coloured line, sent as a reply (no author header, no footer)
-    #   green  approve/done  it worked          amber  warn     careful, empty, or nothing to do
-    #   red    deny/fail     it did not work    grey   neutral  plain information
+    # ---- replies: one line, greed / bleed style: "✅ @you: banned @x" (no author header, no footer)
+    #   green  approve/done  it worked          yellow  warn     careful, empty, or nothing to do
+    #   red    deny/fail     it did not work    grey    neutral  plain information (no emoji, no mention)
+    def _line(self, emoji: str, text: str) -> str:
+        """`✅ @you: text`. A reply that already opens with its own emoji (`🔒 ...`) keeps that one instead."""
+        text = str(text)
+        if text.startswith("failed: "):  # the ❌ already says so
+            text = text[len("failed: "):]
+        first, _, rest = text.partition(" ")
+        if rest and first and not first[0].isascii() and not first[0].isalnum():
+            emoji, text = first, rest
+        author = getattr(self, "author", None)
+        who = f"{author.mention}: " if author is not None and hasattr(author, "mention") else ""
+        return f"{emoji} {who}{text}"
+
     async def compact(self, color: int, text: str, **kw):
-        embed = discord.Embed(description=text, color=color)
+        embed = discord.Embed(description=shorten(text, 4096), color=color)
         kw.setdefault("mention_author", False)
         if getattr(self, "message", None) is not None:
             kw.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
@@ -81,13 +97,13 @@ class Context(commands.Context["Veil"]):
                 return None
 
     async def approve(self, text: str, **kw):
-        return await self.compact(Colors.success, text, **kw)
+        return await self.compact(Colors.approve, self._line(E.ok, text), **kw)
 
     async def warn(self, text: str, **kw):
-        return await self.compact(Colors.warn, text, **kw)
+        return await self.compact(Colors.caution, self._line(E.warn, text), **kw)
 
     async def deny(self, text: str, **kw):
-        return await self.compact(Colors.error, text, **kw)
+        return await self.compact(Colors.deny, self._line(E.no, text), **kw)
 
     async def neutral(self, text: str, **kw):
         return await self.compact(Colors.neutral, text, **kw)
@@ -151,23 +167,16 @@ class Paginator(OwnedView):
         self.index = i % len(self.embeds)
         await it.response.edit_message(embed=self.embeds[self.index], view=self)
 
-    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary)
-    async def first(self, it, _):
-        await self._go(it, 0)
-
-    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.primary)
+    # grey ◀ ▶ ✖, like greed / bleed. ◀ on the first page goes to the last, ▶ on the last to the first.
+    @discord.ui.button(emoji="◀", style=discord.ButtonStyle.secondary)
     async def prev(self, it, _):
         await self._go(it, self.index - 1)
 
-    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary)
+    @discord.ui.button(emoji="▶", style=discord.ButtonStyle.secondary)
     async def next(self, it, _):
         await self._go(it, self.index + 1)
 
-    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.secondary)
-    async def last(self, it, _):
-        await self._go(it, len(self.embeds) - 1)
-
-    @discord.ui.button(emoji="🗑️", style=discord.ButtonStyle.danger)
+    @discord.ui.button(emoji="✖", style=discord.ButtonStyle.secondary)
     async def close(self, it: discord.Interaction, _):
         await it.response.defer()
         await it.delete_original_response()

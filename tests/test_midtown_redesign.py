@@ -347,7 +347,7 @@ def test_direct_help_lookup_permission_gating():
     asyncio.run(h.send_command_help(mod_cog.ban))
     assert len(sent_errors) == 0
     assert len(sent_embeds) == 1
-    assert sent_embeds[0].title == "ban"
+    assert sent_embeds[0].title == "Command: ban"
 
 
 def test_all_moderation_actions_have_uperm_checks():
