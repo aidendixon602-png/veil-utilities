@@ -1320,7 +1320,7 @@ class Moderation(commands.Cog):
         author_rank = _perms.rank_of(cfg_pl, ctx.author, is_owner=is_owner, is_dev=is_dev)
 
         if author_rank < 4 and not (is_dev or is_owner):
-            raise UserError("🔒 You need the **Head Admin** permission level or higher (or to own the server) to authorize members for blacklisted roles.")
+            raise UserError("🔒 You need the **Server Manager** level or higher (or to own the server) to authorize members for blacklisted roles.")
 
         if _perms.is_bot_developer(target, self.bot):
             return await ctx.neutral(f"{target.mention} is a bot developer and is always authorized")
@@ -1357,7 +1357,7 @@ class Moderation(commands.Cog):
         author_rank = _perms.rank_of(cfg_pl, ctx.author, is_owner=is_owner, is_dev=is_dev)
 
         if author_rank < 4 and not (is_dev or is_owner):
-            raise UserError("🔒 You need the **Head Admin** permission level or higher (or to own the server) to revoke role blacklist authorizations.")
+            raise UserError("🔒 You need the **Server Manager** level or higher (or to own the server) to revoke role blacklist authorizations.")
 
         if _perms.is_bot_developer(target, self.bot):
             raise UserError(f"{target.mention} is a bot developer and can't be unauthorized")

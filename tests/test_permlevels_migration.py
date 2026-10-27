@@ -38,8 +38,8 @@ def test_the_level_list_is_numbered_highest_first():
         await Permissions.permlevels.callback(cog, ctx)
         text = ctx.send.await_args.kwargs["embed"].description
         order = [line.split("**")[1] for line in text.splitlines() if line.startswith("**")]
-        assert order == ["1. Developer", "2. Owner", "3. Supreme Leader (`supremeleader`)", "4. Overseer (`overseer`)",
-                         "5. Head Admin (`headadmin`)", "6. Admin (`admin`)",
+        assert order == ["1. Developer", "2. Server Owner", "3. Owner (`supremeleader`)", "4. Co-Owner (`overseer`)",
+                         "5. Server Manager (`headadmin`)", "6. Admin (`admin`)",
                          "7. Moderator (`moderator`)", "8. Helper (`helper`)"]
         assert "everything except Administrator\n-# 2 members" in text
         assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
