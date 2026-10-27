@@ -139,4 +139,6 @@ def test_mods_cannot_clear_their_own_or_a_higher_members_warnings():
         check(_ctx(5, 3), SimpleNamespace(id=5), "clear warnings for")
     higher = discord.Object(9)
     check(_ctx(5, 3), higher, "clear warnings for")  # not a member (left the server): allowed
-    check(_ctx(1, 0), SimpleNamespace(id=1), "clear warnings for")  # server owner: anything goes
+    with pytest.raises(UserError):  # not even the server owner wipes their own record
+        check(_ctx(1, 0), SimpleNamespace(id=1), "clear warnings for")
+    check(_ctx(1, 0), SimpleNamespace(id=7), "clear warnings for")  # the owner can clear anyone else's

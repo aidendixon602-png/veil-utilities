@@ -18,7 +18,7 @@ if not hasattr(_cu, "check_role_assignable"):
         pass
 
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, audit_reason,
-                        check_hierarchy_async,
+                        check_hierarchy_async, check_target,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm)
 
@@ -231,6 +231,7 @@ class Moderation(commands.Cog):
     async def mod_panel(self, ctx: Context, member: discord.Member):
         """Moderator panel for a member: warn, timeout, kick, jail and their warnings, as buttons"""
         from core.staffpanel import MOD_ACTIONS, StaffPanel, member_card
+        check_target(ctx, member, "open a panel on")
         view = await StaffPanel.build(ctx, member, "Moderator panel", MOD_ACTIONS)
         view.message = await ctx.send(embed=await member_card(ctx, member, "Moderator panel"), view=view)
 
@@ -244,6 +245,7 @@ class Moderation(commands.Cog):
             view = await StaffPanel.build(ctx, None, "Admin panel", ADMIN_SERVER_ACTIONS)
             view.message = await ctx.send(embed=server_card(ctx), view=view)
             return
+        check_target(ctx, member, "open a panel on")
         view = await StaffPanel.build(ctx, member, "Admin panel", ADMIN_MEMBER_ACTIONS)
         view.message = await ctx.send(embed=await member_card(ctx, member, "Admin panel"), view=view)
 
@@ -259,6 +261,8 @@ class Moderation(commands.Cog):
             delete, reason = 604800, reason.replace("--purge", "").strip() or None
         if isinstance(user, discord.Member):
             await check_hierarchy_async(ctx, user, "ban")
+        else:
+            check_target(ctx, user, "ban")  # banning by ID still can't reach yourself, the owner, a developer or me
         await antinuke_guard(ctx, "ban")
         if isinstance(user, discord.Member):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
@@ -509,12 +513,9 @@ class Moderation(commands.Cog):
     @staticmethod
     def _check_warn_target(ctx: Context, target, action: str) -> None:
         """Mods can't wipe their own record or the record of someone at/above their top role."""
-        if ctx.bot.owner_ids and target.id in ctx.bot.owner_ids:
-            raise UserError(f"you can't {action} a bot developer")
+        check_target(ctx, target, action)
         if ctx.author.id == ctx.guild.owner_id:
             return
-        if target.id == ctx.author.id:
-            raise UserError(f"you can't {action} yourself")
         if isinstance(target, discord.Member) and target.top_role >= ctx.author.top_role:
             raise UserError(f"you can't {action} {target.mention}, their top role is equal or higher than yours")
 
@@ -1589,6 +1590,7 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     async def unjail(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Release a member and give back their roles"""
+        check_target(ctx, member, "unjail")
         cfg = await self._cfg(ctx.guild.id, "jail")
         saved = cfg.get("jailed", {}).pop(str(member.id), None)
         if saved is None:
@@ -1689,6 +1691,7 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def unquarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Released by staff"):
         """Release a member from quarantine and safely restore non-blacklisted roles"""
+        check_target(ctx, member, "unquarantine")
         cfg = await self._cfg(ctx.guild.id, "quarantine")
         saved = cfg.get("quarantined", {}).pop(str(member.id), None)
         if saved is None:

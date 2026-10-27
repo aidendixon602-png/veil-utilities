@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **You can't moderate yourself or the server owner, by any route.** Banning by user ID, the network bans
+  (`hardban` / `genreban`), unjail, unquarantine, clearing warnings, uwulock, strip and the `,mod` / `,admin`
+  panels now refuse yourself, the server owner, a bot developer and the bot, the same as the member commands
+  already did. A refused network ban records nothing, and a network ban skips any server the person owns.
+
 ### Changed
 
 - **Automatic protection.** When the bot joins a server (and once for servers it's already in) it switches on

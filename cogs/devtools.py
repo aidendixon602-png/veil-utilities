@@ -10,7 +10,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, Duration, UserError, chunk_embeds, now, shorten, ts
+from core.utils import Colors, Context, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
 
 A = discord.AuditLogAction
 
@@ -33,6 +33,7 @@ class DevTools(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def strip(self, ctx: Context, member: discord.Member):
         """Remove every role from a member (restore with unstrip)"""
+        check_target(ctx, member, "strip")
         removable = [r for r in member.roles if not r.is_default() and not r.managed and r < ctx.guild.me.top_role]
         if not removable:
             raise UserError(f"I can't remove any of {member.mention}'s roles")
@@ -156,12 +157,19 @@ class DevTools(commands.Cog):
 
     # ================================================================ network hardban
     async def _network_ban(self, ctx: Context, user: discord.abc.Snowflake, reason: str | None, verb: str):
+        # never yourself, the bot, a bot developer or the owner of the server you're in, whoever runs it
+        check_target(ctx, user, verb.lower())
         guilds = list(self.bot.guilds)
-        if not await ctx.confirm(f"{verb} **{user}** across all **{len(guilds)}** servers?"):
+        owned = [g for g in guilds if g.owner_id == user.id]  # an owner can't be banned from their own server
+        guilds = [g for g in guilds if g.owner_id != user.id]
+        if not guilds:
+            raise UserError(f"{user.mention} owns every server I'm in, there's nowhere to ban them from")
+        note = f"\n-# skipping **{len(owned)}** server{'' if len(owned) == 1 else 's'} they own" if owned else ""
+        if not await ctx.confirm(f"{verb} **{user}** across **{len(guilds)}** servers?{note}"):
             return await ctx.neutral("cancelled")
         await self.bot.db.execute(
             "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
-        banned, failed = [], []
+        banned, failed = [], [f"{g.name} (they own it, skipped)" for g in owned]
         for g in guilds:
             try:
                 await g.ban(discord.Object(user.id), reason=f"{verb} by {ctx.author}: {reason or 'no reason'}")
