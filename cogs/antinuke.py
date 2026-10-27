@@ -12,7 +12,7 @@ from discord.ext import commands
 from core.antinukepanel import AntinukePanel, home_embed
 from core.config import settings
 from core.nukerestore import Snapshots, collapse, display, restore_channels, restore_roles
-from core.utils import Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
+from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
 
 # verbs for the "that would … at once" message
 VERBS = {"ban": "ban", "kick": "kick", "channeldelete": "delete channels for", "roledelete": "delete roles for",
@@ -190,6 +190,39 @@ LABELS = {
 }
 
 
+DANGEROUS_MASK = discord.Permissions(**{p: True for p in DANGEROUS_PERMS})
+
+
+def is_owner_or_dev(bot, guild, user_id: int) -> bool:
+    """The server owner or one of the bot's developers: the only people who can switch protection off."""
+    from core import perms as _perms
+    return user_id == getattr(guild, "owner_id", None) or _perms.is_bot_developer(user_id, bot)
+
+
+class ApproveBotButton(discord.ui.DynamicItem[discord.ui.Button], template=r"anbot:(?P<g>\d+):(?P<b>\d+)"):
+    """On a "new bot quarantined" alert: the owner gives the bot its permissions back. Survives restarts."""
+
+    def __init__(self, guild_id: int = 0, bot_id: int = 0):
+        self.guild_id, self.bot_id = guild_id, bot_id
+        super().__init__(discord.ui.Button(label="Approve bot", style=discord.ButtonStyle.success,
+                                           custom_id=f"anbot:{guild_id}:{bot_id}"))
+
+    @classmethod
+    async def from_custom_id(cls, it, item, match):
+        return cls(int(match["g"]), int(match["b"]))
+
+    async def callback(self, it: discord.Interaction):
+        guild = it.client.get_guild(self.guild_id)
+        cog = it.client.get_cog("Antinuke")
+        if guild is None or cog is None:
+            return await it.response.send_message("That server or the antinuke isn't available.", ephemeral=True)
+        if not is_owner_or_dev(it.client, guild, it.user.id):
+            return await it.response.send_message("🔒 Only the server owner can approve a bot.", ephemeral=True)
+        text = await cog.approve_bot(guild, self.bot_id, it.user)
+        await it.response.edit_message(view=None)
+        await it.followup.send(text, ephemeral=True)
+
+
 def _given_roles(entry) -> list:
     """The roles an audit entry handed out, as real roles where possible: Discord sends a bare ID for a role
     it hasn't cached, and that still has to be checked for dangerous permissions."""
@@ -340,6 +373,16 @@ class Antinuke(commands.Cog):
         self.caught: dict[tuple[int, int], float] = {}  # (guild, user) -> until when follow-ups are undone at once
         self.test_runs: dict[int, TestRun] = {}  # guild -> a developer's ,testnuke in progress
         self.webhook_pings: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, webhook) -> @everyone sends
+
+    async def cog_load(self):
+        add = getattr(self.bot, "add_dynamic_items", None)
+        if add:
+            add(ApproveBotButton)
+
+    async def cog_unload(self):
+        remove = getattr(self.bot, "remove_dynamic_items", None)
+        if remove:
+            remove(ApproveBotButton)
 
     async def cfg(self, gid):
         cfg = await self.bot.db.get_config(gid, "antinuke", DEFAULT)
@@ -523,6 +566,221 @@ class Antinuke(commands.Cog):
         except discord.HTTPException:
             pass
 
+    # ================================================================ hardening: off switch, notices, panic, bots
+    def _owner_to_turn_off(self, guild: discord.Guild, user_id: int) -> None:
+        """Only the owner (or a developer) can switch the antinuke off: an attacker with an antinuke-admin account
+        would otherwise just turn it off first."""
+        if not is_owner_or_dev(self.bot, guild, user_id):
+            raise UserError("Only the **server owner** can turn the antinuke off. Antinuke admins can still change "
+                            "rules and turn it on.")
+
+    async def security_notice(self, guild: discord.Guild, actor, text: str) -> None:
+        """Someone changed who the antinuke trusts, or switched protection off: post it in the antinuke log and DM
+        the owner (unless the owner did it), so a hacked staff account can't do it quietly. Best effort: a notice
+        that can't be sent never undoes or blocks the change itself."""
+        try:
+            await self._security_notice(guild, actor, text)
+        except Exception:
+            pass
+
+    async def _security_notice(self, guild: discord.Guild, actor, text: str) -> None:
+        e = discord.Embed(title="🔐 Antinuke settings changed", color=Colors.warn, timestamp=discord.utils.utcnow(),
+                          description=f"{getattr(actor, 'mention', actor)} {text}.")
+        e.set_footer(text=f"{getattr(guild, 'name', 'this server')} · security notice")
+        cfg = await self.cfg(guild.id)
+        targets = [await self._log_channel(guild, cfg)]
+        owner = getattr(guild, "owner", None)
+        if owner is not None and getattr(actor, "id", None) != guild.owner_id:
+            targets.append(owner)
+        for dest in targets:
+            if dest is None:
+                continue
+            try:
+                await dest.send(embed=e)
+            except (discord.HTTPException, AttributeError):
+                pass
+
+    async def start_panic(self, guild: discord.Guild, by, why: str | None = None) -> list[str]:
+        """Panic mode: lock every channel for @everyone, pause invites and DMs, and take the dangerous permissions
+        off every role I can edit, remembering exactly what was removed so `,an unpanic` puts it all back."""
+        cfg = await self.cfg(guild.id)
+        if cfg.get("panic"):
+            raise UserError("Panic mode is already on. The server owner can lift it with `,an unpanic`")
+        state = {"since": time.time(), "by": getattr(by, "id", None), "roles": {}, "locked": [], "invites": False}
+        done = []
+        for role in sorted(getattr(guild, "roles", []), key=lambda r: -getattr(r, "position", 0)):
+            if getattr(role, "managed", False) or not is_dangerous(role.permissions):
+                continue
+            try:
+                if not role < guild.me.top_role:
+                    continue
+            except Exception:
+                continue
+            removed = role.permissions.value & DANGEROUS_MASK.value
+            try:
+                await role.edit(permissions=discord.Permissions(role.permissions.value & ~DANGEROUS_MASK.value),
+                                reason="Antinuke: panic mode")
+                state["roles"][str(role.id)] = removed
+            except discord.HTTPException:
+                done.append(f"⚠️ couldn't take the dangerous permissions off @{display(role)}")
+        if state["roles"]:
+            done.append(f"took the dangerous permissions off {len(state['roles'])} role(s)")
+        state["locked"] = await self._lock_channels(guild, reason="Antinuke: panic mode")
+        done.append(f"locked {len(state['locked'])} channel(s) for @everyone")
+        try:
+            until = discord.utils.utcnow() + timedelta(hours=24)
+            await guild.edit(invites_disabled_until=until, dms_disabled_until=until, reason="Antinuke: panic mode")
+            state["invites"] = True
+            done.append("paused invites and DMs between members")
+        except (discord.HTTPException, TypeError):
+            done.append("⚠️ couldn't pause invites: I need Manage Server")
+        cfg["panic"] = state
+        await self.save(guild.id, cfg)
+        e = discord.Embed(title="🚨 Panic mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
+                          description=f"{getattr(by, 'mention', 'Someone')} turned on panic mode"
+                                      + (f": {why}" if why else "") + ".")
+        e.add_field(name="What I did", value="\n".join(f"• {d}" for d in done), inline=False)
+        e.add_field(name="Ends", value="when the server owner runs `,an unpanic`: everything above is put back",
+                    inline=False)
+        await self._panic_post(guild, cfg, e)
+        return done
+
+    async def end_panic(self, guild: discord.Guild, by) -> list[str]:
+        """Put back exactly what panic mode changed (permissions re-added, only the channels it locked unlocked)."""
+        cfg = await self.cfg(guild.id)
+        state = cfg.pop("panic", None)
+        if not state:
+            raise UserError("Panic mode isn't on")
+        done, restored = [], 0
+        for role_id, removed in (state.get("roles") or {}).items():
+            role = guild.get_role(int(role_id))
+            if role is None:
+                continue
+            try:
+                await role.edit(permissions=discord.Permissions(role.permissions.value | int(removed)),
+                                reason="Antinuke: panic over")
+                restored += 1
+            except discord.HTTPException:
+                done.append(f"⚠️ couldn't give @{display(role)} its permissions back")
+        if restored:
+            done.append(f"gave {restored} role(s) their permissions back")
+        if state.get("locked"):
+            done.append(f"unlocked {await self._unlock_channels(guild, state['locked'])} channel(s)")
+        if state.get("invites"):
+            try:
+                await guild.edit(invites_disabled_until=None, dms_disabled_until=None, reason="Antinuke: panic over")
+                done.append("resumed invites and DMs")
+            except (discord.HTTPException, TypeError):
+                done.append("⚠️ couldn't resume invites, turn them back on in Server Settings")
+        await self.save(guild.id, cfg)
+        e = discord.Embed(title="✅ Panic mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
+                          description=f"{getattr(by, 'mention', 'Someone')} lifted panic mode.")
+        if done:
+            e.add_field(name="Put back", value="\n".join(f"• {d}" for d in done), inline=False)
+        await self._panic_post(guild, cfg, e)
+        return done
+
+    async def _panic_post(self, guild: discord.Guild, cfg: dict, e: discord.Embed) -> None:
+        e.set_footer(text=f"{getattr(guild, 'name', 'this server')} · antinuke")
+        for dest in (await self._log_channel(guild, cfg), getattr(guild, "owner", None)):
+            if dest is None:
+                continue
+            try:
+                await dest.send(embed=e)
+            except (discord.HTTPException, AttributeError):
+                pass
+
+    @commands.Cog.listener("on_member_join")
+    async def quarantine_new_bot(self, member: discord.Member):
+        """A bot that joins loses its dangerous permissions until the owner approves it, whoever added it (a
+        whitelisted account can be hacked too). Bots the owner adds themselves are trusted straight away."""
+        if not getattr(member, "bot", False) or member.guild is None:
+            return
+        guild = member.guild
+        cfg = await self.cfg(guild.id)
+        if not cfg.get("enabled") or cfg.get("bot_quarantine") is False:
+            return
+        await asyncio.sleep(2)  # let Discord attach the bot's own role and write the audit entry
+        adder = None
+        try:
+            async for e in guild.audit_logs(limit=5, action=A.bot_add):
+                if getattr(e.target, "id", None) == member.id:
+                    adder = e.user
+                    break
+        except Exception:
+            pass
+        if adder is not None and is_owner_or_dev(self.bot, guild, adder.id):
+            return
+        record = {"roles": {}, "removed": []}
+        lines = []
+        for role in getattr(member, "roles", []):
+            if role.is_default() or not is_dangerous(role.permissions):
+                continue
+            try:
+                if not role < guild.me.top_role:
+                    lines.append(f"⚠️ @{display(role)} is above my role, so I couldn't change it")
+                    continue
+            except Exception:
+                continue
+            try:
+                if getattr(role, "managed", False):  # the bot's own role: take the permissions off it
+                    removed = role.permissions.value & DANGEROUS_MASK.value
+                    await role.edit(permissions=discord.Permissions(role.permissions.value & ~DANGEROUS_MASK.value),
+                                    reason="Antinuke: new bot quarantined until the owner approves it")
+                    record["roles"][str(role.id)] = removed
+                    lines.append(f"took the dangerous permissions off its role @{display(role)}")
+                else:
+                    await member.remove_roles(role, reason="Antinuke: new bot quarantined until the owner approves it")
+                    record["removed"].append(role.id)
+                    lines.append(f"removed @{display(role)} from it")
+            except discord.HTTPException as e:
+                lines.append(f"⚠️ couldn't change @{display(role)} (Discord said {e.status})")
+        if not record["roles"] and not record["removed"]:
+            return  # nothing dangerous to hold back
+        cfg.setdefault("quarantined_bots", {})[str(member.id)] = record
+        await self.save(guild.id, cfg)
+        e = discord.Embed(title="🤖 New bot quarantined", color=Colors.warn, timestamp=discord.utils.utcnow(),
+                          description=f"{member.mention} joined"
+                                      + (f", added by {adder.mention}" if adder is not None else "")
+                                      + ". It keeps working, but without dangerous permissions until the server "
+                                        "owner approves it.")
+        e.add_field(name="What I did", value="\n".join(f"• {x}" for x in lines), inline=False)
+        e.set_footer(text=f"{guild.name} · approve with the button or ,an approve @bot")
+        view = discord.ui.View(timeout=None).add_item(ApproveBotButton(guild.id, member.id))
+        for dest in (await self._log_channel(guild, cfg), getattr(guild, "owner", None)):
+            if dest is None:
+                continue
+            try:
+                await dest.send(embed=e, view=view)
+            except (discord.HTTPException, AttributeError):
+                pass
+
+    async def approve_bot(self, guild: discord.Guild, bot_id: int, by) -> str:
+        """Give a quarantined bot back what was taken from it."""
+        cfg = await self.cfg(guild.id)
+        record = (cfg.get("quarantined_bots") or {}).pop(str(bot_id), None)
+        if record is None:
+            return "That bot isn't quarantined (already approved, or it left)."
+        await self.save(guild.id, cfg)
+        member = guild.get_member(bot_id)
+        reason = f"Antinuke: bot approved by {by}"
+        for role_id, removed in record.get("roles", {}).items():
+            role = guild.get_role(int(role_id))
+            if role is not None:
+                try:
+                    await role.edit(permissions=discord.Permissions(role.permissions.value | int(removed)), reason=reason)
+                except discord.HTTPException:
+                    pass
+        give = [r for r in (guild.get_role(rid) for rid in record.get("removed", [])) if r is not None]
+        if member is not None and give:
+            try:
+                await member.add_roles(*give, reason=reason)
+            except discord.HTTPException:
+                pass
+        name = getattr(member, "mention", f"<@{bot_id}>")
+        await self.security_notice(guild, by, f"approved the bot {name}: it has its permissions back")
+        return f"approved {name}: it has its permissions back"
+
     def start_test(self, guild_id: int, user_id: int) -> TestRun:
         run = self.test_runs[guild_id] = TestRun(guild_id, user_id)
         return run
@@ -577,13 +835,9 @@ class Antinuke(commands.Cog):
         trusted_roles = set(cfg.get("whitelist_roles", []))
         if member and trusted_roles and any(getattr(r, "id", None) in trusted_roles for r in member.roles):
             return True  # holds a whitelisted role
-        if member:
-            try:
-                perm_cfg = await self.bot.db.get_config(guild.id, "permlevels")
-                if _perms.rank_of(perm_cfg, member) >= 3:
-                    return True
-            except Exception:
-                pass
+        # permission levels (Admin, Supreme Leader...) don't make anyone trusted here: a hacked staff account is the
+        # most common way servers get nuked. Trust is only what the owner gave on purpose: the whitelist (users or
+        # roles) and antinuke admins.
         return False
 
     async def guard(self, ctx: Context, module: str, amount: int = 1) -> None:
@@ -1160,11 +1414,13 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="disable", aliases=["off"])
     async def an_disable(self, ctx: Context):
-        """Turn antinuke off"""
+        """Turn antinuke off (server owner only)"""
         await antinuke_admin(ctx)
+        self._owner_to_turn_off(ctx.guild, ctx.author.id)
         cfg = await self.cfg(ctx.guild.id)
         cfg["enabled"] = False
         await self.save(ctx.guild.id, cfg)
+        await self.security_notice(ctx.guild, ctx.author, "turned the antinuke **off**")
         await ctx.approve("turned antinuke **off**")
 
     @antinuke.command(name="toggle", aliases=["on/off"])
@@ -1173,7 +1429,9 @@ class Antinuke(commands.Cog):
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
         if cfg.get("enabled"):
+            self._owner_to_turn_off(ctx.guild, ctx.author.id)
             cfg["enabled"] = False
+            await self.security_notice(ctx.guild, ctx.author, "turned the antinuke **off**")
         else:
             self.enable_rules(cfg)
         await self.save(ctx.guild.id, cfg)
@@ -1340,6 +1598,8 @@ class Antinuke(commands.Cog):
             return await ctx.warn(f"{target.mention} is already whitelisted")
         listed.append(target.id)
         await self.save(ctx.guild.id, cfg)
+        await self.security_notice(ctx.guild, ctx.author, f"whitelisted {target.mention}: the antinuke now trusts "
+                                   + ("everyone with that role" if key == "whitelist_roles" else "them"))
         if key == "whitelist_roles":
             holders = len(getattr(target, "members", []))
             return await ctx.approve(f"whitelisted {target.mention}: the antinuke now trusts everyone with it "
@@ -1356,6 +1616,7 @@ class Antinuke(commands.Cog):
         if target.id in listed:
             listed.remove(target.id)
             await self.save(ctx.guild.id, cfg)
+            await self.security_notice(ctx.guild, ctx.author, f"removed {target.mention} from the whitelist")
             await ctx.approve(f"removed {target.mention} from the whitelist")
         else:
             await ctx.warn(f"{target.mention} isn't whitelisted")
@@ -1493,7 +1754,53 @@ class Antinuke(commands.Cog):
         else:
             cfg["admins"].append(member.id); msg = f"made {member.mention} an antinuke admin"
         await self.save(ctx.guild.id, cfg)
+        await self.security_notice(ctx.guild, ctx.author, msg)
         await ctx.approve(msg)
+
+    @antinuke.command(name="panic", aliases=["emergency"])
+    async def an_panic(self, ctx: Context, *, reason: str = None):
+        """Emergency: lock every channel, pause invites and take dangerous permissions off every role"""
+        await antinuke_admin(ctx)
+        done = await self.start_panic(ctx.guild, ctx.author, reason)
+        await ctx.approve("panic mode is **on**: " + "; ".join(d for d in done if not d.startswith("⚠️"))
+                          + f"\n-# the server owner lifts it with `{ctx.clean_prefix}an unpanic`")
+
+    @antinuke.command(name="unpanic", aliases=["calm", "endpanic"])
+    async def an_unpanic(self, ctx: Context):
+        """End panic mode and put everything back (server owner only)"""
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
+            raise UserError("Only the **server owner** can lift panic mode")
+        done = await self.end_panic(ctx.guild, ctx.author)
+        await ctx.approve("panic mode is **off**: " + "; ".join(d for d in done if not d.startswith("⚠️"))
+                          if done else "panic mode is **off**")
+
+    @antinuke.command(name="approve", aliases=["approvebot"])
+    async def an_approve(self, ctx: Context, bot: discord.Member):
+        """Give a quarantined new bot its permissions back (server owner only)"""
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
+            raise UserError("Only the **server owner** can approve a bot")
+        await ctx.approve(await self.approve_bot(ctx.guild, bot.id, ctx.author))
+
+    @antinuke.command(name="botquarantine", aliases=["botq"])
+    async def an_botquarantine(self, ctx: Context, state: str = None):
+        """Hold back new bots' dangerous permissions until you approve them: `,an botq on|off`"""
+        await antinuke_admin(ctx)
+        cfg = await self.cfg(ctx.guild.id)
+        if state is None:
+            on = cfg.get("bot_quarantine") is not False
+            return await ctx.neutral(f"new bots are **{'quarantined' if on else 'not quarantined'}** until approved")
+        on = state.lower() in ("on", "true", "yes", "enable")
+        if not on:
+            self._owner_to_turn_off(ctx.guild, ctx.author.id)
+        cfg["bot_quarantine"] = on
+        await self.save(ctx.guild.id, cfg)
+        if not on:
+            await self.security_notice(ctx.guild, ctx.author, "turned off quarantine for new bots")
+        await ctx.approve(f"new bots will {'be quarantined until you approve them' if on else 'keep their permissions'}")
 
     @antinuke.command(name="log")
     async def an_log(self, ctx: Context, channel: discord.TextChannel = None):
@@ -1817,7 +2124,7 @@ class Antinuke(commands.Cog):
             await self.end_raid(guild)
         self.raid_tasks[guild.id] = asyncio.create_task(watch())
 
-    async def _lock_channels(self, guild: discord.Guild) -> list[int]:
+    async def _lock_channels(self, guild: discord.Guild, reason: str = "Antiraid: raid mode") -> list[int]:
         """Stop @everyone sending in text channels that are open; returns the ones it locked (to unlock later)."""
         locked = []
         for channel in getattr(guild, "text_channels", []):
@@ -1826,7 +2133,7 @@ class Antinuke(commands.Cog):
                 continue  # already locked by someone: leave it exactly as it is
             ow.send_messages = False
             try:
-                await channel.set_permissions(guild.default_role, overwrite=ow, reason="Antiraid: raid mode")
+                await channel.set_permissions(guild.default_role, overwrite=ow, reason=reason)
                 locked.append(channel.id)
             except discord.HTTPException:
                 pass
