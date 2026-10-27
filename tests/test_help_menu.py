@@ -71,10 +71,10 @@ def test_the_dropdown_only_lists_categories_the_person_may_open():
     public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
     # each level up opens one more staff category
-    expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
-                4: {"Moderation", "Roles", "Server"}, 5: {"Moderation", "Roles", "Server", "Automod"},
-                6: {"Moderation", "Roles", "Server", "Automod", "Permissions"},
-                7: {"Moderation", "Roles", "Server", "Automod", "Permissions", "Antinuke"}}
+    expected = {1: {"Moderator"}, 2: {"Moderator"}, 3: {"Moderator", "Admin", "Roles"},
+                4: {"Moderator", "Admin", "Roles", "Server", "Automod"},
+                6: {"Moderator", "Admin", "Roles", "Server", "Automod", "Permissions"},
+                7: {"Moderator", "Admin", "Roles", "Server", "Automod", "Permissions", "Antinuke"}}
     for rank, staff in expected.items():
         assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
     assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
@@ -137,8 +137,9 @@ def test_cards_are_built_when_the_menu_opens():
 
 def test_the_most_used_commands_come_first():
     from core.help import page_order
-    names = [c.name for c in page_order("Moderation", [_cmd(n) for n in ("addrole", "warn", "ban", "kick", "zap")])]
-    assert names == ["ban", "kick", "warn", "addrole", "zap"]
+    names = [c.name for c in page_order("Moderator", [_cmd(n) for n in ("addrole", "kick", "warn", "zap")])]
+    assert names == ["warn", "kick", "addrole", "zap"]
+    assert [c.name for c in page_order("Admin", [_cmd(n) for n in ("zap", "lock", "ban")])] == ["ban", "lock", "zap"]
 
 
 def test_a_commands_own_usage_text_wins():
@@ -284,7 +285,7 @@ def test_command_card_has_aliases_parameters_information_and_usage():
     assert fields["Parameters"] == "user, reason"
     assert fields["Information"].startswith("⚠️ Admin+")
     assert fields["Usage"].startswith("```\nSyntax: ,ban ") and "Example: ,ban @user" in fields["Usage"]
-    assert card.footer.text.startswith("Module: moderation")
+    assert card.footer.text.startswith("Module: admin")  # ban needs Admin: it's under Admin, not Moderator
 
 
 def test_public_commands_say_n_a():

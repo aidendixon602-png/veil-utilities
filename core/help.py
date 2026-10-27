@@ -20,7 +20,8 @@ HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Utility", ["Utility"], []),
     ("Music", ["Music", "Spotify"], []),
-    ("Moderation", ["Moderation", "Logging"], []),
+    ("Moderator", ["Moderation", "Logging"], []),  # moderation commands that need Admin+ move to "Admin"
+    ("Admin", [], []),
     ("Roles", [], ["role", "autorole", "reactionrole", "buttonrole", "vanity", "stripstaff", "roles",
                    "roleblacklist", "addpermall", "removepermall"]),
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
@@ -38,14 +39,17 @@ PAGE_SIZE = 10  # subcommand lists on a group's card
 HELP_PAGE_SIZE = 8  # commands per page of a category
 # the commands people reach for most come first; everything else follows alphabetically
 PINNED: dict[str, list[str]] = {
-    "Moderation": ["ban", "kick", "timeout", "untimeout", "warn", "purge", "lock", "unlock", "jail", "unjail",
-                   "unban", "warnings", "cases"],
+    "Moderator": ["mod", "warn", "timeout", "untimeout", "kick", "purge", "warnings", "jail", "unjail", "cases"],
+    "Admin": ["admin", "ban", "unban", "softban", "massban", "lock", "unlock", "lockdown", "unlockdown"],
     "Music": ["play", "skip", "queue", "pause", "resume", "stop", "volume", "loop", "song"],
     "Utility": ["userinfo", "avatar", "serverinfo", "ping", "afk", "snipe", "remind", "poll"],
     "Antinuke": ["antinuke", "antiraid", "antialt"],
     "Developer": ["gitpull", "restart", "version", "reload", "errors", "eval", "system", "blacklist"],
 }
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
+# other words people type for a category (`,help moderation` still opens Moderator)
+CATEGORY_ALIASES = {"moderation": "moderator", "moderators": "moderator", "mods": "moderator",
+                    "admins": "admin", "administration": "admin", "administrator": "admin"}
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
 HELP_COLOR = Colors.neutral  # greed / bleed: quiet grey cards, the content does the talking
@@ -58,10 +62,11 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Fun": 0,           # Public
     "Images": 0,        # Public
     # each level up opens one more staff category (inside each one, commands you can't run stay hidden)
-    "Moderation": 1,    # Helper+ (Moderator+ also sees kick, timeout, warn...)
+    "Moderator": 1,     # Helper+ (Moderator+ also sees kick, timeout, warn...)
+    "Admin": 3,         # Admin+: ban, lockdown, the ,admin panel...
     "Roles": 3,         # Admin+
     "Server": 4,        # Head Admin+
-    "Automod": 5,       # Bot Manager+
+    "Automod": 4,       # Head Admin+
     "Permissions": 6,   # Overseer+
     "Antinuke": 7,      # Supreme Leader+
 }
@@ -78,7 +83,8 @@ PERM_RANKS: dict[str, int] = {
 CATEGORY_EMOJIS: dict[str, str] = {
     "Utility": "🛠️",
     "Music": "🎵",
-    "Moderation": "🛡️",
+    "Moderator": "🛡️",
+    "Admin": "🔨",
     "Roles": "🏷️",
     "Permissions": "🔒",
     "Antinuke": "🚨",
@@ -95,7 +101,8 @@ CATEGORY_EMOJIS: dict[str, str] = {
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Utility": "Lookups, AFK, snipe and everyday tools",
     "Music": "Lavalink and Spotify playback, queues, filters",
-    "Moderation": "Warns, mutes, kicks, bans, purge and logs",
+    "Moderator": "Warns, timeouts, kicks, purge, jail and the ,mod panel",
+    "Admin": "Bans, lockdowns, mass actions, logs and the ,admin panel",
     "Roles": "Role commands, autoroles, reaction roles, role blacklist",
     "Permissions": "Bot ranks (uperm), staff limits and command access",
     "Antinuke": "Real-time server protection and anti-raid",
@@ -126,10 +133,29 @@ def category_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
             cog_name = getattr(bot_cmd, "cog_name", None)
     for label, cogs, _ in CATEGORIES:
         if cog_name and cog_name in cogs:
+            if label == "Moderator" and own_rank(root) >= ADMIN_SPLIT:
+                return "Admin"
             return label
     if getattr(cmd, "cog_name", None) in HIDDEN_COGS:
         return "Developer"
     return "Community"
+
+
+ADMIN_SPLIT = 3  # moderation commands that need this level (Admin) or more are filed under "Admin"
+
+
+def own_rank(cmd) -> int:
+    """The level a command's own checks ask for (its permissions and uperm), ignoring which category it's in."""
+    rank = 0
+    for p in getattr(getattr(cmd, "callback", cmd), "__veil_perms__", []):
+        if isinstance(p, str) and p in PERM_RANKS:
+            rank = max(rank, PERM_RANKS[p])
+        if isinstance(p, str) and p.startswith("uperm:"):
+            from core.perms import PRESETS, canonical
+            lvl = canonical(p.split(":", 1)[1].strip().lower())
+            if lvl in PRESETS:
+                rank = max(rank, PRESETS[lvl][1])
+    return rank
 
 
 def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None) -> int:
@@ -137,20 +163,8 @@ def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
     if any(getattr(check, "__veil_owner_only__", False) for check in getattr(cmd, "checks", [])):
         from core.perms import OWNER_RANK
         return OWNER_RANK  # server owner only: nobody below sees it
-    cat = category_for_command(cmd, bot)
-    cat_rank = CATEGORY_MIN_RANKS.get(cat, 0)
-    callback = getattr(cmd, "callback", cmd)
-    perms_list = getattr(callback, "__veil_perms__", [])
-    uperm_rank = 0
-    for p in perms_list:
-        if isinstance(p, str) and p in PERM_RANKS:  # has_perms(...): the level that grants that permission
-            uperm_rank = max(uperm_rank, PERM_RANKS[p])
-        if isinstance(p, str) and p.startswith("uperm:"):
-            from core.perms import PRESETS, canonical
-            lvl = canonical(p.split(":", 1)[1].strip().lower())
-            if lvl in PRESETS:
-                uperm_rank = max(uperm_rank, PRESETS[lvl][1])
-    return max(cat_rank, uperm_rank)
+    cat_rank = CATEGORY_MIN_RANKS.get(category_for_command(cmd, bot), 0)
+    return max(cat_rank, own_rank(cmd))
 
 
 def rank_name(rank: int) -> str:
@@ -242,9 +256,16 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
             if cog:
                 cmds += [c for c in cog.get_commands() if c.name not in pulled]
         cmds = sorted({c.qualified_name: c for c in cmds if c and not c.hidden}.values(), key=lambda c: c.name)
+        if label == "Moderator":  # the Admin+ ones get their own category
+            out.setdefault("Admin", []).extend(c for c in cmds if own_rank(c) >= ADMIN_SPLIT)
+            cmds = [c for c in cmds if own_rank(c) < ADMIN_SPLIT]
+        if label == "Admin":
+            cmds = out.get("Admin", []) + cmds
         if cmds:
             out[label] = cmds
             placed.update(c.qualified_name for c in cmds)
+        elif label in out and not out[label]:
+            del out[label]
     # anything new that isn't mapped still shows up in Community
     leftovers = [c for c in bot.commands if not c.hidden and c.qualified_name not in placed
                  and c.cog is not None and c.cog_name not in HIDDEN_COGS]
@@ -577,6 +598,7 @@ class Help(commands.HelpCommand):
     async def command_callback(self, ctx, /, *, command: str | None = None):
         if command:
             wanted = command.lower().strip()
+            wanted = CATEGORY_ALIASES.get(wanted, wanted) if not ctx.bot.get_command(wanted) else wanted
             is_owner = await self.is_owner_check()
             rank = await self.get_author_rank()
             for label, _, _ in CATEGORIES:

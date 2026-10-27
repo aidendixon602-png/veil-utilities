@@ -1757,6 +1757,41 @@ class Antinuke(commands.Cog):
         await self.security_notice(ctx.guild, ctx.author, msg)
         await ctx.approve(msg)
 
+    # ================================================================ automatic setup
+    @commands.Cog.listener("on_guild_join")
+    async def autosetup_on_join(self, guild: discord.Guild):
+        await asyncio.sleep(8)  # after the authorization check and the log channels
+        if self.bot.get_guild(guild.id) is None:
+            return
+        from core import autosetup
+        await autosetup.run_once(self.bot, guild)
+
+    @commands.Cog.listener("on_ready")
+    async def autosetup_existing(self):
+        """Once per server the bot was already in: switch on what that server never set up."""
+        if getattr(self, "_autosetup_ran", False):
+            return
+        self._autosetup_ran = True
+        from core import autosetup
+        for guild in list(self.bot.guilds):
+            is_authorized = getattr(self.bot, "is_authorized", None)
+            if is_authorized is not None and not is_authorized(guild.id):
+                continue
+            await autosetup.run_once(self.bot, guild)
+            await asyncio.sleep(2)  # gently, server by server
+
+    @commands.command(name="autosetup", aliases=["autoprotect"])
+    @commands.guild_only()
+    async def cmd_autosetup(self, ctx: Context):
+        """Switch on the protection this server hasn't set up yet (antinuke, raid, automod, warnings, staff levels)"""
+        if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
+            raise UserError("Only the **server owner** can run the automatic setup")
+        from core import autosetup
+        done = await autosetup.run_once(self.bot, ctx.guild, force=True)
+        if not done:
+            return await ctx.warn("everything is already set up here, so nothing changed")
+        await ctx.approve("switched on: " + "; ".join(line.split(" · ")[0] for line in done))
+
     @antinuke.command(name="panic", aliases=["emergency"])
     async def an_panic(self, ctx: Context, *, reason: str = None):
         """Emergency: lock every channel, pause invites and take dangerous permissions off every role"""

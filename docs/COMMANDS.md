@@ -1,6 +1,6 @@
 # Command reference
 
-492 commands. Default prefix `,`. `<required>` `[optional]`.
+495 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -70,6 +70,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antiraid punishment <punishment>` | kick, ban or timeout | administrator |
 | `antiraid start` (on, now) | Turn raid mode on now (pauses invites and DMs, locks channels if set) until joins go quiet | administrator |
 | `antiraid whitelist <user>` | Let a specific user bypass antiraid | administrator |
+| `autosetup` (autoprotect) | Switch on the protection this server hasn't set up yet (antinuke, raid, automod, warnings, staff levels) |  |
 
 ## 🧹 Automod
 _Automatic chat filters_
@@ -330,6 +331,7 @@ _Keep your server in line_
 |---|---|---|
 | `addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
 | `addrole <arg1> <arg2>` (giverole) | Add a role to a member: `,addrole @User @Role` | manage roles, uperm: admin |
+| `admin [member]` (adminpanel, ap) | Admin panel: ban, softban, strip staff and quarantine for a member, or lockdown, raid mode and panic | uperm: admin |
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members, uperm: admin |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
@@ -346,6 +348,7 @@ _Keep your server in line_
 | `lockdown [reason=lockdown]` | Lock every text channel in the server | administrator, uperm: headadmin |
 | `massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last N minutes (raid cleanup) | administrator, ban members, uperm: admin |
 | `masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last N minutes (raid cleanup) | kick members, uperm: admin |
+| `mod <member>` (modpanel, mp) | Moderator panel for a member: warn, timeout, kick, jail and their warnings, as buttons | uperm: helper |
 | `nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: moderator |
 | `nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, uperm: headadmin |
 | `purge <amount> [member]` (clear, c, prune) | Delete messages (optionally only from one member) | manage messages, uperm: helper |

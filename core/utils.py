@@ -465,7 +465,7 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
 
 async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
     """A member whose access comes from a permission level also needs the level that opens the command's ,help
-    category (Automod: Bot Manager, Permissions: Overseer...), so what ,help shows each level is exactly what it can
+    category (Admin: Admin, Permissions: Overseer...), so what ,help shows each level is exactly what it can
     run. Developers, the server owner, servers that don't use levels, members without a level, and permissions
     given to a role with fakeperms are left as they were."""
     from core import perms as _perms

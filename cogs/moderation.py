@@ -224,6 +224,29 @@ class Moderation(commands.Cog):
     async def _cfg(self, gid, mod):
         return await self.bot.db.get_config(gid, mod)
 
+    # ================================================================ staff panels
+    @commands.command(name="mod", aliases=["modpanel", "mp"])
+    @commands.guild_only()
+    @requires_uperm("helper")
+    async def mod_panel(self, ctx: Context, member: discord.Member):
+        """Moderator panel for a member: warn, timeout, kick, jail and their warnings, as buttons"""
+        from core.staffpanel import MOD_ACTIONS, StaffPanel, member_card
+        view = await StaffPanel.build(ctx, member, "Moderator panel", MOD_ACTIONS)
+        view.message = await ctx.send(embed=await member_card(ctx, member, "Moderator panel"), view=view)
+
+    @commands.command(name="admin", aliases=["adminpanel", "ap"])
+    @commands.guild_only()
+    @requires_uperm("admin")
+    async def admin_panel(self, ctx: Context, member: discord.Member = None):
+        """Admin panel: ban, softban, strip staff and quarantine for a member, or lockdown, raid mode and panic"""
+        from core.staffpanel import ADMIN_MEMBER_ACTIONS, ADMIN_SERVER_ACTIONS, StaffPanel, member_card, server_card
+        if member is None:
+            view = await StaffPanel.build(ctx, None, "Admin panel", ADMIN_SERVER_ACTIONS)
+            view.message = await ctx.send(embed=server_card(ctx), view=view)
+            return
+        view = await StaffPanel.build(ctx, member, "Admin panel", ADMIN_MEMBER_ACTIONS)
+        view.message = await ctx.send(embed=await member_card(ctx, member, "Admin panel"), view=view)
+
     # ================================================================ bans
     @commands.command()
     @requires_uperm("admin")
