@@ -1,0 +1,36 @@
+{
+  // Keep the file list focused on the project: caches and runtime files are hidden.
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    ".pytest_cache": true,
+    ".ruff_cache": true,
+    ".mypy_cache": true,
+    ".requirements.hash": true,
+    ".restart_state.json": true,
+    ".local": true
+  },
+
+  // Tuck companion files under the file they belong to.
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "pyproject.toml": ".editorconfig, .gitignore",
+    "requirements.txt": "requirements-*.txt",
+    ".env.example": ".env"
+  },
+
+  // Match the project's style (ruff, 120 columns).
+  "editor.rulers": [120],
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.tabSize": 4
+  },
+
+  // Tests run from the Testing panel.
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"]
+}

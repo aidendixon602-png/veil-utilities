@@ -7,16 +7,15 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.7%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
-![commands](https://img.shields.io/badge/commands-473-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-28-b10f2e?style=flat-square&labelColor=1a1118)
-![tests](https://img.shields.io/badge/tests-218%20passing-57F287?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-487-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-20-b10f2e?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
 ![last commit](https://img.shields.io/github/last-commit/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
 
-[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+[Features](#-features) · [Quick start](#-quick-start) · [All commands](docs/COMMANDS.md) · [Hosting](docs/HOSTING.md) · [Contributing](.github/CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 <details>
 <summary><b>📑 Contents</b></summary>
@@ -114,7 +113,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 </div>
 
 A plain home card with one button per category you're allowed to open. Each category is a single page: every command with its arguments and what it does (`,play <query>` - play a song or playlist.), then its aliases, and a ← Back button. `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Developer** category only appears for developers. Every bot response also replies to your message (without pinging).
-The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
+The menu and [the command reference](docs/COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>
 
@@ -140,7 +139,7 @@ python main.py
 ,fp grant @Mods ban_members, kick_members, moderate_members
 ```
 
-> **Hosting on Wispbyte or another Pterodactyl panel?** Follow [HOSTING.md](HOSTING.md). It covers the 512 MB free plan, GitHub auto-deploy and troubleshooting.
+> **Hosting on Wispbyte or another Pterodactyl panel?** Follow the [hosting guide](docs/HOSTING.md). It covers the 512 MB free plan, GitHub auto-deploy and troubleshooting.
 
 ## 🏗️ Architecture
 
@@ -215,38 +214,36 @@ Hidden from everyone else and listed under **Developer** in the help menu (or `,
 pip install -r requirements-dev.txt
 ruff check .          # lint
 python -m pytest -q   # unit tests + offline smoke test (loads every module)
-python scripts/gen_commands.py   # regenerate COMMANDS.md after adding/changing commands
+python scripts/gen_commands.py   # regenerate docs/COMMANDS.md after adding/changing commands
 ```
 
 Version lives in [`pyproject.toml`](pyproject.toml). CI — lint, the full test suite, the smoke test that loads every module, and `.env.example` validation — runs on every push, on Python 3.11 and 3.12.
-A test fails if `COMMANDS.md` doesn't match the real commands, so the reference never goes stale.
+A test fails if `docs/COMMANDS.md` doesn't match the real commands, so the reference never goes stale.
 
 ## 🧱 Project structure
 ```
 veil-utilities/
-├── main.py                  entry point — validates the environment, then starts the bot
-├── core/
-│   ├── bot.py               prefixes, aliases, global checks, error tracking, cog loading
+├── main.py                  entry point: checks the environment, pulls updates, starts the bot
+├── core/                    the engine
+│   ├── bot.py               prefixes, aliases, global checks, error handling, cog loading
 │   ├── config.py            typed, validated settings loaded from .env
 │   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
-│   ├── dashboard.py         opt-in web dashboard with Discord login
-│   ├── help.py              the ,help menu: category buttons, one page per category, command cards
-│   ├── modlog.py            numbered moderation cases
-│   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
+│   ├── help.py              the ,help menu: category buttons, pages, command cards
+│   ├── logembeds.py         every log card, in one place
 │   ├── perms.py             named permission levels & staff hierarchy
-│   ├── ai_providers.py      Groq / Gemini / OpenRouter / OpenAI auto-detect + free fallback
-│   ├── lavalink_nodes.py    free Lavalink nodes with health checks, failover, and DAVE E2EE
-│   └── utils.py             embeds, paginator, embed scripting, permission checks
-├── cogs/                    one file per module (28 total)
-├── assets/                  banner, help-menu preview, social preview
-├── fonts/                   bundled caption font (DejaVu)
-├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
-├── tests/                   216 tests + docs check; all run on every push
-├── lavalink/                optional music server config
-├── COMMANDS.md              auto-generated reference of all 473 commands
-├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
-├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE
-└── .github/                 CI, dependabot, issue and PR templates
+│   └── …                    dashboard, modlog, antinuke restore, redaction, git updates, utils
+├── cogs/                    one file per feature module
+├── tests/                   pytest suite; runs on every push
+├── scripts/                 gen_commands.py (keeps docs/COMMANDS.md and the badges in sync)
+├── docs/
+│   ├── COMMANDS.md          auto-generated reference of every command
+│   ├── HOSTING.md           free hosting walkthrough (Wispbyte and other Pterodactyl panels)
+│   └── lavalink/            optional self-hosted music server config
+├── assets/                  banner, previews, bundled caption font
+├── .github/                 CI, contributing guide, security policy, code of conduct, templates
+├── .env.example             every setting, documented
+├── pyproject.toml · requirements.txt · requirements-dev.txt
+└── CHANGELOG.md · LICENSE · README.md
 ```
 
 
@@ -266,9 +263,9 @@ Have an idea? [Open a feature request](https://github.com/aidendixon602-png/veil
 
 ## 🤝 Contributing
 
-Pull requests are welcome — [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the coding style and
+Pull requests are welcome — [CONTRIBUTING.md](.github/CONTRIBUTING.md) covers the setup, the coding style and
 the three commands to run before pushing (`ruff`, the tests, and `gen_commands.py`).
-Found a security problem? Please follow [SECURITY.md](SECURITY.md) instead of opening an issue.
+Found a security problem? Please follow [SECURITY.md](.github/SECURITY.md) instead of opening an issue.
 
 ## 📜 License
 
