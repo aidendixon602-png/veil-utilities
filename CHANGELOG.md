@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`,help` shows each level exactly what it can run.** For members with a permission level, a command now also
+  needs the level that opens its `,help` category (Automod: Bot Manager, Permissions: Overseer, Antinuke: Supreme
+  Leader...), so nothing in the menu says no and nothing usable is missing. Server-owner-only commands are only
+  listed for the owner. A test loads the real bot and checks every command at every level: each level up sees
+  and can run strictly more. Servers that don't use levels, fakeperms, the owner and developers work as before.
+
 - **The seven levels are back, and each one sees more of `,help`.** Helper, Moderator, Admin, Head Admin, Bot
   Manager, Overseer and Supreme Leader are separate levels again (Developer and Owner stay automatic on top);
   anyone saved as Co-Owner becomes Supreme Leader and anyone saved as Manager becomes Overseer (the same

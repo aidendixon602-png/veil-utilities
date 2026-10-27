@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import time
+import typing
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable
 
@@ -453,6 +454,32 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     return [k for k, v in perms.items() if getattr(p, k, None) != v]
 
 
+async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
+    """A member whose access comes from a permission level also needs the level that opens the command's ,help
+    category (Automod: Bot Manager, Permissions: Overseer...), so what ,help shows each level is exactly what it can
+    run. Developers, the server owner, servers that don't use levels, members without a level, and permissions
+    given to a role with fakeperms are left as they were."""
+    from core import perms as _perms
+    from core.help import CATEGORY_MIN_RANKS, category_for_command, rank_name
+    bot, guild, command = getattr(ctx, "bot", None), getattr(ctx, "guild", None), getattr(ctx, "command", None)
+    if guild is None or command is None or bot is None or getattr(bot, "db", None) is None:
+        return
+    gate = CATEGORY_MIN_RANKS.get(category_for_command(command, bot), 0)
+    if gate <= 0 or _perms.is_bot_developer(ctx.author, bot) or ctx.author.id == getattr(guild, "owner_id", None):
+        return
+    pl_cfg = await bot.db.get_config(guild.id, "permlevels")
+    rank = _perms.rank_of(pl_cfg, ctx.author)
+    if rank == 0 or rank >= gate:
+        return
+    needed = set(needed)
+    if needed:
+        fake = await bot.db.get_config(guild.id, "fakeperms")
+        given = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
+        if "administrator" in given or needed <= given:
+            return
+    raise MissingRank(rank_name(gate))
+
+
 def has_perms(**perms: bool):
     """Like has_permissions, but strictly enforces bot permission ranks (uperm) and fakeperms."""
 
@@ -481,6 +508,7 @@ def has_perms(**perms: bool):
 
             perm_names = ", ".join(f"`{p.replace('_', ' ')}`" for p in still)
             raise UserError(f"🔒 Access Denied: You are missing required bot permissions: {perm_names}")
+        await level_gate(ctx, (k for k, v in perms.items() if v))
         return True
 
     pred = commands.check(predicate)
@@ -520,6 +548,7 @@ def is_server_owner():
         if ctx.guild and ctx.author.id == ctx.guild.owner_id:
             return True
         raise UserError("Only the **server owner** can use this command")
+    predicate.__veil_owner_only__ = True  # ,help shows these to the owner only
     return commands.check(predicate)
 
 
@@ -563,6 +592,7 @@ def requires_uperm(min_level_or_func="helper"):
             min_rank = target_info["rank"] if target_info else 1
             if author_rank < min_rank:
                 raise MissingRank(target_info["name"] if target_info else min_level.title())
+            await level_gate(ctx)
             return True
 
         pred = commands.check(predicate)

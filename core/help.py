@@ -135,6 +135,9 @@ def category_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
 
 def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None) -> int:
     """Return the minimum rank required to view help for this command."""
+    if any(getattr(check, "__veil_owner_only__", False) for check in getattr(cmd, "checks", [])):
+        from core.perms import OWNER_RANK
+        return OWNER_RANK  # server owner only: nobody below sees it
     cat = category_for_command(cmd, bot)
     cat_rank = CATEGORY_MIN_RANKS.get(cat, 0)
     callback = getattr(cmd, "callback", cmd)
@@ -152,7 +155,11 @@ def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
 
 
 def rank_name(rank: int) -> str:
-    from core.perms import PRESETS
+    from core.perms import DEV_NAME, DEV_RANK, OWNER_NAME, OWNER_RANK, PRESETS
+    if rank >= DEV_RANK:
+        return DEV_NAME
+    if rank >= OWNER_RANK:
+        return OWNER_NAME
     return next((name for name, r, _ in PRESETS.values() if r == rank), f"Rank {rank}")
 
 
