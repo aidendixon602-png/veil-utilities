@@ -7,6 +7,9 @@ greyed out when the panel opens. Actions that need a reason ask for one in a sma
 """
 from __future__ import annotations
 
+import copy
+import time
+
 import discord
 from discord.ext import commands
 
@@ -51,21 +54,45 @@ async def can_use(ctx: Context, name: str) -> bool:
         return False
 
 
-async def run_command(ctx: Context, name: str, **kwargs) -> None:
-    """Run a command for the panel's owner exactly as if they had typed it: checks first, then the command, with
-    `ctx.command` set so its logs, cases and antinuke limits name the right command."""
+async def run_command(ctx: Context, name: str, *, panel: "StaffPanel | None" = None, label: str | None = None,
+                      **kwargs) -> None:
+    """Run a command for the panel's owner exactly as if they had typed it: checks first, then the command.
+
+    It runs on its own copy of the panel's context, with its own command and start time, so the command log names
+    the button that was pressed (not `,admin` again) and how long that action took, even when the log is written
+    after a later button has already been pressed. Failures are logged too, with the reason."""
     cmd = ctx.bot.get_command(name)
     if cmd is None:
         raise UserError(f"`{name}` isn't available right now")
-    if not await cmd.can_run(ctx):
-        raise UserError(f"you can't use `{name}`")
-    previous = ctx.command
-    ctx.command = cmd
+    run = copy.copy(ctx)
+    run.command = cmd
+    run._log_started = time.perf_counter()
+    run.panel_action = label or name
+    run.panel_name = getattr(ctx, "invoked_with", None) or getattr(getattr(ctx, "command", None), "name", None)
+    message = getattr(panel, "message", None)
+    run.panel_jump = getattr(message, "jump_url", None)
     try:
-        await ctx.invoke(cmd, **kwargs)
-        ctx.bot.dispatch("command_completion", ctx)  # the command log shows what the button did
-    finally:
-        ctx.command = previous
+        if not await cmd.can_run(run):
+            raise UserError(f"you can't use `{name}`")
+        await run.invoke(cmd, **kwargs)
+    except Exception as e:
+        await _log_failure(run, e)
+        raise
+    ctx.bot.dispatch("command_completion", run)  # the command log shows what the button did
+
+
+async def _log_failure(run, error: Exception) -> None:
+    """A pressed button that didn't work still shows in the command log, with why."""
+    get_cog = getattr(run.bot, "get_cog", None)
+    logging_cog = get_cog("Logging") if get_cog else None
+    if logging_cog is None:
+        return
+    original = getattr(error, "original", error)
+    reason = str(original).strip() or type(original).__name__
+    try:
+        await logging_cog._log_command(run, reason)
+    except Exception:
+        pass
 
 
 class ReasonForm(discord.ui.Modal):
@@ -73,7 +100,7 @@ class ReasonForm(discord.ui.Modal):
 
     def __init__(self, panel: "StaffPanel", label: str, name: str, extra: str | None):
         super().__init__(title=f"{label} {panel.member}" if panel.member else label, timeout=120)
-        self.panel, self.name = panel, name
+        self.panel, self.name, self.label = panel, name, label
         self.duration = None
         if extra == "duration":
             self.duration = discord.ui.TextInput(label="How long", placeholder="10m, 1h, 1d (default 5m)",
@@ -94,7 +121,7 @@ class ReasonForm(discord.ui.Modal):
             except Exception:
                 return await it.response.send_message("⚠️ That length isn't valid. Try `10m`, `1h` or `1d`.",
                                                       ephemeral=True)
-        await self.panel.act(it, self.name, kwargs)
+        await self.panel.act(it, self.name, kwargs, label=self.label)
 
 
 class ActionButton(discord.ui.Button["StaffPanel"]):
@@ -105,7 +132,7 @@ class ActionButton(discord.ui.Button["StaffPanel"]):
     async def callback(self, it: discord.Interaction):
         if self.asks:
             return await it.response.send_modal(ReasonForm(self.view, self.label, self.name, self.extra))
-        await self.view.act(it, self.name, {})
+        await self.view.act(it, self.name, {}, label=self.label)
 
 
 class StaffPanel(OwnedView):
@@ -123,13 +150,13 @@ class StaffPanel(OwnedView):
             view.add_item(ActionButton(label, name, style, asks, extra, await can_use(ctx, name), row=i // 4))
         return view
 
-    async def act(self, it: discord.Interaction, name: str, kwargs: dict) -> None:
+    async def act(self, it: discord.Interaction, name: str, kwargs: dict, label: str | None = None) -> None:
         if not it.response.is_done():
             await it.response.defer()
         if self.member is not None:
             kwargs.setdefault(MEMBER_PARAM.get(name, "member"), self.member)
         try:
-            await run_command(self.ctx, name, **kwargs)
+            await run_command(self.ctx, name, panel=self, label=label, **kwargs)
         except (commands.CommandError, UserError) as e:
             text = str(getattr(e, "original", e)) or "that didn't work"
             await it.followup.send(f"⚠️ {text}", ephemeral=True)
