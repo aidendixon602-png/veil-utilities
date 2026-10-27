@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Back online within a minute after a host network blip.** When the host's network or DNS drops, discord.py
+  waited longer after every failed reconnect, up to about 17 minutes, so the bot could stay offline long after the
+  network was back. Waits are now capped at about a minute, and each failed attempt is one console line
+  ("the host's DNS isn't answering...") instead of a full traceback.
+
+### Fixed
+
 - **No more DM per server on restart.** The automatic-setup notice for servers the bot was already in goes only to
   the antinuke log channel; the owner is DMed only when the bot joins a new server. The notice now names the
   server at the top.
