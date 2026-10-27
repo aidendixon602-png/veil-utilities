@@ -158,3 +158,49 @@ def test_protected_servers_get_the_new_rules_once():
     off = {"enabled": False, "modules": {}}
     Antinuke.migrate(off)
     assert "memberroles" not in off["modules"]  # off servers get them when they turn the antinuke on
+
+
+# ------------------------------------------------------------------ blacklisted roles (,rbl)
+
+def test_a_blacklisted_role_is_not_given_back_to_someone_who_isnt_authorized():
+    cog, guild, attacker = setup({"memberroles": {"on": True, "threshold": 3, "window": 60, "punishment": "strip"}})
+    staff, vip, _ = _roles(guild)
+    cog.bot.db.store["roleblacklist"] = {"roles": [vip.id], "authorized": [402]}
+    plain = [member(guild, 400 + i, f"m{i}") for i in range(2)]
+    allowed = member(guild, 402, "trusted")
+    feed(cog, *(entry(guild, A.member_role_update, m, before=SimpleNamespace(roles=[vip, staff]),
+                      after=SimpleNamespace(roles=[])) for m in (*plain, allowed)))
+    for m in plain:  # the ordinary role comes back, the blacklisted one doesn't
+        assert m.add_roles.await_args.args == (staff,)
+    assert set(allowed.add_roles.await_args.args) == {vip, staff}  # authorized: gets both back
+    assert cog.bot.db.store["roleblacklist"]["authorized"] == [402]  # nobody newly authorized
+    put_back = field(guild.sent[0][0]["embed"], "Put back")
+    assert "didn't give m0 back VIP: blacklisted, and they aren't authorized" in put_back
+
+
+def test_handing_out_a_blacklisted_role_is_taken_back():
+    cog, guild, attacker = setup({"memberroles": {"on": True, "threshold": 2, "window": 60, "punishment": "strip"}})
+    _, vip, _ = _roles(guild)
+    cog.bot.db.store["roleblacklist"] = {"roles": [vip.id], "authorized": []}
+    alts = [member(guild, 410 + i, f"alt{i}") for i in range(2)]
+    feed(cog, *(entry(guild, A.member_role_update, m, before=SimpleNamespace(roles=[]),
+                      after=SimpleNamespace(roles=[vip])) for m in alts))
+    for m in alts:
+        m.remove_roles.assert_awaited_once_with(vip, reason="Antinuke: Mass adding or removing members' roles")
+
+
+def test_a_rebuilt_role_keeps_its_blacklist_levels_fake_perms_and_whitelist():
+    cog, guild, _ = setup()
+    db = cog.bot.db
+    db.store.update(roleblacklist={"roles": [70, 1], "authorized": [70]},
+                    permlevels={"users": {}, "roles": {"70": "moderator"}},
+                    fakeperms={"70": ["ban_members"], "2": ["kick_members"]})
+    db.store["antinuke"]["whitelist_roles"] = [70]
+    new = SimpleNamespace(id=7070)
+    lines = asyncio.run(cog._carry_role_settings(guild, {70: new}))
+    assert db.store["roleblacklist"] == {"roles": [7070, 1], "authorized": [7070]}
+    assert db.store["permlevels"]["roles"] == {"7070": "moderator"}
+    assert db.store["fakeperms"] == {"2": ["kick_members"], "7070": ["ban_members"]}
+    assert db.store["antinuke"]["whitelist_roles"] == [7070]
+    assert lines == ["kept the rebuilt roles' antinuke whitelist, fake permissions, permission levels, role blacklist"]
+    assert asyncio.run(cog._carry_role_settings(guild, {})) == []

@@ -743,6 +743,7 @@ class Antinuke(commands.Cog):
         if snaps["role"]:
             role_map, made = await restore_roles(guild, snaps["role"], reason)
             lines += made
+            lines += await self._carry_role_settings(guild, role_map)
         if snaps["channel"]:
             lines += await restore_channels(guild, snaps["channel"], role_map, reason)
         return lines
@@ -847,8 +848,62 @@ class Antinuke(commands.Cog):
             return [f"⚠️ couldn't undo {LABELS.get(module, module).lower()} (Discord said {e.status})"]
         return []
 
+    async def _carry_role_settings(self, guild: discord.Guild, role_map: dict) -> list[str]:
+        """A rebuilt role gets a new ID from Discord. Move everything this bot keyed by the old ID onto the new one,
+        so a rebuilt blacklisted role is still blacklisted, and permission levels, fake permissions and antinuke
+        whitelists given to the role still apply."""
+        moved = {int(old): getattr(new, "id", None) for old, new in role_map.items() if getattr(new, "id", None)}
+        if not moved:
+            return []
+        db, kept = self.bot.db, set()
+
+        def swap_list(values: list) -> bool:
+            hit = False
+            for i, v in enumerate(values):
+                if v in moved:
+                    values[i], hit = moved[v], True
+            return hit
+
+        def swap_keys(mapping: dict) -> bool:
+            hit = False
+            for old, new in moved.items():
+                if str(old) in mapping:
+                    mapping[str(new)], hit = mapping.pop(str(old)), True
+            return hit
+
+        rbl = await db.get_config(guild.id, "roleblacklist")
+        if swap_list(rbl.setdefault("roles", [])) | swap_list(rbl.setdefault("authorized", [])):
+            await db.set_config(guild.id, "roleblacklist", rbl)
+            kept.add("role blacklist")
+        levels = await db.get_config(guild.id, "permlevels")
+        if swap_keys(levels.setdefault("roles", {})):
+            await db.set_config(guild.id, "permlevels", levels)
+            kept.add("permission levels")
+        fake = await db.get_config(guild.id, "fakeperms")
+        if swap_keys(fake):
+            await db.set_config(guild.id, "fakeperms", fake)
+            kept.add("fake permissions")
+        cfg = await self.cfg(guild.id)
+        if swap_list(cfg.setdefault("whitelist_roles", [])):
+            await self.save(guild.id, cfg)
+            kept.add("antinuke whitelist")
+        return [f"kept the rebuilt roles' {', '.join(sorted(kept))}"] if kept else []
+
+    async def _blacklist_allows(self, guild: discord.Guild, member) -> tuple[set[int], bool]:
+        """(blacklisted role IDs, whether this member may hold them): the same people the role blacklist lets
+        keep them (developers, the owner, authorized members and roles)."""
+        from core import perms as _perms
+        cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
+        authorized = set(cfg.get("authorized", []))
+        allowed = (_perms.is_bot_developer(member.id, self.bot) or member.id == guild.owner_id
+                   or member.id in authorized
+                   or any(getattr(r, "id", 0) in authorized for r in getattr(member, "roles", [])))
+        return set(cfg.get("roles", [])), allowed
+
     async def _revert_member_roles(self, guild: discord.Guild, member: discord.Member, entry, reason: str) -> list[str]:
-        """Give back the roles that were taken and take back the ones that were given (ones I'm allowed to touch)."""
+        """Give back the roles that were taken and take back the ones that were given (ones I'm allowed to touch).
+        A blacklisted role is only given back to someone the blacklist lets hold it: the bot giving a role counts
+        as authorized there, so putting it back on anyone else would quietly authorize them."""
         def mine(role) -> bool:
             real = guild.get_role(getattr(role, "id", 0))
             if real is None or getattr(real, "managed", False) or real.is_default():
@@ -860,6 +915,12 @@ class Antinuke(commands.Cog):
         removed = [guild.get_role(r.id) for r in (getattr(entry.before, "roles", None) or []) if mine(r)]
         added = [guild.get_role(r.id) for r in (getattr(entry.after, "roles", None) or []) if mine(r)]
         lines = []
+        blacklisted, allowed = await self._blacklist_allows(guild, member)
+        held_back = [r for r in removed if r.id in blacklisted and not allowed]
+        if held_back:
+            removed = [r for r in removed if r not in held_back]
+            lines.append(f"didn't give {display(member)} back {', '.join(r.name for r in held_back)}: "
+                         "blacklisted, and they aren't authorized")
         if removed:
             await member.add_roles(*removed, reason=reason)
             lines.append(f"gave {display(member)} back {', '.join(r.name for r in removed)}")
