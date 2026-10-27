@@ -445,14 +445,14 @@ def test_strict_roleblacklist_uperm_gating(bot):
         unranked_author = _mock_member(100)
         unranked_author.guild = guild
         ctx_unranked = _mock_context(bot, guild, unranked_author)
-        with pytest.raises(UserError, match=r"Head Admin.*permission level"):
+        with pytest.raises(UserError, match=r"Server Manager.*level"):
             await mod_cog._do_rbl_authorize(ctx_unranked, target)
 
         # 2. Admin rank (rank 3) lacks Head Admin rank (rank 4) -> BLOCKED from authorizing
         admin_author = _mock_member(200)
         admin_author.guild = guild
         ctx_admin = _mock_context(bot, guild, admin_author)
-        with pytest.raises(UserError, match=r"Head Admin.*permission level"):
+        with pytest.raises(UserError, match=r"Server Manager.*level"):
             await mod_cog._do_rbl_authorize(ctx_admin, target)
 
         # 3. Head Admin rank (rank 4) -> SUCCEEDS

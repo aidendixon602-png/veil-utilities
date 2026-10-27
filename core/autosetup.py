@@ -8,9 +8,9 @@ log channel (and to the owner), with the command to change each part.
   * automod: spam (6 messages in 5s), mass mentions (6+), zalgo text and invite links, plus Discord's own
     AutoMod slur filter (Discord keeps that word list up to date; the bot only switches it on)
   * escalation: 3 warnings = 1 hour timeout, 5 = kick; repeated automod hits get a short timeout
-  * staff levels from role names: roles called Helper/Trial Mod, Moderator/Mod, Admin, Head Admin get the
-    matching permission level. Never Overseer or Supreme Leader: those the owner gives on purpose, and a role
-    name alone (which anyone with Manage Roles can change) must not hand out that much.
+  * staff levels from role names: roles called Helper/Trial Mod, Moderator/Mod, Admin, Server Manager/Head Admin
+    get the matching permission level. Never Co-Owner or Owner: those the server owner gives on purpose, and a
+    role name alone (which anyone with Manage Roles can change) must not hand out that much.
 """
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ AUTOMOD_DEFAULTS = {"spam": [6, 5], "massmention": 6, "zalgo": True, "invites": 
                     "escalate": {"hits": 3, "within": 600, "timeout": 600}}
 WARN_DEFAULTS = {"3": "timeout:3600", "5": "kick"}
 RAID_DEFAULTS = {"massjoin": {"joins": 10, "seconds": 10}}
-# role names (lower case, letters only) -> the level they get. Nothing above Head Admin, on purpose.
+# role names (lower case, letters only) -> the level they get. Nothing above Server Manager, on purpose.
 STAFF_NAMES = {
     "helper": "helper", "helpers": "helper", "trialmod": "helper", "trialmoderator": "helper",
     "juniormod": "helper", "juniormoderator": "helper",
     "mod": "moderator", "mods": "moderator", "moderator": "moderator", "moderators": "moderator",
     "admin": "admin", "admins": "admin", "administrator": "admin", "administrators": "admin",
-    "headadmin": "headadmin", "senioradmin": "headadmin", "headmod": "headadmin", "headmoderator": "headadmin",
+    "headadmin": "headadmin", "servermanager": "headadmin", "senioradmin": "headadmin", "headmod": "headadmin", "headmoderator": "headadmin",
 }
 
 

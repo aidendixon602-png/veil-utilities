@@ -167,8 +167,8 @@ class TestPermissionHierarchy:
 
         assert perms.HIERARCHY_KEYS == ["developer", "owner", "supremeleader", "overseer",
                                         "headadmin", "admin", "moderator", "helper"]
-        assert perms.HIERARCHY_ORDER == ["Developer", "Owner", "Supreme Leader", "Overseer",
-                                         "Head Admin", "Admin", "Moderator", "Helper"]
+        assert perms.HIERARCHY_ORDER == ["Developer", "Server Owner", "Owner", "Co-Owner",
+                                         "Server Manager", "Admin", "Moderator", "Helper"]
         levels = perms.PRESETS
         assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 4, 3, 2, 1]
         assert levels["supremeleader"][1] == perms.COOWNER_RANK
@@ -187,14 +187,16 @@ class TestPermissionHierarchy:
         assert cfg["users"] == {"1": "supremeleader", "2": "overseer", "4": "moderator", "5": "admin"}
         assert cfg["roles"] == {"9": "moderator"}
         assert cfg["overrides"] == {"supremeleader": {"rank": 8}, "moderator": {"perms": ["manage_messages"]}}
-        assert perms.all_levels(cfg)["supremeleader"]["name"] == "Supreme Leader"
+        assert perms.all_levels(cfg)["supremeleader"]["name"] == "Owner"
         assert perms.migrate(cfg) is False
-        for typed, key in (("Supreme Leader", "supremeleader"), ("co-owner", "supremeleader"),
-                           ("Manager", "overseer"), ("Bot Manager", "headadmin"), ("overseer", "overseer"),
-                           ("mod", "moderator"), ("Moderator", "moderator")):
-            assert perms.resolve_key({}, typed) == key
-        for typed in ("Server Owner", "owner", "Bot Developer", "dev", "Developer"):
-            assert perms.is_reserved(typed) in ("Owner", "Developer")
+        # typed names: the new names, and every old one, mean what they say now (saved keys never changed)
+        for typed, key in (("Owner", "supremeleader"), ("Co-Owner", "overseer"), ("coowner", "overseer"),
+                           ("Server Manager", "headadmin"), ("Supreme Leader", "supremeleader"),
+                           ("Overseer", "overseer"), ("Head Admin", "headadmin"), ("Manager", "headadmin"),
+                           ("Bot Manager", "headadmin"), ("mod", "moderator"), ("Moderator", "moderator")):
+            assert perms.resolve_key({}, typed) == key, typed
+        for typed in ("Server Owner", "guild owner", "Bot Developer", "dev", "Developer"):
+            assert perms.is_reserved(typed) in ("Server Owner", "Developer")
 
     def test_requires_uperm_checks(self):
         import asyncio
@@ -289,6 +291,6 @@ class TestPermissionHierarchy:
         ctx = SimpleNamespace(guild=guild, author=author, bot=bot)
 
         # Admin cannot assign an Administrator role
-        with pytest.raises(UserError, match=r"\*\*Supreme Leader\*\* can give out roles with Administrator"):
+        with pytest.raises(UserError, match=r"\*\*Owner\*\* level can give out roles with Administrator"):
             asyncio.run(check_role_assignable(ctx, admin_role))
 

@@ -633,9 +633,9 @@ class Veil(commands.AutoShardedBot):
                 perms_list = error.missing_permissions
                 needed_rank = "Admin"
                 if "administrator" in perms_list:
-                    needed_rank = "Supreme Leader"
+                    needed_rank = "Owner"
                 elif any(p in perms_list for p in ("manage_guild", "manage_webhooks")):
-                    needed_rank = "Head Admin"
+                    needed_rank = "Server Manager"
                 elif any(p in perms_list for p in ("manage_roles", "ban_members", "manage_channels")):
                     needed_rank = "Admin"
                 elif any(p in perms_list for p in ("kick_members", "moderate_members", "manage_nicknames")):

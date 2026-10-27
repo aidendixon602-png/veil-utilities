@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Permission levels renamed.** Head Admin is now **Server Manager**, Overseer is **Co-Owner** and Supreme Leader is
+  **Owner**; the automatic level for whoever owns the server is now **Server Owner**, under **Developer**. Same
+  ranks and permissions, and nobody's assignments change. The old names still work when typed (`overseer`,
+  `supreme leader`, `head admin`); `manager` now means Server Manager and `co-owner` means the new Co-Owner.
+
 ### Fixed
 
 - **You can't moderate yourself or the server owner, by any route.** Banning by user ID, the network bans

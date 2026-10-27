@@ -110,7 +110,7 @@ def _gate_ctx(level, category_cog, fake=None):
 
 
 def test_the_level_gate():
-    with pytest.raises(MissingRank, match="Overseer"):
+    with pytest.raises(MissingRank, match="Co-Owner"):
         asyncio.run(level_gate(_gate_ctx("headadmin", "Permissions"), ["manage_guild"]))
     asyncio.run(level_gate(_gate_ctx("headadmin", "Automod"), ["manage_guild"]))  # high enough
     asyncio.run(level_gate(_gate_ctx("helper", "Moderation"), []))  # Moderator category: Helper is enough
@@ -123,5 +123,5 @@ def test_the_level_gate():
 
 
 def test_owner_only_commands_are_shown_to_the_owner_only():
-    assert H.rank_name(P.OWNER_RANK) == "Owner" and H.rank_name(P.DEV_RANK) == "Developer"
-    assert H.rank_name(6) == "Overseer" and H.rank_name(4) == "Head Admin"
+    assert H.rank_name(P.OWNER_RANK) == "Server Owner" and H.rank_name(P.DEV_RANK) == "Developer"
+    assert H.rank_name(7) == "Owner" and H.rank_name(6) == "Co-Owner" and H.rank_name(4) == "Server Manager"

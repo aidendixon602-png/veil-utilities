@@ -835,7 +835,7 @@ class Antinuke(commands.Cog):
         trusted_roles = set(cfg.get("whitelist_roles", []))
         if member and trusted_roles and any(getattr(r, "id", None) in trusted_roles for r in member.roles):
             return True  # holds a whitelisted role
-        # permission levels (Admin, Supreme Leader...) don't make anyone trusted here: a hacked staff account is the
+        # permission levels (Admin, Owner...) don't make anyone trusted here: a hacked staff account is the
         # most common way servers get nuked. Trust is only what the owner gave on purpose: the whitelist (users or
         # roles) and antinuke admins.
         return False

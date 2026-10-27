@@ -65,10 +65,10 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Moderator": 1,     # Helper+ (Moderator+ also sees kick, timeout, warn...)
     "Admin": 3,         # Admin+: ban, lockdown, the ,admin panel...
     "Roles": 3,         # Admin+
-    "Server": 4,        # Head Admin+
-    "Automod": 4,       # Head Admin+
-    "Permissions": 6,   # Overseer+
-    "Antinuke": 7,      # Supreme Leader+
+    "Server": 4,        # Server Manager+
+    "Automod": 4,       # Server Manager+
+    "Permissions": 6,   # Co-Owner+
+    "Antinuke": 7,      # Owner+
 }
 
 # the level a Discord permission checked by a command maps to (matches has_perms' "you need ..." messages)

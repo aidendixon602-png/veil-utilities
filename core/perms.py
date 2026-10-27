@@ -6,11 +6,13 @@ needing dangerous native Discord permissions. Config lives per-guild under the "
 
     {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-The hierarchy, highest first: Developer, Owner, Supreme Leader, Overseer, Head Admin, Admin, Moderator,
-Helper (Bot Manager was folded into Head Admin). Developer (the bot's developers) and Owner (the server owner) are automatic and can't be assigned.
+The hierarchy, highest first: Developer, Server Owner, Owner, Co-Owner, Server Manager, Admin, Moderator,
+Helper. Developer (the bot's developers) and Server Owner (whoever owns the server) are automatic and can't be
+assigned.
 
-Older names still work wherever a level is typed (and saved assignments are migrated): Mod is now Moderator, and
-the short-lived Co-Owner / Manager names map back to Supreme Leader / Overseer.
+The level keys saved in the database never changed, only the names shown: `supremeleader` is Owner, `overseer` is
+Co-Owner and `headadmin` is Server Manager. Older names still work wherever a level is typed: Supreme Leader,
+Overseer, Head Admin, Mod, Bot Manager.
 """
 from __future__ import annotations
 
@@ -19,9 +21,9 @@ import discord
 DEV_RANK = 10_000
 OWNER_RANK = 1_000
 ADMIN_RANK = 900  # a real Discord administrator with no assigned level
-COOWNER_RANK = 7  # the top assignable level, Supreme Leader (Administrator)
+COOWNER_RANK = 7  # the top assignable level, Owner (key `supremeleader`, Administrator)
 DEV_NAME = "Developer"
-OWNER_NAME = "Owner"
+OWNER_NAME = "Server Owner"
 
 # =====================================================================
 # BOT DEVELOPERS (Editable directly in this file)
@@ -134,16 +136,16 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "moderator":     ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
     "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                     "manage_nicknames", "manage_roles", "manage_channels"]),
-    "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+    "headadmin":     ("Server Manager", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                         "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
                                         "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "overseer":      ("Overseer", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
-    "supremeleader": ("Supreme Leader", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
+    "overseer":      ("Co-Owner", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
+    "supremeleader": ("Owner", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
 }
 
-# Old level keys -> the level that replaced them. Saved assignments are migrated, and typing an old name works.
-# (A short-lived rename called Supreme Leader "Co-Owner" and merged Overseer + Bot Manager into "Manager";
-# those come back as Supreme Leader and Overseer, which kept Manager's exact permissions.)
+# Old SAVED level keys -> the level that replaced them (saved assignments are migrated on startup).
+# These are about what's stored, not what's typed: a short-lived version saved Supreme Leader as "coowner" and
+# Overseer + Bot Manager as "manager". What a typed name means is TYPED_NAMES below.
 LEGACY_KEYS: dict[str, str] = {
     "mod": "moderator",
     "botmanager": "headadmin",  # Bot Manager was removed: its holders became Head Admins (nobody gains access)
@@ -151,21 +153,33 @@ LEGACY_KEYS: dict[str, str] = {
     "manager": "overseer",
 }
 
+# Old names people may still type -> the level they mean now. A typed name that's ambiguous goes to the LOWER
+# level ("manager" could be Server Manager or the old Manager, so it's Server Manager), so a typo never hands out
+# more than intended. The current display names (Owner, Co-Owner, Server Manager) are matched before these.
+TYPED_NAMES: dict[str, str] = {
+    "mod": "moderator",
+    "botmanager": "headadmin",
+    "manager": "headadmin",
+    "headadmin": "headadmin",
+    "overseer": "overseer",
+    "supremeleader": "supremeleader",
+}
+
 # Shown in the level list but handed out automatically, never via `perm add` / `uperm add`
 RESERVED: dict[str, tuple[str, int]] = {
     "owner":     (OWNER_NAME, OWNER_RANK),
     "developer": (DEV_NAME, DEV_RANK),
 }
-RESERVED_ALIASES: dict[str, str] = {"serverowner": "owner", "botdev": "developer", "botdeveloper": "developer",
-                                    "dev": "developer"}
+RESERVED_ALIASES: dict[str, str] = {"serverowner": "owner", "guildowner": "owner", "botdev": "developer",
+                                    "botdeveloper": "developer", "dev": "developer"}
 
 # Permission hierarchy display order (highest to lowest)
 HIERARCHY_ORDER: list[str] = [
     DEV_NAME,
     OWNER_NAME,
-    "Supreme Leader",
-    "Overseer",
-    "Head Admin",
+    "Owner",
+    "Co-Owner",
+    "Server Manager",
     "Admin",
     "Moderator",
     "Helper",
@@ -206,7 +220,7 @@ def migrate(cfg: dict) -> bool:
         if old in overrides:
             data = overrides.pop(old)
             if new not in overrides:  # two old levels became one: the first one found keeps its settings
-                data.pop("name", None)  # an old custom name ("Supreme Leader") would hide the new one
+                data.pop("name", None)  # an old custom name would hide the new one
                 if data:
                     overrides[new] = data
             changed = True
@@ -237,8 +251,8 @@ def resolve_key(cfg: dict, text: str) -> str | None:
     for key, data in all_levels(cfg).items():
         if flat == key or flat == _flat(data["name"]):
             return key
-    if flat in LEGACY_KEYS:  # "supreme leader", "bot manager", "overseer", "mod"
-        return LEGACY_KEYS[flat]
+    if flat in TYPED_NAMES:  # "supreme leader", "overseer", "head admin", "bot manager", "mod"
+        return TYPED_NAMES[flat]
     return None
 
 
@@ -269,11 +283,11 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 
     Returns:
         (level_name, granted_by, rank)
-        e.g. ("Supreme Leader", "Permissions attached to user", 7)
+        e.g. ("Owner", "Permissions attached to user", 7)
              ("Admin", "@HR | Branch Management", 3)
              ("Helper", "@Office of Lilz", 1)
              ("Developer", "Built-in", 10000)
-             ("Owner", "Built-in", 1000)
+             ("Server Owner", "Built-in", 1000)
     """
     mid = getattr(member, "id", 0)
     if is_dev or is_bot_developer(member):
