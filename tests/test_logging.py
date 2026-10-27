@@ -21,6 +21,21 @@ from core.utils import Colors, Ignored, UserError
 @pytest.fixture(autouse=True)
 def no_audit_wait(monkeypatch):
     monkeypatch.setattr(fmt, "AUDIT_SETTLE", 0)
+    monkeypatch.setattr(L, "FEED_WAIT", 0)  # feed lines go out straight away in tests
+
+
+def test_feed_lines_arriving_together_share_one_message_until_it_is_full(monkeypatch):
+    async def go():
+        channel = text_channel(1, "command-logs")
+        posted = SimpleNamespace(edit=AsyncMock())
+        channel.send.return_value = posted
+        cog, _ = make_cog()
+        await asyncio.gather(*(cog.post_line(channel, f"line {i}") for i in range(3)))
+        assert channel.send.await_count == 1 and posted.edit.await_args.kwargs["content"] == "line 0\nline 1\nline 2"
+        monkeypatch.setattr(L, "FEED_LIMIT", 20)  # no room left: a new message starts
+        await cog.post_line(channel, "line 3 is too long to fit")
+        assert channel.send.await_count == 2
+    asyncio.run(go())
 
 
 # ------------------------------------------------------------------ tiny stand-ins for Discord objects
@@ -221,51 +236,52 @@ def test_setup_needs_manage_channels_and_does_nothing_when_all_set():
     asyncio.run(go())
 
 
-# ------------------------------------------------------------------ the cards
+# ------------------------------------------------------------------ the cards (A + B) and the feed lines (C)
 
 def body(e: discord.Embed) -> list[str]:
     return (e.description or "").splitlines()
 
 
-def test_every_log_is_one_shape_header_body_ids_in_the_footer_and_no_grids():
+def detail(e: discord.Embed, label: str) -> str | None:
+    """The value of a `**Label:** value` line on a card."""
+    prefix = f"**{label}:** "
+    return next((line[len(prefix):] for line in body(e) if line.startswith(prefix)), None)
+
+
+def test_a_card_is_the_person_a_bold_sentence_and_labelled_lines():
     deleted = fmt.message_deleted(message(content="line one\nline two", attachments=[
         SimpleNamespace(filename="cat.png", url="https://cdn/cat.png")]))
-    assert deleted.color.value == Colors.error and deleted.author.name == "Message deleted · ham"
-    assert deleted.author.icon_url == "https://cdn.example/a.png"
-    assert deleted.title is None and not deleted.fields and deleted.thumbnail.url is None
-    lines = body(deleted)
-    assert lines[0] == "<@7> · in <#30>"
+    assert deleted.color.value == Colors.error
+    assert deleted.author.name == "ham" and deleted.author.icon_url == "https://cdn.example/a.png"
+    assert body(deleted)[0] == "**Message sent by <@7> deleted in <#30>**"
     assert "> line one\n> line two" in deleted.description
-    assert "📎 [cat.png](https://cdn/cat.png)" in lines[-1] and lines[-1].startswith("-# sent ")
+    assert detail(deleted, "Attachments") == "[cat.png](https://cdn/cat.png)" and detail(deleted, "Sent").startswith("<t:")
+    assert deleted.title is None and not deleted.fields and deleted.thumbnail.url is None
     assert deleted.footer.text == "User ID: 7 · Message ID: 500"
     assert deleted.timestamp is not None and "Today at" not in deleted.footer.text  # one time, shown by Discord
 
 
-def test_small_lines_drop_empty_parts_and_vanish_when_empty():
-    assert fmt.small("a", "", None, "b") == "-# a · b"
-    assert fmt.small("", None) == ""
-    assert fmt.by(None) == "" and fmt.by(member(9, "mod"), "kicked by") == "kicked by <@9>"
+def test_empty_details_are_left_out():
+    card = fmt.entry_card(Colors.error, "x happened", details=[("Reason", ""), ("Who", None), ("Where", "here")])
+    assert body(card) == ["**x happened**", "**Where:** here"]
     assert fmt.person(member(5, "bad")) == "<@5> (`bad`)" and fmt.person(None) == "*unknown*"
 
 
 def test_deleted_by_a_moderator_says_so_but_self_deletes_do_not():
-    mod = member(9, "mod")
-    assert body(fmt.message_deleted(message(), actor=mod))[0] == "<@7> · in <#30> · deleted by <@9>"
-    assert "deleted by" not in fmt.message_deleted(message(), actor=message().author).description
-    assert "deleted by" not in fmt.message_deleted(message()).description
+    assert detail(fmt.message_deleted(message(), actor=member(9, "mod")), "Deleted by") == "<@9>"
+    assert detail(fmt.message_deleted(message(), actor=message().author), "Deleted by") is None
+    assert detail(fmt.message_deleted(message()), "Deleted by") is None
 
 
-def test_edits_show_before_and_after_with_a_jump_link():
-    e = fmt.message_edited(message(content="old text"), message(content="new text"))
-    assert e.color.value == Colors.warn and e.author.name == "Message edited · ham"
-    lines = body(e)
-    assert "[jump to it](https://discord.com/channels/10/30/500)" in lines[0]
-    assert lines[1:5] == ["-# before", "> old text", "-# after", "> new text"]
+def test_an_edit_is_one_feed_line_with_before_and_after():
+    line = fmt.message_edited(message(content="old text"), message(content="new text"))
+    assert line.startswith("<t:") and ":t> ✏️ <@7> edited a message in <#30>: `old text` → `new text`" in line
+    assert line.endswith("· [jump](https://discord.com/channels/10/30/500)")
+    long = fmt.message_edited(message(content="x" * 5000), message(content="y\n" * 3000))
+    assert len(long) <= 1900 and "\n" not in long
 
 
 def test_long_content_is_cut_to_fit_discords_limits():
-    e = fmt.message_edited(message(content="x" * 5000), message(content="y\n" * 3000))
-    assert len(e) <= 6000 and len(e.description) <= 4096
     big = fmt.message_deleted(message(content="z" * 9000))
     assert len(big.description) <= 4096
 
@@ -277,56 +293,54 @@ def test_lists_are_cut_with_a_count_instead_of_overflowing():
     assert fmt.bullets(["a", "b"]) == "a\nb"
 
 
-def test_join_flags_brand_new_accounts_and_shows_age_and_member_number():
+def test_join_flags_brand_new_accounts_and_shows_the_member_number():
     fresh = fmt.member_joined(member(created_days=2))
     old = fmt.member_joined(member(created_days=900))
-    assert "⚠️ **new account**" in fresh.description and "⚠️" not in old.description
-    assert body(old)[0] == "<@7> · member **#50**" and body(old)[1].startswith("-# account made <t:")
-    assert old.footer.text == "User ID: 7" and old.color.value == Colors.success
-    assert old.author.name == "Member joined · ham"
-    assert "🤖 bot" in fmt.member_joined(member(bot=True)).description
+    assert "⚠️ **new account**" in detail(fresh, "Account") and "⚠️" not in detail(old, "Account")
+    assert body(old)[0] == "**<@7> joined the server**" and detail(old, "Member") == "#50"
+    assert old.footer.text == "User ID: 7" and old.color.value == Colors.success and old.author.name == "ham"
+    assert detail(fmt.member_joined(member(bot=True)), "Bot") == "yes"
 
 
 def test_leave_and_kick_are_different_cards():
     m = member(roles=[role(1, "everyone", default=True), role(2, "Mod"), role(3, "VIP")])
     left = fmt.member_left(m)
-    assert left.author.name == "Member left · ham" and left.color.value == Colors.error
-    assert body(left) == ["<@7>", "-# was here 3 days · 50 members now", "-# had <@&3>, <@&2>"]  # highest role first
-    assert left.footer.text == "User ID: 7"
+    assert left.color.value == Colors.error and body(left)[0] == "**<@7> left the server**"
+    assert detail(left, "Roles") == "<@&3>, <@&2>" and "was here 3 days" in detail(left, "Joined")
+    assert detail(left, "Members now") == "50"
     kicked = fmt.member_left(m, member(9, "mod"), "spam")
-    assert kicked.author.name == "Member kicked · ham" and kicked.color.value == Colors.warn
-    assert body(kicked)[:2] == ["<@7> · kicked by <@9>", "> spam"]
+    assert kicked.color.value == Colors.warn and body(kicked)[0] == "**<@7> was kicked by <@9>**"
+    assert detail(kicked, "Reason") == "spam" and detail(kicked, "Members now") is None
 
 
 def test_ban_and_unban_cards_name_the_moderator_and_the_reason():
     user = member(5, "bad")
     banned = fmt.user_banned(user, member(9, "mod"), "raid")
-    assert banned.author.name == "Member banned · bad" and banned.color.value == Colors.error
-    assert body(banned)[:2] == ["<@5> · banned by <@9>", "> raid"] and "account made" in banned.description
+    assert banned.author.name == "bad" and banned.color.value == Colors.error
+    assert body(banned)[0] == "**<@5> was banned by <@9>**" and detail(banned, "Reason") == "raid"
+    assert detail(banned, "Account").startswith("created <t:")
     unknown = fmt.user_banned(user)
-    assert body(unknown)[0] == "<@5>" and "-# no reason given" in body(unknown)
-    unbanned = fmt.user_unbanned(user, member(9, "mod"), clicked=True)
-    assert unbanned.author.name == "Member unbanned · bad" and unbanned.color.value == Colors.success
-    assert body(unbanned)[:2] == ["<@5> · unbanned by <@9>", "-# with the button on the ban log"]
+    assert body(unknown)[0] == "**<@5> was banned**" and detail(unknown, "Reason") == "no reason given"
+    clicked = fmt.user_unbanned(user, member(9, "mod"), clicked=True)
+    assert clicked.color.value == Colors.success and body(clicked)[0] == "**<@5> was unbanned by <@9>**"
+    assert detail(clicked, "How") == "the button on the ban log" and detail(clicked, "Reason") is None
 
 
 def test_nickname_card_shows_both_names_and_who_changed_it():
     e = fmt.nickname_changed(member(), "old", None, member(9, "mod"))
-    assert body(e) == ["<@7> · changed by <@9>", "`old` → *none*"]
-    assert body(fmt.nickname_changed(member(), None, "new", member()))[0] == "<@7>"  # changed it themselves
-    assert body(fmt.nickname_changed(member(), None, "new"))[0] == "<@7>"
+    assert body(e) == ["**<@7>'s nickname was changed by <@9>**", "**Before:** `old`", "**After:** *none*"]
+    assert body(fmt.nickname_changed(member(), None, "new", member()))[0] == "**<@7>'s nickname was changed**"
 
 
 def test_role_change_cards_pick_a_colour_and_list_each_side():
     m, added, removed = member(), [role(2, "Mod")], [role(3, "VIP")]
     given = fmt.roles_changed(m, added, [])
-    assert given.color.value == Colors.success and given.author.name == "Roles given · ham"
-    assert fmt.roles_changed(m, [], removed).author.name == "Roles taken · ham"
+    assert given.color.value == Colors.success and body(given)[0] == "**<@7> was given roles**"
+    assert body(fmt.roles_changed(m, [], removed))[0] == "**<@7> had roles taken**"
     mixed = fmt.roles_changed(m, added, removed, member(9, "mod"), "cleanup")
-    assert mixed.color.value == Colors.blurple and mixed.author.name == "Roles changed · ham"
-    assert body(mixed) == ["<@7> · by <@9>", "**+** <@&2>", "**−** <@&3>", "> cleanup"]
-    assert mixed.footer.text == "User ID: 7"
-    assert body(given)[0] == "<@7>"  # the audit log didn't say who: nobody is named
+    assert mixed.color.value == Colors.blurple
+    assert body(mixed) == ["**<@7> had their roles changed by <@9>**", "**Added:** <@&2>", "**Removed:** <@&3>",
+                           "**Reason:** cleanup"]
 
 
 def test_handing_out_a_dangerous_role_is_flagged():
@@ -334,19 +348,19 @@ def test_handing_out_a_dangerous_role_is_flagged():
     admin.permissions = discord.Permissions(administrator=True)
     mgr = role(3, "Mgr")
     mgr.permissions = discord.Permissions(manage_roles=True, kick_members=True)
-    warning = body(fmt.roles_changed(member(), [admin, mgr, role(4, "Plain")], []))[-1]
-    assert warning == "-# ⚠️ <@&2> has administrator; <@&3> has manage roles, kick members"
+    card = fmt.roles_changed(member(), [admin, mgr, role(4, "Plain")], [])
+    assert detail(card, "⚠️ Dangerous") == "<@&2> has administrator; <@&3> has manage roles, kick members"
     assert fmt.dangerous(admin) == ["administrator"] and fmt.dangerous(role(9)) == []
 
 
 def test_timeout_cards():
     until = discord.utils.utcnow() + timedelta(hours=1, minutes=5)
     e = fmt.timed_out(member(), until, member(9, "mod"), "calm down")
-    assert e.author.name == "Member timed out · ham"
-    assert body(e)[0] == "<@7> · by <@9> · for **1 hour, 5 minutes**" and body(e)[1] == "> calm down"
-    assert body(e)[2].startswith("-# ends <t:")
+    assert body(e)[0] == "**<@7> was timed out by <@9>**"
+    assert detail(e, "Duration") == "1 hour, 5 minutes" and detail(e, "Reason") == "calm down"
+    assert detail(e, "Ends").startswith("<t:")
     cleared = fmt.timeout_removed(member(), member(9, "mod"))
-    assert cleared.author.name == "Timeout removed · ham" and body(cleared) == ["<@7> · by <@9>"]
+    assert body(cleared) == ["**<@7>'s timeout was removed by <@9>**"]
 
 
 def test_role_diffs_only_list_what_changed():
@@ -359,20 +373,21 @@ def test_role_diffs_only_list_what_changed():
     assert "Permissions removed" in fmt.role_changes(b, a)[-1]
 
 
-def test_role_cards_show_who_did_it_the_facts_and_the_danger():
+def test_role_cards_show_who_did_it_the_details_and_the_danger():
     r = role(2, "VIP", color=0x00FF00)
     r.permissions, r.position = discord.Permissions(administrator=True), 4
     mod = member(9, "mod")
     created = fmt.role_created(r, mod)
-    assert created.color.value == 0x00FF00 and created.author.name == "Role created · VIP"
-    assert created.author.icon_url == "https://cdn.example/a.png"  # the face of who did it
-    assert body(created) == ["<@&2> · by <@9>", "⚠️ has **administrator**", "-# colour #00FF00 · position 4"]
-    assert created.footer.text == "Role ID: 2"
+    assert created.color.value == 0x00FF00 and created.author.name == "mod"  # the header is who did it
+    assert body(created)[0] == "**The role <@&2> was created by <@9>**"
+    assert detail(created, "Details") == "colour #00FF00 · position 4"
+    assert detail(created, "⚠️ Dangerous") == "administrator" and created.footer.text == "Role ID: 2"
     deleted = fmt.role_deleted(role(2, "VIP"), mod, "Antinuke: Mass Role Delete")
-    assert deleted.author.name == "Role deleted · VIP" and body(deleted)[:2] == ["by <@9>", "> Antinuke: Mass Role Delete"]
-    assert fmt.role_deleted(role(2, "VIP")).description is None  # nothing known beyond the header: no body
+    assert body(deleted)[0] == "**The role `@VIP` was deleted by <@9>**"
+    assert detail(deleted, "Reason") == "Antinuke: Mass Role Delete"
+    assert fmt.role_deleted(role(2, "VIP")).author.name == "VIP"  # nobody known: the role's name heads it
     updated = fmt.role_updated(r, ["Name: `a` → `b`"], mod)
-    assert body(updated)[:2] == ["<@&2> · by <@9>", "• Name: `a` → `b`"]
+    assert body(updated)[:2] == ["**The role <@&2> was updated by <@9>**", "**Name:** `a` → `b`"]
 
 
 def test_channel_cards_name_the_kind_category_and_who_did_it():
@@ -381,14 +396,15 @@ def test_channel_cards_name_the_kind_category_and_who_did_it():
                       topic="staff only", nsfw=False, slowmode_delay=5, position=3)
     text.name = "chat"
     voice = MagicMock(spec=discord.VoiceChannel, id=5, mention="<#5>", category=None, guild=SimpleNamespace(icon=None),
-                      position=1, nsfw=False, slowmode_delay=0)
+                      position=1, nsfw=False, slowmode_delay=0, topic=None)
     voice.name = "Lounge"
     created = fmt.channel_created(text, member(9, "mod"))
-    assert created.author.name == "Text channel created · #chat"
-    assert body(created) == ["<#4> · by <@9>", "-# topic: staff only", "-# in **Staff** · position 3 · slowmode 5s"]
+    assert body(created) == ["**The channel <#4> was created by <@9>**", "**Type:** Text channel",
+                             "**Category:** Staff", "**Topic:** staff only", "**Slowmode:** 5s"]
     assert created.footer.text == "Channel ID: 4"
     deleted = fmt.channel_deleted(voice)
-    assert deleted.author.name == "Voice channel deleted · #Lounge" and body(deleted) == ["-# no category · position 1"]
+    assert deleted.author.name == "#Lounge" and body(deleted)[0] == "**The channel `#Lounge` was deleted**"
+    assert detail(deleted, "Category") == "none"
 
 
 def test_channel_diffs():
@@ -415,38 +431,34 @@ def test_server_diffs_and_cards():
     assert "Name: `S` → `T`" in changes and any("Verification level" in c for c in changes)
     assert fmt.server_changes(guild(), guild()) == []
     card = fmt.server_updated(guild(), changes, member(9, "mod"))
-    assert card.author.name == "Server updated · S" and card.footer.text == "Server ID: 1"
-    assert body(card)[0] == "by <@9>" and body(card)[1] == "• Name: `S` → `T`"
+    assert card.footer.text == "Server ID: 1" and body(card)[0] == "**The server was updated by <@9>**"
+    assert detail(card, "Name") == "`S` → `T`"
 
 
 def test_invite_and_emoji_cards():
     inv = SimpleNamespace(code="abc", channel=SimpleNamespace(mention="<#1>"), inviter=member(9, "mod"), max_uses=5,
                           max_age=7200, guild=SimpleNamespace(icon=None), uses=3, temporary=False)
     e = fmt.invite_created(inv)
-    assert e.author.name == "Invite created · abc"
-    assert body(e) == ["discord.gg/abc · for <#1> · by <@9>", "-# 5 uses · expires in 2h"]
+    assert body(e) == ["**An invite for <#1> was created by <@9>**", "**Link:** discord.gg/abc", "**Uses:** 5 uses",
+                       "**Expires:** in 2h"]
     gone = fmt.invite_deleted(inv)
-    assert gone.author.name == "Invite deleted · abc" and body(gone) == ["for <#1> · made by <@9>", "-# used 3 times"]
+    assert body(gone)[0] == "**An invite for <#1> was deleted**" and detail(gone, "Used") == "3 times"
     forever = fmt.invite_created(SimpleNamespace(**{**inv.__dict__, "max_uses": 0, "max_age": 0}))
-    assert body(forever)[1] == "-# unlimited uses · never expires"
+    assert detail(forever, "Uses") == "unlimited" and detail(forever, "Expires") == "never"
     emoji = SimpleNamespace(name="a", __str__=lambda s: "<:a:1>")
     emoji_card = fmt.emojis_changed(SimpleNamespace(id=1, icon=None, name="S"), [emoji], [SimpleNamespace(name="gone")])
-    assert emoji_card.author.name == "Emojis updated · S"
-    assert "`:a:`" in body(emoji_card)[0] and body(emoji_card)[1] == "**−** `:gone:`"
+    assert "`:a:`" in detail(emoji_card, "Added") and detail(emoji_card, "Removed") == "`:gone:`"
 
 
-def test_voice_cards():
+def test_voice_changes_are_feed_lines():
     ch1 = SimpleNamespace(id=1, mention="<#1>", name="Lounge", members=[1, 2])
     ch2 = SimpleNamespace(id=2, mention="<#2>", name="Gaming")
     state = lambda ch, mute=False, deaf=False: SimpleNamespace(channel=ch, mute=mute, deaf=deaf)  # noqa: E731
     m = member()
-    joined = fmt.voice_changed(m, state(None), state(ch1))
-    assert joined.author.name == "Joined voice · ham" and body(joined) == ["<@7> · joined <#1>", "-# 2 people in there now"]
-    assert fmt.voice_changed(m, state(ch1), state(None)).author.name == "Left voice · ham"
-    moved = fmt.voice_changed(m, state(ch1), state(ch2))
-    assert moved.author.name == "Moved voice · ham" and body(moved) == ["<@7> · <#1> → <#2>"]
-    muted = fmt.voice_changed(m, state(ch1), state(ch1, mute=True))
-    assert muted.author.name == "Server muted · ham" and body(muted) == ["<@7> · in <#1>"]
+    assert fmt.voice_changed(m, state(None), state(ch1)).endswith(":t> 🔊 <@7> joined <#1>")
+    assert fmt.voice_changed(m, state(ch1), state(None)).endswith("🔇 <@7> left <#1>")
+    assert fmt.voice_changed(m, state(ch1), state(ch2)).endswith("↪️ <@7> moved <#1> → <#2>")
+    assert fmt.voice_changed(m, state(ch1), state(ch1, mute=True)).endswith("🔕 <@7> was server muted in <#1>")
     assert fmt.voice_changed(m, state(ch1), state(ch1)) is None
 
 
@@ -456,32 +468,18 @@ def cmd_ctx(content=",ban @x spam", name="ban", invoked="ban"):
                            command=SimpleNamespace(name=name, qualified_name=name, aliases=["b"], cog_name="Moderation"), invoked_with=invoked)
 
 
-def test_command_card_shows_who_where_the_authority_and_how_it_went():
-    e = fmt.command_used(cmd_ctx(), "Admin", "Owner", rank=3, ms=84.4)
-    assert e.author.name == "Command used · ham" and e.color.value == Colors.blurple
-    assert e.author.icon_url == "https://cdn.example/a.png"
-    assert body(e) == ["<@7> · in <#5> · [jump](https://discord.com/channels/10/5/900)", "`,ban @x spam`",
-                       "-# ✅ done in 84 ms · Admin (via Owner) · Moderation"]
-    assert not e.fields and e.thumbnail.url is None
-    assert e.footer.text == "User ID: 7 · Message ID: 900"
+def test_a_command_is_one_feed_line():
+    line = fmt.command_used(cmd_ctx(), "Admin", "Owner", rank=3, ms=84.4)
+    assert line.startswith("<t:") and line.endswith(
+        ":t> ⌨️ <@7> ran `,ban @x spam` in <#5> · [jump](https://discord.com/channels/10/5/900) · 84 ms")
+    assert "6.2s" in fmt.command_used(cmd_ctx(), "None", "-", ms=6175)
+    assert "\n" not in fmt.command_used(cmd_ctx("a\nb"), "None", "-")
 
 
-def test_command_card_hides_internal_numbers():
-    e = fmt.command_used(cmd_ctx(), "Bot Developer", "Built-in", rank=10000, ms=721)
-    assert body(e)[-1] == "-# ✅ done in 721 ms · Bot Developer · Moderation"
-    assert "10000" not in e.description and "Built-in" not in e.description
-    assert "Everyone" in body(fmt.command_used(cmd_ctx(), "None", "-"))[-1]
-    assert "done in 6.2s" in fmt.command_used(cmd_ctx(), "None", "-", ms=6175).description
-
-
-def test_command_card_handles_long_commands_aliases_and_failures():
-    long = cmd_ctx("a\nb")
-    assert "```a\nb```" in fmt.command_used(long, "None", "-").description
-    aliased = cmd_ctx(",b @x", invoked="b")
-    assert "alias `b`" in body(fmt.command_used(aliased, "None", "-"))[-1]
-    failed = fmt.command_used(cmd_ctx(), "None", "-", error="You need the Admin permission level")
-    assert failed.author.name == "Command failed · ham" and failed.color.value == Colors.error
-    assert body(failed)[2] == "> You need the Admin permission level" and body(failed)[3].startswith("-# ❌ failed")
+def test_a_failed_command_says_why_on_its_line():
+    line = fmt.command_used(cmd_ctx(), "None", "-", error="You need the Admin permission level")
+    assert ":t> ❌ <@7> ran `,ban @x spam` in <#5>" in line
+    assert line.endswith("· failed: You need the Admin permission level")
 
 
 def test_bulk_delete_transcript_is_oldest_first():
@@ -489,27 +487,28 @@ def test_bulk_delete_transcript_is_oldest_first():
     lines = fmt.transcript([second, first]).splitlines()
     assert lines[0].endswith("ham: one") and lines[1].endswith("ham: two")
     card = fmt.bulk_deleted([first, second])
-    assert card.author.name == "2 messages deleted · #general"
-    assert body(card)[0] == "in <#30> · from 1 person" and body(card)[1] == "-# by <@7> ×2"
+    assert card.author.name == "#general" and body(card)[0] == "**2 messages deleted in <#30>**"
+    assert detail(card, "From") == "<@7> ×2" and detail(card, "Transcript") == "attached"
     assert card.footer.text == "Channel ID: 30"
 
 
 def test_a_burst_of_deletions_is_one_card_with_the_names():
     roles = [role(i, f"testnuke-role-{i}") for i in range(1, 31)]
     card = fmt.grouped("role_delete", roles, member(9, "mod"), "Antinuke test (,testnuke)")
-    assert card.author.name == "30 roles deleted" and card.color.value == Colors.error
-    assert body(card)[:2] == ["by <@9>", "> Antinuke test (,testnuke)"]
-    assert body(card)[2].startswith("@testnuke-role-1, @testnuke-role-2,") and body(card)[2].endswith("+5 more")
+    assert card.color.value == Colors.error and card.author.name == "mod"
+    assert body(card)[0] == "**30 roles were deleted by <@9>**"
+    assert detail(card, "Roles").startswith("@testnuke-role-1, @testnuke-role-2,") and detail(card, "Roles").endswith("+5 more")
+    assert detail(card, "Reason") == "Antinuke test (,testnuke)"
     made = fmt.grouped("role_create", roles[:2])
-    assert made.author.name == "2 roles created" and body(made)[0] == "<@&1>, <@&2>"  # still there: mentions
+    assert body(made)[0] == "**2 roles were created**" and detail(made, "Roles") == "<@&1>, <@&2>"
 
 
 def test_case_cards_follow_the_same_shape():
     case = fmt.case_card(12, "ban", member(5, "bad"), member(9, "mod"), "raid")
-    assert case.author.name == "Case #12 · Ban · bad"
-    assert body(case) == ["<@5> (`bad`) · by <@9>", "> raid"] and case.footer.text == "User ID: 5 · Case: 12"
+    assert case.author.name == "bad" and body(case) == ["**Case #12 · Ban: <@5> by <@9>**", "**Reason:** raid"]
+    assert case.footer.text == "User ID: 5 · Case: 12"
     by_id = fmt.case_card(13, "unban", discord.Object(5), member(9, "mod"), None)
-    assert by_id.author.name == "Case #13 · Unban" and body(by_id) == ["<@5> · by <@9>", "-# no reason given"]
+    assert body(by_id) == ["**Case #13 · Unban: <@5> by <@9>**", "**Reason:** no reason given"]
 
 
 # ------------------------------------------------------------------ who did it (audit log)
@@ -566,7 +565,7 @@ def test_deleted_message_is_posted_to_the_message_channel_only_when_there_is_one
         m.guild = guild
         await cog.on_message_delete(m)
         embed = channel.send.await_args.kwargs["embed"]
-        assert embed.author.name == "Message deleted · ham"
+        assert embed.author.name == "ham" and body(embed)[0] == "**Message sent by <@7> deleted in <#30>**"
 
         empty_cog, _ = make_cog({})
         guild_without = make_guild([])
@@ -618,7 +617,7 @@ def test_bans_get_the_unban_button_and_the_moderator(monkeypatch):
         await cog.on_member_ban(guild, member(5, "bad"))
         kwargs = channel.send.await_args.kwargs
         banned = kwargs["embed"]
-        assert banned.author.name == "Member banned · bad" and body(banned)[:2] == ["<@5> · banned by <@9>", "> raid"]
+        assert body(banned)[0] == "**<@5> was banned by <@9>**" and detail(banned, "Reason") == "raid"
         button = kwargs["view"].children[0]
         assert button.item.label == "Unban" and button.item.custom_id == "banlog:10:5:1"
     asyncio.run(go())
@@ -633,7 +632,7 @@ def test_a_kick_goes_to_the_moderation_channel_and_a_plain_leave_to_the_leave_lo
         m = member(5, "gone")
         m.guild = guild
         await cog.on_member_remove(m)
-        assert mod.send.await_args.kwargs["embed"].author.name == "Member kicked · gone"
+        assert body(mod.send.await_args.kwargs["embed"])[0] == "**<@5> was kicked by <@9>**"
         left.send.assert_not_awaited()
 
         guild2 = audit_guild([])
@@ -641,7 +640,7 @@ def test_a_kick_goes_to_the_moderation_channel_and_a_plain_leave_to_the_leave_lo
         m2 = member(6, "left")
         m2.guild = guild2
         await cog.on_member_remove(m2)
-        assert left.send.await_args.kwargs["embed"].author.name == "Member left · left"
+        assert body(left.send.await_args.kwargs["embed"])[0] == "**<@6> left the server**"
     asyncio.run(go())
 
 
@@ -661,7 +660,7 @@ def test_role_changes_are_merged_into_one_log(monkeypatch):
         await asyncio.gather(*[t for t in cog._role_update_tasks.values()], return_exceptions=True)
         assert channel.send.await_count == 1
         embed = channel.send.await_args.kwargs["embed"]
-        assert embed.author.name == "Roles given · ham" and body(embed)[1] == "**+** <@&2>, <@&3>, <@&4>"
+        assert body(embed)[0] == "**<@7> was given roles**" and detail(embed, "Added") == "<@&2>, <@&3>, <@&4>"
     asyncio.run(go())
 
 
@@ -680,10 +679,10 @@ def test_a_burst_of_role_deletions_is_one_card_that_grows(monkeypatch):
             roles.append(r)
         await asyncio.gather(*(cog.on_guild_role_delete(r) for r in roles[:5]))
         assert channel.send.await_count == 1
-        assert channel.send.await_args.kwargs["embed"].author.name == "5 roles deleted"
+        assert body(channel.send.await_args.kwargs["embed"])[0] == "**5 roles were deleted**"
         await cog.on_guild_role_delete(roles[5])  # a straggler a moment later joins the same card
         assert channel.send.await_count == 1
-        assert posted.edit.await_args.kwargs["embed"].author.name == "6 roles deleted"
+        assert body(posted.edit.await_args.kwargs["embed"])[0] == "**6 roles were deleted**"
     asyncio.run(go())
 
 
@@ -697,7 +696,7 @@ def test_a_single_deletion_still_gets_its_own_card(monkeypatch):
                          nsfw=False, slowmode_delay=0)
         gone.name = "chat"
         await cog.on_guild_channel_delete(gone)
-        assert channel.send.await_args.kwargs["embed"].author.name == "Text channel deleted · #chat"
+        assert body(channel.send.await_args.kwargs["embed"])[0] == "**The channel `#chat` was deleted**"
     asyncio.run(go())
 
 
@@ -729,7 +728,7 @@ def test_a_bans_channel_only_gets_bans_timeouts_go_to_the_member_log():
         cog, _ = make_cog({})  # nothing set: both picked up by name, like the screenshot's server
         await cog.on_member_update(before, after)
         bans.send.assert_not_awaited()
-        assert members.send.await_args.kwargs["embed"].author.name == "Member timed out · ham"
+        assert body(members.send.await_args.kwargs["embed"])[0] == "**<@7> was timed out**"
         for name in ("ban-logs", "🔨│bans", "BANS"):
             assert L.bans_only(SimpleNamespace(name=name))
         assert not L.bans_only(SimpleNamespace(name="mod-logs"))
@@ -761,7 +760,7 @@ def test_a_kick_skips_a_bans_only_channel_and_goes_with_the_leaves():
         gone.guild = guild
         await cog.on_member_remove(gone)
         bans.send.assert_not_awaited()
-        assert joins.send.await_args.kwargs["embed"].author.name == "Member kicked · gone"
+        assert body(joins.send.await_args.kwargs["embed"])[0] == "**<@5> was kicked by <@9>**"
     asyncio.run(go())
 
 
@@ -801,8 +800,8 @@ def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
                               command=SimpleNamespace(name="ping", qualified_name="ping", aliases=[], cog_name="Utility"),
                               invoked_with="ping")
         await cog.on_command_completion(ctx)
-        card = channel.send.await_args.kwargs["embed"]
-        assert body(card)[1] == "`,ping`" and body(card)[2].startswith("-# ✅ done") and "Owner" in body(card)[2]
+        assert "⌨️ <@77> ran `,ping` in <#3>" in channel.send.await_args.args[0]
+        assert channel.send.await_args.kwargs["allowed_mentions"].users is False  # a log line never pings
         channel.send.reset_mock()
         ctx.author = member(8, "ignored")
         await cog.on_command_completion(ctx)
@@ -823,26 +822,29 @@ def _command_setup():
     return channel, cog, ctx
 
 
-def test_the_command_card_says_how_long_it_took():
+def test_the_command_line_says_how_long_it_took():
     async def go():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_completion(ctx)
-        assert " ms · " in body(channel.send.await_args.kwargs["embed"])[-1]
+        assert channel.send.await_args.args[0].endswith(" ms")
     asyncio.run(go())
 
 
-def test_failed_commands_get_a_card_with_the_reason():
+def test_failed_commands_get_a_line_with_the_reason():
     async def go():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_error(ctx, UserError("that member is above you"))
-        card = channel.send.await_args.kwargs["embed"]
-        assert card.author.name == "Command failed · owner" and card.color.value == Colors.error
-        assert body(card)[2] == "> that member is above you" and body(card)[3].startswith("-# ❌ failed")
+        line = channel.send.await_args.args[0]
+        assert "❌ <@77> ran `,ban @x`" in line and line.endswith("· failed: that member is above you")
+        posted = channel.send.return_value
+        posted.edit = AsyncMock()
         crash = commands.CommandInvokeError(ValueError("boom"))
         await cog.on_command_error(ctx, crash)
-        assert body(channel.send.await_args.kwargs["embed"])[2] == "> ValueError: boom"
+        grouped = posted.edit.await_args.kwargs["content"].splitlines()  # the next line joins the same message
+        assert len(grouped) == 2 and grouped[1].endswith("· failed: ValueError: boom")
+        assert channel.send.await_count == 1
     asyncio.run(go())
 
 
@@ -1132,14 +1134,15 @@ def test_clicking_notes_it_on_the_card_and_the_unban_card_names_the_clicker():
         it.message = SimpleNamespace(embeds=[discord.Embed(description="<@123> · banned by <@9>")])
         await BanLogButton(1, 123, True).callback(it)
         edited = it.response.edit_message.await_args.kwargs["embed"]
-        assert edited.description.startswith("<@123> · banned by <@9>\n-# 🔓 unbanned by <@300> <t:")
+        assert edited.description.startswith("<@123> · banned by <@9>\n-# 🔓 unbanned by <@300> <t:")  # a note added
         it.followup.send.assert_not_awaited()
 
         channel = text_channel(1, "mod-logs")
         g = make_guild([channel], gid=1)  # the audit log would say the bot did it: the click says who really did
         await logs.on_member_unban(g, member(123, "target"))
         card = channel.send.await_args.kwargs["embed"]
-        assert body(card)[:2] == ["<@123> · unbanned by <@300>", "-# with the button on the ban log"]
+        assert body(card)[0] == "**<@123> was unbanned by <@300>**"
+        assert detail(card, "How") == "the button on the ban log"
         assert logs.take_click(1, 123, "unban") is None  # used once
     asyncio.run(go())
 
@@ -1199,7 +1202,7 @@ def test_case_log_uses_the_log_card():
         mod, target = member(9, "mod"), member(5, "bad")
         assert await create_case(bot, guild, "ban", target, mod, "raid") == 12
         embed = sent.send.await_args.kwargs["embed"]
-        assert embed.author.name == "Case #12 · Ban · bad" and body(embed) == ["<@5> (`bad`) · by <@9>", "> raid"]
+        assert embed.author.name == "bad" and body(embed) == ["**Case #12 · Ban: <@5> by <@9>**", "**Reason:** raid"]
         assert embed.footer.text == "User ID: 5 · Case: 12"
     asyncio.run(go())
 

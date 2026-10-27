@@ -26,7 +26,21 @@ CATEGORY_NAME = devchannels.LOGS_CATEGORY
 BURST_WAIT = 2.0  # seconds to gather role/channel creations or deletions before posting them
 BURST_KEEP = 20.0  # a burst's card keeps growing while more of the same arrive within this long
 BURST_MAX = 60  # most items on one grouped card
+FEED_WAIT = 1.5  # seconds to gather feed lines (commands, edits, voice) before posting them together
+FEED_KEEP = 60.0  # a feed message keeps taking new lines for this long
+FEED_LIMIT = 1900  # characters in one feed message (Discord allows 2000)
 BUTTON_MEMORY = 30.0  # seconds a ban-log button click is remembered, so the ban/unban card names the clicker
+
+
+class _Feed:
+    """Feed lines waiting to be posted in one channel, and the message they're being added to."""
+
+    def __init__(self):
+        self.pending: list[str] = []
+        self.message: discord.Message | None = None
+        self.text = ""
+        self.started = 0.0
+        self.task: asyncio.Task | None = None
 
 
 class _Burst:
@@ -386,6 +400,7 @@ class Logging(commands.Cog):
         self._role_update_tasks: dict[tuple[int, int], asyncio.Task] = {}
         self._role_update_states: dict[tuple[int, int], tuple[discord.Member, discord.Member]] = {}
         self._bursts: dict[tuple, _Burst] = {}
+        self._feeds: dict[int, _Feed] = {}
         self._clicks: dict[tuple[int, int, str], tuple[object, float]] = {}
 
     async def cog_load(self):
@@ -395,7 +410,7 @@ class Logging(commands.Cog):
         self.bot.remove_dynamic_items(BanLogButton)
         for task in self._role_update_tasks.values():
             task.cancel()
-        for b in self._bursts.values():
+        for b in [*self._bursts.values(), *self._feeds.values()]:
             if b.task is not None:
                 b.task.cancel()
 
@@ -441,6 +456,40 @@ class Logging(commands.Cog):
     async def post(self, channel: discord.TextChannel, embed: discord.Embed, *, file: discord.File | None = None,
                    view: discord.ui.View | None = None) -> bool:
         return await self._send(channel, embed, file=file, view=view) is not None
+
+    # ------------------------------------------------------------ the feed: one line per small event
+    def post_line(self, channel: discord.TextChannel, line: str) -> asyncio.Task:
+        """Add a feed line (a command, an edit, a voice move). Lines that arrive close together go out as one
+        message, and that message keeps growing for a minute while it has room, like an audit log."""
+        feed = self._feeds.setdefault(channel.id, _Feed())
+        feed.pending.append(line)
+        if feed.task is None or feed.task.done():
+            feed.task = asyncio.create_task(self._flush_feed(channel, feed))
+        return feed.task
+
+    async def _flush_feed(self, channel: discord.TextChannel, feed: _Feed) -> None:
+        quiet = discord.AllowedMentions.none()  # a log line names people; it must never ping them
+        while True:
+            await asyncio.sleep(FEED_WAIT)
+            if not feed.pending:
+                return
+            lines, feed.pending = feed.pending, []
+            for line in lines:
+                fits = feed.message is not None and len(feed.text) + len(line) + 1 <= FEED_LIMIT \
+                    and time.monotonic() - feed.started <= FEED_KEEP
+                if fits:
+                    try:
+                        await feed.message.edit(content=f"{feed.text}\n{line}", allowed_mentions=quiet)
+                        feed.text = f"{feed.text}\n{line}"
+                        continue
+                    except Exception:  # deleted, or not ours to edit any more: start a new message
+                        pass
+                try:
+                    feed.message = await channel.send(line, allowed_mentions=quiet)
+                except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
+                    feed.message = None
+                    continue
+                feed.text, feed.started = line, time.monotonic()
 
     # ------------------------------------------------------------ bursts: many of the same thing, one card
     def burst(self, channel: discord.TextChannel, kind: str, obj, actor=None, reason: str | None = None
@@ -899,7 +948,7 @@ class Logging(commands.Cog):
             permission, granted, rank = "None", "-", None
         started = getattr(ctx, "_log_started", None)
         ms = (time.perf_counter() - started) * 1000 if started is not None else None
-        await self.post(channel, fmt.command_used(ctx, permission, granted, rank=rank, ms=ms, error=error))
+        await self.post_line(channel, fmt.command_used(ctx, permission, granted, rank=rank, ms=ms, error=error))
 
     @commands.Cog.listener()
     async def on_command_completion(self, ctx: Context):
@@ -950,7 +999,7 @@ class Logging(commands.Cog):
             return
         channel = await self.route(after.guild, "messages", channel_id=after.channel.id, user_id=after.author.id)
         if channel:
-            await self.post(channel, fmt.message_edited(before, after))
+            await self.post_line(channel, fmt.message_edited(before, after))
 
     # ------------------------------------------------------------ joins, leaves, bans
     @commands.Cog.listener()
@@ -1144,13 +1193,13 @@ class Logging(commands.Cog):
     # ------------------------------------------------------------ voice
     @commands.Cog.listener()
     async def on_voice_state_update(self, m: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        embed = fmt.voice_changed(m, before, after)
-        if embed is None:
+        line = fmt.voice_changed(m, before, after)
+        if line is None:
             return
         where = after.channel or before.channel
         channel = await self.route(m.guild, "voice", channel_id=getattr(where, "id", None), user_id=m.id)
         if channel:
-            await self.post(channel, embed)
+            await self.post_line(channel, line)
 
 
 async def setup(bot):

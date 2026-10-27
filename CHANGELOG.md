@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Logs in the style of popular bots (Dyno / Carl-bot + bleed / greed + an audit feed).**
+  - **Big events are cards:** the person's avatar and name on top, one bold sentence with clickable mentions
+    ("@x was banned by @y", "Message sent by @x deleted in #general"), then labelled lines (**Reason:**,
+    **Account:**, **Added:**, **Duration:**...), IDs in the footer.
+  - **Small events are one line each**, like Discord's own audit log: commands ("⌨️ @x ran `,ban @y` in #mod ·
+    84 ms", or "❌ ... · failed: why"), message edits (before → after), voice joins, leaves and moves. Lines that
+    arrive close together share one message, which keeps growing for a minute; log lines never ping anyone.
+
 - **Antinuke hardening.**
   - **Permission levels no longer skip the antinuke.** Before, anyone with the Admin level or higher was fully
     trusted, so a hacked staff account could nuke freely. Only the owner, the whitelist (users or roles) and
