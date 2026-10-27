@@ -17,10 +17,30 @@ from discord.ext import commands
 from core import autoclean
 from core import devchannels
 from core import logembeds as fmt
-from core.utils import Colors, Context, Ignored, OwnedView, UserError, has_perms, input_error_text, respond_or_edit
+from core.utils import (Colors, Context, Ignored, OwnedView, UserError, has_perms, input_error_text, respond_or_edit,
+                        shorten)
 
 OFF = -1  # stored instead of a channel id when a category is switched off on purpose
 CATEGORY_NAME = devchannels.LOGS_CATEGORY
+BURST_WAIT = 2.0  # seconds to gather role/channel creations or deletions before posting them
+BURST_KEEP = 20.0  # a burst's card keeps growing while more of the same arrive within this long
+BURST_MAX = 60  # most items on one grouped card
+BUTTON_MEMORY = 30.0  # seconds a ban-log button click is remembered, so the ban/unban card names the clicker
+
+
+class _Burst:
+    """Creations or deletions of one kind by one person, gathered onto one card."""
+
+    def __init__(self, actor, reason):
+        self.actor, self.reason = actor, reason
+        self.items: list = []
+        self.message: discord.Message | None = None
+        self.last = 0.0
+        self.task: asyncio.Task | None = None
+
+
+_SINGLE = {"role_create": fmt.role_created, "role_delete": fmt.role_deleted,
+           "channel_create": fmt.channel_created, "channel_delete": fmt.channel_deleted}
 
 
 @dataclass(frozen=True)
@@ -199,20 +219,34 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
                 user = discord.Object(id=self.user_id)
         name = getattr(user, "name", str(self.user_id))
 
+        logs = it.client.get_cog("Logging") if hasattr(it.client, "get_cog") else None
+        action = "unban" if self.is_banned else "ban"
+        if logs is not None:  # so the unban/ban card names who clicked, not the bot
+            logs.remember_click(guild.id, self.user_id, action, it.user)
         try:
             if self.is_banned:
-                await guild.unban(user, reason=f"Unbanned via button by {it.user}")
-                verb = "unbanned"
+                await guild.unban(user, reason=f"Unbanned with the ban-log button by {it.user}")
             else:
-                await guild.ban(user, reason=f"Rebanned via button by {it.user}")
-                verb = "rebanned"
+                await guild.ban(user, reason=f"Banned again with the ban-log button by {it.user}")
         except discord.NotFound:
-            return await it.response.send_message(f"Failed — **{name}** is not currently banned.", ephemeral=True)
+            if logs is not None:
+                logs.forget_click(guild.id, self.user_id, action)
+            return await it.response.send_message(f"**{name}** isn't banned any more.", ephemeral=True)
         except discord.HTTPException as err:
-            return await it.response.send_message(f"Failed to {'unban' if self.is_banned else 'reban'}: {err}",
+            if logs is not None:
+                logs.forget_click(guild.id, self.user_id, action)
+            return await it.response.send_message(f"Couldn't {action} **{name}** (Discord said {err.status}).",
                                                   ephemeral=True)
-        await it.response.edit_message(view=self.build(guild.id, self.user_id, not self.is_banned))
-        await it.followup.send(f"{it.user.mention} {verb} **{name}** (`{self.user_id}`).")
+        # the card itself says what happened: no extra message in the channel
+        card = getattr(it, "message", None)
+        embed = card.embeds[0].copy() if card is not None and getattr(card, "embeds", None) else None
+        if embed is not None:
+            done = "unbanned" if self.is_banned else "banned again"
+            note = f"-# {'🔓' if self.is_banned else '🔨'} {done} by {it.user.mention} {discord.utils.format_dt(discord.utils.utcnow(), 'R')}"
+            embed.description = shorten((embed.description or "") + "\n" + note, 4000)
+            await it.response.edit_message(embed=embed, view=self.build(guild.id, self.user_id, not self.is_banned))
+        else:
+            await it.response.edit_message(view=self.build(guild.id, self.user_id, not self.is_banned))
 
 
 # ---------------------------------------------------------------- the ,logs panel
@@ -341,6 +375,8 @@ class Logging(commands.Cog):
         self.bot = bot
         self._role_update_tasks: dict[tuple[int, int], asyncio.Task] = {}
         self._role_update_states: dict[tuple[int, int], tuple[discord.Member, discord.Member]] = {}
+        self._bursts: dict[tuple, _Burst] = {}
+        self._clicks: dict[tuple[int, int, str], tuple[object, float]] = {}
 
     async def cog_load(self):
         self.bot.add_dynamic_items(BanLogButton)
@@ -349,6 +385,9 @@ class Logging(commands.Cog):
         self.bot.remove_dynamic_items(BanLogButton)
         for task in self._role_update_tasks.values():
             task.cancel()
+        for b in self._bursts.values():
+            if b.task is not None:
+                b.task.cancel()
 
     # ------------------------------------------------------------ config and routing
     async def config(self, guild: discord.Guild) -> dict:
@@ -377,18 +416,75 @@ class Logging(commands.Cog):
                 return channel
         return None
 
-    async def post(self, channel: discord.TextChannel, embed: discord.Embed, *, file: discord.File | None = None,
-                   view: discord.ui.View | None = None) -> bool:
+    async def _send(self, channel: discord.TextChannel, embed: discord.Embed, *, file: discord.File | None = None,
+                    view: discord.ui.View | None = None) -> discord.Message | None:
         kwargs = {"embed": embed}
         if file:
             kwargs["file"] = file
         if view:
             kwargs["view"] = view
         try:
-            await channel.send(**kwargs)
-            return True
+            return await channel.send(**kwargs) or True
         except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
-            return False
+            return None
+
+    async def post(self, channel: discord.TextChannel, embed: discord.Embed, *, file: discord.File | None = None,
+                   view: discord.ui.View | None = None) -> bool:
+        return await self._send(channel, embed, file=file, view=view) is not None
+
+    # ------------------------------------------------------------ bursts: many of the same thing, one card
+    def burst(self, channel: discord.TextChannel, kind: str, obj, actor=None, reason: str | None = None
+              ) -> asyncio.Task:
+        """Gather a role/channel creation or deletion. One on its own gets its normal card; several by the same
+        person within a few seconds (a nuke, its clean-up, a test) share one card that grows as they come in."""
+        now = time.monotonic()
+        for key in [k for k, b in self._bursts.items()
+                    if now - b.last > BURST_KEEP and (b.task is None or b.task.done())]:
+            del self._bursts[key]
+        key = (channel.id, kind, getattr(actor, "id", 0))
+        b = self._bursts.get(key)
+        if b is None or now - b.last > BURST_KEEP or len(b.items) >= BURST_MAX:
+            b = self._bursts[key] = _Burst(actor, reason)
+        b.items.append(obj)
+        b.last = now
+        if b.task is None or b.task.done():
+            b.task = asyncio.create_task(self._flush(channel, kind, b))
+        return b.task
+
+    async def _flush(self, channel: discord.TextChannel, kind: str, b: _Burst) -> None:
+        shown = 0
+        while True:
+            await asyncio.sleep(BURST_WAIT)
+            count = len(b.items)
+            if count == shown:
+                return
+            shown = count
+            items = list(b.items)
+            embed = (_SINGLE[kind](items[0], b.actor, b.reason) if count == 1
+                     else fmt.grouped(kind, items, b.actor, b.reason))
+            if b.message is not None and hasattr(b.message, "edit"):
+                try:
+                    await b.message.edit(embed=embed)
+                    continue
+                except discord.HTTPException:
+                    pass  # deleted or not ours any more: post a fresh card
+            b.message = await self._send(channel, embed)
+            if b.message is None:
+                return
+
+    # ------------------------------------------------------------ ban-log button clicks
+    def remember_click(self, guild_id: int, user_id: int, action: str, clicker) -> None:
+        self._clicks[(guild_id, user_id, action)] = (clicker, time.monotonic())
+
+    def forget_click(self, guild_id: int, user_id: int, action: str) -> None:
+        self._clicks.pop((guild_id, user_id, action), None)
+
+    def take_click(self, guild_id: int, user_id: int, action: str):
+        """Who pressed the ban-log button for this ban/unban just now, if anyone."""
+        found = self._clicks.pop((guild_id, user_id, action), None)
+        if found and time.monotonic() - found[1] <= BUTTON_MEMORY:
+            return found[0]
+        return None
 
     async def send(self, guild, kind: str, embed: discord.Embed, file: discord.File | None = None,
                    view: discord.ui.View | None = None) -> bool:
@@ -680,8 +776,8 @@ class Logging(commands.Cog):
             if channel is None:
                 unset.append(kind.label)
                 continue
-            embed = fmt.card(Colors.blurple, ctx.author, f"**Test** · {kind.emoji} {kind.label} logs are working",
-                             ids=[("User ID", ctx.author.id)])
+            embed = fmt.card(Colors.blurple, ctx.author, f"{kind.emoji} {kind.label} logs land here · sent by {ctx.author.mention}",
+                             ids=[("User ID", ctx.author.id)], header=f"Log test · {kind.label}")
             (ok if await self.post(channel, embed) else failed).append(f"{kind.label} → {channel.mention}")
         lines = []
         if ok:
@@ -871,7 +967,11 @@ class Logging(commands.Cog):
         if not channel:
             return
         mod, reason = await fmt.audit_actor(guild, discord.AuditLogAction.ban, user.id)
-        await self.post(channel, fmt.user_banned(user, mod, reason), view=BanLogButton.build(guild.id, user.id, True))
+        clicker = self.take_click(guild.id, user.id, "ban")
+        if clicker is not None:
+            mod, reason = clicker, None
+        await self.post(channel, fmt.user_banned(user, mod, reason, clicked=clicker is not None),
+                        view=BanLogButton.build(guild.id, user.id, True))
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
@@ -879,7 +979,11 @@ class Logging(commands.Cog):
         if not channel:
             return
         mod, reason = await fmt.audit_actor(guild, discord.AuditLogAction.unban, user.id)
-        await self.post(channel, fmt.user_unbanned(user, mod, reason), view=BanLogButton.build(guild.id, user.id, False))
+        clicker = self.take_click(guild.id, user.id, "unban")
+        if clicker is not None:
+            mod, reason = clicker, None
+        await self.post(channel, fmt.user_unbanned(user, mod, reason, clicked=clicker is not None),
+                        view=BanLogButton.build(guild.id, user.id, False))
 
     # ------------------------------------------------------------ member updates and roles
     async def _build_role_update_embed(self, member: discord.Member, added: list, removed: list) -> discord.Embed:
@@ -941,15 +1045,15 @@ class Logging(commands.Cog):
     async def on_guild_role_create(self, role: discord.Role):
         channel = await self.route(role.guild, "roles")
         if channel:
-            actor, _ = await fmt.audit_actor(role.guild, discord.AuditLogAction.role_create, role.id)
-            await self.post(channel, fmt.role_created(role, actor))
+            actor, reason = await fmt.audit_actor(role.guild, discord.AuditLogAction.role_create, role.id)
+            await self.burst(channel, "role_create", role, actor, reason)
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role):
         channel = await self.route(role.guild, "roles")
         if channel:
-            actor, _ = await fmt.audit_actor(role.guild, discord.AuditLogAction.role_delete, role.id)
-            await self.post(channel, fmt.role_deleted(role, actor))
+            actor, reason = await fmt.audit_actor(role.guild, discord.AuditLogAction.role_delete, role.id)
+            await self.burst(channel, "role_delete", role, actor, reason)
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
@@ -963,15 +1067,15 @@ class Logging(commands.Cog):
     async def on_guild_channel_create(self, c: discord.abc.GuildChannel):
         channel = await self.route(c.guild, "channels")
         if channel:
-            actor, _ = await fmt.audit_actor(c.guild, discord.AuditLogAction.channel_create, c.id)
-            await self.post(channel, fmt.channel_created(c, actor))
+            actor, reason = await fmt.audit_actor(c.guild, discord.AuditLogAction.channel_create, c.id)
+            await self.burst(channel, "channel_create", c, actor, reason)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, c: discord.abc.GuildChannel):
         channel = await self.route(c.guild, "channels")
         if channel:
-            actor, _ = await fmt.audit_actor(c.guild, discord.AuditLogAction.channel_delete, c.id)
-            await self.post(channel, fmt.channel_deleted(c, actor))
+            actor, reason = await fmt.audit_actor(c.guild, discord.AuditLogAction.channel_delete, c.id)
+            await self.burst(channel, "channel_delete", c, actor, reason)
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):

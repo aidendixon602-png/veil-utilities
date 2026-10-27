@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **New, cleaner log cards.** Every log now has the same simple shape: a small header saying what happened
+  and to whom ("Role deleted · testnuke-role-1", "Member joined · basedpolicy") with their avatar, one or two short
+  lines with clickable mentions ("by @Veil Utilities", "@web3_w2z · in #admin-chat"), the reason or message text
+  quoted, small grey details, and IDs only in the footer. No more grids of fields, thumbnails or IDs in code
+  boxes. When the audit log doesn't say who did something, the card simply doesn't name anyone. Mod-log cases use
+  the same shape.
+- **Bursts share one card.** Roles or channels created or deleted by the same person within a few seconds (a
+  nuke, the antinuke cleaning one up, `,testnuke`) are listed on one card ("6 roles deleted") that grows as more
+  come in, instead of one card each.
+- **Ban-log buttons stay quiet.** Unban / Reban no longer posts a separate message: the card notes who clicked
+  and when, and the unban/ban card that follows names the person who clicked instead of the bot.
+
 - **Clearer antinuke alerts, and test alerts reach the developers.** The card now says in one line who went over
   which limit ("@user went over the **Mass Ban** limit (3 in 60s)."), then the punishment, then a **Put back**
   list grouped by kind ("deleted 6 roles they made: @testnuke-role-1, … +1 more", "unbanned 3 people they banned:
