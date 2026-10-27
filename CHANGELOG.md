@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The antinuke respects the role blacklist.** When it undoes mass role changes, it doesn't give a
+  blacklisted role back to anyone who isn't authorized to hold it (the bot giving a role counts as authorized,
+  so that would have quietly authorized them); roles handed out by the attacker, blacklisted ones included, are
+  still taken back. When it rebuilds a deleted role, the new role keeps the old one's place in the role
+  blacklist, permission levels, fake permissions and antinuke whitelist (Discord gives it a new ID).
+
 - **Stronger antinuke (ideas from Wick, Bleed and Security).**
   - **Fixed:** giving a member a role with dangerous permissions wasn't watched at all; it's now caught as a
     Permission Grant and the role is taken back, even when Discord sends the member or role as a bare ID.
