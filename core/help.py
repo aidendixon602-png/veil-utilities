@@ -52,6 +52,7 @@ CATEGORY_ALIASES = {"moderation": "moderator", "moderators": "moderator", "mods"
                     "admins": "admin", "administration": "admin", "administrator": "admin"}
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
+PER_PAGE = 10  # commands on one page of a category; longer categories get ◀ ▶ buttons
 HELP_COLOR = Colors.neutral  # greed / bleed: quiet grey cards, the content does the talking
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
@@ -409,6 +410,17 @@ class CategorySelect(discord.ui.Select["HelpView"]):
 HOME = "__home__"
 
 
+class PageButton(discord.ui.Button["HelpView"]):
+    """◀ / ▶ under a category that has more than one page."""
+
+    def __init__(self, label: str, step: int, disabled: bool):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, disabled=disabled, row=1)
+        self.step = step
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.turn(it, self.step)
+
+
 class HelpView(OwnedView):
     """Home card and one card per category, switched with a dropdown. Every card is built when the menu opens, so a
     pick only swaps the embed: one quick edit."""
@@ -420,12 +432,15 @@ class HelpView(OwnedView):
         self.is_owner = is_owner
         self.author_rank = author_rank
         self.message: discord.Message | None = None
-        self.pages: dict[str, discord.Embed] = {}
+        self.pages: dict[str, discord.Embed] = {}  # each category's first page
+        self.books: dict[str, list[discord.Embed]] = {}  # every page of each category
         self.sizes: dict[str, int] = {}
+        self.page = 0
         for label in self.labels():
             cmds = page_order(label, self.commands_in(label))
             self.sizes[label] = len(cmds)
-            self.pages[label] = help_cmd.category_embed(label, cmds)
+            self.books[label] = help_cmd.category_pages(label, cmds)
+            self.pages[label] = self.books[label][0]
         self.home = help_cmd.home_embed(author_rank, categories, is_owner, total=sum(self.sizes.values()),
                                         sections=len(self.pages))
         self.current = start if start in self.pages else None
@@ -445,21 +460,32 @@ class HelpView(OwnedView):
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank)
 
     def embed(self) -> discord.Embed:
-        return self.home if self.current is None else self.pages[self.current]
+        return self.home if self.current is None else self.books[self.current][self.page]
 
     def _build_items(self):
         self.clear_items()
         self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
+        total = len(self.books.get(self.current, [])) if self.current else 0
+        if total > 1:
+            self.add_item(PageButton("◀", -1, disabled=self.page == 0))
+            self.add_item(discord.ui.Button(label=f"{self.page + 1}/{total}", disabled=True, row=1))
+            self.add_item(PageButton("▶", 1, disabled=self.page >= total - 1))
+
+    async def turn(self, it: discord.Interaction, step: int):
+        total = len(self.books.get(self.current, [])) if self.current else 0
+        self.page = max(0, min(self.page + step, total - 1))
+        self._build_items()
+        await respond_or_edit(it, self.embed(), self)
 
     async def show_category(self, it: discord.Interaction, label: str):
         if label not in self.pages:  # not theirs to open (a stale menu, or a rank that changed)
             return await it.response.send_message("🔒 You can't open that category.", ephemeral=True)
-        self.current = label
+        self.current, self.page = label, 0
         self._build_items()
         await respond_or_edit(it, self.embed(), self)
 
     async def show_home(self, it: discord.Interaction):
-        self.current = None
+        self.current, self.page = None, 0
         self._build_items()
         await respond_or_edit(it, self.home, self)
 
@@ -500,16 +526,30 @@ class Help(commands.HelpCommand):
             e.set_thumbnail(url=bot.user.display_avatar.url)
         return e
 
-    def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
-        """A category: every command name in one code block (groups marked with *), like greed / bleed."""
+    def command_line(self, cmd: commands.Command) -> str:
+        """One command on a category page: its name, what it does, and how many subcommands it has."""
         p = self.context.clean_prefix
-        names = [f"{c.name}*" if isinstance(c, commands.Group) else c.name for c in cmds]
-        body = shorten_md(", ".join(names), 3900) if names else "no commands in this category"
-        e = self._brand(discord.Embed(color=HELP_COLOR, title=label, description=f"```\n{body}\n```"))
-        groups = any(isinstance(c, commands.Group) for c in cmds)
-        e.set_footer(text=f"{count(len(cmds), 'command')}" + (" · * has subcommands" if groups else "")
-                     + f" · {p}help <command> for more")
-        return e
+        subs = sub_count(cmd)
+        more = f" · *{count(subs, 'subcommand')}*" if subs else ""
+        return f"`{p}{cmd.name}` · {blurb(cmd, 60)}{more}"
+
+    def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
+        """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
+        p = self.context.clean_prefix
+        chunks = [cmds[i:i + PER_PAGE] for i in range(0, len(cmds), PER_PAGE)] or [[]]
+        pages = []
+        for n, chunk in enumerate(chunks, 1):
+            body = "\n".join(self.command_line(c) for c in chunk) or "no commands in this category"
+            e = self._brand(discord.Embed(color=HELP_COLOR, title=label, description=shorten_md(body, 4000)))
+            where = f"page {n}/{len(chunks)} · " if len(chunks) > 1 else ""
+            e.set_footer(text=f"{where}{count(len(cmds), 'command')} · {p}help <command> for details")
+            pages.append(e)
+        return pages
+
+    def category_embed(self, label: str, cmds: list[commands.Command], page: int = 0) -> discord.Embed:
+        """One page of a category."""
+        pages = self.category_pages(label, cmds)
+        return pages[max(0, min(page, len(pages) - 1))]
 
     def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None) -> discord.Embed:
         """A command card, greed / bleed style: what it does, Aliases / Parameters / Information side by side,
