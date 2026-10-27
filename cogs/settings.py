@@ -7,12 +7,66 @@ import discord
 from discord.ext import commands
 
 from core import autoclean as autoclean_mod
-from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, chunk_embeds, has_perms, is_server_owner
+from core.utils import (DANGEROUS_PERMS, Colors, Context, OwnedView, UserError, chunk_embeds, has_perms,
+                        human_join, is_server_owner)
 
 VALID_PERMS = sorted(p for p, _ in discord.Permissions.all())
 # fake perms that would be a problem on @everyone (moderation powers for every member)
 EVERYONE_BLOCKED = {*DANGEROUS_PERMS, "moderate_members", "manage_messages", "manage_nicknames", "move_members",
                     "mute_members", "deafen_members", "manage_threads", "manage_events"}
+
+
+# the permissions offered in the `,fp add @role` picker (Discord allows 25 options): the ones bot commands check
+PICKER_PERMS = ["ban_members", "kick_members", "moderate_members", "manage_messages", "manage_nicknames",
+                "manage_roles", "manage_channels", "manage_guild", "manage_webhooks", "manage_expressions",
+                "manage_events", "manage_threads", "mention_everyone", "view_audit_log", "move_members",
+                "mute_members", "deafen_members", "administrator"]
+
+
+def perm_label(perm: str) -> str:
+    return perm.replace("_", " ")
+
+
+def parse_perms(text: str) -> tuple[list[str], list[str]]:
+    """`ban members, kick_members manage roles` -> (["ban_members", "kick_members", "manage_roles"], unknown words).
+    Commas, spaces and underscores all work; the longest known permission name wins at each step."""
+    words = [w for w in re.split(r"[\s,]+", text.strip().lower()) if w]
+    found, unknown, i = [], [], 0
+    while i < len(words):
+        for size in (4, 3, 2, 1):
+            joined = "_".join(words[i:i + size]).replace("-", "_")
+            if joined in VALID_PERMS:
+                if joined not in found:
+                    found.append(joined)
+                i += size
+                break
+        else:
+            unknown.append(words[i])
+            i += 1
+    return found, unknown
+
+
+class FakePermPicker(OwnedView):
+    """`,fp add @role` with no permissions: pick them from a list."""
+
+    def __init__(self, cog: "Settings", ctx: Context, role: discord.Role):
+        super().__init__(ctx.author.id, timeout=120, allow_developers=False)
+        self.cog, self.ctx, self.role = cog, ctx, role
+        options = [discord.SelectOption(label=perm_label(p), value=p) for p in PICKER_PERMS]
+        select = discord.ui.Select(placeholder="Choose permissions to give…", options=options,
+                                   min_values=1, max_values=len(options))
+        select.callback = self.picked
+        self.add_item(select)
+
+    async def picked(self, it: discord.Interaction):
+        perms = list(self.children[0].values)
+        try:
+            text = await self.cog.grant(self.ctx.guild, self.role, perms)
+        except UserError as e:
+            return await it.response.send_message(f"⚠️ {e}", ephemeral=True)
+        self.stop()
+        await it.response.edit_message(embed=discord.Embed(color=Colors.approve,
+                                                           description=self.ctx._line("✅", text)), view=None)
 
 
 class Settings(commands.Cog):
@@ -255,53 +309,84 @@ class Settings(commands.Cog):
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
         await ctx.approve(f"mod logs will go to {channel.mention}" if channel else "turned off mod logs")
 
-    # ---------------------------------------------------------- fake permissions
-    @commands.group(aliases=["fp", "fakeperms"], invoke_without_command=True)
-    @is_server_owner()
-    async def fakepermissions(self, ctx: Context):
-        """Give roles permissions that only work through the bot — no dangerous Discord perms needed"""
-        await ctx.send_help(ctx.command)
-
-    @fakepermissions.command(name="grant", aliases=["add"])
-    @is_server_owner()
-    async def fp_grant(self, ctx: Context, role: discord.Role, *, permissions: str):
-        """Grant fake permissions, e.g. `fp grant @Mods ban_members, kick_members`"""
-        perms = [p.strip().lower().replace(" ", "_") for p in permissions.split(",")]
-        bad = [p for p in perms if p not in VALID_PERMS]
-        if bad:
-            raise UserError(f"Invalid permission(s): {', '.join(bad)}")
+    # ---------------------------------------------------------- fake permissions (greed / bleed style)
+    async def grant(self, guild: discord.Guild, role: discord.Role, perms: list[str]) -> str:
+        """Give a role fake permissions; returns the success line. Shared by `fp add` and its picker."""
         dangerous = [p for p in perms if p in EVERYONE_BLOCKED]
         if role.is_default() and dangerous:
-            raise UserError(f"You can't give @everyone {', '.join(f'`{p}`' for p in dangerous)} — that would let "
-                            "every member use those commands. Make a staff role instead")
-        fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
+            raise UserError(f"You can't give @everyone {', '.join(f'`{perm_label(p)}`' for p in dangerous)}: that "
+                            "would let every member use those commands. Make a staff role instead")
+        fp = await self.bot.db.get_config(guild.id, "fakeperms")
         lst = fp.setdefault(str(role.id), [])
         lst.extend(p for p in perms if p not in lst)
-        await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
+        await self.bot.db.set_config(guild.id, "fakeperms", fp)
         note = ("\n-# ⚠️ `administrator` lets this role use every bot command, including antinuke-sensitive ones"
                 if "administrator" in perms else "")
-        await ctx.approve(f"gave {role.mention} fake {', '.join(f'`{p}`' for p in perms)}{note}")
+        return (f"gave {role.mention} {human_join([f'`{perm_label(p)}`' for p in perms])} "
+                f"through the bot{note}")
 
-    @fakepermissions.command(name="revoke", aliases=["remove"])
+    @commands.group(aliases=["fp", "fakeperms", "fakeperm"], invoke_without_command=True)
     @is_server_owner()
-    async def fp_revoke(self, ctx: Context, role: discord.Role, *, permissions: str = "all"):
-        """Revoke fake permissions from a role (`all` to clear)"""
-        fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
-        if permissions == "all":
-            fp.pop(str(role.id), None)
-        else:
-            perms = {p.strip().lower().replace(" ", "_") for p in permissions.split(",")}
-            fp[str(role.id)] = [p for p in fp.get(str(role.id), []) if p not in perms]
-        await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
-        await ctx.approve(f"updated the fake permissions on {role.mention}")
+    async def fakepermissions(self, ctx: Context):
+        """Give roles permissions that only work through the bot, with no dangerous Discord permissions needed"""
+        await ctx.send_help(ctx.command)
 
-    @fakepermissions.command(name="list")
+    @fakepermissions.command(name="add", aliases=["grant", "give"], usage="<role> [permissions]")
+    @is_server_owner()
+    async def fp_add(self, ctx: Context, role: discord.Role, *, permissions: str = None):
+        """Give a role permissions for the bot: `fp add @Mods ban members, kick members` (leave them out to pick)"""
+        if not permissions:
+            view = FakePermPicker(self, ctx, role)
+            return await ctx.neutral(f"pick the permissions to give {role.mention} through the bot", view=view)
+        perms, unknown = parse_perms(permissions)
+        if unknown:
+            raise UserError(f"`{' '.join(unknown)}` isn't a permission. Try names like `ban members` or `manage roles`")
+        if not perms:
+            raise UserError("Name at least one permission, like `ban members`")
+        await ctx.approve(await self.grant(ctx.guild, role, perms))
+
+    @fakepermissions.command(name="remove", aliases=["revoke", "take", "rm"], usage="<role> [permissions|all]")
+    @is_server_owner()
+    async def fp_remove(self, ctx: Context, role: discord.Role, *, permissions: str = "all"):
+        """Take fake permissions back from a role (`all`, or leave them out, to clear it)"""
+        fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
+        had = fp.get(str(role.id), [])
+        if not had:
+            raise UserError(f"{role.mention} has no fake permissions")
+        if permissions.strip().lower() == "all":
+            fp.pop(str(role.id), None)
+            await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
+            return await ctx.approve(f"removed every fake permission from {role.mention}")
+        perms, unknown = parse_perms(permissions)
+        if unknown:
+            raise UserError(f"`{' '.join(unknown)}` isn't a permission")
+        left = [p for p in had if p not in perms]
+        if left:
+            fp[str(role.id)] = left
+        else:
+            fp.pop(str(role.id), None)
+        await self.bot.db.set_config(ctx.guild.id, "fakeperms", fp)
+        await ctx.approve(f"took {human_join([f'`{perm_label(p)}`' for p in perms])} from {role.mention}")
+
+    @fakepermissions.command(name="list", aliases=["show", "view"])
     @commands.guild_only()
     async def fp_list(self, ctx: Context):
-        """List fake permissions"""
+        """See which roles have fake permissions"""
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
-        lines = [f"<@&{r}>: {', '.join(f'`{p}`' for p in ps)}" for r, ps in fp.items() if ps]
-        await ctx.paginate(chunk_embeds("Fake permissions", lines))
+        lines = [f"<@&{r}>: {', '.join(f'`{perm_label(p)}`' for p in ps)}" for r, ps in fp.items() if ps]
+        if not lines:
+            return await ctx.warn(f"no roles have fake permissions yet, give some with `{ctx.clean_prefix}fp add`")
+        await ctx.paginate(chunk_embeds("Fake permissions", lines, numbered=False))
+
+    @fakepermissions.command(name="reset", aliases=["clear"])
+    @is_server_owner()
+    async def fp_reset(self, ctx: Context):
+        """Remove every fake permission in the server"""
+        fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
+        if not any(fp.values()):
+            return await ctx.warn("no roles have fake permissions")
+        await self.bot.db.set_config(ctx.guild.id, "fakeperms", {})
+        await ctx.approve(f"removed the fake permissions from **{sum(1 for v in fp.values() if v)}** role(s)")
 
 
 async def setup(bot):

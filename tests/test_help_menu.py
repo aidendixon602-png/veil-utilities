@@ -1,5 +1,5 @@
-"""The ,help menu: a plain home card with a button per category; each category is one page of commands with their
-arguments and descriptions, the aliases, and a Back button."""
+"""The ,help menu, greed / bleed style: a home card and one card per category, picked from a dropdown; each category
+lists its commands in one code block; command cards have Aliases / Parameters / Information and a Usage block."""
 from __future__ import annotations
 
 import asyncio
@@ -15,8 +15,8 @@ from discord.ext import commands, tasks
 from core.bot import EXTENSIONS, Veil
 from core.help import (
     CATEGORIES,
-    BackButton,
-    CategoryButton,
+    HOME,
+    CategorySelect,
     Help,
     HelpView,
     alias_hint,
@@ -41,12 +41,20 @@ def _cmd(name: str, doc: str = "Does a thing", aliases=(), sig: str = ""):
                            clean_params={})
 
 
-def _buttons(view: HelpView) -> list[CategoryButton]:
-    return [c for c in view.children if isinstance(c, CategoryButton)]
+def _select(view: HelpView) -> CategorySelect:
+    return next(c for c in view.children if isinstance(c, CategorySelect))
 
 
 def _labels(view: HelpView) -> list[str]:
-    return [b.label for b in _buttons(view)]
+    return [o.label for o in _select(view).options if o.value != HOME]
+
+
+def _pick(view: HelpView, value: str):
+    it = _it()
+    select = _select(view)
+    select._values = [value]  # what Discord fills in when someone picks an option
+    asyncio.run(select.callback(it))
+    return it
 
 
 def _it():
@@ -57,9 +65,9 @@ def _it():
 ALL = {label: [] for label, _, _ in CATEGORIES}
 
 
-# ------------------------------------------------------------------ the home card and its buttons
+# ------------------------------------------------------------------ the dropdown
 
-def test_buttons_only_list_categories_the_person_may_open():
+def test_the_dropdown_only_lists_categories_the_person_may_open():
     public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
     # each level up opens one more staff category
@@ -83,99 +91,48 @@ def test_inside_a_category_commands_above_your_level_are_hidden():
     assert (min_rank_for_command(purge), min_rank_for_command(kick), min_rank_for_command(admin_only)) == (1, 2, 7)
 
 
-def test_buttons_are_plain_grey_text_in_rows_of_five():
-    view = HelpView(_help(), ALL, author_rank=99, is_owner=True)
-    assert _labels(view) == ["Utility", "Music", "Moderation", "Roles", "Permissions",
-                             "Antinuke", "Automod", "Server", "VoiceMaster", "Community",
-                             "Fun", "Images", "Developer"]
-    assert all(b.emoji is None and b.style == discord.ButtonStyle.secondary for b in _buttons(view))
-    assert [b.row for b in _buttons(view)] == [0] * 5 + [1] * 5 + [2] * 3
+def test_the_dropdown_starts_with_home_then_every_category_in_order():
+    view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": [_cmd("play")]}, is_owner=True)
+    select = _select(view)
+    assert [type(c) for c in view.children] == [CategorySelect]  # one dropdown, nothing else
+    assert [o.label for o in select.options] == ["Home", "Utility", "Music", "Developer"]
+    assert [o.description for o in select.options][1:3] == ["2 commands", "1 command"]
+    assert select.options[0].default and select.placeholder == "Choose a category…"
 
 
-def test_home_card_matches_the_reference_layout():
+def test_the_home_card():
     bot = SimpleNamespace(user=SimpleNamespace(name="Veil Utilities", display_avatar=SimpleNamespace(url="https://x/a.png")),
                           is_owner=AsyncMock(return_value=False))
     h = _help()
     h.context.bot = bot
-    card = h.home_embed(0, {"Utility": [_cmd("a")]})
-    assert card.description == "select a category below to view its commands."
-    assert card.author.name == "Veil Utilities" and card.author.icon_url == "https://x/a.png"
-    assert [f.name for f in card.fields] == ["prefix: ,"]
-    assert card.colour is None and card.title is None and card.footer.text is None
+    view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
+    card = view.home
+    assert card.author.name == "Veil Utilities" and card.thumbnail.url == "https://x/a.png"
+    assert card.description.startswith("**information**\n> **3** commands you can use in **2** categories")
+    assert "> prefix: `,`" in card.description and "`,help <command>`" in card.description
+    assert card.description.endswith("choose a category from the menu below.")
 
 
-def test_home_card_copes_with_a_bot_that_has_no_user_yet():
+def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.description.startswith("select a category below") and card.author.name is None
+    assert card.description.startswith("**information**") and card.author.name is None
 
 
-# ------------------------------------------------------------------ opening a category and going back
+# ------------------------------------------------------------------ picking categories
 
-def test_a_category_page_has_only_a_back_button():
-    view = HelpView(_help(), {"Utility": [_cmd("ping")]}, start="Utility")
-    assert [type(c) for c in view.children] == [BackButton]
-    assert view.children[0].label == "← Back"
-
-
-def test_clicking_a_category_then_back_swaps_the_page_in_place():
-    async def go():
-        view = HelpView(_help(), {"Utility": [_cmd("ping", "Check latency")], "Music": []})
-        it = _it()
-        await _buttons(view)[0].callback(it)
-        page = it.response.edit_message.call_args.kwargs
-        back = _it()
-        await view.children[0].callback(back)
-        return view, page, back.response.edit_message.call_args.kwargs
-
-    view, page, home = asyncio.run(go())
-    assert "`,ping` - check latency." in page["embed"].description and page["view"] is view
-    assert view.current is None and home["embed"].description.startswith("select a category")
-    assert _labels(view) == ["Utility", "Music"]
+def test_picking_a_category_then_home_swaps_the_card_in_place():
+    view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": []})
+    page = _pick(view, "Utility").response.edit_message.call_args.kwargs
+    assert page["embed"].title == "Utility" and page["view"] is view and view.current == "Utility"
+    assert _select(view).options[1].default  # the dropdown shows where you are
+    home = _pick(view, HOME).response.edit_message.call_args.kwargs
+    assert view.current is None and home["embed"].description.startswith("**information**")
 
 
-def test_pages_are_built_when_the_menu_opens():
+def test_cards_are_built_when_the_menu_opens():
     view = HelpView(_help(), {"Utility": [_cmd("ping")], "Music": [_cmd("play")]})
     assert set(view.pages) == {"Utility", "Music"}
-    assert "`,play`" in view.pages["Music"][0].description
-
-
-def _many(n, **kw):
-    return [_cmd(f"c{i:02}", f"Command {i}", aliases=[f"a{i:02}"]) for i in range(n)]
-
-
-def test_long_categories_are_split_into_pages_of_eight_with_arrows():
-    view = HelpView(_help(), {"Utility": _many(20)}, start="Utility")
-    assert len(view.pages["Utility"]) == 3
-    kinds = [type(c).__name__ for c in view.children]
-    assert kinds == ["PageButton", "PageCounter", "PageButton", "BackButton"]
-    prev, counter, nxt, back = view.children
-    assert counter.label == "1/3" and prev.disabled and not nxt.disabled and back.label == "← Back"
-    first = view.embed().description
-    assert first.count("\n`,") == 7 and "`,c00`" in first and "`,c08`" not in first
-    assert first.endswith("Aliases: c00 → a00 • c01 → a01 • c02 → a02 • c03 → a03 • c04 → a04 • c05 → a05 • "
-                          "c06 → a06 • c07 → a07")  # only this page's aliases
-
-
-def test_the_arrows_move_between_pages_and_stop_at_the_ends():
-    async def go():
-        view = HelpView(_help(), {"Utility": _many(20)}, start="Utility")
-        nxt = view.children[2]
-        await nxt.callback(_it())
-        assert view.page == 1 and "`,c08`" in view.embed().description and view.children[1].label == "2/3"
-        await view.children[2].callback(_it())
-        assert view.page == 2 and view.children[2].disabled and "`,c19`" in view.embed().description
-        await view.turn_page(_it(), 1)
-        assert view.page == 2  # clamped
-        await view.children[0].callback(_it())
-        assert view.page == 1
-        await view.children[3].callback(_it())  # Back
-        assert view.current is None and view.page == 0
-    asyncio.run(go())
-
-
-def test_short_categories_have_only_the_back_button():
-    view = HelpView(_help(), {"Utility": _many(8)}, start="Utility")
-    assert [type(c).__name__ for c in view.children] == ["BackButton"]
+    assert "play" in view.pages["Music"].description
 
 
 def test_the_most_used_commands_come_first():
@@ -224,23 +181,16 @@ def test_menu_message_is_deleted_on_timeout():
     assert view.message.delete.called
 
 
-# ------------------------------------------------------------------ category pages
+# ------------------------------------------------------------------ category cards
 
-def test_a_category_page_lists_usage_and_what_each_command_does_then_the_aliases():
-    @commands.command(aliases=["p"])
-    async def play(ctx, *, query: str):
-        """Play a YouTube URL, search query, or Spotify URL"""
+def test_a_category_lists_every_command_in_one_code_block():
+    @commands.group(aliases=["r"])
+    async def role(ctx):
+        """Role tools"""
 
-    @commands.command(aliases=["q"])
-    async def queue(ctx):
-        """Show the current playback queue"""
-
-    page = _help().category_embed("Music", [play, queue])
-    assert page.title == "Music"
-    assert page.description == ("`,play <query>` - play a YouTube URL, search query, or Spotify URL.\n"
-                                "`,queue` - show the current playback queue.\n\n"
-                                "Aliases: play → p • queue → q")
-    assert [f.name for f in page.fields] == ["prefix: ,"] and page.colour is None
+    page = _help().category_embed("Roles", [_cmd("autorole"), role, _cmd("vanity")])
+    assert page.title == "Roles" and page.description == "```\nautorole, role*, vanity\n```"
+    assert page.footer.text == "3 commands · * has subcommands · ,help <command> for more"
 
 
 def test_arguments_read_like_the_reference():
@@ -265,10 +215,6 @@ def test_arguments_read_like_the_reference():
 ])
 def test_descriptions_are_the_first_sentence_without_examples(doc, expected):
     assert sentence(description(_cmd("x", doc))) == expected
-
-
-def test_commands_without_aliases_leave_the_aliases_line_out():
-    assert "Aliases" not in _help().category_embed("Utility", [_cmd("ping")]).description
 
 
 def test_empty_category_says_so():
@@ -322,7 +268,7 @@ def test_a_commands_own_example_wins():
 
 # ------------------------------------------------------------------ command cards
 
-def test_command_card_has_usage_aliases_permissions_and_module():
+def test_command_card_has_aliases_parameters_information_and_usage():
     from cogs.moderation import Moderation
 
     bot = Veil()
@@ -332,14 +278,16 @@ def test_command_card_has_usage_aliases_permissions_and_module():
     h.context = SimpleNamespace(clean_prefix=",", bot=bot, author=SimpleNamespace(id=1), guild=None)
     card = h.command_embed(cog.ban)
     fields = {f.name: f.value for f in card.fields}
-    assert card.title == "ban"
-    assert fields["Usage"].startswith("```\nSyntax: ,ban ")
-    assert "Example: ,ban @user" in fields["Usage"]
-    assert "Admin+" in fields["Permissions"]
-    assert card.footer.text.startswith("Module: Moderation")
+    assert card.title == "Command: ban"
+    assert [f.name for f in card.fields] == ["Aliases", "Parameters", "Information", "Usage"]
+    assert [f.inline for f in card.fields] == [True, True, True, False]
+    assert fields["Parameters"] == "user, reason"
+    assert fields["Information"].startswith("⚠️ Admin+")
+    assert fields["Usage"].startswith("```\nSyntax: ,ban ") and "Example: ,ban @user" in fields["Usage"]
+    assert card.footer.text.startswith("Module: moderation")
 
 
-def test_public_commands_say_everyone_can_use_them():
+def test_public_commands_say_n_a():
     @commands.command(aliases=["pong"])
     async def ping(ctx):
         """Check latency"""
@@ -347,9 +295,8 @@ def test_public_commands_say_everyone_can_use_them():
     ping.cog = None
     card = _help().command_embed(ping)
     fields = {f.name: f.value for f in card.fields}
-    assert fields["Permissions"] == "Everyone"
-    assert fields["Aliases"] == "`pong`"
-    assert fields["Usage"] == "```\nSyntax: ,ping\n```"
+    assert fields == {"Aliases": "pong", "Parameters": "n/a", "Information": "n/a",
+                      "Usage": "```\nSyntax: ,ping\n```"}
     assert card.description == "Check latency"
 
 
@@ -428,12 +375,11 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     categories = category_commands(loaded_bot)
     view = HelpView(h, categories, is_owner=True)
-    _fits(h.home_embed(99, categories, True))
-    assert len(_buttons(view)) <= 25
-    for label, pages in view.pages.items():
-        for page in pages:
-            _fits(page)
-            assert page.description.count("\n`,") <= 7, label  # 8 commands a page at most
+    _fits(view.home)
+    assert len(_select(view).options) <= 25
+    for label, page in view.pages.items():
+        _fits(page)
+        assert page.description.startswith("```") and page.description.endswith("```"), label
 
 
 def test_the_developer_category_lists_the_owner_tools(loaded_bot):
@@ -443,8 +389,8 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, {}, is_owner=True)
-    assert "gitpull" in view.pages["Developer"][0].description  # pinned to the first page
-    assert view.pages["Developer"][0].title == "Developer"
+    assert "gitpull" in view.pages["Developer"].description
+    assert view.pages["Developer"].title == "Developer"
 
 
 def test_dev_and_secret_open_the_developer_category(loaded_bot):
@@ -474,12 +420,12 @@ def test_every_command_card_fits_discords_limits(loaded_bot):
     assert cards > 100
 
 
-def test_every_group_card_lists_its_subcommands_within_limits(loaded_bot):
+def test_every_group_pages_through_its_subcommands_within_limits(loaded_bot):
     h = Help()
     sent = []
     ctx = MagicMock()
     ctx.clean_prefix, ctx.bot, ctx.author, ctx.guild = ",", loaded_bot, SimpleNamespace(id=1), None
-    ctx.send = AsyncMock(side_effect=lambda **kw: sent.append(kw["embed"]))
+    ctx.send = AsyncMock(side_effect=lambda **kw: sent.append(kw) or MagicMock())
     h.context = ctx
     h.is_owner_check = AsyncMock(return_value=True)
     groups = [c for c in loaded_bot.walk_commands() if isinstance(c, commands.Group)]
@@ -490,8 +436,13 @@ def test_every_group_card_lists_its_subcommands_within_limits(loaded_bot):
 
     asyncio.run(go())
     assert len(sent) == len(groups) > 10
-    for embed in sent:
-        _fits(embed)
+    for kw in sent:
+        _fits(kw["embed"])
+        pages = kw["view"].embeds if kw.get("view") is not None else [kw["embed"]]
+        for page in pages:
+            _fits(page)
+        if len(pages) > 1:
+            assert pages[0].footer.text.startswith(f"Page 1/{len(pages)} · Module: ")
 
 
 # ------------------------------------------------------------------ details found while reading real cards
@@ -505,8 +456,8 @@ def test_subcommands_are_filed_under_their_group(loaded_bot):
 def test_rank_is_not_repeated_as_a_permission(loaded_bot):
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
-    perms = next(f.value for f in h.command_embed(loaded_bot.get_command("ban")).fields if f.name == "Permissions")
-    assert perms.startswith("Admin+") and "Uperm" not in perms
+    perms = next(f.value for f in h.command_embed(loaded_bot.get_command("ban")).fields if f.name == "Information")
+    assert perms.startswith("⚠️ Admin+") and "Uperm" not in perms
 
 
 def test_placeholder_argument_names_never_become_fake_examples(loaded_bot):
@@ -515,15 +466,16 @@ def test_placeholder_argument_names_never_become_fake_examples(loaded_bot):
         assert "arg1" not in example_for(cmd, ","), cmd.qualified_name
 
 
-def test_group_card_has_no_trailing_blank_line(loaded_bot):
+def test_a_group_pages_through_its_subcommands(loaded_bot):
     h = Help()
     sent = []
     h.context = MagicMock(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
-    h.context.send = AsyncMock(side_effect=lambda **kw: sent.append(kw["embed"]))
+    h.context.send = AsyncMock(side_effect=lambda **kw: sent.append(kw) or MagicMock())
     h.is_owner_check = AsyncMock(return_value=True)
     asyncio.run(h.send_group_help(loaded_bot.get_command("role")))
-    subs = next(f.value for f in sent[0].fields if f.name == "Subcommands")
-    assert subs == subs.rstrip() and "**add**" in subs and "**remove**" in subs
+    pages = sent[0]["view"].embeds
+    assert pages[0].title == "Group: role" and any(p.title == "Command: role add" for p in pages)
+    assert [c.emoji.name for c in sent[0]["view"].children] == ["◀", "▶", "✖"]
 
 
 @pytest.mark.parametrize("doc,expected", [
@@ -537,3 +489,12 @@ def test_group_card_has_no_trailing_blank_line(loaded_bot):
 ])
 def test_list_blurbs_are_the_first_clause_without_asides(doc, expected):
     assert blurb(_cmd("x", doc)) == expected
+
+
+def test_parameters_come_from_a_commands_own_usage_line():
+    @commands.command(usage="<member> <role>")
+    async def role(ctx, *, text: str):
+        """Give or take a role"""
+
+    fields = {f.name: f.value for f in _help().command_embed(role).fields}
+    assert fields["Parameters"] == "member, role"

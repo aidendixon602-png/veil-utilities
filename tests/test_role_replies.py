@@ -210,8 +210,8 @@ def test_r_end_to_end_with_real_context(bot):
         ctx = real_ctx(bot, guild, author, Moderation.role)
         await Moderation.role.callback(cog, ctx, "50", arg2="60")
         embed = sent_embed(ctx)
-        assert embed.description == "added <@&60> to <@50>"
-        assert embed.colour.value == Colors.success
+        assert embed.description == "✅ <@11111>: added <@&60> to <@50>"
+        assert embed.colour.value == Colors.approve
         assert embed.author.name is None and embed.footer.text is None
     asyncio.run(go())
 
@@ -222,8 +222,8 @@ def test_failure_end_to_end_with_real_context(bot):
         ctx = real_ctx(bot, guild, _mock_member(77), Moderation.role)
         await bot.on_command_error(ctx, MissingRank("Admin"))
         embed = sent_embed(ctx)
-        assert embed.description == "failed: you need the **Admin** rank or higher (`uperm`)"
-        assert embed.colour.value == Colors.error
+        assert embed.description == "❌ <@77>: you need the **Admin** rank or higher (`uperm`)"
+        assert embed.colour.value == Colors.deny
     asyncio.run(go())
 
 
@@ -239,7 +239,7 @@ def test_giving_a_blacklisted_role_says_the_member_was_authorized(bot):
         ctx = real_ctx(bot, guild, author, Moderation.role)
         await Moderation.role.callback(cog, ctx, "50", arg2="60")
         assert sent_embed(ctx).description == (
-            "added <@&60> to <@50> · they're now authorized to hold this blacklisted role")
+            "✅ <@11111>: added <@&60> to <@50> · they're now authorized to hold this blacklisted role")
     asyncio.run(go())
 
 

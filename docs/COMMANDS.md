@@ -1,6 +1,6 @@
 # Command reference
 
-487 commands. Default prefix `,`. `<required>` `[optional]`.
+488 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -454,10 +454,11 @@ _Configure how the bot behaves in your server_
 | `disablecommand <command>` (disablecmd, dcmd) | Disable a command for non-admins (`dcmd list` to see what's disabled) | manage guild |
 | `disablecommand list` | List disabled commands | manage guild |
 | `enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
-| `fakepermissions` (fp, fakeperms) | Give roles permissions that only work through the bot — no dangerous Discord perms needed |  |
-| `fakepermissions grant <role> <permissions>` (add) | Grant fake permissions, e.g. `fp grant @Mods ban_members, kick_members` |  |
-| `fakepermissions list` | List fake permissions |  |
-| `fakepermissions revoke <role> [permissions=all]` (remove) | Revoke fake permissions from a role (`all` to clear) |  |
+| `fakepermissions` (fp, fakeperms, fakeperm) | Give roles permissions that only work through the bot, with no dangerous Discord permissions needed |  |
+| `fakepermissions add <role> [permissions]` (grant, give) | Give a role permissions for the bot: `fp add @Mods ban members, kick members` (leave them out to pick) |  |
+| `fakepermissions list` (show, view) | See which roles have fake permissions |  |
+| `fakepermissions remove <role> [permissions=all]` (revoke, take, rm) | Take fake permissions back from a role (`all`, or leave them out, to clear it) |  |
+| `fakepermissions reset` (clear) | Remove every fake permission in the server |  |
 | `ignore <target>` | Toggle whether the bot ignores commands from a channel or member | manage guild |
 | `ignore list` | List ignored channels and users |  |
 | `modlog [channel]` | Set (or clear) the channel where moderation cases are posted | manage guild |

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A greed / bleed look.** Replies are one line with an emoji and your mention ("✅ @you: banned @x",
+  "⚠️ @you: ...", "❌ @you: ...") in soft green / yellow / red, without the old "failed:" prefix. `,help` has a
+  category dropdown; each category lists its commands in one code block (groups marked with *); `,help <command>`
+  shows a card with Aliases, Parameters and Information side by side and a Usage block with Syntax and Example,
+  and `,help <group>` pages through a card per subcommand. Every pager uses grey ◀ ▶ ✖ buttons.
+  `,fakepermissions` (`,fp`) works like bleed's: `add` / `remove` / `list` / `reset`, permission names typed
+  naturally (`ban members, kick members`), and `,fp add @role` with no permissions opens a picker.
+
 - **`,help` shows each level exactly what it can run.** For members with a permission level, a command now also
   needs the level that opens its `,help` category (Automod: Bot Manager, Permissions: Overseer, Antinuke: Supreme
   Leader...), so nothing in the menu says no and nothing usable is missing. Server-owner-only commands are only
