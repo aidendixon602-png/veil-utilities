@@ -519,7 +519,7 @@ def test_parameters_come_from_a_commands_own_usage_line():
 
 
 def test_long_categories_get_page_buttons(loaded_bot):
-    from core.help import PageButton
+    from core.help import PageButton, category_commands
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, category_commands(loaded_bot), is_owner=True)
