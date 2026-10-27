@@ -1,6 +1,6 @@
 # Command reference
 
-488 commands. Default prefix `,`. `<required>` `[optional]`.
+492 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -29,15 +29,18 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke` (an) | Antinuke status and rules, with buttons to turn it on or off, load a preset, or change a rule |  |
 | `antinuke admin <member>` | Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted |  |
 | `antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
+| `antinuke approve <bot>` (approvebot) | Give a quarantined new bot its permissions back (server owner only) |  |
 | `antinuke ban [count] [punishment] [timeframe]` | Configure the ban rule: `,an ban 3 ban 60s` |  |
 | `antinuke botadd [count] [punishment] [timeframe]` (bot, bots) | Configure the bot add rule: `,an botadd 1 ban 60s` |  |
+| `antinuke botquarantine [state]` (botq) | Hold back new bots' dangerous permissions until you approve them: `,an botq on\|off` |  |
 | `antinuke channelcreate [count] [punishment] [timeframe]` | Configure the channel create rule: `,an channelcreate 2 kick 120s` |  |
 | `antinuke channeldelete [count] [punishment] [timeframe]` | Configure the channel delete rule: `,an channeldelete 2 ban 120s` |  |
-| `antinuke disable` (off) | Turn antinuke off |  |
+| `antinuke disable` (off) | Turn antinuke off (server owner only) |  |
 | `antinuke enable` (on) | Turn antinuke on |  |
 | `antinuke kick [count] [punishment] [timeframe]` | Configure the kick rule: `,an kick 3 ban 120s` |  |
 | `antinuke log [channel]` | Set where antinuke alerts go (owner always gets a DM) |  |
 | `antinuke module <module> <state> [threshold=3]` | Toggle an individual module: `antinuke module ban on 3` |  |
+| `antinuke panic [reason]` (emergency) | Emergency: lock every channel, pause invites and take dangerous permissions off every role |  |
 | `antinuke permissions [count] [punishment] [timeframe]` (permission, perms) | Configure the permission grant rule: `,an permissions 1 strip 60s` |  |
 | `antinuke preset` | Manage rule presets: `,an preset save/load/list` |  |
 | `antinuke preset list` | List available antinuke presets |  |
@@ -53,6 +56,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke status` (config, settings, panel) | Antinuke status and rules, with buttons to change them |  |
 | `antinuke timeout [count] [punishment] [timeframe]` (mute) | Configure the timeout rule: `,an timeout 5 strip 120s` |  |
 | `antinuke toggle` (on/off) | Toggle antinuke on or off |  |
+| `antinuke unpanic` (calm, endpanic) | End panic mode and put everything back (server owner only) |  |
 | `antinuke unwhitelist <target>` (unwl, untrust) | Stop trusting a user, bot or role |  |
 | `antinuke webhook [count] [punishment] [timeframe]` (webhooks) | Configure the webhook rule: `,an webhook 1 kick 60s` |  |
 | `antinuke whitelist [target]` (wl, trust) | Trust a user, bot or role (everyone with it): `,an whitelist @user` or `,an whitelist @Role`. No target lists them |  |

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Antinuke hardening.**
+  - **Permission levels no longer skip the antinuke.** Before, anyone with the Admin level or higher was fully
+    trusted, so a hacked staff account could nuke freely. Only the owner, the whitelist (users or roles) and
+    antinuke admins are trusted now; whitelist a staff role with `,an whitelist @Role` if it should be.
+  - **Only the owner can turn it off** (`,an off`, the panel, `,an botq off`). Antinuke admins can still change
+    rules and turn it on. Turning it off and every whitelist / antinuke-admin change posts a security notice in
+    the antinuke log and DMs the owner.
+  - **`,an panic [reason]`**: locks every channel for @everyone, pauses invites and DMs, and takes the dangerous
+    permissions off every role it can edit. Only the owner can lift it with `,an unpanic`, which puts back
+    exactly what was changed.
+  - **New bots are quarantined**: a bot that joins loses its dangerous permissions (its own role's, and any
+    dangerous role it was given) until the owner presses **Approve bot** or runs `,an approve @bot`, even when a
+    whitelisted account added it. Bots the owner adds are trusted straight away.
+
 - **The antinuke respects the role blacklist.** When it undoes mass role changes, it doesn't give a
   blacklisted role back to anyone who isn't authorized to hold it (the bot giving a role counts as authorized,
   so that would have quietly authorized them); roles handed out by the attacker, blacklisted ones included, are

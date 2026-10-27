@@ -161,7 +161,11 @@ class AntinukePanel(OwnedView):
         changed = True
         if action == "toggle":
             if cfg.get("enabled"):
+                if not an.is_owner_or_dev(self.cog.bot, self.guild, it.user.id):
+                    return await it.response.send_message(
+                        "🔒 Only the server owner can turn the antinuke off.", ephemeral=True)
                 cfg["enabled"] = False
+                await self.cog.security_notice(self.guild, it.user, "turned the antinuke **off**")
             else:
                 self.cog.enable_rules(cfg)
         elif action.startswith("preset:"):
