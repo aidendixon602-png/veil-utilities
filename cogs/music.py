@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core.config import settings
-from core.lavalink_nodes import resolve_nodes
+from core.lavalink_nodes import _own_nodes, resolve_nodes
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, missing_perms, shorten, requires_uperm
 
 try:
@@ -66,12 +66,19 @@ class Music(commands.Cog):
 
     async def cog_load(self):
         self.nodes, self.public = resolve_nodes(settings.lavalink_uri, settings.lavalink_password,
-                                                settings.music_enabled)
+                                                settings.music_enabled,
+                                                backups=getattr(settings, "lavalink_backups", True))
         if wavelink is None or not self.nodes:
             log.info("Music disabled (%s)", "wavelink isn't installed" if wavelink is None else "MUSIC_ENABLED=false")
             self.nodes = []
             return
-        log.info("Music: connecting to %d %s Lavalink node(s)", len(self.nodes), "public" if self.public else "")
+        if self.public:
+            log.info("Music: connecting to %d public Lavalink node(s)", len(self.nodes))
+        else:
+            own = len(_own_nodes(settings.lavalink_uri, settings.lavalink_password, True)[0])
+            backups = len(self.nodes) - own
+            log.info("Music: connecting to %d Lavalink node(s): %d of yours%s", len(self.nodes), own,
+                     f" + {backups} public backup(s)" if backups else "")
         self.node_watchdog.start()
 
     def _make_node(self, index: int) -> "wavelink.Node":

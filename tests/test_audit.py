@@ -119,6 +119,13 @@ def test_own_nodes_and_disable():
     assert resolve_nodes("http://a:1,http://b:2", "same") == ([("http://a:1", "same"), ("http://b:2", "same")], False)
     assert resolve_nodes("http://a:1", "has,comma") == ([("http://a:1", "has,comma")], False)
     assert resolve_nodes(None, None, enabled=False) == ([], False)
+    # your node first, the public ones behind it as backups (no duplicates), unless backups are off
+    mine = PUBLIC_NODES[0][0]
+    nodes, public = resolve_nodes(f"http://own:2333,{mine}", "pw", backups=True)
+    assert not public and nodes[0] == ("http://own:2333", "pw") and nodes[1] == (mine, "pw")
+    assert nodes[2:] == list(PUBLIC_NODES[1:])
+    assert resolve_nodes("http://own:2333", "pw", backups=False) == ([("http://own:2333", "pw")], False)
+    assert resolve_nodes(None, None, enabled=False, backups=True) == ([], False)
 
 
 # ------------------------------------------------------------------ integrations helpers

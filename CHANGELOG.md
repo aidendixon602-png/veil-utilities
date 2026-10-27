@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Music keeps working when your Lavalink server is down.** With `LAVALINK_URI` set, the free public nodes now
+  stay connected behind yours as backups (`LAVALINK_BACKUPS=false` to use only yours), and two more public nodes
+  were added. The startup log says how many are yours and how many are backups.
+
 ### Fixed
 
 - **Back online within a minute after a host network blip.** When the host's network or DNS drops, discord.py
