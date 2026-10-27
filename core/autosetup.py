@@ -2,7 +2,8 @@
 
 When the bot joins a server (and once for servers it was already in), it switches on whatever that server hasn't
 set up itself: anything already configured is left exactly as it is. It then reports what it did in the antinuke
-log channel (and to the owner), with the command to change each part.
+log channel, with the command to change each part. Only a server the bot has just joined also DMs its owner, so a
+restart never sends an owner one DM per server.
 
   * antinuke on with the Default preset, raid detection (a join wave of 10 in 10s), new bots quarantined
   * automod: spam (6 messages in 5s), mass mentions (6+), zalgo text and invite links, plus Discord's own
@@ -122,19 +123,21 @@ async def run(bot, guild) -> list[str]:
     return done
 
 
-async def announce(bot, guild, done: list[str]) -> None:
-    """Tell the server what was switched on, where antinuke alerts go and to the owner."""
+async def announce(bot, guild, done: list[str], *, dm_owner: bool = False) -> None:
+    """Post what was switched on where antinuke alerts go; DM the owner too only when `dm_owner` (a new server)."""
     if not done:
         return
     e = discord.Embed(title="🛡️ Protection set up automatically", color=0x5865F2, description=(
-        "These were off, so I switched them on. Everything you had set up yourself is unchanged.\n\n"
+        "These were off, so I switched them on. Anything you had set up yourself is unchanged.\n\n"
         + "\n".join(f"• {line}" for line in done)
-        + "\n\n-# Staff no longer skip the antinuke because of their level: whitelist a staff role with "
-          "`,an whitelist @Role` if it should."))
-    e.set_footer(text=getattr(guild, "name", ""))
+        + "\n\n-# staff levels don't skip the antinuke: `,an whitelist @Role` for a staff role that should"))
+    name = getattr(guild, "name", None)
+    if name:  # at the top, so a DM says which server it's about before anything else
+        icon = getattr(getattr(guild, "icon", None), "url", None)
+        e.set_author(name=name, icon_url=icon) if icon else e.set_author(name=name)
     antinuke = bot.get_cog("Antinuke")
     channel = await antinuke._log_channel(guild, await antinuke.cfg(guild.id)) if antinuke else None
-    for dest in (channel, getattr(guild, "owner", None)):
+    for dest in (channel, getattr(guild, "owner", None) if dm_owner else None):
         if dest is None:
             continue
         try:
@@ -143,8 +146,8 @@ async def announce(bot, guild, done: list[str]) -> None:
             pass
 
 
-async def run_once(bot, guild, *, force: bool = False) -> list[str]:
-    """Run the automatic setup for a server once (recorded), unless `force`."""
+async def run_once(bot, guild, *, force: bool = False, dm_owner: bool = False) -> list[str]:
+    """Run the automatic setup for a server once (recorded), unless `force`. `dm_owner` for a server just joined."""
     marker = await bot.db.get_config(guild.id, "autosetup")
     if marker.get("done") and not force:
         return []
@@ -155,5 +158,5 @@ async def run_once(bot, guild, *, force: bool = False) -> list[str]:
         return []
     marker["done"] = True
     await bot.db.set_config(guild.id, "autosetup", marker)
-    await announce(bot, guild, done)
+    await announce(bot, guild, done, dm_owner=dm_owner)
     return done
