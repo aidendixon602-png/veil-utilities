@@ -30,6 +30,8 @@ BOT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESTART_PATHS = ("core/", "main.py")
 
 
+RESET_WORDS = ("clear", "reset", "default", "dynamic", "none", "off")  # words that remove a custom status
+
 class UpdatePlan:
     def __init__(self, restart: bool, restart_reason: str, reload: list[str], deps_changed: bool):
         self.restart = restart
@@ -513,7 +515,7 @@ class Owner(commands.Cog):
             text += f"\n-# ⚠️ files in `core/` or `main.py` changed since startup, run `{ctx.clean_prefix}restart` to load them"
         await (ctx.warn(text) if failed else ctx.approve(text))
 
-    @commands.command(hidden=True, aliases=["presence", "statusstate"])
+    @commands.command(hidden=True, aliases=["presence", "statusstate"])  # `clear`/`reset` drop the custom text
     async def setpresence(self, ctx: Context, status: str, *, text: str = None):
         """Change the bot's presence status (dnd, online, idle, invisible) and optional text: `,presence dnd`"""
         STATUS_MAP = {
@@ -525,6 +527,12 @@ class Owner(commands.Cog):
             "offline": discord.Status.invisible,
         }
         status_clean = status.lower()
+        if status_clean in RESET_WORDS and not text:  # `,presence clear`: back to "Protecting X guilds | Y users"
+            g = await self.bot.db.get_config(0, "global")
+            g.pop("custom_status_text", None)
+            await self.bot.db.set_config(0, "global", g)
+            await self.bot.update_dynamic_status()
+            return await ctx.approve("cleared the status text · back to the default line")
         if status_clean not in STATUS_MAP:
             full_text = status + (f" {text}" if text else "")
             g = await self.bot.db.get_config(0, "global")
@@ -559,7 +567,7 @@ class Owner(commands.Cog):
         }
         if arg.lower() in STATUS_MAP:
             await self.setpresence(ctx, arg)
-        elif arg.lower() in ("reset", "dynamic", "default", "clear"):
+        elif arg.lower() in RESET_WORDS:
             g = await self.bot.db.get_config(0, "global")
             g.pop("custom_status_text", None)
             await self.bot.db.set_config(0, "global", g)

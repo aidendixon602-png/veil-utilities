@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`,presence clear` clears the status.** It used to save the word "clear" as the status text; now `clear`,
+  `reset`, `default`, `none` (with `,presence` or `,setstatus`) remove the custom text and bring back the
+  "Protecting X guilds | Y users" line, keeping online/idle/dnd as it was.
+
 - **Timeouts no longer land in `#bans`.** A moderation log channel named for bans (`bans`, `ban-logs`...) now
   only gets bans and unbans: timeouts go to the member log and kicks go with the leaves. A general `mod-logs`
   channel still gets all four. Timeouts can also have their own channel: name one `mute-logs` or run
