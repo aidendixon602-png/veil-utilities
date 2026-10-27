@@ -122,6 +122,9 @@ logging.getLogger("wavelink").setLevel(logging.WARNING)
 logging.getLogger("wavelink.websocket").setLevel(logging.ERROR)
 log = logging.getLogger("veil")
 
+from core import netcalm  # noqa: E402
+netcalm.install()  # reconnect within a minute of the network coming back, one log line per failed attempt
+
 
 async def run_bot(show_banner: bool = True) -> bool:
     """Run one bot session. Returns True if an in-process restart was requested, False if exiting."""
