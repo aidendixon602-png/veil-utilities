@@ -628,32 +628,44 @@ def _took(ms: float | None) -> str:
 
 def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = None, ms: float | None = None,
                  error: str | None = None) -> str:
-    """A feed line per command run: who ran what where, and how it ended (or why it failed)."""
+    """One command on a person's command card: when, what, where, and how long it took or why it failed. The
+    person (name, avatar, level, ID) is on the card itself, so a line never repeats them."""
     command = getattr(ctx, "command", None)
+    prefix = getattr(ctx, "prefix", "") or ""
     hidden = command is not None and (getattr(command, "hidden", False) or getattr(command, "cog_name", None) == "Owner")
     action = getattr(ctx, "panel_action", None)
-    if action:  # a button on the ,mod / ,admin panel: say which button, and point at the panel
-        panel = f"`{getattr(ctx, 'prefix', '') or ''}{getattr(ctx, 'panel_name', None) or 'panel'}`"
-        jump = getattr(ctx, "panel_jump", None) or getattr(ctx.message, "jump_url", None)
-        where = f"in {ctx.channel.mention}" + (f" · [jump]({jump})" if jump else "")
-        did = f"{ctx.author.mention} pressed **{action}** on the {panel} panel {where}"
-        if error is not None:
-            return feed_line("❌", f"{did} · failed: {shorten(redact.scrub(error).replace(chr(10), ' '), 200)}")
-        took = _took(ms)
-        return feed_line("🔘", did + (f" · {took}" if took else ""))
-    if hidden:
-        # developer commands can carry code, queries or secrets, and these lines are readable by server admins
-        shown = f"`{getattr(ctx, 'prefix', '') or ''}{command.qualified_name}` (arguments hidden)"
+    jump = getattr(ctx, "panel_jump", None) if action else None
+    jump = jump or getattr(ctx.message, "jump_url", None)
+    if action:  # a button on the ,mod / ,admin panel: which button, on which panel
+        shown = f"**{action}** on the `{prefix}{getattr(ctx, 'panel_name', None) or 'panel'}` panel"
+    elif hidden:
+        # developer commands can carry code, queries or secrets, and these cards are readable by server admins
+        shown = f"`{prefix}{command.qualified_name}` · arguments hidden"
     else:
         content = redact.scrub(ctx.message.content.strip()).replace("\n", " ").replace("`", "'")
-        shown = f"`{shorten(content, 300)}`"
-    jump = getattr(ctx.message, "jump_url", None)
-    where = f"in {ctx.channel.mention}" + (f" · [jump]({jump})" if jump else "")
+        shown = f"`{shorten(content, 200)}`"
+    parts = [ts(discord.utils.utcnow(), "t"), shown, ctx.channel.mention]
     if error is not None:
-        reason = shorten(redact.scrub(error).replace("\n", " "), 200)
-        return feed_line("❌", f"{ctx.author.mention} ran {shown} {where} · failed: {reason}")
-    took = _took(ms)
-    return feed_line("⌨️", f"{ctx.author.mention} ran {shown} {where}" + (f" · {took}" if took else ""))
+        parts.append("**failed:** " + shorten(redact.scrub(error).replace("\n", " "), 200))
+    else:
+        took = _took(ms)
+        if took:
+            parts.append(took)
+    if jump:
+        parts.append(f"[jump]({jump})")
+    return shorten_md(" · ".join(parts), 1000)
+
+
+def command_card(user, lines: list[str], level: str | None) -> discord.Embed:
+    """A person's recent commands on one card: their name and avatar on top, a line per command, their permission
+    level and ID underneath. Red when the latest one failed."""
+    failed = bool(lines) and "**failed:**" in lines[-1]
+    embed = discord.Embed(color=Colors.deny if failed else Colors.main,
+                          description=shorten_md("\n".join(lines), 4000))
+    embed.set_author(name=shorten(name_of(user), 256), icon_url=avatar_of(user))
+    who = [level] if level and level != "None" else []
+    embed.set_footer(text=shorten(" · ".join(who + [f"User ID: {user.id}"]), 2048))
+    return embed
 
 
 # ---------------------------------------------------------------- moderation cases
