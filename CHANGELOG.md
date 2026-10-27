@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Command logs are cards now.** Each person gets one card with their name and avatar on top and their level
+  and ID underneath; every command they run within two minutes is added to it as a line (time, command,
+  channel, how long or why it failed, jump link). The card turns red when their latest command failed. Leaving
+  out a command's required part (like `,mod` with no member) isn't logged any more: they were shown the usage.
+
 ### Fixed
 
 - **Panel buttons show up properly in the command log.** Pressing a button on `,mod` / `,admin` used to log as
