@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`,s` (snipe) has a new look.** The card shows who sent the deleted message, its text (or *[no text content]*
+  when it was only a picture), the picture itself, and "deleted message 1 of 5" with the time it was deleted.
+  **< Prev** / **Next >** page through the channel's recent deletions (only the person who ran it can page).
+  Videos and other files are linked under the text instead of being dropped, and stickers show as the picture.
+
 - **Tidier project layout.** The top level now holds only the project itself: `docs/` has the command
   reference, the hosting guide (which now includes the one-line startup commands that used to be in
   `startup-command.txt`) and the Lavalink config; the contributing guide, security policy and code of conduct live in
