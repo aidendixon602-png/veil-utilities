@@ -155,6 +155,25 @@ def card(color: int, subject=None, text: str = "", *, ids: Iterable[tuple] = (),
     return log_card(color, title, icon=avatar_of(subject) if subject is not None else None, lines=[text], ids=ids)
 
 
+_ON_BEHALF = re.compile(r"^(?:(?P<what>.+?) by )?(?P<name>.+?) \((?P<id>\d{15,21})\)(?:: (?P<reason>.*))?$", re.S)
+
+
+def on_behalf(guild, actor, reason: str | None):
+    """The bot did it because someone ran a command (`,timeout`, `,ban`...): credit that person, and keep only what
+    they wrote as the reason. The audit reason says who (see core.utils.audit_reason); anything else is left alone."""
+    me = getattr(guild, "me", None)
+    if actor is None or me is None or getattr(actor, "id", None) != me.id or not reason:
+        return actor, reason
+    match = _ON_BEHALF.match(reason)
+    member = guild.get_member(int(match["id"])) if match and hasattr(guild, "get_member") else None
+    if member is None:
+        return actor, reason
+    said = (match["reason"] or "").strip()
+    said = "" if said == "None" else said  # older commands wrote "name: None" when no reason was given
+    what = (match["what"] or "").strip()
+    return member, (f"{what}: {said}" if what and said else what or said or None)
+
+
 async def audit_actor(guild, action: discord.AuditLogAction, target_id: int, *,
                       check: Callable | None = None) -> tuple[discord.abc.User | None, str | None]:
     """Who caused an event, from the audit log: `(user, reason)`, or `(None, None)` when we can't tell."""
@@ -171,7 +190,7 @@ async def audit_actor(guild, action: discord.AuditLogAction, target_id: int, *,
                 continue
             if check is not None and not check(entry):
                 continue
-            return entry.user, entry.reason
+            return on_behalf(guild, entry.user, entry.reason)
     except Exception:  # missing access, rate limit, library quirks: the log is still worth sending
         pass
     return None, None

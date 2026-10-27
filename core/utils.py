@@ -786,6 +786,14 @@ async def respond_or_edit(it: discord.Interaction, embed: discord.Embed, view: d
         await it.edit_original_response(**kwargs)
 
 
+def audit_reason(author, reason: str | None = None, action: str | None = None) -> str:
+    """What Discord's audit log records when the bot acts for someone: `name (id): reason`, or
+    `softban by name (id): reason`. The logs read the ID back to credit that person instead of the bot."""
+    who = f"{author} ({author.id})"
+    head = f"{action} by {who}" if action else who
+    return shorten(f"{head}: {reason}" if reason else head, 512)
+
+
 def shorten(text: str, n: int = 1024) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
