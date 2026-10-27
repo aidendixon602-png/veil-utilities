@@ -53,4 +53,4 @@ def test_ordinary_command_logs_still_show_the_command_but_scrubbed():
 
 def test_failed_command_reasons_are_scrubbed():
     card = logembeds.command_used(_ctx(",x"), "Admin", "role", error=f'File "{redact.ROOT}/core/bot.py" broke')
-    assert redact.ROOT not in _fields(card)["Error"]
+    assert redact.ROOT not in card.description and "broke" in card.description
