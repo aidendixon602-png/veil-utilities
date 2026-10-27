@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core import autoclean
-from core.utils import (Colors, Context, Duration, UserError, build_message, build_vars, chunk_embeds,
+from core.utils import (Colors, Context, Duration, OwnedView, UserError, build_message, build_vars, chunk_embeds,
                         fmt_duration, has_perms, now, shorten, ts)
 
 log = logging.getLogger("veil.utility")
@@ -22,10 +22,39 @@ log = logging.getLogger("veil.utility")
 CUSTOM_EMOJI = re.compile(r"<(a?):(\w+):(\d+)>")
 
 
-class SnipeView(discord.ui.View):
+SNIPE_COLOR = 0x7C8B99  # a quiet slate strip: a snipe is a look back, not an alert
+IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+def _is_image(name: str, content_type: str | None) -> bool:
+    return (content_type or "").startswith("image/") or name.lower().endswith(IMAGE_TYPES)
+
+
+def snipe_embed(d: dict, index: int, total: int) -> discord.Embed:
+    """One deleted message: who sent it, what it said (or [no text content]), its picture, and
+    "deleted message 1 of 5" with the time it was deleted."""
+    e = discord.Embed(description=shorten(d["content"], 4000) if d["content"] else "*[no text content]*",
+                      color=SNIPE_COLOR, timestamp=datetime.fromtimestamp(d["time"], tz=timezone.utc))
+    author = d["author"]
+    e.set_author(name=author.name, icon_url=author.display_avatar.url)
+    files = d["attachments"]
+    pictures = [f for f in files if f["image"]] + [{"url": u, "name": "sticker", "image": True} for u in d["stickers"]]
+    if pictures:
+        e.set_image(url=pictures[0]["url"])
+    others = [f for f in files if f is not (pictures[0] if pictures else None)]
+    if others:
+        links = " · ".join(f"[{f['name']}]({f['url']})" for f in others[:5])
+        more = f" +{len(others) - 5} more" if len(others) > 5 else ""
+        e.description += f"\n-# 📎 {links}{more}"
+    e.set_footer(text=f"deleted message {index} of {total}")
+    return e
+
+
+class SnipeView(OwnedView):
+    """< Prev / Next > through the channel's recently deleted messages."""
+
     def __init__(self, author_id: int, queue: list[dict], index: int = 1):
-        super().__init__(timeout=90)
-        self.author_id = author_id
+        super().__init__(author_id, timeout=90)
         self.queue = queue
         self.index = index
         self._sync()
@@ -35,32 +64,20 @@ class SnipeView(discord.ui.View):
         self.next_button.disabled = self.index >= len(self.queue)
 
     def embed(self) -> discord.Embed:
-        d = self.queue[self.index - 1]
-        e = discord.Embed(description=d["content"] or None, color=Colors.main)
-        e.set_author(name=str(d["author"]), icon_url=d["author"].display_avatar.url)
-        media = d["attachments"] + d["stickers"]
-        if media:
-            e.set_image(url=media[0])
-            if len(media) > 1:
-                e.add_field(name="More attachments", value="\n".join(media[1:])[:1024])
-        e.set_footer(text=f"Deleted {fmt_duration(time.time() - d['time'])} ago • {self.index}/{len(self.queue)}")
-        return e
+        return snipe_embed(self.queue[self.index - 1], self.index, len(self.queue))
 
-    @discord.ui.button(label="Prev", emoji="◀", style=discord.ButtonStyle.secondary)
+    async def _go(self, it: discord.Interaction, step: int):
+        self.index = min(len(self.queue), max(1, self.index + step))
+        self._sync()
+        await it.response.edit_message(embed=self.embed(), view=self)
+
+    @discord.ui.button(label="< Prev", style=discord.ButtonStyle.secondary)
     async def prev_button(self, it: discord.Interaction, btn: discord.ui.Button):
-        if it.user.id != self.author_id:
-            return await it.response.send_message("Only the person who ran the command can use these buttons", ephemeral=True)
-        self.index = max(1, self.index - 1)
-        self._sync()
-        await it.response.edit_message(embed=self.embed(), view=self)
+        await self._go(it, -1)
 
-    @discord.ui.button(label="Next", emoji="▶", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Next >", style=discord.ButtonStyle.secondary)
     async def next_button(self, it: discord.Interaction, btn: discord.ui.Button):
-        if it.user.id != self.author_id:
-            return await it.response.send_message("Only the person who ran the command can use these buttons", ephemeral=True)
-        self.index = min(len(self.queue), self.index + 1)
-        self._sync()
-        await it.response.edit_message(embed=self.embed(), view=self)
+        await self._go(it, 1)
 
 
 class Utility(commands.Cog):
@@ -85,7 +102,9 @@ class Utility(commands.Cog):
         if m.guild and not m.author.bot and not autoclean.was_cleaned(m.id):  # not commands the bot tidied away
             self.deleted[m.channel.id].appendleft({
                 "author": m.author, "content": m.content, "time": time.time(),
-                "attachments": [a.proxy_url for a in m.attachments],
+                "attachments": [{"url": a.proxy_url, "name": a.filename,
+                                 "image": _is_image(a.filename, getattr(a, "content_type", None))}
+                                for a in m.attachments],
                 "stickers": [s.url for s in m.stickers]})
 
     @commands.Cog.listener()
@@ -111,22 +130,15 @@ class Utility(commands.Cog):
         """Show a recently deleted message"""
         await self._snipe_allowed(ctx)
         q = list(self.deleted[ctx.channel.id])
-        if not q or not 1 <= index <= len(q):
-            raise UserError("Nothing to snipe" if not q else f"Pick 1–{len(q)}")
-        if len(q) > 1:
-            view = SnipeView(ctx.author.id, q, index)
-            await ctx.send(embed=view.embed(), view=view)
-        else:
-            d = q[index - 1]
-            e = discord.Embed(description=d["content"] or None, color=Colors.main)
-            e.set_author(name=str(d["author"]), icon_url=d["author"].display_avatar.url)
-            media = d["attachments"] + d["stickers"]
-            if media:
-                e.set_image(url=media[0])
-                if len(media) > 1:
-                    e.add_field(name="More attachments", value="\n".join(media[1:])[:1024])
-            e.set_footer(text=f"Deleted {fmt_duration(time.time() - d['time'])} ago • 1/1")
-            await ctx.send(embed=e)
+        if not q:
+            raise UserError("There's nothing to snipe in this channel")
+        if not 1 <= index <= len(q):
+            raise UserError(f"There {'is' if len(q) == 1 else 'are'} only {len(q)} deleted message"
+                            f"{'' if len(q) == 1 else 's'} to pick from (1–{len(q)})")
+        if len(q) == 1:
+            return await ctx.send(embed=snipe_embed(q[0], 1, 1))
+        view = SnipeView(ctx.author.id, q, index)
+        await ctx.send(embed=view.embed(), view=view)
 
     @commands.command(aliases=["es"])
     @commands.guild_only()
