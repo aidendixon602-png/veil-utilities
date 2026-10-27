@@ -165,17 +165,17 @@ class TestPermissionHierarchy:
     def test_hierarchy_order_and_ranks(self):
         from core import perms
 
-        assert perms.HIERARCHY_KEYS == ["developer", "owner", "supremeleader", "overseer", "botmanager",
+        assert perms.HIERARCHY_KEYS == ["developer", "owner", "supremeleader", "overseer",
                                         "headadmin", "admin", "moderator", "helper"]
-        assert perms.HIERARCHY_ORDER == ["Developer", "Owner", "Supreme Leader", "Overseer", "Bot Manager",
+        assert perms.HIERARCHY_ORDER == ["Developer", "Owner", "Supreme Leader", "Overseer",
                                          "Head Admin", "Admin", "Moderator", "Helper"]
         levels = perms.PRESETS
-        assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 5, 4, 3, 2, 1]
+        assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 4, 3, 2, 1]
         assert levels["supremeleader"][1] == perms.COOWNER_RANK
         assert "administrator" in levels["supremeleader"][2]
         assert set(levels["overseer"][2]) == {p for p in perms.ALL_BOT_PERMS if p != "administrator"}
-        assert "view_audit_log" in levels["botmanager"][2] and "administrator" not in levels["botmanager"][2]
-        assert set(levels["headadmin"][2]) < set(levels["botmanager"][2]) < set(levels["overseer"][2])
+        assert "botmanager" not in levels  # folded into Head Admin
+        assert set(levels["headadmin"][2]) < set(levels["overseer"][2])
 
     def test_old_level_names_still_work_and_are_migrated(self):
         from core import perms
@@ -190,7 +190,7 @@ class TestPermissionHierarchy:
         assert perms.all_levels(cfg)["supremeleader"]["name"] == "Supreme Leader"
         assert perms.migrate(cfg) is False
         for typed, key in (("Supreme Leader", "supremeleader"), ("co-owner", "supremeleader"),
-                           ("Manager", "overseer"), ("Bot Manager", "botmanager"), ("overseer", "overseer"),
+                           ("Manager", "overseer"), ("Bot Manager", "headadmin"), ("overseer", "overseer"),
                            ("mod", "moderator"), ("Moderator", "moderator")):
             assert perms.resolve_key({}, typed) == key
         for typed in ("Server Owner", "owner", "Bot Developer", "dev", "Developer"):

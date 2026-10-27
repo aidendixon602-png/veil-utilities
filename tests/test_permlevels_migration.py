@@ -20,7 +20,7 @@ def test_saved_levels_are_migrated_when_the_cog_loads():
             cog = Permissions(SimpleNamespace(db=db))
             await cog.cog_load()
             db._cache.clear()
-            assert (await db.get_config(10, "permlevels"))["users"] == {"1": "supremeleader", "2": "overseer", "3": "botmanager"}
+            assert (await db.get_config(10, "permlevels"))["users"] == {"1": "supremeleader", "2": "overseer", "3": "headadmin"}
             assert (await db.get_config(10, "permlevels"))["roles"] == {"3": "moderator"}
             assert (await db.get_config(11, "permlevels"))["users"] == {"4": "admin"}
         finally:
@@ -39,8 +39,8 @@ def test_the_level_list_is_numbered_highest_first():
         text = ctx.send.await_args.kwargs["embed"].description
         order = [line.split("**")[1] for line in text.splitlines() if line.startswith("**")]
         assert order == ["1. Developer", "2. Owner", "3. Supreme Leader (`supremeleader`)", "4. Overseer (`overseer`)",
-                         "5. Bot Manager (`botmanager`)", "6. Head Admin (`headadmin`)", "7. Admin (`admin`)",
-                         "8. Moderator (`moderator`)", "9. Helper (`helper`)"]
+                         "5. Head Admin (`headadmin`)", "6. Admin (`admin`)",
+                         "7. Moderator (`moderator`)", "8. Helper (`helper`)"]
         assert "everything except Administrator\n-# 2 members" in text
         assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
     asyncio.run(go())

@@ -7,7 +7,7 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.7%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
-![commands](https://img.shields.io/badge/commands-492-b10f2e?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-495-b10f2e?style=flat-square&labelColor=1a1118)
 ![modules](https://img.shields.io/badge/modules-20-b10f2e?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
@@ -93,7 +93,7 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |
 | 🎙️ | **VoiceMaster** | Join-to-create channels with a button panel: lock, hide, rename, limit, claim, transfer. Remembers each user's settings |
-| 🔑 | **Permissions** | Named levels for members and roles: Helper → Moderator → Admin → Head Admin → Bot Manager → Overseer → Supreme Leader, plus automatic Owner & Developer, role blacklist, `removepermall` to strip a permission from every role after a raid |
+| 🔑 | **Permissions** | Named levels for members and roles: Helper → Moderator → Admin → Head Admin → Overseer → Supreme Leader, plus automatic Owner & Developer, role blacklist, `removepermall` to strip a permission from every role after a raid |
 | 🧩 | **Server** | Welcome / goodbye / boost, autoroles, reaction & button roles, autoresponders, sticky messages, starboard, counters, bump reminders, vanity rewards |
 | 📈 | **Levels** | Message **and** voice XP, role rewards, XP multipliers, leaderboard |
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |

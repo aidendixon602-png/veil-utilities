@@ -51,6 +51,23 @@ class Automod(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.spam: dict[tuple[int, int], deque] = defaultdict(deque)
+        self.hits: dict[tuple[int, int], deque] = defaultdict(deque)  # filter hits, for escalation
+
+    def escalates(self, cfg: dict, m: discord.Message) -> bool:
+        """Count a filter hit; True when this person reached the escalation limit (their count starts over)."""
+        esc = cfg.get("escalate")
+        if not esc:
+            return False
+        key = (m.guild.id, m.author.id)
+        now = time.monotonic()
+        hits = self.hits[key]
+        hits.append(now)
+        while hits and now - hits[0] > int(esc.get("within", 600)):
+            hits.popleft()
+        if len(hits) >= int(esc.get("hits", 3)):
+            del self.hits[key]
+            return True
+        return False
 
     async def cfg(self, gid):
         return await self.bot.db.get_config(gid, "filters", {"exempt_roles": [], "exempt_channels": [],
@@ -134,6 +151,14 @@ class Automod(commands.Cog):
         if cfg.get("action") == "timeout":
             try:
                 await m.author.timeout(timedelta(seconds=cfg.get("timeout", 60)), reason=f"Automod: {why}")
+            except discord.HTTPException:
+                pass
+        elif self.escalates(cfg, m):  # the same person tripping the filters again and again: a short timeout
+            esc = cfg["escalate"]
+            try:
+                await m.author.timeout(timedelta(seconds=int(esc.get("timeout", 600))),
+                                       reason=f"Automod: {esc.get('hits', 3)} filter hits in a row")
+                why += f" · timed out for {int(esc.get('timeout', 600)) // 60} min for repeated hits"
             except discord.HTTPException:
                 pass
         try:

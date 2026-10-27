@@ -238,7 +238,8 @@ def test_command_category_and_rank_resolution():
 
     # Moderation commands with uperm
     ban_cmd = mod_cog.ban
-    assert category_for_command(ban_cmd, bot) == "Moderation"
+    assert category_for_command(ban_cmd, bot) == "Admin"
+    assert category_for_command(mod_cog.kick, bot) == "Moderator"
     assert min_rank_for_command(ban_cmd, bot) == 3  # Admin (rank 3)
 
     kick_cmd = mod_cog.kick

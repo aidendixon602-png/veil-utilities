@@ -15,7 +15,7 @@ from core import help as H
 from core import perms as P
 from core.utils import MissingRank, UserError, level_gate
 
-LEVELS = ["helper", "moderator", "admin", "headadmin", "botmanager", "overseer", "supremeleader"]
+LEVELS = ["helper", "moderator", "admin", "headadmin", "overseer", "supremeleader"]
 MEMBER = 500
 
 
@@ -110,9 +110,10 @@ def _gate_ctx(level, category_cog, fake=None):
 
 
 def test_the_level_gate():
-    with pytest.raises(MissingRank, match="Bot Manager"):
-        asyncio.run(level_gate(_gate_ctx("headadmin", "Automod"), ["manage_guild"]))
-    asyncio.run(level_gate(_gate_ctx("botmanager", "Automod"), ["manage_guild"]))  # high enough
+    with pytest.raises(MissingRank, match="Overseer"):
+        asyncio.run(level_gate(_gate_ctx("headadmin", "Permissions"), ["manage_guild"]))
+    asyncio.run(level_gate(_gate_ctx("headadmin", "Automod"), ["manage_guild"]))  # high enough
+    asyncio.run(level_gate(_gate_ctx("helper", "Moderation"), []))  # Moderator category: Helper is enough
     asyncio.run(level_gate(_gate_ctx(None, "Automod"), ["manage_guild"]))  # no level: Discord perms rules apply
     asyncio.run(level_gate(_gate_ctx("headadmin", "Automod", {"8": ["manage_guild"]}), ["manage_guild"]))  # fakeperms
     asyncio.run(level_gate(_gate_ctx("helper", "Utility"), []))  # public categories have no gate
@@ -123,4 +124,4 @@ def test_the_level_gate():
 
 def test_owner_only_commands_are_shown_to_the_owner_only():
     assert H.rank_name(P.OWNER_RANK) == "Owner" and H.rank_name(P.DEV_RANK) == "Developer"
-    assert H.rank_name(5) == "Bot Manager"
+    assert H.rank_name(6) == "Overseer" and H.rank_name(4) == "Head Admin"

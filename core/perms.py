@@ -6,8 +6,8 @@ needing dangerous native Discord permissions. Config lives per-guild under the "
 
     {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-The hierarchy, highest first: Developer, Owner, Supreme Leader, Overseer, Bot Manager, Head Admin, Admin,
-Moderator, Helper. Developer (the bot's developers) and Owner (the server owner) are automatic and can't be assigned.
+The hierarchy, highest first: Developer, Owner, Supreme Leader, Overseer, Head Admin, Admin, Moderator,
+Helper (Bot Manager was folded into Head Admin). Developer (the bot's developers) and Owner (the server owner) are automatic and can't be assigned.
 
 Older names still work wherever a level is typed (and saved assignments are migrated): Mod is now Moderator, and
 the short-lived Co-Owner / Manager names map back to Supreme Leader / Overseer.
@@ -137,12 +137,6 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                         "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
                                         "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "botmanager":    ("Bot Manager", 5, [
-        "manage_messages", "kick_members", "ban_members", "moderate_members",
-        "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
-        "manage_webhooks", "manage_expressions", "manage_events", "manage_threads",
-        "mention_everyone", "view_audit_log", "create_instant_invite",
-    ]),
     "overseer":      ("Overseer", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
     "supremeleader": ("Supreme Leader", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
 }
@@ -152,6 +146,7 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
 # those come back as Supreme Leader and Overseer, which kept Manager's exact permissions.)
 LEGACY_KEYS: dict[str, str] = {
     "mod": "moderator",
+    "botmanager": "headadmin",  # Bot Manager was removed: its holders became Head Admins (nobody gains access)
     "coowner": "supremeleader",
     "manager": "overseer",
 }
@@ -170,7 +165,6 @@ HIERARCHY_ORDER: list[str] = [
     OWNER_NAME,
     "Supreme Leader",
     "Overseer",
-    "Bot Manager",
     "Head Admin",
     "Admin",
     "Moderator",
@@ -183,7 +177,6 @@ HIERARCHY_KEYS: list[str] = [
     "owner",
     "supremeleader",
     "overseer",
-    "botmanager",
     "headadmin",
     "admin",
     "moderator",

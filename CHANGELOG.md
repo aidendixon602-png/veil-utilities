@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Automatic protection.** When the bot joins a server (and once for servers it's already in) it switches on
+  whatever that server never set up, leaving anything already configured alone, and says what it did in the
+  antinuke log and to the owner: antinuke on (Default preset), raid detection (10 joins in 10s), automod (spam,
+  mass mentions, zalgo, invite links), Discord's own AutoMod slur filter, warnings that escalate (3 = 1 hour
+  timeout, 5 = kick), repeated automod hits = 10 minute timeout, and permission levels for roles named Helper /
+  Moderator / Admin / Head Admin (never higher: those stay the owner's call). `,autosetup` (owner) runs it again.
+- **Separate moderator and admin commands.** `,help` has a **Moderator** category (warn, timeout, kick, purge,
+  jail...) and an **Admin** one (ban, lockdowns, mass actions, logs...). `,mod @member` and `,admin [@member]`
+  open button panels that run the real commands with all their checks; buttons you can't use are greyed out.
+- **Bot Manager removed.** Its holders are now Head Admins (nobody gains access), and Head Admin opens Automod.
+  Levels: Helper, Moderator, Admin, Head Admin, Overseer, Supreme Leader.
+
 - **Logs in the style of popular bots (Dyno / Carl-bot + bleed / greed + an audit feed).**
   - **Big events are cards:** the person's avatar and name on top, one bold sentence with clickable mentions
     ("@x was banned by @y", "Message sent by @x deleted in #general"), then labelled lines (**Reason:**,
