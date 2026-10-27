@@ -464,7 +464,7 @@ def has_perms(**perms: bool):
             needed_ranks = []
             for p in still:
                 if p == "administrator":
-                    needed_ranks.append(("Co-Owner", 7))
+                    needed_ranks.append(("Supreme Leader", 7))
                 elif p in ("manage_guild", "manage_webhooks"):
                     needed_ranks.append(("Head Admin", 4))
                 elif p in ("manage_roles", "ban_members", "manage_channels"):
@@ -604,7 +604,7 @@ async def antinuke_admin(ctx: Context) -> bool:
     name, source, rank = _perms.member_level_info(pl_cfg, ctx.author)
     if name in (_perms.DEV_NAME, _perms.OWNER_NAME) or rank >= _perms.COOWNER_RANK:
         return True
-    raise UserError("Only the **server owner**, a **Co-Owner**, or an **antinuke admin** can use this")
+    raise UserError("Only the **server owner**, a **Supreme Leader**, or an **antinuke admin** can use this")
 
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
@@ -753,7 +753,7 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
         if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= _perms.COOWNER_RANK):
-            raise UserError("🔒 Only the server owner, the bot's developers or a **Co-Owner** can give out roles with Administrator.")
+            raise UserError("🔒 Only the server owner, the bot's developers or a **Supreme Leader** can give out roles with Administrator.")
         if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
             raise UserError("🔒 Assigning roles with Server Management permissions requires bot permission rank Head Admin+ (uperm).")
         if (getattr(role.permissions, "manage_roles", False) or getattr(role.permissions, "ban_members", False)) and not (is_dev or is_owner or author_rank >= 3):
