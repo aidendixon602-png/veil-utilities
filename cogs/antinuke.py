@@ -1764,7 +1764,7 @@ class Antinuke(commands.Cog):
         if self.bot.get_guild(guild.id) is None:
             return
         from core import autosetup
-        await autosetup.run_once(self.bot, guild)
+        await autosetup.run_once(self.bot, guild, dm_owner=True)  # a new server: its owner hears about it once
 
     @commands.Cog.listener("on_ready")
     async def autosetup_existing(self):

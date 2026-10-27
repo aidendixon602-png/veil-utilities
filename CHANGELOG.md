@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more DM per server on restart.** The automatic-setup notice for servers the bot was already in goes only to
+  the antinuke log channel; the owner is DMed only when the bot joins a new server. The notice now names the
+  server at the top.
+
 ### Changed
 
 - **Permission levels renamed.** Head Admin is now **Server Manager**, Overseer is **Co-Owner** and Supreme Leader is
