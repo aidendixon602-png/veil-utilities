@@ -732,7 +732,7 @@ def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
                               invoked_with="ping")
         await cog.on_command_completion(ctx)
         card = channel.send.await_args.kwargs["embed"]
-        assert body(card)[1] == "`,ping`" and body(card)[2].startswith("-# ✅ done") and "Server Owner" in body(card)[2]
+        assert body(card)[1] == "`,ping`" and body(card)[2].startswith("-# ✅ done") and "Owner" in body(card)[2]
         channel.send.reset_mock()
         ctx.author = member(8, "ignored")
         await cog.on_command_completion(ctx)
@@ -1019,7 +1019,7 @@ def test_button_is_for_admin_plus_not_discord_administrators_and_never_for_yours
         button = BanLogButton(1, 123, False)
         it, _ = button_interaction(999, admin=True)  # Discord admin, but no bot rank
         await button.callback(it)
-        assert "Only Bot Developers" in it.response.send_message.await_args.args[0]
+        assert "**Admin** permission level or higher" in it.response.send_message.await_args.args[0]
         it.guild.ban.assert_not_awaited()
 
         me, _ = button_interaction(123, owner_id=123)  # the server owner is the target

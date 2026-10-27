@@ -207,7 +207,7 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
         # Bot developers, the server owner, or uperm Admin+ (rank 3+); Discord's own Administrator isn't enough
         if not (is_dev or is_owner or rank >= 3):
             return await it.response.send_message(
-                "🔒 Only Bot Developers, Server Owners, or Admin+ (uperm rank 3+) can use this button.", ephemeral=True)
+                "🔒 Only the server owner, the bot's developers or the **Admin** permission level or higher can use this button.", ephemeral=True)
         if it.user.id == self.user_id:
             return await it.response.send_message("❌ You cannot ban or unban yourself with this button.", ephemeral=True)
 
@@ -880,11 +880,11 @@ class Logging(commands.Cog):
         is_owner = ctx.author.id == ctx.guild.owner_id
         level, granted_by, rank = _perms.member_level_info(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev)
         if is_dev:
-            permission, granted = "Bot Developer", "Built-in"
+            permission, granted = _perms.DEV_NAME, "Built-in"
         elif level and granted_by:
             permission, granted = level, granted_by
         elif is_owner:
-            permission, granted = "Server Owner", "Built-in"
+            permission, granted = _perms.OWNER_NAME, "Built-in"
         else:
             permission, granted, rank = "None", "-", None
         started = getattr(ctx, "_log_started", None)

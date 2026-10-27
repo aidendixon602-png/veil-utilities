@@ -150,7 +150,7 @@ def test_role_based_permlevels():
     role_mock2 = SimpleNamespace(id=789, mention="<@&789>")
     user_with_roles = SimpleNamespace(id=999, roles=[role_mock1, role_mock2])
     name, source, rank = perms.member_level_info(cfg, user_with_roles)
-    # Highest role should win (Head Admin rank 4 > Mod rank 2)
+    # Highest role should win (Head Admin rank 4 > Moderator rank 2)
     assert name == "Head Admin"
     assert source == "<@&789>"
     assert rank == 4
@@ -172,7 +172,7 @@ def test_code_defined_permissions():
     try:
         u = SimpleNamespace(id=12345, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Supreme Leader"
+        assert name == "Co-Owner"  # set up with the old key: still resolves
         assert source == "Built-in"
         assert rank == 7
 
@@ -193,7 +193,7 @@ def test_bot_developer_builtin_logging():
     try:
         u = SimpleNamespace(id=55555, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Bot Developer"
+        assert name == "Developer"
         assert source == "Built-in"
         assert rank == perms.DEV_RANK
     finally:
@@ -242,7 +242,7 @@ def test_command_category_and_rank_resolution():
     assert min_rank_for_command(ban_cmd, bot) == 3  # Admin (rank 3)
 
     kick_cmd = mod_cog.kick
-    assert min_rank_for_command(kick_cmd, bot) == 2  # Mod (rank 2)
+    assert min_rank_for_command(kick_cmd, bot) == 2  # Moderator (rank 2)
 
     purge_cmd = mod_cog.purge
     assert min_rank_for_command(purge_cmd, bot) == 1  # Helper (rank 1)
@@ -263,7 +263,7 @@ def test_moderation_uperm_predicates():
         author=SimpleNamespace(id=999, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
         bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
     )
-    with pytest.raises(UserError, match="user permission"):
+    with pytest.raises(UserError, match="permission level or higher"):
         asyncio.run(ban_predicate(ctx_regular))
 
     # Helper fails ban
@@ -273,7 +273,7 @@ def test_moderation_uperm_predicates():
         author=SimpleNamespace(id=200, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
         bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value=cfg_helper)))
     )
-    with pytest.raises(UserError, match="user permission"):
+    with pytest.raises(UserError, match="permission level or higher"):
         asyncio.run(ban_predicate(ctx_helper))
 
     # Admin passes ban
@@ -362,12 +362,12 @@ def test_all_moderation_actions_have_uperm_checks():
         ("softban", "admin"),
         ("massban", "admin"),
         ("masskick", "admin"),
-        ("kick", "mod"),
-        ("timeout", "mod"),
-        ("untimeout", "mod"),
-        ("warn", "mod"),
-        ("clearwarns", "mod"),
-        ("delwarn", "mod"),
+        ("kick", "moderator"),
+        ("timeout", "moderator"),
+        ("untimeout", "moderator"),
+        ("warn", "moderator"),
+        ("clearwarns", "moderator"),
+        ("delwarn", "moderator"),
         ("purge", "helper"),
         ("botclear", "helper"),
     ]

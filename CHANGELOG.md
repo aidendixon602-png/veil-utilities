@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **New permission level names.** Highest to lowest: **Developer**, **Owner** (both automatic), **Co-Owner**,
+  **Manager**, **Head Admin**, **Admin**, **Moderator**, **Helper**. Supreme Leader is now Co-Owner, Overseer and
+  Bot Manager are now Manager (everything except Administrator), and Mod is now Moderator. Everyone keeps their
+  access: saved levels are moved to the new names when the bot starts, and the old names still work when typed
+  (`,perm add @x mod`). `,permlevels` lists the eight levels numbered 1–8 with who holds each, and "missing
+  level" errors name the level you need ("You need the **Moderator** permission level or higher").
+
 - **`,s` (snipe) has a new look.** The card shows who sent the deleted message, its text (or *[no text content]*
   when it was only a picture), the picture itself, and "deleted message 1 of 5" with the time it was deleted.
   **< Prev** / **Next >** page through the channel's recent deletions (only the person who ran it can page).

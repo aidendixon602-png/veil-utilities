@@ -132,8 +132,8 @@ def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
     uperm_rank = 0
     for p in perms_list:
         if isinstance(p, str) and p.startswith("uperm:"):
-            lvl = p.split(":", 1)[1].strip().lower()
-            from core.perms import PRESETS
+            from core.perms import PRESETS, canonical
+            lvl = canonical(p.split(":", 1)[1].strip().lower())
             if lvl in PRESETS:
                 uperm_rank = max(uperm_rank, PRESETS[lvl][1])
     return max(cat_rank, uperm_rank)

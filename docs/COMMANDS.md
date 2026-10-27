@@ -330,19 +330,19 @@ _Keep your server in line_
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
 | `checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
-| `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: mod |
-| `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: mod |
-| `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames, uperm: mod |
+| `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: moderator |
+| `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: moderator |
+| `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames, uperm: moderator |
 | `hide [channel]` | Hide a channel from @everyone | manage channels, uperm: admin |
-| `jail <member> [reason]` | Jail a member: strips their roles and confines them to #jail | manage roles, moderate members, uperm: mod |
-| `jail list` | List jailed members | moderate members, uperm: mod |
+| `jail <member> [reason]` | Jail a member: strips their roles and confines them to #jail | manage roles, moderate members, uperm: moderator |
+| `jail list` | List jailed members | moderate members, uperm: moderator |
 | `jail setup` | Create the jail role and channel | administrator, uperm: admin |
-| `kick <member> [reason]` | Kick a member | kick members, uperm: mod |
+| `kick <member> [reason]` | Kick a member | kick members, uperm: moderator |
 | `lock [channel] [reason]` | Prevent @everyone from sending messages | manage channels, uperm: admin |
 | `lockdown [reason=lockdown]` | Lock every text channel in the server | administrator, uperm: headadmin |
 | `massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last N minutes (raid cleanup) | administrator, ban members, uperm: admin |
 | `masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last N minutes (raid cleanup) | kick members, uperm: admin |
-| `nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: mod |
+| `nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: moderator |
 | `nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, uperm: headadmin |
 | `purge <amount> [member]` (clear, c, prune) | Delete messages (optionally only from one member) | manage messages, uperm: helper |
 | `purge after <message_id>` | Delete every message after a message ID | manage messages |
@@ -354,7 +354,7 @@ _Keep your server in line_
 | `purge invites [amount=100]` | Delete messages containing invites | manage messages |
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
-| `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members, uperm: mod |
+| `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members, uperm: moderator |
 | `rblauth <target>` (roleblauth, bledauth, rblbypass) | Authorize a member or role to hold blacklisted roles: `,rblauth @user` | manage roles, uperm: headadmin |
 | `rblunauth <target>` (roleblunauth, bledunauth) | Revoke role blacklist authorization for a member or role: `,rblunauth @user` | manage roles, uperm: headadmin |
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
@@ -386,16 +386,16 @@ _Keep your server in line_
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members, uperm: admin |
 | `stripbled` (purgebled, rblstrip, roleblstrip) | Strip all blacklisted roles from unauthorized members across the server | manage roles, uperm: headadmin |
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, uperm: headadmin |
-| `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members, uperm: mod |
+| `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members, uperm: moderator |
 | `unban <user> [reason]` | Unban a user | ban members, uperm: admin |
 | `unhide [channel]` (reveal) | Reveal a hidden channel | manage channels, uperm: admin |
-| `unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: mod |
+| `unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: moderator |
 | `unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels, uperm: admin |
 | `unlockdown` | Unlock every text channel | administrator, uperm: headadmin |
-| `unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine and safely restore non-blacklisted roles | manage roles, moderate members, uperm: mod |
-| `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout (use `untimeout all` for everyone) | moderate members, uperm: mod |
+| `unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine and safely restore non-blacklisted roles | manage roles, moderate members, uperm: moderator |
+| `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout (use `untimeout all` for everyone) | moderate members, uperm: moderator |
 | `untimeout all [reason]` | Remove timeouts from every timed-out member | moderate members, uperm: admin |
-| `warn <member> [reason=No reason provided]` | Warn a member. Auto-punishments can be set with `warnpunish` | moderate members, uperm: mod |
+| `warn <member> [reason=No reason provided]` | Warn a member. Auto-punishments can be set with `warnpunish` | moderate members, uperm: moderator |
 | `warnings <member>` (warns) | List a member's warnings | moderate members |
 | `warnpunish <warnings> <action> [duration]` | Auto-punish at N warnings: `warnpunish 3 timeout 1h`, `warnpunish 5 ban`, `warnpunish 3 none` | administrator, uperm: admin |
 

@@ -40,7 +40,7 @@ class MissingRank(UserError):
 
     def __init__(self, rank: str):
         self.rank = rank
-        super().__init__(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {rank}+) to use.")
+        super().__init__(f"🔒 You need the **{rank}** permission level or higher to use this.")
 
 
 class Ignored(commands.CheckFailure):
@@ -464,13 +464,13 @@ def has_perms(**perms: bool):
             needed_ranks = []
             for p in still:
                 if p == "administrator":
-                    needed_ranks.append(("Supreme Leader", 7))
+                    needed_ranks.append(("Co-Owner", 7))
                 elif p in ("manage_guild", "manage_webhooks"):
                     needed_ranks.append(("Head Admin", 4))
                 elif p in ("manage_roles", "ban_members", "manage_channels"):
                     needed_ranks.append(("Admin", 3))
                 elif p in ("kick_members", "moderate_members", "manage_nicknames"):
-                    needed_ranks.append(("Mod", 2))
+                    needed_ranks.append(("Moderator", 2))
                 elif p in ("manage_messages",):
                     needed_ranks.append(("Helper", 1))
 
@@ -530,7 +530,7 @@ def requires_uperm(min_level_or_func="helper"):
     Usage:
       @requires_uperm
       @requires_uperm()
-      @requires_uperm("mod")
+      @requires_uperm("moderator")
     """
     min_level = "helper"
     func_to_decorate = None
@@ -559,10 +559,10 @@ def requires_uperm(min_level_or_func="helper"):
                 has_admin=False,
             )
             levels = _perms.all_levels(cfg)
-            target_info = levels.get(min_level.lower())
+            target_info = levels.get(_perms.canonical(min_level.lower()))
             min_rank = target_info["rank"] if target_info else 1
             if author_rank < min_rank:
-                raise MissingRank(min_level.title())
+                raise MissingRank(target_info["name"] if target_info else min_level.title())
             return True
 
         pred = commands.check(predicate)
@@ -602,9 +602,9 @@ async def antinuke_admin(ctx: Context) -> bool:
         return True
     pl_cfg = await db.get_config(ctx.guild.id, "permlevels")
     name, source, rank = _perms.member_level_info(pl_cfg, ctx.author)
-    if name in ("Supreme Leader", "Bot Developer", "Server Owner") or rank >= 7:
+    if name in (_perms.DEV_NAME, _perms.OWNER_NAME) or rank >= _perms.COOWNER_RANK:
         return True
-    raise UserError("Only the **server owner**, **Supreme Leader**, or an **antinuke admin** can use this")
+    raise UserError("Only the **server owner**, a **Co-Owner**, or an **antinuke admin** can use this")
 
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
@@ -752,8 +752,8 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
         db = getattr(bot, "db", None)
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
-        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= 7):
-            raise UserError("🔒 Only the Server Owner, Bot Developers, or Supreme Leader can assign roles with Administrator permission.")
+        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= _perms.COOWNER_RANK):
+            raise UserError("🔒 Only the server owner, the bot's developers or a **Co-Owner** can give out roles with Administrator.")
         if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
             raise UserError("🔒 Assigning roles with Server Management permissions requires bot permission rank Head Admin+ (uperm).")
         if (getattr(role.permissions, "manage_roles", False) or getattr(role.permissions, "ban_members", False)) and not (is_dev or is_owner or author_rank >= 3):
