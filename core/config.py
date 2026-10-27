@@ -152,6 +152,7 @@ class Settings:
     music_enabled: bool
     lavalink_uri: str | None  # one or more comma-separated node URLs; empty = free public nodes
     lavalink_password: str
+    lavalink_backups: bool  # with LAVALINK_URI set, still keep the public nodes as fallbacks
 
     # modules that are currently disabled (kept so they work if re-enabled)
     spotify_client_id: str | None
@@ -206,6 +207,7 @@ class Settings:
             music_enabled=r.bool("MUSIC_ENABLED", True) and not music_off,
             lavalink_uri=None if music_off else r.urls("LAVALINK_URI"),
             lavalink_password=r.str("LAVALINK_PASSWORD", "youshallnotpass"),
+            lavalink_backups=r.bool("LAVALINK_BACKUPS", True),
             spotify_client_id=r.str("SPOTIFY_CLIENT_ID"),
             spotify_client_secret=r.str("SPOTIFY_CLIENT_SECRET"),
             twitch_client_id=r.str("TWITCH_CLIENT_ID"),
