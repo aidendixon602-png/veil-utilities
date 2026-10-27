@@ -17,7 +17,7 @@ while editing a large GIF. Member caches grow with server size, so very large se
 ## 3. Upload the files
 1. Open the server's **File Manager**.
 2. Upload `veil-utilities-wispbyte.zip` and **Unarchive** it. `main.py`, `requirements.txt`, `core/`, `cogs/`
-   and `fonts/` must sit at the top level (not inside another folder).
+   and `assets/` must sit at the top level (not inside another folder).
 3. Delete the zip afterwards.
 
 ## 4. Create your `.env`
@@ -37,6 +37,26 @@ Open the **Startup** tab and set:
 If your panel has no requirements setting, put this in **Additional Python packages** instead:
 `discord.py aiosqlite aiohttp python-dotenv wavelink Pillow gTTS feedparser`
 
+### One-line startup command
+Some panels have a single **Startup Command** box instead of separate settings. Paste one of these
+(`main.py` pulls the latest commit from GitHub on every boot unless `AUTO_SYNC_GIT=0` is set in `.env`, so the
+command only has to install packages when `requirements.txt` changes, then start the bot):
+
+Files directly in `/home/container` (recommended):
+```
+cd /home/container && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
+```
+
+Files in a subfolder (`/home/container/veil-utilities`):
+```
+cd /home/container/veil-utilities && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
+```
+
+Fastest boot, never installs packages (only once everything is installed; new packages won't be picked up):
+```
+cd /home/container && python main.py
+```
+
 ## 6. Start it
 Press **Start** and watch the **Console**. The first boot installs packages (a minute or two), then you should see:
 ```
@@ -53,7 +73,7 @@ Invite the bot, drag its role to the top of the role list, and run `,help`.
 Music needs a **Lavalink** server (Java), which won't fit in 512 MB next to the bot, so by default the bot uses
 **free public Lavalink nodes** and needs no setup. It connects to several at once and switches automatically when one
 goes down. Public nodes can be slow or busy at times. For rock-solid music, host Lavalink 4.2+ somewhere else
-(config in `lavalink/application.yml`) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
+(config in [`docs/lavalink/application.yml`](lavalink/application.yml)) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
 to turn music off.
 
 ## Web dashboard (optional)

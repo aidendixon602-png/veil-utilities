@@ -18,17 +18,17 @@ You don't need a Discord token to run the tests — the smoke test loads every m
 ```bash
 ruff check .                     # lint
 python -m pytest -q              # unit tests + offline smoke test
-python scripts/gen_commands.py   # regenerate COMMANDS.md if you touched commands
+python scripts/gen_commands.py   # regenerate docs/COMMANDS.md if you touched commands
 ```
 
-All three run in CI on every push (Python 3.11 and 3.12), and a test fails if `COMMANDS.md`
+All three run in CI on every push (Python 3.11 and 3.12), and a test fails if `docs/COMMANDS.md`
 doesn't match the live commands, so keep it in sync.
 
 ## Adding a feature
 
 1. Drop a new file in `cogs/` (one cog per section) and add it to `EXTENSIONS` in `core/bot.py`.
 2. Give the cog an `emoji` so it appears in the help menu, and docstrings on every command —
-   they are used verbatim in `,help` and `COMMANDS.md`.
+   they are used verbatim in `,help` and `docs/COMMANDS.md`.
 3. Fetch user-supplied URLs **only** through `core/net.py` (it blocks SSRF), and cap downloads
    with `read_capped`.
 4. Read and write per-server settings through `core/db.py`, never raw SQL in a cog.

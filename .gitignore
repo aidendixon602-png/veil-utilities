@@ -33,4 +33,7 @@ venv/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# shared editor settings are kept; personal ones are not
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

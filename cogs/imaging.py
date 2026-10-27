@@ -23,7 +23,8 @@ MAX_BYTES = 8 * 1024 * 1024
 LOW_MEMORY = settings.low_memory
 MAX_FRAMES = 40 if LOW_MEMORY else 80
 MAX_SIDE = 768 if LOW_MEMORY else 1024
-BUNDLED_FONT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts", "caption.ttf")
+BUNDLED_FONT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "assets", "fonts", "caption.ttf")
 URL = re.compile(r"https?://\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?", re.I)
 EMOJI = re.compile(r"<(a?):\w+:(\d+)>")
 

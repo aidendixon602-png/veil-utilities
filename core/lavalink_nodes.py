@@ -2,7 +2,7 @@
 
 Without LAVALINK_URI the bot uses the free public Lavalink v4 nodes below, so music works with zero setup. Public
 nodes are run by volunteers: they can be slow, full or go offline, so the bot connects to all of them and uses
-whichever is healthy (failover). For reliable music, host your own Lavalink (see lavalink/ and HOSTING.md) and set:
+whichever is healthy (failover). For reliable music, host your own Lavalink (see docs/lavalink/ and docs/HOSTING.md) and set:
 
     LAVALINK_URI=http://localhost:2333
     LAVALINK_PASSWORD=youshallnotpass

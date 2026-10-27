@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Tidier project layout.** The top level now holds only the project itself: `docs/` has the command
+  reference, the hosting guide (which now includes the one-line startup commands that used to be in
+  `startup-command.txt`) and the Lavalink config; the contributing guide, security policy and code of conduct live in
+  `.github/` (GitHub still shows them); the caption font moved to `assets/fonts/`. `main.py` and
+  `requirements.txt` stay where the host panel expects them. Shared VS Code settings hide cache folders and tuck
+  companion files (`requirements-dev.txt`, `.editorconfig`, `.gitignore`) under the file they belong to.
+  `scripts/gen_commands.py` now also keeps the README's command and module badges accurate.
+
 ### Added
 
 - **New, cleaner log cards.** Every log now has the same simple shape: a small header saying what happened
