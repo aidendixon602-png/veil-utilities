@@ -718,6 +718,76 @@ def test_timeouts_use_the_moderation_channel_and_fall_back_to_members():
     asyncio.run(go())
 
 
+def test_a_bans_channel_only_gets_bans_timeouts_go_to_the_member_log():
+    async def go():
+        bans, members = text_channel(1, "bans"), text_channel(2, "member-logs")
+        guild = make_guild([bans, members])
+        until = discord.utils.utcnow() + timedelta(hours=1)
+        m = member()
+        before = SimpleNamespace(**{**vars(m), "guild": guild})
+        after = SimpleNamespace(**{**vars(m), "guild": guild, "timed_out_until": until})
+        cog, _ = make_cog({})  # nothing set: both picked up by name, like the screenshot's server
+        await cog.on_member_update(before, after)
+        bans.send.assert_not_awaited()
+        assert members.send.await_args.kwargs["embed"].author.name == "Member timed out · ham"
+        for name in ("ban-logs", "🔨│bans", "BANS"):
+            assert L.bans_only(SimpleNamespace(name=name))
+        assert not L.bans_only(SimpleNamespace(name="mod-logs"))
+    asyncio.run(go())
+
+
+def test_timeouts_can_have_their_own_channel():
+    async def go():
+        mod, mutes = text_channel(1, "mod-logs"), text_channel(2, "mute-logs")
+        guild = make_guild([mod, mutes])
+        m = member()
+        before = SimpleNamespace(**{**vars(m), "guild": guild})
+        after = SimpleNamespace(**{**vars(m), "guild": guild,
+                                   "timed_out_until": discord.utils.utcnow() + timedelta(hours=1)})
+        cog, _ = make_cog({})
+        await cog.on_member_update(before, after)
+        assert mutes.send.await_count == 1 and mod.send.await_count == 0
+        assert canon("mutes") == canon("timeout") == "timeouts"
+    asyncio.run(go())
+
+
+def test_a_kick_skips_a_bans_only_channel_and_goes_with_the_leaves():
+    async def go():
+        bans, joins = text_channel(1, "bans"), text_channel(2, "join-logs")
+        guild = audit_guild([entry(5, member(9, "mod"), reason="spam")])
+        guild.text_channels, guild.get_channel = [bans, joins], {1: bans, 2: joins}.get
+        cog, _ = make_cog({})
+        gone = member(5, "gone")
+        gone.guild = guild
+        await cog.on_member_remove(gone)
+        bans.send.assert_not_awaited()
+        assert joins.send.await_args.kwargs["embed"].author.name == "Member kicked · gone"
+    asyncio.run(go())
+
+
+def test_actions_the_bot_did_for_a_command_credit_whoever_ran_it():
+    mod = member(145140603963414941, "web3_w2z")
+    guild = SimpleNamespace(me=Obj(id=2), get_member=lambda uid: mod if uid == mod.id else None)
+    bot = Obj(id=2)
+    assert fmt.on_behalf(guild, bot, "web3_w2z (145140603963414941): spamming") == (mod, "spamming")
+    assert fmt.on_behalf(guild, bot, "web3_w2z (145140603963414941): None") == (mod, None)  # old "no reason"
+    assert fmt.on_behalf(guild, bot, "web3_w2z (145140603963414941)") == (mod, None)
+    assert fmt.on_behalf(guild, bot, "softban by web3_w2z (145140603963414941): raid") == (mod, "softban: raid")
+    assert fmt.on_behalf(guild, bot, "Antinuke: Mass Ban") == (bot, "Antinuke: Mass Ban")  # the bot's own doing
+    assert fmt.on_behalf(guild, bot, "ghost (999999999999999999): x") == (bot, "ghost (999999999999999999): x")
+    other = member(9, "someone")
+    assert fmt.on_behalf(guild, other, "web3_w2z (145140603963414941): x") == (other, "web3_w2z (145140603963414941): x")
+
+
+def test_audit_reasons_say_who_asked():
+    from core.utils import audit_reason
+    who = Obj(id=145140603963414941, name="web3_w2z")  # prints as its name, like a discord.User
+    assert audit_reason(who, "spam") == "web3_w2z (145140603963414941): spam"
+    assert audit_reason(who) == "web3_w2z (145140603963414941)"
+    assert audit_reason(who, "raid", "softban") == "softban by web3_w2z (145140603963414941): raid"
+    assert len(audit_reason(who, "x" * 2000)) <= 512
+
+
 def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
     async def go():
         channel = text_channel(1, "command-logs")

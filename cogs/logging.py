@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import logging as std_logging
 import time
 from dataclasses import dataclass, field
@@ -63,8 +64,10 @@ KINDS: dict[str, Kind] = {k.key: k for k in (
     Kind("channels", "Channels", "📁", "Channels and categories created, edited, deleted", "channel-logs",
          ("channel-logs", "channels")),
     Kind("voice", "Voice", "🎙️", "Voice joins, leaves, moves and server mutes", "voice-logs", ("voice-logs", "vc-logs")),
-    Kind("bans", "Moderation", "🔨", "Bans, unbans, kicks and timeouts", "mod-logs",
-         ("mod-logs", "modlog", "bans", "ban-logs", "ban-log", "punishments")),
+    Kind("bans", "Moderation", "🔨", "Bans and unbans, plus kicks and timeouts unless the channel is called bans",
+         "mod-logs", ("mod-logs", "modlog", "bans", "ban-logs", "ban-log", "punishments")),
+    Kind("timeouts", "Timeouts", "⏳", "Optional: give timeouts (mutes) their own channel", None,
+         ("mute-logs", "timeout-logs", "mute-log", "timeout-log", "mutes", "timeouts")),
     Kind("server", "Server", "⚙️", "Server settings, invites and emojis", "server-logs",
          ("server-logs", "veil-utilities-logging", "bot-logs", "logs")),
     Kind("commands", "Commands", "⌨️", "Every command a member runs", "command-logs",
@@ -78,9 +81,16 @@ ALIASES = {
     "message": "messages", "msg": "messages", "member": "members", "join": "joinleave", "joins": "joinleave",
     "leave": "joinleave", "leaves": "joinleave", "joinleaves": "joinleave", "joinsleaves": "joinleave", "role": "roles", "channel": "channels",
     "vc": "voice", "moderation": "bans", "mod": "bans", "ban": "bans", "punishments": "bans", "guild": "server",
+    "timeout": "timeouts", "mute": "timeouts", "mutes": "timeouts",
     "command": "commands", "cmd": "commands", "cmds": "commands", "security": "antinuke",
 }
-NO_SERVER_FALLBACK = ("commands", "bans", "joinleave")  # these never spill into the general server log
+NO_SERVER_FALLBACK = ("commands", "bans", "joinleave", "timeouts")  # these never spill into the general server log
+BANS_ONLY = {"bans", "banlogs", "banlog", "ban"}  # a moderation channel with one of these names only gets bans
+
+
+def bans_only(channel) -> bool:
+    """`#bans`, `#ban-logs`, `🔨│bans`...: a channel named for bans, so kicks and timeouts belong elsewhere."""
+    return re.sub(r"[^a-z]", "", getattr(channel, "name", "").lower()) in BANS_ONLY
 SETUP_KINDS = tuple(k.key for k in KINDS.values() if k.channel)
 SETUP_NAMES = {k.channel for k in KINDS.values() if k.channel} | {n for k in KINDS.values() for n in k.names}
 
@@ -953,6 +963,8 @@ class Logging(commands.Cog):
     async def on_member_remove(self, m: discord.Member):
         left = await self.route(m.guild, "joinleave")
         mod = await self.route(m.guild, "bans")
+        if mod is not None and bans_only(mod):  # #bans is for bans: a kick goes with the leaves
+            mod = None
         if not (left or mod):
             return
         kicker, reason = await fmt.audit_actor(m.guild, discord.AuditLogAction.kick, m.id)
@@ -985,6 +997,17 @@ class Logging(commands.Cog):
         await self.post(channel, fmt.user_unbanned(user, mod, reason, clicked=clicker is not None),
                         view=BanLogButton.build(guild.id, user.id, False))
 
+    async def timeout_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        """Timeouts: their own channel if there is one, else the moderation channel (unless it's a bans-only
+        channel like #bans), else the member log."""
+        own = await self.route(guild, "timeouts")
+        if own:
+            return own
+        mod = await self.route(guild, "bans")
+        if mod and not bans_only(mod):
+            return mod
+        return await self.route(guild, "members")
+
     # ------------------------------------------------------------ member updates and roles
     async def _build_role_update_embed(self, member: discord.Member, added: list, removed: list) -> discord.Embed:
         actor, reason = await fmt.audit_actor(member.guild, discord.AuditLogAction.member_role_update, member.id)
@@ -1003,7 +1026,7 @@ class Logging(commands.Cog):
 
         if before.timed_out_until != after.timed_out_until:
             now = discord.utils.utcnow()
-            channel = await self.route(after.guild, "bans", "members")
+            channel = await self.timeout_channel(after.guild)
             if not channel:
                 return
             actor, reason = await fmt.audit_actor(after.guild, discord.AuditLogAction.member_update, after.id)

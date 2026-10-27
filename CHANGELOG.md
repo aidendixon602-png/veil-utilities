@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Timeouts no longer land in `#bans`.** A moderation log channel named for bans (`bans`, `ban-logs`...) now
+  only gets bans and unbans: timeouts go to the member log and kicks go with the leaves. A general `mod-logs`
+  channel still gets all four. Timeouts can also have their own channel: name one `mute-logs` or run
+  `,logs set timeouts #channel`.
+- **Cards credit the moderator, not the bot.** When the bot bans, kicks, times out or changes roles because
+  someone ran a command, the card now says "by @them" with just their reason (no more "by @Veil Utilities"
+  and "web3_w2z: None"). Commands now record the moderator's ID in the audit log reason so this is exact.
+
 - **New permission level names.** Highest to lowest: **Developer**, **Owner** (both automatic), **Co-Owner**,
   **Manager**, **Head Admin**, **Admin**, **Moderator**, **Helper**. Supreme Leader is now Co-Owner, Overseer and
   Bot Manager are now Manager (everything except Administrator), and Mod is now Moderator. Everyone keeps their
