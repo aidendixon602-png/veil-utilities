@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Veil stays out of Ghost Vanguard's log channels.** A channel called `#bans` (and `#ghost-vanguard-logging`)
+  belongs to Ghost Vanguard: Veil no longer logs there, even if an older setup pointed at it, and never moves it
+  into VEIL LOGS. Moderation logs go to Veil's own `#mod-logs`, made automatically on the next start.
+
 ### Added
 
 - **Built-in trusted bots** (`TRUSTED_BOTS` in `core/perms.py`), starting with Ghost Vanguard. In every server the
