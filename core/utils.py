@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import time
+import typing
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable
 
@@ -22,6 +23,10 @@ class Colors:
     orange = 0xE67E22
     error = 0xF04747
     neutral = 0x2B2D31
+    # the reply palette (soft, like greed / bleed): ✅ green, ⚠️ yellow, ❌ red
+    approve = 0xA4EB78
+    caution = 0xFFC56E
+    deny = 0xFF6464
 
 
 class E:  # emojis
@@ -33,6 +38,14 @@ class E:  # emojis
 
 class UserError(commands.CommandError):
     """Raised for user-facing problems; shown as a warning embed."""
+
+
+class MissingRank(UserError):
+    """The author's bot permission rank (uperm) is too low for a command."""
+
+    def __init__(self, rank: str):
+        self.rank = rank
+        super().__init__(f"🔒 You need the **{rank}** permission level or higher to use this.")
 
 
 class Ignored(commands.CheckFailure):
@@ -47,55 +60,56 @@ class Context(commands.Context["Veil"]):
         If the original message was deleted, Discord sends a plain message instead."""
         kwargs.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
         try:
-            return await self.channel.send(*args, **kwargs)
+            message = await self.channel.send(*args, **kwargs)
         except discord.HTTPException:
             kwargs.pop("reference", None)
-            return await self.channel.send(*args, **kwargs)
+            message = await self.channel.send(*args, **kwargs)
+        from core import autoclean
+        autoclean.track(self, message, kwargs.get("view"))  # cleaned up after the command, if the server wants
+        return message
 
-    async def _footer(self) -> str | None:
-        if self.guild is None:
-            return None
-        from core import perms
-        cmd = self.command.qualified_name if self.command else ""
-        if cmd in ("userperm check", "perm check", "perms check", "uperm check", "permission check", "userperm"):
-            cmd = "permission check"
-        seg = f"{self.clean_prefix}{cmd}".rstrip()
-        try:
-            cfg = await self.bot.db.get_config(self.guild.id, "permlevels")
-            is_dev = await self.bot.is_owner(self.author)
-            is_owner = self.author.id == self.guild.owner_id
-            lab = perms.label(cfg, self.author, is_owner=is_owner, is_dev=is_dev)
-        except Exception:
-            lab = None
-        return f"{seg} • {lab}" if lab else (seg or None)
+    # ---- replies: one line, greed / bleed style: "✅ @you: banned @x" (no author header, no footer)
+    #   green  approve/done  it worked          yellow  warn     careful, empty, or nothing to do
+    #   red    deny/fail     it did not work    grey    neutral  plain information (no emoji, no mention)
+    def _line(self, emoji: str, text: str) -> str:
+        """`✅ @you: text`. A reply that already opens with its own emoji (`🔒 ...`) keeps that one instead."""
+        text = str(text)
+        if text.startswith("failed: "):  # the ❌ already says so
+            text = text[len("failed: "):]
+        first, _, rest = text.partition(" ")
+        if rest and first and not first[0].isascii() and not first[0].isalnum():
+            emoji, text = first, rest
+        author = getattr(self, "author", None)
+        who = f"{author.mention}: " if author is not None and hasattr(author, "mention") else ""
+        return f"{emoji} {who}{text}"
 
-    async def _styled(self, color: int, text: str, **kw):
-        embed = discord.Embed(description=text, color=color)
-        if self.bot.user:
-            embed.set_author(name=self.bot.user.display_name, icon_url=self.bot.user.display_avatar.url)
-        footer = await self._footer()
-        if footer:
-            embed.set_footer(text=footer)
-            embed.timestamp = discord.utils.utcnow()
+    async def compact(self, color: int, text: str, **kw):
+        embed = discord.Embed(description=shorten(text, 4096), color=color)
+        kw.setdefault("mention_author", False)
+        if getattr(self, "message", None) is not None:
+            kw.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
         try:
             return await self.send(embed=embed, **kw)
-        except (discord.Forbidden, discord.HTTPException):
+        except discord.HTTPException:
             try:
-                return await self.send(text, **kw)
+                return await self.send(text, mention_author=False)
             except Exception:
                 return None
 
     async def approve(self, text: str, **kw):
-        return await self._styled(Colors.success, text, **kw)
+        return await self.compact(Colors.approve, self._line(E.ok, text), **kw)
 
     async def warn(self, text: str, **kw):
-        return await self._styled(Colors.warn, text, **kw)
+        return await self.compact(Colors.caution, self._line(E.warn, text), **kw)
 
     async def deny(self, text: str, **kw):
-        return await self._styled(Colors.error, text, **kw)
+        return await self.compact(Colors.deny, self._line(E.no, text), **kw)
 
     async def neutral(self, text: str, **kw):
-        return await self._styled(Colors.neutral, text, **kw)
+        return await self.compact(Colors.neutral, text, **kw)
+
+    done = approve  # the role commands' older names
+    fail = deny
 
     async def paginate(self, embeds: list[discord.Embed]):
         if not embeds:
@@ -124,7 +138,7 @@ class OwnedView(discord.ui.View):
     """A button menu only the person who ran the command can use.
 
     Everyone else gets a private "this isn't yours" message. When `allow_developers` is on, the bot's
-    developers (OWNER_IDS) can also use it, e.g. to help someone navigate a menu.
+    developers can also use it, e.g. to help someone navigate a menu.
     """
 
     def __init__(self, author_id: int, *, timeout: float | None = 180, allow_developers: bool = True):
@@ -153,23 +167,16 @@ class Paginator(OwnedView):
         self.index = i % len(self.embeds)
         await it.response.edit_message(embed=self.embeds[self.index], view=self)
 
-    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary)
-    async def first(self, it, _):
-        await self._go(it, 0)
-
-    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.primary)
+    # grey ◀ ▶ ✖, like greed / bleed. ◀ on the first page goes to the last, ▶ on the last to the first.
+    @discord.ui.button(emoji="◀", style=discord.ButtonStyle.secondary)
     async def prev(self, it, _):
         await self._go(it, self.index - 1)
 
-    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary)
+    @discord.ui.button(emoji="▶", style=discord.ButtonStyle.secondary)
     async def next(self, it, _):
         await self._go(it, self.index + 1)
 
-    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.secondary)
-    async def last(self, it, _):
-        await self._go(it, len(self.embeds) - 1)
-
-    @discord.ui.button(emoji="🗑️", style=discord.ButtonStyle.danger)
+    @discord.ui.button(emoji="✖", style=discord.ButtonStyle.secondary)
     async def close(self, it: discord.Interaction, _):
         await it.response.defer()
         await it.delete_original_response()
@@ -202,23 +209,28 @@ class Confirm(OwnedView):
         self.stop()
 
 
-class MidtownConfirm(OwnedView):
-    """Red/Danger Confirm button and Grey/Secondary Cancel button matching Midtown prompt style."""
+class DangerConfirm(OwnedView):
+    """A red Confirm and a grey Cancel button, for actions that reach far (a network ban). Only the person who ran
+    the command can answer, not even another developer."""
+
     def __init__(self, author_id: int, timeout: float = 30):
         super().__init__(author_id, timeout=timeout, allow_developers=False)
-        self.value = None
+        self.value: bool | None = None
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
-    async def yes(self, it, _):
+    async def yes(self, it: discord.Interaction, _):
         self.value = True
         await it.response.defer()
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def no(self, it, _):
+    async def no(self, it: discord.Interaction, _):
         self.value = False
         await it.response.defer()
         self.stop()
+
+
+MidtownConfirm = DangerConfirm  # the name it was added under
 
 
 def chunk_embeds(title: str, lines: list[str], per_page: int = 10, color: int = Colors.main,
@@ -475,6 +487,32 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     return [k for k, v in perms.items() if getattr(p, k, None) != v]
 
 
+async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
+    """A member whose access comes from a permission level also needs the level that opens the command's ,help
+    category (Admin: Admin, Permissions: Co-Owner...), so what ,help shows each level is exactly what it can
+    run. Developers, the server owner, servers that don't use levels, members without a level, and permissions
+    given to a role with fakeperms are left as they were."""
+    from core import perms as _perms
+    from core.help import CATEGORY_MIN_RANKS, category_for_command, rank_name
+    bot, guild, command = getattr(ctx, "bot", None), getattr(ctx, "guild", None), getattr(ctx, "command", None)
+    if guild is None or command is None or bot is None or getattr(bot, "db", None) is None:
+        return
+    gate = CATEGORY_MIN_RANKS.get(category_for_command(command, bot), 0)
+    if gate <= 0 or _perms.is_bot_developer(ctx.author, bot) or ctx.author.id == getattr(guild, "owner_id", None):
+        return
+    pl_cfg = await bot.db.get_config(guild.id, "permlevels")
+    rank = _perms.rank_of(pl_cfg, ctx.author)
+    if rank == 0 or rank >= gate:
+        return
+    needed = set(needed)
+    if needed:
+        fake = await bot.db.get_config(guild.id, "fakeperms")
+        given = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
+        if "administrator" in given or needed <= given:
+            return
+    raise MissingRank(rank_name(gate))
+
+
 def has_perms(**perms: bool):
     """Like has_permissions, but strictly enforces bot permission ranks (uperm) and fakeperms."""
 
@@ -486,23 +524,24 @@ def has_perms(**perms: bool):
             needed_ranks = []
             for p in still:
                 if p == "administrator":
-                    needed_ranks.append(("Supreme Leader", 7))
+                    needed_ranks.append(("Owner", 7))
                 elif p in ("manage_guild", "manage_webhooks"):
-                    needed_ranks.append(("Head Admin", 4))
+                    needed_ranks.append(("Server Manager", 4))
                 elif p in ("manage_roles", "ban_members", "manage_channels"):
                     needed_ranks.append(("Admin", 3))
                 elif p in ("kick_members", "moderate_members", "manage_nicknames"):
-                    needed_ranks.append(("Mod", 2))
+                    needed_ranks.append(("Moderator", 2))
                 elif p in ("manage_messages",):
                     needed_ranks.append(("Helper", 1))
 
             if needed_ranks:
                 needed_ranks.sort(key=lambda x: x[1], reverse=True)
                 top_rank_name = needed_ranks[0][0]
-                raise UserError(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {top_rank_name}+) to use.")
+                raise MissingRank(top_rank_name)
 
             perm_names = ", ".join(f"`{p.replace('_', ' ')}`" for p in still)
             raise UserError(f"🔒 Access Denied: You are missing required bot permissions: {perm_names}")
+        await level_gate(ctx, (k for k, v in perms.items() if v))
         return True
 
     pred = commands.check(predicate)
@@ -542,6 +581,7 @@ def is_server_owner():
         if ctx.guild and ctx.author.id == ctx.guild.owner_id:
             return True
         raise UserError("Only the **server owner** can use this command")
+    predicate.__veil_owner_only__ = True  # ,help shows these to the owner only
     return commands.check(predicate)
 
 
@@ -552,7 +592,7 @@ def requires_uperm(min_level_or_func="helper"):
     Usage:
       @requires_uperm
       @requires_uperm()
-      @requires_uperm("mod")
+      @requires_uperm("moderator")
     """
     min_level = "helper"
     func_to_decorate = None
@@ -581,10 +621,11 @@ def requires_uperm(min_level_or_func="helper"):
                 has_admin=False,
             )
             levels = _perms.all_levels(cfg)
-            target_info = levels.get(min_level.lower())
+            target_info = levels.get(_perms.canonical(min_level.lower()))
             min_rank = target_info["rank"] if target_info else 1
             if author_rank < min_rank:
-                raise UserError(f"🔒 Access Denied: This command requires a **user permission** rank (`uperm` {min_level.title()}+) to use.")
+                raise MissingRank(target_info["name"] if target_info else min_level.title())
+            await level_gate(ctx)
             return True
 
         pred = commands.check(predicate)
@@ -624,9 +665,9 @@ async def antinuke_admin(ctx: Context) -> bool:
         return True
     pl_cfg = await db.get_config(ctx.guild.id, "permlevels")
     name, source, rank = _perms.member_level_info(pl_cfg, ctx.author)
-    if name in ("Supreme Leader", "Bot Developer", "Server Owner") or rank >= 7:
+    if name in (_perms.DEV_NAME, _perms.OWNER_NAME) or rank >= _perms.COOWNER_RANK:
         return True
-    raise UserError("Only the **server owner**, **Supreme Leader**, or an **antinuke admin** can use this")
+    raise UserError("Only the **server owner**, someone with the **Owner** level, or an **antinuke admin** can use this")
 
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
@@ -640,15 +681,82 @@ async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
         await cog.guard(ctx, module, amount)
 
 
+def uses_compact_replies(ctx: Context) -> bool:
+    """True for commands marked extras={"compact": True}, or any subcommand of one."""
+    cmd = getattr(ctx, "command", None)
+    if cmd is None:
+        return False
+    root = getattr(cmd, "root_parent", None) or cmd
+    return bool(cmd.extras.get("compact") or root.extras.get("compact"))
+
+
+def _plain_permission(name: str) -> str:
+    return name.replace("_", " ").replace("guild", "server").title()
+
+
+def _soften(text: str) -> str:
+    """'🔒 Access Denied: You can't ...' -> "you can't ..." (keeps mentions, bold and code as they are)."""
+    text = text.strip()
+    while text and not text[0].isalnum() and text[0] not in "<*`@#":
+        text = text[1:].lstrip()
+    if text.lower().startswith("access denied:"):
+        text = text[len("access denied:"):].lstrip()
+    if text[:1].isupper() and not text.startswith("I "):
+        text = text[0].lower() + text[1:]
+    return text.rstrip(".")
+
+
+def compact_failure(ctx: Context, error: Exception) -> str | None:
+    """The red one-line message for a failed compact command, or None to use the normal error handling."""
+    reason: str | None = None
+    if isinstance(error, MissingRank):
+        reason = f"you need the **{error.rank}** rank or higher (`uperm`)"
+    elif isinstance(error, commands.BotMissingPermissions):
+        reason = "I'm missing " + ", ".join(f"**{_plain_permission(p)}**" for p in error.missing_permissions)
+    elif isinstance(error, commands.MissingPermissions):
+        reason = "you need " + ", ".join(f"**{_plain_permission(p)}**" for p in error.missing_permissions)
+    elif isinstance(error, discord.Forbidden):
+        role = getattr(ctx, "compact_role", None)
+        reason = (f"I'm not allowed to. Move my role above {role.mention} in Server Settings → Roles" if role
+                  else "I'm not allowed to. Check my role position and permissions")
+    elif isinstance(error, commands.RoleNotFound):
+        reason = f"couldn't find a role matching `{error.argument}`"
+    elif isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
+        reason = f"couldn't find a member matching `{error.argument}`"
+    elif isinstance(error, commands.MaxConcurrencyReached):
+        reason = "this is already running"
+    elif isinstance(error, (UserError, commands.BadArgument)):
+        reason = _soften(str(error)) or None
+    if reason is None:
+        return None
+    action = getattr(ctx, "compact_action", None)
+    return f"failed to {action}: {reason}" if action else f"failed: {reason}"
+
+
+def check_target(ctx: Context, target: discord.abc.Snowflake, action: str = "moderate") -> None:
+    """Who nobody can moderate, whatever their own rank: themselves, a bot developer, the server owner and the bot.
+
+    Works on anyone, member of the server or not (a ban by user ID, a network ban), so commands that accept a plain
+    user ID can't get around it."""
+    from core import perms as _perms
+    bot = getattr(ctx, "bot", None)
+    tid = getattr(target, "id", target)
+    if tid == ctx.author.id:
+        raise UserError(f"You can't {action} yourself")
+    guild = getattr(ctx, "guild", None)
+    mine = {getattr(getattr(bot, "user", None), "id", None), getattr(getattr(guild, "me", None), "id", None)} - {None}
+    if tid in mine:
+        raise UserError(f"I can't {action} myself")
+    if _perms.is_bot_developer(tid, bot):
+        raise UserError(f"You can't {action} a bot developer")
+    if guild is not None and tid == getattr(guild, "owner_id", None):
+        raise UserError(f"You can't {action} the server owner")
+
+
 def check_hierarchy(ctx: Context, target: discord.Member, action: str = "moderate") -> None:
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
-    if target.id == ctx.author.id:
-        raise UserError(f"You can't {action} yourself")
-    if _perms.is_bot_developer(target, bot):
-        raise UserError(f"You can't {action} a bot developer")
-    if target.id == ctx.guild.owner_id:
-        raise UserError(f"You can't {action} the server owner")
+    check_target(ctx, target, action)
     if target == ctx.guild.me:
         raise UserError(f"I can't {action} myself")
     is_dev = _perms.is_bot_developer(ctx.author, bot)
@@ -722,10 +830,10 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
         db = getattr(bot, "db", None)
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
-        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= 7):
-            raise UserError("🔒 Only the Server Owner, Bot Developers, or Supreme Leader can assign roles with Administrator permission.")
+        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= _perms.COOWNER_RANK):
+            raise UserError("🔒 Only the server owner, the bot's developers or someone with the **Owner** level can give out roles with Administrator.")
         if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
-            raise UserError("🔒 Assigning roles with Server Management permissions requires bot permission rank Head Admin+ (uperm).")
+            raise UserError("🔒 Assigning roles with Server Management permissions requires the **Server Manager** level or higher.")
         if (getattr(role.permissions, "manage_roles", False) or getattr(role.permissions, "ban_members", False)) and not (is_dev or is_owner or author_rank >= 3):
             raise UserError("🔒 Assigning roles with Moderation or Role management permissions requires bot permission rank Admin+ (uperm).")
     check_role(ctx, role)
@@ -741,8 +849,50 @@ def is_dangerous(perms: discord.Permissions) -> bool:
     return any(getattr(perms, p, False) for p in DANGEROUS_PERMS)
 
 
+async def respond_or_edit(it: discord.Interaction, embed: discord.Embed, view: discord.ui.View | None = None):
+    """Update the message a menu interaction came from (one round trip when it hasn't been acknowledged yet)."""
+    resp = getattr(it, "response", None)
+    is_done = resp.is_done() if resp and hasattr(resp, "is_done") else False
+    kwargs = {"embed": embed}
+    if view is not None:
+        kwargs["view"] = view
+    if is_done and hasattr(it, "edit_original_response"):
+        await it.edit_original_response(**kwargs)
+    elif resp and hasattr(resp, "edit_message"):
+        await resp.edit_message(**kwargs)
+    elif hasattr(it, "edit_original_response"):
+        await it.edit_original_response(**kwargs)
+
+
+def audit_reason(author, reason: str | None = None, action: str | None = None) -> str:
+    """What Discord's audit log records when the bot acts for someone: `name (id): reason`, or
+    `softban by name (id): reason`. The logs read the ID back to credit that person instead of the bot."""
+    who = f"{author} ({author.id})"
+    head = f"{action} by {who}" if action else who
+    return shorten(f"{head}: {reason}" if reason else head, 512)
+
+
 def shorten(text: str, n: int = 1024) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def shorten_md(text: str, n: int = 1024) -> str:
+    """Like shorten, but never leaves Markdown half-open. Cutting inside `code`, **bold** or a (bracket) would
+    make Discord format everything after it on the same message as code or bold."""
+    if len(text) <= n:
+        return text
+    cut = text[: n - 1]
+    space = cut.rfind(" ")
+    if space > n // 3:  # end on a whole word
+        cut = cut[:space]
+    for mark in ("`", "**", "*", "__", "||", "~~"):
+        while cut.count(mark) % 2:
+            cut = cut[: cut.rfind(mark)]
+    while cut.count("(") > cut.count(")"):
+        cut = cut[: cut.rfind("(")]
+    while cut.count("[") > cut.count("]"):
+        cut = cut[: cut.rfind("[")]
+    return cut.rstrip(" ,;:/-—–(") + "…"
 
 
 def human_join(items: Iterable[str], conj: str = "and") -> str:
@@ -750,3 +900,33 @@ def human_join(items: Iterable[str], conj: str = "and") -> str:
     if len(items) <= 2:
         return f" {conj} ".join(items)
     return ", ".join(items[:-1]) + f", {conj} {items[-1]}"
+
+
+_KIND_NAMES = {"member": "member", "user": "user", "role": "role", "textchannel": "channel",
+               "voicechannel": "voice channel", "guildchannel": "channel", "int": "number", "float": "number",
+               "bool": "yes/no", "emoji": "emoji", "partialemoji": "emoji", "str": "text"}
+
+
+def input_error_text(error: commands.CommandError) -> str:
+    """A bad argument in plain words, naming what was typed instead of the parameter's internal name."""
+    if isinstance(error, commands.BadUnionArgument):
+        kinds = []
+        for conv in error.converters:
+            name = _KIND_NAMES.get(getattr(conv, "__name__", str(conv)).lower(), getattr(conv, "__name__", "value").lower())
+            if name not in kinds:
+                kinds.append(name)
+        typed = next((getattr(e, "argument", None) for e in error.errors if getattr(e, "argument", None)), None)
+        what = human_join(kinds, "or") or "value"
+        if typed is not None:
+            return f"couldn't find a {what} matching `{typed}`"
+        return f"`{error.param.name}` has to be a {what}"
+    if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
+        return f"couldn't find a member matching `{error.argument}`"
+    if isinstance(error, commands.RoleNotFound):
+        return f"couldn't find a role matching `{error.argument}`"
+    if isinstance(error, commands.ChannelNotFound):
+        return f"couldn't find a channel matching `{error.argument}`"
+    if isinstance(error, commands.MissingRequiredArgument):
+        return f"`{error.param.name}` is missing"
+    text = str(error).strip()
+    return (text[:1].lower() + text[1:]) if text else "that input isn't valid"

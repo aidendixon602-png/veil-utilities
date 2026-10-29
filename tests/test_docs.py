@@ -1,4 +1,4 @@
-"""COMMANDS.md must match the bot's real commands (regenerate with `python scripts/gen_commands.py`)."""
+"""docs/COMMANDS.md must match the bot's real commands (regenerate with `python scripts/gen_commands.py`)."""
 import subprocess
 import sys
 from pathlib import Path

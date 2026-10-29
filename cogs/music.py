@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core.config import settings
-from core.lavalink_nodes import resolve_nodes
+from core.lavalink_nodes import _own_nodes, resolve_nodes
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, missing_perms, shorten, requires_uperm
 
 try:
@@ -66,12 +66,19 @@ class Music(commands.Cog):
 
     async def cog_load(self):
         self.nodes, self.public = resolve_nodes(settings.lavalink_uri, settings.lavalink_password,
-                                                settings.music_enabled)
+                                                settings.music_enabled,
+                                                backups=getattr(settings, "lavalink_backups", True))
         if wavelink is None or not self.nodes:
             log.info("Music disabled (%s)", "wavelink isn't installed" if wavelink is None else "MUSIC_ENABLED=false")
             self.nodes = []
             return
-        log.info("Music: connecting to %d %s Lavalink node(s)", len(self.nodes), "public" if self.public else "")
+        if self.public:
+            log.info("Music: connecting to %d public Lavalink node(s)", len(self.nodes))
+        else:
+            own = len(_own_nodes(settings.lavalink_uri, settings.lavalink_password, True)[0])
+            backups = len(self.nodes) - own
+            log.info("Music: connecting to %d Lavalink node(s): %d of yours%s", len(self.nodes), own,
+                     f" + {backups} public backup(s)" if backups else "")
         self.node_watchdog.start()
 
     def _make_node(self, index: int) -> "wavelink.Node":
@@ -356,7 +363,7 @@ class Music(commands.Cog):
                 await player.queue.put_wait(t)
                 added += 1
             more = f" (queue limit reached, skipped {len(tracks.tracks) - added})" if added < len(tracks.tracks) else ""
-            await ctx.approve(f"Queued **{added}** tracks from **{tracks.name}**{more}")
+            await ctx.approve(f"queued **{added}** tracks from **{tracks.name}**{more}")
         else:
             track = tracks[0]
             track.extras = extras
@@ -380,14 +387,14 @@ class Music(commands.Cog):
             votes &= humans
             needed = max(1, (len(humans) + 1) // 2)
             if len(votes) < needed:
-                return await ctx.neutral(f"⏭️ Vote to skip: **{len(votes)}/{needed}**")
+                return await ctx.neutral(f"voted to skip · **{len(votes)}/{needed}**")
         self._skip_votes.pop(ctx.guild.id, None)
         await player.skip(force=True)
         await ctx.message.add_reaction("⏭️")
 
     @commands.command()
     async def pause(self, ctx: Context):
-        """Pause"""
+        """Pause the music"""
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         await player.pause(True)
@@ -395,7 +402,7 @@ class Music(commands.Cog):
 
     @commands.command()
     async def resume(self, ctx: Context):
-        """Resume"""
+        """Resume the music"""
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         await player.pause(False)
@@ -456,7 +463,7 @@ class Music(commands.Cog):
                     raise UserError(f"Could not find lyrics for `{clean_title}`.")
                 data = await resp.json(content_type=None)
         except Exception:
-            raise UserError(f"Lyrics service didn't respond, try again in a moment.")
+            raise UserError("Lyrics service didn't respond, try again in a moment.")
 
         if not data or not isinstance(data, list):
             raise UserError(f"No lyrics found for `{clean_title}`.")
@@ -507,7 +514,7 @@ class Music(commands.Cog):
         volume = max(0, min(volume, 150))
         await player.set_volume(volume)
         player._vol = volume  # type: ignore[attr-defined]
-        await ctx.approve(f"Volume **{volume}%**")
+        await ctx.approve(f"set the volume to **{volume}%**")
 
     @commands.command()
     async def loop(self, ctx: Context, mode: str = "track"):
@@ -518,7 +525,7 @@ class Music(commands.Cog):
         if mode not in modes:
             raise UserError("Use `track`, `queue` or `off`")
         player.queue.mode = modes[mode]
-        await ctx.approve(f"Loop: **{mode}**")
+        await ctx.approve("turned looping **off**" if mode == "off" else f"looping the **{mode}**")
 
     @commands.command()
     async def shuffle(self, ctx: Context):
@@ -537,7 +544,7 @@ class Music(commands.Cog):
         track = player.queue[position - 1]
         await self.require_dj(ctx, player, requester_ok=track)
         player.queue.delete(position - 1)
-        await ctx.approve(f"Removed **{track.title}**")
+        await ctx.approve(f"removed **{track.title}** from the queue")
 
     @commands.command()
     async def clearqueue(self, ctx: Context):
@@ -545,7 +552,7 @@ class Music(commands.Cog):
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         player.queue.clear()
-        await ctx.approve("Cleared the queue")
+        await ctx.approve("cleared the queue")
 
     @commands.command()
     async def seek(self, ctx: Context, position: str):
@@ -558,7 +565,7 @@ class Music(commands.Cog):
         if player.current.is_stream or secs * 1000 > player.current.length:
             raise UserError("You can't seek there")
         await player.seek(secs * 1000)
-        await ctx.approve(f"Seeked to **{position}**")
+        await ctx.approve(f"jumped to **{position}**")
 
     @commands.command()
     async def autoplay(self, ctx: Context, state: bool):
@@ -566,7 +573,7 @@ class Music(commands.Cog):
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         player.autoplay = wavelink.AutoPlayMode.enabled if state else wavelink.AutoPlayMode.partial
-        await ctx.approve(f"Autoplay **{'on' if state else 'off'}**")
+        await ctx.approve(f"turned autoplay **{'on' if state else 'off'}**")
 
     @commands.command(name="audiofilter", aliases=["preset", "fx"])
     async def audiofilter(self, ctx: Context, preset: str = None):
@@ -591,7 +598,7 @@ class Music(commands.Cog):
         elif preset == "karaoke":
             f.karaoke.set(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
         await player.set_filters(f, seek=True)
-        await ctx.approve(f"Filter: **{preset}**")
+        await ctx.approve(f"turned the **{preset}** filter on" if preset != "off" else "turned the filters off")
 
     @commands.command()
     @has_perms(manage_guild=True)
@@ -601,13 +608,13 @@ class Music(commands.Cog):
         if role is None:
             cfg.pop("dj_role", None)
             await self.bot.db.set_config(ctx.guild.id, "music", cfg)
-            return await ctx.approve("DJ role removed: everyone in the voice channel can control music")
+            return await ctx.approve("removed the DJ role · everyone in the voice channel can control music")
         if role.is_default():
             raise UserError("Pick a real role, not @everyone")
         cfg["dj_role"] = role.id
         await self.bot.db.set_config(ctx.guild.id, "music", cfg)
-        await ctx.approve(f"DJ role set to {role.mention}. Others can still `play`, vote to `skip`, "
-                          "and remove their own tracks")
+        await ctx.approve(f"set the DJ role to {role.mention}\n"
+                          "-# everyone else can still `play`, vote to `skip` and remove their own tracks")
 
     @commands.command(aliases=["deaf", "undeafen"])
     async def deafen(self, ctx: Context):
@@ -617,9 +624,9 @@ class Music(commands.Cog):
         new_state = not is_deaf
         try:
             await ctx.guild.change_voice_state(channel=player.channel, self_deaf=new_state)
-            await ctx.approve(f"Bot is now **{'deafened' if new_state else 'undeafened'}** in voice.")
+            await ctx.approve(f"{'deafened' if new_state else 'undeafened'} myself in voice")
         except Exception as e:
-            await ctx.warn(f"Could not change deafen state: {e}")
+            await ctx.warn(f"couldn't change my deafen state: {e}")
 
 
 async def setup(bot):

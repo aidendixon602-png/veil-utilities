@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import discord
 
+from core import logembeds as fmt
 from core.utils import Colors, now, ts
 
 
@@ -17,12 +18,7 @@ async def create_case(bot, guild: discord.Guild, action: str, target: discord.ab
     settings = await bot.db.get_config(guild.id, "settings")
     channel = guild.get_channel(settings.get("modlog", 0))
     if channel:
-        name = str(target) if isinstance(target, (discord.User, discord.Member)) else f"<@{target.id}>"
-        embed = discord.Embed(title=f"Case #{num} • {action.title()}", color=Colors.main,
-                              timestamp=discord.utils.utcnow())
-        embed.add_field(name="User", value=f"{name} (`{target.id}`)")
-        embed.add_field(name="Moderator", value=f"{moderator} (`{moderator.id}`)")
-        embed.add_field(name="Reason", value=reason or "No reason provided", inline=False)
+        embed = fmt.case_card(num, action, target, moderator, reason)
         try:
             await channel.send(embed=embed)
         except discord.HTTPException:

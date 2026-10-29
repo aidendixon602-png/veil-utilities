@@ -15,8 +15,25 @@ class Permissions(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_load(self):
+        """Move every server's saved levels to the current names (Mod -> Moderator, ...)."""
+        db = getattr(self.bot, "db", None)
+        guilds_with = getattr(db, "guilds_with", None)
+        if guilds_with is None:
+            return
+        try:
+            for gid, data in await guilds_with("permlevels"):
+                cached = await db.get_config(gid, "permlevels")
+                if perms.migrate(cached):
+                    await db.set_config(gid, "permlevels", cached)
+        except Exception:  # a migration problem must never stop the bot from starting; reads migrate too
+            pass
+
     async def cfg(self, gid):
-        return await self.bot.db.get_config(gid, "permlevels", {"users": {}, "overrides": {}})
+        cfg = await self.bot.db.get_config(gid, "permlevels", {"users": {}, "overrides": {}})
+        if perms.migrate(cfg):
+            await self.save(gid, cfg)
+        return cfg
 
     async def save(self, gid, cfg):
         await self.bot.db.set_config(gid, "permlevels", cfg)
@@ -72,7 +89,7 @@ class Permissions(commands.Cog):
             if target.bot:
                 raise UserError("Bots can't have permission levels")
             if perms.is_bot_developer(target, self.bot):
-                raise UserError(f"{target.mention} is a Bot Developer with built-in supreme permissions.")
+                raise UserError(f"{target.mention} is a **{perms.DEV_NAME}**: that level is automatic and above every other.")
             target_current = perms.rank_of(cfg, target, is_owner=target.id == ctx.guild.owner_id,
                                            is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
                                            has_admin=False)
@@ -83,7 +100,7 @@ class Permissions(commands.Cog):
                     raise UserError(f"You can't change {target.mention}, they rank at or above you")
             cfg.setdefault("users", {})[str(target.id)] = key
             await self.save(ctx.guild.id, cfg)
-            await ctx.approve(f"Set {target.mention}'s permission level to **{info['name']}**.")
+            await ctx.approve(f"set {target.mention}'s permission level to **{info['name']}**")
         else:
             if target.is_default():
                 raise UserError("You can't assign a permission level to @everyone")
@@ -99,7 +116,7 @@ class Permissions(commands.Cog):
                     raise UserError(f"You can't assign a level to {target.mention}, it ranks at or above your highest role")
             cfg.setdefault("roles", {})[str(target.id)] = key
             await self.save(ctx.guild.id, cfg)
-            await ctx.approve(f"Set {target.mention}'s permission level to **{info['name']}**.")
+            await ctx.approve(f"set {target.mention}'s permission level to **{info['name']}**")
 
     @userperm.group(name="remove", aliases=["rem", "delete", "unset", "clear"], case_insensitive=True, invoke_without_command=True)
     @requires_uperm("headadmin")
@@ -124,7 +141,7 @@ class Permissions(commands.Cog):
                 raise UserError(f"You can't change {target.mention}, they rank at or above you")
             users.pop(str(target.id))
             await self.save(ctx.guild.id, cfg)
-            await ctx.approve(f"Removed {target.mention}'s permission level.")
+            await ctx.approve(f"removed {target.mention}'s permission level")
         else:
             roles = cfg.get("roles", {})
             if str(target.id) not in roles:
@@ -133,7 +150,7 @@ class Permissions(commands.Cog):
                 raise UserError(f"You can't change {target.mention}, it ranks at or above your highest role")
             roles.pop(str(target.id))
             await self.save(ctx.guild.id, cfg)
-            await ctx.approve(f"Removed {target.mention}'s permission level.")
+            await ctx.approve(f"removed {target.mention}'s permission level")
 
     @up_remove.command(name="deleted")
     @requires_uperm("headadmin")
@@ -144,11 +161,11 @@ class Permissions(commands.Cog):
         users = cfg.get("users", {})
         gone = [uid for uid in users if not ctx.guild.get_member(int(uid))]
         if not gone:
-            return await ctx.warn("No permission levels belong to members who left.")
+            return await ctx.warn("no permission levels belong to members who left")
         for uid in gone:
             users.pop(uid)
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Removed **{len(gone)}** permission level(s) from members who left.")
+        await ctx.approve(f"removed **{len(gone)}** permission level{'' if len(gone) == 1 else 's'} from members who left")
 
     @userperm.command(name="list", aliases=["all"])
     @has_perms(administrator=True)
@@ -183,7 +200,7 @@ class Permissions(commands.Cog):
         levels = perms.all_levels(cfg)
 
         if isinstance(target, discord.Role):
-            rkey = (
+            rkey = perms.canonical(
                 perms.CODE_ROLES.get(target.id)
                 or perms.CODE_ROLES.get(str(target.id))
                 or perms.CODE_ROLES.get(target.name)
@@ -191,7 +208,8 @@ class Permissions(commands.Cog):
                 or (cfg.get("roles") or {}).get(str(target.id))
             )
             rname = levels[rkey]["name"] if (rkey and rkey in levels) else "None"
-            return await ctx.warn(f"{target.mention} - **{rname}**")
+            return await ctx.neutral(f"{target.mention} has the **{rname}** permission level" if rkey and rkey in levels
+                                     else f"{target.mention} has no permission level")
 
         if target != ctx.author and not ctx.author.guild_permissions.manage_messages:
             actor = await self.actor_rank(ctx)
@@ -205,7 +223,8 @@ class Permissions(commands.Cog):
             is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
         )
         display_name = name or "None"
-        await ctx.warn(f"{target.mention} - **{display_name}**")
+        await ctx.neutral(f"{target.mention} has the **{display_name}** permission level" if name
+                          else f"{target.mention} has no permission level")
 
     # ============================================================ levels
     @commands.group(aliases=["plevels", "plvl"], case_insensitive=True, invoke_without_command=True)
@@ -217,45 +236,41 @@ class Permissions(commands.Cog):
         levels = sorted(perms.all_levels(cfg).items(), key=lambda kv: kv[1]["rank"], reverse=True)
         user_counts: dict[str, int] = {}
         for uid, key in list(cfg.get("users", {}).items()):
+            key = perms.canonical(key)
             user_counts[key] = user_counts.get(key, 0) + 1
         for uid, key in perms.CODE_USERS.items():
             if str(uid) not in cfg.get("users", {}):
+                key = perms.canonical(key)
                 user_counts[key] = user_counts.get(key, 0) + 1
 
         role_counts: dict[str, int] = {}
         for rid, key in list(cfg.get("roles", {}).items()):
+            key = perms.canonical(key)
             role_counts[key] = role_counts.get(key, 0) + 1
         for r_id_or_name, key in perms.CODE_ROLES.items():
+            key = perms.canonical(key)
             role_counts[key] = role_counts.get(key, 0) + 1
 
-        lines = [f"Highest to lowest. Assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"]
-        order_map = {name: i for i, name in enumerate(perms.HIERARCHY_ORDER)}
-        all_entries = []
-        for name, rank in perms.RESERVED.values():
-            all_entries.append((order_map.get(name, 0), f"`rank {rank}` **{name}** — automatic (not assignable)"))
-
-        for key, info in levels:
+        def grants(key: str, info: dict) -> str:
             if "administrator" in info["perms"]:
-                grants = "all bot permissions + administrator"
-            elif key == "overseer":
-                grants = "executive oversight (all staff & voice perms, no administrator)"
-            elif key == "botmanager":
-                grants = "bot management suite & audit logs"
-            else:
-                grants = (", ".join(p.replace("_", " ") for p in info["perms"]) or "none")
-            ucnt = user_counts.get(key, 0)
-            rcnt = role_counts.get(key, 0)
-            parts = []
-            parts.append(f"**{ucnt}** member{'s' if ucnt != 1 else ''}")
-            if rcnt:
-                parts.append(f"**{rcnt}** role{'s' if rcnt != 1 else ''}")
-            count_str = " • ".join(parts)
-            line = f"`rank {info['rank']}` **{info['name']}** (`{key}`) — {grants} • {count_str}"
-            all_entries.append((order_map.get(info["name"], 99), line))
+                return "every bot permission, including Administrator"
+            if set(info["perms"]) >= {p for p in perms.ALL_BOT_PERMS if p != "administrator"}:
+                return "everything except Administrator"
+            shown = {"manage_guild": "manage server", "moderate_members": "timeout members"}
+            return ", ".join(shown.get(p, p.replace("_", " ")) for p in info["perms"]) or "no permissions"
 
-        all_entries.sort(key=lambda x: x[0])
-        for _, line in all_entries:
-            lines.append(line)
+        def holders(key: str) -> str:
+            ucnt, rcnt = user_counts.get(key, 0), role_counts.get(key, 0)
+            parts = [f"{ucnt} member{'s' if ucnt != 1 else ''}"] if ucnt else []
+            if rcnt:
+                parts.append(f"{rcnt} role{'s' if rcnt != 1 else ''}")
+            return f"\n-# {' · '.join(parts)}" if parts else ""
+
+        rows = [(perms.DEV_NAME, "automatic: the bot's developers"),
+                (perms.OWNER_NAME, "automatic: whoever owns the server")]
+        rows += [(f"{info['name']} (`{key}`)", grants(key, info) + holders(key)) for key, info in levels]
+        lines = [f"Highest to lowest. Give one with `{ctx.clean_prefix}perm add <member|role> <level>`.", ""]
+        lines += [f"**{i}. {name}** — {text}" for i, (name, text) in enumerate(rows, 1)]
 
         e = discord.Embed(
             title="Permission levels",
@@ -303,27 +318,37 @@ class Permissions(commands.Cog):
         embed.set_footer(text=f"Server: {ctx.guild.name} • {ctx.clean_prefix}permlevels for staff levels")
         await ctx.send(embed=embed)
 
+    @staticmethod
+    def _level(cfg: dict, text: str) -> str:
+        """An assignable level from its key or name (old names too), or a clear error."""
+        key = perms.resolve_key(cfg, text)
+        if key:
+            return key
+        reserved = perms.is_reserved(text)
+        if reserved:
+            raise UserError(f"**{reserved}** is automatic and can't be changed")
+        opts = human_join(["`" + d["name"] + "`" for d in perms.all_levels(cfg).values()], "or")
+        raise UserError(f"Unknown level. Options: {opts}")
+
     @permlevels.command(name="rename")
     @is_server_owner()
     async def pl_rename(self, ctx: Context, key: str, *, name: str):
         """Rename a level (server owner)"""
         cfg = await self.cfg(ctx.guild.id)
-        if key.lower() not in perms.all_levels(cfg):
-            raise UserError("Unknown level key")
-        cfg.setdefault("overrides", {}).setdefault(key.lower(), {})["name"] = name[:40]
+        key = self._level(cfg, key)
+        cfg.setdefault("overrides", {}).setdefault(key, {})["name"] = name[:40]
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Renamed `{key.lower()}` to **{name[:40]}**.")
+        await ctx.approve(f"renamed `{key}` to **{name[:40]}**")
 
     @permlevels.command(name="rank")
     @is_server_owner()
     async def pl_rank(self, ctx: Context, key: str, rank: int):
         """Change a level's rank (server owner)"""
         cfg = await self.cfg(ctx.guild.id)
-        if key.lower() not in perms.all_levels(cfg):
-            raise UserError("Unknown level key")
-        cfg.setdefault("overrides", {}).setdefault(key.lower(), {})["rank"] = max(1, min(rank, 899))
+        key = self._level(cfg, key)
+        cfg.setdefault("overrides", {}).setdefault(key, {})["rank"] = max(1, min(rank, 899))
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Set `{key.lower()}` to rank **{max(1, min(rank, 899))}**.")
+        await ctx.approve(f"set `{key}` to rank **{max(1, min(rank, 899))}**")
 
     @permlevels.command(name="grant")
     @is_server_owner()
@@ -331,10 +356,8 @@ class Permissions(commands.Cog):
         """Toggle a bot-permission a level grants (server owner)"""
         from cogs.settings import VALID_PERMS
         cfg = await self.cfg(ctx.guild.id)
-        key = key.lower()
+        key = self._level(cfg, key)
         levels = perms.all_levels(cfg)
-        if key not in levels:
-            raise UserError("Unknown level key")
         permission = permission.lower().replace(" ", "_")
         if permission not in VALID_PERMS:
             raise UserError(f"`{permission}` isn't a valid permission")
@@ -347,7 +370,7 @@ class Permissions(commands.Cog):
             msg = f"`{key}` now grants `{permission}`"
         cfg.setdefault("overrides", {}).setdefault(key, {})["perms"] = current
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(msg + ".")
+        await ctx.approve(msg)
 
 
 async def setup(bot):

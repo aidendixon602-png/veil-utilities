@@ -53,6 +53,15 @@ class _Reader:
         self.problems.append(f"{name} must be true or false (got {value!r})")
         return default
 
+    def int(self, name: str, default: int, low: int, high: int) -> int:
+        value = self.raw(name)
+        if value is None:
+            return default
+        if not value.isdigit() or not low <= int(value) <= high:
+            self.problems.append(f"{name} must be a whole number from {low} to {high} (got {value!r})")
+            return default
+        return int(value)
+
     def snowflake(self, name: str) -> int | None:
         value = self.raw(name)
         if value is None:
@@ -114,7 +123,6 @@ class Settings:
 
     # general
     prefix: str
-    status: str
     status_type: str
     db_path: str
     low_memory: bool
@@ -125,11 +133,13 @@ class Settings:
     auth_log_channel: int | None
     auth_grandfather: bool
     support_url: str | None
+    private_mode: bool
 
     # monitoring
     error_log_channel: int | None
     log_file: str
     antinuke_dev_alerts: bool
+    test_guild_id: int | None  # the one server ,testnuke may run in
 
     # integrations
     lastfm_api_key: str | None
@@ -142,6 +152,7 @@ class Settings:
     music_enabled: bool
     lavalink_uri: str | None  # one or more comma-separated node URLs; empty = free public nodes
     lavalink_password: str
+    lavalink_backups: bool  # with LAVALINK_URI set, still keep the public nodes as fallbacks
 
     # modules that are currently disabled (kept so they work if re-enabled)
     spotify_client_id: str | None
@@ -153,6 +164,20 @@ class Settings:
     # network / proxy (bypasses datacenter or hosting IP rate limits)
     proxy: str | None = None
 
+    # web dashboard (off unless DASHBOARD_ENABLED=true; public only with Discord login configured)
+    dashboard_enabled: bool = False
+    dashboard_host: str | None = None     # None = 0.0.0.0 with login configured, otherwise 127.0.0.1
+    dashboard_port: int = 8080
+    dashboard_url: str | None = None      # public base URL, e.g. https://veil.example.com
+    discord_client_id: int | None = None
+    discord_client_secret: str | None = None
+    dashboard_secret: str | None = None   # signs login cookies; random per start if unset
+
+    @property
+    def dashboard_login_configured(self) -> bool:
+        # the client ID is read from the bot itself at startup, so only the secret and the address are needed
+        return bool(self.discord_client_secret and self.dashboard_url)
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
         r = _Reader(dict(os.environ) if env is None else env)
@@ -161,7 +186,6 @@ class Settings:
             discord_token=_clean_token(r.str("DISCORD_TOKEN")),
             owner_ids=r.snowflakes("OWNER_IDS"),
             prefix=r.str("PREFIX", ","),
-            status=r.str("STATUS", "dynamic"),
             status_type=r.str("BOT_STATUS", r.str("STATUS_TYPE", "online")).lower(),
             db_path=r.str("DB_PATH", "veil.db"),
             low_memory=r.bool("LOW_MEMORY", False),
@@ -170,7 +194,9 @@ class Settings:
             auth_log_channel=r.snowflake("AUTH_LOG_CHANNEL"),
             auth_grandfather=r.bool("AUTH_GRANDFATHER", True),
             support_url=r.url("SUPPORT_URL"),
+            private_mode=r.bool("PRIVATE_MODE", True),
             error_log_channel=r.snowflake("ERROR_LOG_CHANNEL"),
+            test_guild_id=r.snowflake("TEST_GUILD_ID"),
             log_file=r.str("LOG_FILE", "veil.log"),
             antinuke_dev_alerts=r.bool("ANTINUKE_DEV_ALERTS", True),
             lastfm_api_key=r.str("LASTFM_API_KEY"),
@@ -181,15 +207,29 @@ class Settings:
             music_enabled=r.bool("MUSIC_ENABLED", True) and not music_off,
             lavalink_uri=None if music_off else r.urls("LAVALINK_URI"),
             lavalink_password=r.str("LAVALINK_PASSWORD", "youshallnotpass"),
+            lavalink_backups=r.bool("LAVALINK_BACKUPS", True),
             spotify_client_id=r.str("SPOTIFY_CLIENT_ID"),
             spotify_client_secret=r.str("SPOTIFY_CLIENT_SECRET"),
             twitch_client_id=r.str("TWITCH_CLIENT_ID"),
             twitch_client_secret=r.str("TWITCH_CLIENT_SECRET"),
             rsshub_url=r.url("RSSHUB_URL", "https://rsshub.app"),
             proxy=r.str("DISCORD_PROXY") or r.str("HTTPS_PROXY") or r.str("HTTP_PROXY"),
+            dashboard_enabled=r.bool("DASHBOARD_ENABLED", False),
+            dashboard_host=r.str("DASHBOARD_HOST"),
+            dashboard_port=r.int("DASHBOARD_PORT", r.int("PORT", 8080, 1, 65535), 1, 65535),
+            dashboard_url=r.url("DASHBOARD_URL"),
+            discord_client_id=r.snowflake("DISCORD_CLIENT_ID"),
+            discord_client_secret=r.str("DISCORD_CLIENT_SECRET"),
+            dashboard_secret=r.str("DASHBOARD_SECRET"),
         )
         if len(settings.prefix) > 10:
             r.problems.append("PREFIX can be at most 10 characters")
+        if settings.dashboard_secret is not None and len(settings.dashboard_secret) < 32:
+            r.problems.append("DASHBOARD_SECRET must be at least 32 characters (or leave it empty)")
+        login_parts = (settings.discord_client_id, settings.discord_client_secret, settings.dashboard_url)
+        if settings.dashboard_enabled and any(login_parts) and not settings.dashboard_login_configured:
+            r.problems.append("Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL "
+                              "(the client ID is detected automatically), or neither for a localhost-only dashboard")
         if r.problems:
             raise ConfigError(r.problems)
         return settings
@@ -199,15 +239,14 @@ class Settings:
         problems = []
         if not self.discord_token:
             problems.append("DISCORD_TOKEN is required — copy .env.example to .env and add your bot token")
-        if not self.owner_ids:
-            problems.append("OWNER_IDS is required — add your Discord user ID so you can manage the bot")
         if problems:
             raise ConfigError(problems)
 
     def summary(self) -> str:
         """Safe one-line-per-setting view for logs (secrets are masked)."""
         secret = {"discord_token", "ai_api_key", "lastfm_api_key", "ocr_space_api_key", "lavalink_password",
-                  "spotify_client_secret", "twitch_client_secret", "database_url"}
+                  "spotify_client_secret", "twitch_client_secret", "database_url",
+                  "discord_client_secret", "dashboard_secret"}
         lines = []
         for f in fields(self):
             value = getattr(self, f.name)

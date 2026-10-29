@@ -96,7 +96,7 @@ class Config(commands.Cog):
             raise UserError("Give a message too. Variables: `{user.mention}`, `{guild.name}`, `{guild.count}`…")
         cfg.update(channel=channel.id, message=message)
         await self.put(ctx.guild.id, kind, cfg)
-        await ctx.approve(f"**{kind}** messages will be sent to {channel.mention}. Test with `{ctx.clean_prefix}{kind} test`")
+        await ctx.approve(f"{kind} messages will go to {channel.mention} · try `{ctx.clean_prefix}{kind} test`")
 
     async def _greet_send(self, member: discord.Member, kind: str):
         cfg = await self.get(member.guild.id, kind)
@@ -127,7 +127,7 @@ class Config(commands.Cog):
     async def welcome_off(self, ctx):
         """Disable welcome messages"""
         await self.put(ctx.guild.id, "welcome", {})
-        await ctx.approve("Disabled welcome messages")
+        await ctx.approve("turned off welcome messages")
 
     @welcome.command(name="deleteafter")
     @has_perms(manage_guild=True)
@@ -136,7 +136,7 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "welcome")
         cfg["delete_after"] = seconds or None
         await self.put(ctx.guild.id, "welcome", cfg)
-        await ctx.approve(f"Welcome messages delete after **{seconds}s**" if seconds else "Welcome messages stay")
+        await ctx.approve(f"welcome messages will delete after **{seconds}s**" if seconds else "welcome messages will stay")
 
     @welcome.command(name="preset", aliases=["card", "template"])
     @has_perms(manage_guild=True)
@@ -154,7 +154,7 @@ class Config(commands.Cog):
             "$v{footer: Member #{guild.member_count} • User ID: {user.id}}"
         )
         await self.put(ctx.guild.id, "welcome", {"channel": channel.id, "message": template})
-        await ctx.approve(f"Installed Midtown welcome embed preset in {channel.mention}!\nRun `{ctx.clean_prefix}welcome test` to preview.")
+        await ctx.approve(f"installed the welcome embed preset in {channel.mention} · preview it with `{ctx.clean_prefix}welcome test`")
 
     @commands.group(aliases=["leave"], invoke_without_command=True)
     @has_perms(manage_guild=True)
@@ -173,7 +173,7 @@ class Config(commands.Cog):
     async def goodbye_off(self, ctx):
         """Disable goodbye messages"""
         await self.put(ctx.guild.id, "goodbye", {})
-        await ctx.approve("Disabled goodbye messages")
+        await ctx.approve("turned off goodbye messages")
 
     @commands.group(invoke_without_command=True)
     @has_perms(manage_guild=True)
@@ -192,7 +192,7 @@ class Config(commands.Cog):
     async def boost_off(self, ctx):
         """Disable boost messages"""
         await self.put(ctx.guild.id, "boost", {})
-        await ctx.approve("Disabled boost messages")
+        await ctx.approve("turned off boost messages")
 
     @boost.command(name="role")
     @has_perms(manage_roles=True)
@@ -208,7 +208,7 @@ class Config(commands.Cog):
                 await antinuke_guard(ctx, "permissions")
         cfg["role"] = role.id if role else None
         await self.put(ctx.guild.id, "boost", cfg)
-        await ctx.approve(f"Booster reward role: {role.mention if role else 'none'}")
+        await ctx.approve(f"set the booster reward role to {role.mention}" if role else "removed the booster reward role")
 
     @commands.command(aliases=["variables"])
     async def placeholders(self, ctx):
@@ -264,7 +264,9 @@ class Config(commands.Cog):
         """Roles given automatically on join"""
         ar = await self.get(ctx.guild.id, "autorole")
         lines = [f"{k}: {', '.join(f'<@&{r}>' for r in v)}" for k, v in ar.items() if isinstance(v, list) and v]
-        await ctx.neutral("\n".join(lines) or "No autoroles set")
+        if not lines:
+            return await ctx.warn("no autoroles are set")
+        await ctx.neutral("\n".join(lines))
 
     async def _ar(self, ctx, bucket, role: discord.Role):
         check_role(ctx, role)
@@ -274,11 +276,11 @@ class Config(commands.Cog):
         ar = await self.get(ctx.guild.id, "autorole")
         lst = ar.setdefault(bucket, [])
         if role.id in lst:
-            lst.remove(role.id); msg = f"Removed {role.mention} from **{bucket}** autoroles"
+            lst.remove(role.id); msg = f"removed {role.mention} from the **{bucket}** autoroles"
         else:
             if is_dangerous(role.permissions):  # every new member would get staff powers
                 await antinuke_guard(ctx, "permissions")
-            lst.append(role.id); msg = f"Added {role.mention} to **{bucket}** autoroles"
+            lst.append(role.id); msg = f"added {role.mention} to the **{bucket}** autoroles"
         await self.put(ctx.guild.id, "autorole", ar)
         await ctx.approve(msg)
 
@@ -307,7 +309,7 @@ class Config(commands.Cog):
         ar = await self.get(ctx.guild.id, "autorole")
         ar["delay"] = max(0, min(seconds, 600))
         await self.put(ctx.guild.id, "autorole", ar)
-        await ctx.approve(f"Autorole delay: **{ar['delay']}s**")
+        await ctx.approve(f"autorole delay set to **{ar['delay']}s**")
 
     # ================================================================ reaction roles
     async def _resolve_message(self, ctx, link: str) -> discord.Message:
@@ -344,7 +346,7 @@ class Config(commands.Cog):
         rr = await self.get(ctx.guild.id, "reactionroles")
         rr.setdefault(str(msg.id), {})[emoji] = role.id
         await self.put(ctx.guild.id, "reactionroles", rr)
-        await ctx.approve(f"Reacting {emoji} on [that message]({msg.jump_url}) gives {role.mention}")
+        await ctx.approve(f"reacting {emoji} on [that message]({msg.jump_url}) now gives {role.mention}")
 
     @reactionrole.command(name="remove")
     @has_perms(manage_roles=True)
@@ -355,7 +357,7 @@ class Config(commands.Cog):
         if rr.get(str(msg.id), {}).pop(emoji, None) is None:
             raise UserError("No reaction role for that emoji")
         await self.put(ctx.guild.id, "reactionroles", rr)
-        await ctx.approve("Removed reaction role")
+        await ctx.approve("removed the reaction role")
 
     @reactionrole.command(name="list")
     @has_perms(manage_roles=True)
@@ -445,7 +447,7 @@ class Config(commands.Cog):
             raise UserError("You can have at most 150 autoresponders")
         cfg[trigger.lower()] = {"response": response.strip(), **flags}
         await self.put(ctx.guild.id, "autoresponder", cfg)
-        await ctx.approve(f"Added autoresponder for `{trigger}`")
+        await ctx.approve(f"added an autoresponder for `{trigger}`")
 
     @autoresponder.command(name="remove", aliases=["delete"])
     @has_perms(manage_guild=True)
@@ -455,7 +457,7 @@ class Config(commands.Cog):
         if cfg.pop(trigger.lower(), None) is None:
             raise UserError("No autoresponder with that trigger")
         await self.put(ctx.guild.id, "autoresponder", cfg)
-        await ctx.approve(f"Removed `{trigger}`")
+        await ctx.approve(f"removed the autoresponder for `{trigger}`")
 
     @autoresponder.command(name="list")
     @has_perms(manage_guild=True)
@@ -484,7 +486,7 @@ class Config(commands.Cog):
         if emoji not in lst:
             lst.append(emoji)
         await self.put(ctx.guild.id, "reactiontriggers", cfg)
-        await ctx.approve(f"Will react {emoji} to `{trigger}`")
+        await ctx.approve(f"I'll react with {emoji} to `{trigger}`")
 
     @reactiontrigger.command(name="remove")
     @has_perms(manage_guild=True)
@@ -493,7 +495,7 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "reactiontriggers")
         cfg.pop(trigger.lower(), None)
         await self.put(ctx.guild.id, "reactiontriggers", cfg)
-        await ctx.approve(f"Removed trigger `{trigger}`")
+        await ctx.approve(f"removed the reaction trigger `{trigger}`")
 
     @reactiontrigger.command(name="list")
     @has_perms(manage_guild=True)
@@ -513,7 +515,7 @@ class Config(commands.Cog):
         sent = await send_script(channel, message, build_vars(ctx.author, ctx.guild, channel))
         cfg[str(channel.id)] = {"message": message, "last": sent.id}
         await self.put(ctx.guild.id, "sticky", cfg)
-        await ctx.approve(f"Sticky message set in {channel.mention}")
+        await ctx.approve(f"set a sticky message in {channel.mention}")
 
     @sticky.command(name="remove")
     @has_perms(manage_messages=True)
@@ -522,7 +524,7 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "sticky")
         cfg.pop(str(channel.id), None)
         await self.put(ctx.guild.id, "sticky", cfg)
-        await ctx.approve(f"Removed sticky in {channel.mention}")
+        await ctx.approve(f"removed the sticky message in {channel.mention}")
 
     # ---------------------------------------------------------------- on_message hub
     @commands.Cog.listener()
@@ -588,14 +590,14 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "starboard")
         cfg.update(channel=channel.id, threshold=max(1, threshold), emoji=emoji, posts=cfg.get("posts", {}))
         await self.put(ctx.guild.id, "starboard", cfg)
-        await ctx.approve(f"Starboard → {channel.mention} at **{threshold}** {emoji}")
+        await ctx.approve(f"set the starboard to {channel.mention} at **{threshold}** {emoji}")
 
     @starboard.command(name="off")
     @has_perms(manage_guild=True)
     async def starboard_off(self, ctx):
         """Disable the starboard"""
         await self.put(ctx.guild.id, "starboard", {})
-        await ctx.approve("Starboard disabled")
+        await ctx.approve("turned off the starboard")
 
     async def _starboard(self, p: discord.RawReactionActionEvent):
         if not p.guild_id:
@@ -667,7 +669,7 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "counters")
         cfg[str(ch.id)] = {"kind": kind, "template": template}
         await self.put(ctx.guild.id, "counters", cfg)
-        await ctx.approve(f"Created counter {ch.mention} (updates every 10 minutes)")
+        await ctx.approve(f"created counter {ch.mention} (updates every 10 minutes)")
 
     @counter.command(name="remove")
     @has_perms(manage_channels=True)
@@ -677,7 +679,7 @@ class Config(commands.Cog):
         cfg.pop(str(channel.id), None)
         await self.put(ctx.guild.id, "counters", cfg)
         await channel.delete()
-        await ctx.approve("Removed counter")
+        await ctx.approve("removed the counter")
 
     @staticmethod
     def _count(g: discord.Guild, kind: str) -> int:
@@ -724,7 +726,7 @@ class Config(commands.Cog):
         cfg.setdefault("message", "{embed}$v{title: Time to bump!}$v{description: Run `/bump` to bump the server ⏰}")
         cfg.setdefault("thanks", "{embed}$v{description: Thanks for bumping {user.mention}! I'll remind you in 2 hours.}")
         await self.put(ctx.guild.id, "bump", cfg)
-        await ctx.approve(f"Bump reminders **{state}**")
+        await ctx.approve(f"turned bump reminders **{state}**")
 
     @bump.command(name="message")
     @has_perms(manage_guild=True)
@@ -733,7 +735,7 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "bump")
         cfg["message"] = message
         await self.put(ctx.guild.id, "bump", cfg)
-        await ctx.approve("Updated bump reminder message")
+        await ctx.approve("updated the bump reminder message")
 
     @bump.command(name="thankyou", aliases=["thanks"])
     @has_perms(manage_guild=True)
@@ -742,7 +744,7 @@ class Config(commands.Cog):
         cfg = await self.get(ctx.guild.id, "bump")
         cfg["thanks"] = message
         await self.put(ctx.guild.id, "bump", cfg)
-        await ctx.approve("Updated bump thank-you message")
+        await ctx.approve("updated the bump thank-you message")
 
     async def _bump_detect(self, m: discord.Message):
         if not m.embeds or "bump done" not in (m.embeds[0].description or "").lower():
@@ -793,14 +795,14 @@ class Config(commands.Cog):
         if is_dangerous(role.permissions):  # anyone could claim it by editing their status
             await antinuke_guard(ctx, "permissions")
         await self.put(ctx.guild.id, "vanity", {"role": role.id, "text": text.lower()})
-        await ctx.approve(f"Members with `{text}` in their status get {role.mention}")
+        await ctx.approve(f"members with `{text}` in their status now get {role.mention}")
 
     @vanity.command(name="off")
     @has_perms(manage_guild=True)
     async def vanity_off(self, ctx):
         """Disable vanity rewards"""
         await self.put(ctx.guild.id, "vanity", {})
-        await ctx.approve("Vanity rewards disabled")
+        await ctx.approve("turned off vanity rewards")
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):

@@ -4,7 +4,7 @@ Flow
 - Someone invites the bot to a server that isn't authorized -> the bot posts a notice there,
   alerts every developer (DM + optional log channel) with an "Authorize" button, and leaves.
 - A developer authorizes the server (button or `authorize <server id>`), then the server re-invites the bot.
-- Developers are the IDs in OWNER_IDS (or the application owner/team if that's empty).
+- Developers are the owner (or team) of the bot's Discord application, plus any IDs in OWNER_IDS.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import logging
 import discord
 from discord.ext import commands
 
+from core import devchannels
 from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, now, ts
 
@@ -71,7 +72,6 @@ class Authorization(commands.Cog):
         self.bot = bot
         self.swept = False
         self.support = settings.support_url
-        self.log_channel = settings.auth_log_channel or 0
 
     async def cog_load(self):
         self.bot.add_dynamic_items(AuthorizeButton)
@@ -127,7 +127,7 @@ class Authorization(commands.Cog):
         view = discord.ui.View(timeout=None)
         view.add_item(AuthorizeButton(guild.id))
         dests = []
-        ch = self.bot.get_channel(self.log_channel) if self.log_channel else None
+        ch = devchannels.channel_for(self.bot, "auth")
         if ch:
             dests.append(ch)
         for uid in await developers(self.bot):
@@ -198,7 +198,7 @@ class Authorization(commands.Cog):
         """Authorize a server ID to use the bot"""
         if not await self.authorize(guild_id, ctx.author.id, note):
             raise UserError(f"`{guild_id}` is already authorized")
-        await ctx.approve(f"Authorized `{guild_id}` — they can invite the bot now")
+        await ctx.approve(f"authorized `{guild_id}` · they can invite the bot now")
 
     @commands.command(name="unauthorize", hidden=True, aliases=["deauth", "unauth"])
     async def unauthorize_server(self, ctx: Context, guild_id: int):
@@ -209,7 +209,7 @@ class Authorization(commands.Cog):
         if guild:
             await self.notify_guild(guild)
             await guild.leave()
-        await ctx.approve(f"Revoked `{guild_id}`" + (f" and left **{guild.name}**" if guild else ""))
+        await ctx.approve(f"revoked `{guild_id}`" + (f" and left **{guild.name}**" if guild else ""))
 
     @commands.command(hidden=True, aliases=["authlist", "authorizedservers"])
     async def authorized(self, ctx: Context):
