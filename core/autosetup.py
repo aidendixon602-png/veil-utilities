@@ -82,8 +82,10 @@ async def run(bot, guild) -> list[str]:
     db = bot.db
     done: list[str] = []
 
+    from core.perms import ghost_guards
+    guarded = ghost_guards(guild)  # Ghost Vanguard is this server's guard: Veil doesn't switch on its own
     antinuke = bot.get_cog("Antinuke")
-    if antinuke is not None and not await _saved(db, guild.id, "antinuke"):
+    if antinuke is not None and not guarded and not await _saved(db, guild.id, "antinuke"):
         cfg = await antinuke.cfg(guild.id)
         antinuke.enable_rules(cfg)
         from cogs.antinuke import PRESETS
@@ -91,7 +93,7 @@ async def run(bot, guild) -> list[str]:
         await antinuke.save(guild.id, cfg)
         done.append("antinuke on (Default preset), new bots quarantined until approved · `,an`")
 
-    if not await _saved(db, guild.id, "antiraid"):
+    if not guarded and not await _saved(db, guild.id, "antiraid"):
         await db.set_config(guild.id, "antiraid", dict(RAID_DEFAULTS))
         done.append("raid detection: a wave of 10 joins in 10s · `,antiraid`")
 

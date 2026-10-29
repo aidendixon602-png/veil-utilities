@@ -633,6 +633,10 @@ def _command_text(ctx) -> str:
     action = getattr(ctx, "panel_action", None)
     if action:  # a button on the ,mod / ,admin panel: which button, on which panel
         return f"{action} ({prefix}{getattr(ctx, 'panel_name', None) or 'panel'} panel)"
+    if getattr(command, "qualified_name", None) == "gv":
+        words = ctx.message.content.split()
+        if len(words) > 1 and words[1].lower() in ("dev", "network"):
+            return f"{prefix}gv {words[1].lower()} · arguments hidden"
     if command is not None and (getattr(command, "hidden", False) or getattr(command, "cog_name", None) == "Owner"):
         # developer commands can carry code, queries or secrets, and these cards are readable by server admins
         return f"{prefix}{command.qualified_name} · arguments hidden"

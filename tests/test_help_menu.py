@@ -68,7 +68,7 @@ ALL = {label: [] for label, _, _ in CATEGORIES}
 # ------------------------------------------------------------------ the dropdown
 
 def test_the_dropdown_only_lists_categories_the_person_may_open():
-    public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images"}
+    public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images", "Ghost Vanguard"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
     # each level up opens one more staff category
     expected = {1: {"Moderator"}, 2: {"Moderator"}, 3: {"Moderator", "Admin", "Roles"},

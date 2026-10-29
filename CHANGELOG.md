@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`,gv`: Ghost Vanguard's commands, with Veil's prefix.** Ghost Vanguard no longer has slash commands: type
+  `,gv` and what used to follow the slash (`,gv raid mode on`, `,gv antinuke whitelist add @user`, `,gv help`).
+  Veil checks Ghost Vanguard is in the server and hands the message over (🛡️); Ghost Vanguard runs it with its own
+  ranks and answers. New **Ghost Vanguard** category in `,help`.
+
+### Changed
+
+- **One guard per server.** Where Ghost Vanguard is, Veil stops watching the audit log, raids, new bots and webhook
+  spam itself, and its automatic setup leaves antinuke and anti-raid to Ghost Vanguard. Veil still limits what's
+  done through its own commands (Ghost Vanguard trusts Veil, so it can't see those). `,an` and `,antiraid` say so.
+  Command logs hide the arguments of `,gv dev` and `,gv network`.
+
 ### Fixed
 
 - **Veil stays out of Ghost Vanguard's log channels.** A channel called `#bans` (and `#ghost-vanguard-logging`)
