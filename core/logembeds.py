@@ -673,10 +673,16 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
 
 # ---------------------------------------------------------------- moderation cases
 
+NO_CASE_NUMBER = {"ban", "unban", "softban"}
+
+
 def case_card(num: int, action: str, target, moderator, reason: str | None) -> discord.Embed:
     """The mod-log card for a case (`,ban`, `,warn`...)."""
     named = target if hasattr(target, "mention") and hasattr(target, "name") else None
     who = named.mention if named else f"<@{target.id}>"
+    if action.lower() in NO_CASE_NUMBER:  # bans read cleaner without one; the case is still kept for `,cases`
+        return entry_card(Colors.main, f"{action.title()}: {who}{_by_text(moderator)}",
+                          subject=named, details=[("Reason", reason or "no reason given")], ids=[("User ID", target.id)])
     return entry_card(Colors.main, f"Case #{num} · {action.title()}: {who}{_by_text(moderator)}",
                       subject=named, details=[("Reason", reason or "no reason given")],
                       ids=[("User ID", target.id), ("Case", num)])

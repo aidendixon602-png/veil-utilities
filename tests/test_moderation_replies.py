@@ -54,16 +54,16 @@ def test_ban_kick_unban_softban_lines(bot):
     async def go():
         cog, ctx, target = setup(bot)
         await Moderation.ban.callback(cog, ctx, target, reason="spam")
-        assert said(ctx, "warn") == f"**{target.name}** has been banned · case #7"
+        assert said(ctx, "warn") == f"**{target.name}** has been banned"
         await Moderation.kick.callback(cog, ctx, target, reason="spam")
         assert said(ctx) == "kicked <@50> · case #7"
         await Moderation.softban.callback(cog, ctx, target, reason="spam")
-        assert said(ctx) == "softbanned <@50> · case #7"
+        assert said(ctx) == "softbanned <@50>"
         bot.db.fetchone = AsyncMock(return_value=None)  # not hardbanned
         unbanned = MagicMock(mention="<@60>", id=60)
         unbanned.name = "freed"
         await Moderation.unban.callback(cog, ctx, unbanned, reason=None)
-        assert said(ctx, "warn") == "**freed** has been unbanned · case #7"
+        assert said(ctx, "warn") == "**freed** has been unbanned"
     asyncio.run(go())
 
 
