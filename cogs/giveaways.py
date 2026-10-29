@@ -72,7 +72,11 @@ class Giveaways(commands.Cog):
     @giveaway.command(name="start", aliases=["create"])
     @has_perms(manage_guild=True)
     async def gw_start(self, ctx: Context, duration: Duration, winners: str, *, prize: str):
-        """`gw start 1d 2w Nitro` — add `--role @Role` for a requirement"""
+        """Start a giveaway
+
+        Add `--role @Role` to only let people with that role enter.
+        Example: `,gw start 1d 2w Nitro`
+        """
         n = int(winners.rstrip("wW")) if winners.rstrip("wW").isdigit() else None
         if not n or not 1 <= n <= 50:
             raise UserError("Winners must be like `1w` or `3`")
@@ -159,7 +163,7 @@ class Giveaways(commands.Cog):
     @giveaway.command(name="reroll")
     @has_perms(manage_guild=True)
     async def gw_reroll(self, ctx: Context, message_id: int, winners: int = 1):
-        """Pick new winner(s)"""
+        """Pick new winners for a giveaway"""
         gw = await self.bot.db.fetchone("SELECT * FROM giveaways WHERE message_id=? AND guild_id=? AND ended=1",
                                         message_id, ctx.guild.id)
         if not gw:

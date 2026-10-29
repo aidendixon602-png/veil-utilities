@@ -27,7 +27,11 @@ class Vanguard(commands.Cog):
     @commands.guild_only()
     @commands.cooldown(2, 3, commands.BucketType.user)
     async def gv(self, ctx: Context, *, command: str = None):
-        """Run a Ghost Vanguard command: `,gv raid mode on`, `,gv antinuke status`, `,gv help` for the list"""
+        """Run a Ghost Vanguard command
+
+        `,gv help` lists them all.
+        Example: `,gv raid mode on`
+        """
         if not perms.ghost_guards(ctx.guild):
             raise UserError("Ghost Vanguard isn't in this server, so there's nothing to hand this to")
         try:

@@ -750,7 +750,11 @@ class Logging(commands.Cog):
     @logs.command(name="set")
     @has_perms(manage_guild=True)
     async def logs_set(self, ctx: Context, category: str, channel: str = None):
-        """Send a category to a channel: `logs set messages #logs`. Use `off` to stop it or `auto` to find it by name"""
+        """Send a log category to a channel
+
+        `off` stops it, `auto` finds a channel by its name.
+        Example: `,logs set messages #logs`
+        """
         kinds = await self._kinds(category)
         cfg = await self.config(ctx.guild)
         word = (channel or "auto").lower()
@@ -772,7 +776,10 @@ class Logging(commands.Cog):
     @logs.command(name="off", aliases=["disable"])
     @has_perms(manage_guild=True)
     async def logs_off(self, ctx: Context, category: str):
-        """Stop a category (or `all`) from being logged"""
+        """Stop logging a category
+
+        `all` stops every category.
+        """
         await self.logs_set(ctx, category, "off")
 
     @logs.command(name="auto", aliases=["reset"])
@@ -784,7 +791,10 @@ class Logging(commands.Cog):
     @logs.command(name="setup", aliases=["init", "default", "defaults", "create"])
     @has_perms(manage_guild=True)
     async def logs_setup(self, ctx: Context, mode: str = None):
-        """Give every log category its own private channel under VEIL LOGS (at the top). `on`/`off`: do it in every server automatically"""
+        """Give every log category its own private channel
+
+        They're kept together under VEIL LOGS at the top. `on` or `off` sets whether this happens automatically.
+        """
         if mode is not None:
             return await self._set_auto(ctx, mode)
         if not ctx.guild.me.guild_permissions.manage_channels:
@@ -837,13 +847,19 @@ class Logging(commands.Cog):
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)
     async def cmd_setuplogs(self, ctx: Context):
-        """Create a private channel for every log category (same as `logs setup`)"""
+        """Make a private channel for every log category
+
+        Same as `logs setup`.
+        """
         await self.logs_setup(ctx)
 
     @logs.command(name="test")
     @has_perms(manage_guild=True)
     async def logs_test(self, ctx: Context):
-        """Send a test line to every category that has a channel, so you can see what's missing permissions"""
+        """Send a test line to every log channel
+
+        Shows which ones are missing permissions.
+        """
         cfg = await self.config(ctx.guild)
         ok, failed, unset = [], [], []
         for kind in KINDS.values():
@@ -904,7 +920,10 @@ class Logging(commands.Cog):
     @logs.command(name="cleanup", aliases=["clean", "purgeduplicates", "cleanupchannels"])
     @has_perms(manage_guild=True)
     async def logs_cleanup(self, ctx: Context):
-        """Delete duplicate log channels the bot created, and an empty VEIL LOGS category"""
+        """Delete duplicate log channels the bot made
+
+        Also removes an empty log category.
+        """
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need the `Manage Channels` permission to delete duplicate channels.")
         seen: set[str] = set()
@@ -935,7 +954,10 @@ class Logging(commands.Cog):
     @commands.command(name="cleanuplogs", aliases=["cleanuplogchannels", "purgeduplicatelogs"])
     @has_perms(manage_guild=True)
     async def cmd_cleanuplogs(self, ctx: Context):
-        """Delete duplicate log channels the bot created (same as `logs cleanup`)"""
+        """Delete duplicate log channels the bot made
+
+        Same as `logs cleanup`.
+        """
         await self.logs_cleanup(ctx)
 
     # ------------------------------------------------------------ commands run

@@ -113,7 +113,10 @@ class Config(commands.Cog):
     @commands.group(aliases=["greet"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def welcome(self, ctx, channel: discord.TextChannel = None, *, message: str = None):
-        """Set the welcome message: `welcome #ch {embed}$v{description: hi {user.mention}}`"""
+        """Set the welcome message
+
+        Example: `,welcome #ch {embed}$v{description: hi {user.mention}}`
+        """
         await self._greet_cmd(ctx, "welcome", channel, message)
 
     @welcome.command(name="test")
@@ -132,7 +135,10 @@ class Config(commands.Cog):
     @welcome.command(name="deleteafter")
     @has_perms(manage_guild=True)
     async def welcome_da(self, ctx, seconds: int = 0):
-        """Auto-delete welcome messages after N seconds (0 = never)"""
+        """Delete welcome messages after a few seconds
+
+        `0` keeps them.
+        """
         cfg = await self.get(ctx.guild.id, "welcome")
         cfg["delete_after"] = seconds or None
         await self.put(ctx.guild.id, "welcome", cfg)
@@ -141,7 +147,10 @@ class Config(commands.Cog):
     @welcome.command(name="preset", aliases=["card", "template"])
     @has_perms(manage_guild=True)
     async def welcome_preset(self, ctx: Context, channel: discord.TextChannel):
-        """Install a sleek Midtown welcome embed preset in a channel: `welcome preset #welcome`"""
+        """Set up a ready-made welcome message in a channel
+
+        Example: `,welcome preset #welcome`
+        """
         template = (
             "{embed}"
             "$v{color: #B10F2E}"
@@ -305,7 +314,10 @@ class Config(commands.Cog):
     @autorole.command(name="delay")
     @has_perms(manage_roles=True)
     async def autorole_delay(self, ctx, seconds: int):
-        """Wait N seconds before giving autoroles (helps with verification gates)"""
+        """Wait before giving autoroles
+
+        Helps when members need to pass verification first.
+        """
         ar = await self.get(ctx.guild.id, "autorole")
         ar["delay"] = max(0, min(seconds, 600))
         await self.put(ctx.guild.id, "autorole", ar)
@@ -331,7 +343,10 @@ class Config(commands.Cog):
     @reactionrole.command(name="add")
     @has_perms(manage_roles=True)
     async def rr_add(self, ctx, message: str, emoji: str, *, role: discord.Role):
-        """`rr add <message link> 🎮 @Gamer`"""
+        """Add a reaction role to a message
+
+        Example: `,rr add <message link> 🎮 @Gamer`
+        """
         check_role(ctx, role)
         rbl = await self.get(ctx.guild.id, "roleblacklist")
         if role.id in rbl.get("roles", []):
@@ -400,7 +415,10 @@ class Config(commands.Cog):
     @commands.command(aliases=["buttonroles", "rolemenu"])
     @has_perms(manage_roles=True)
     async def buttonrole(self, ctx, roles: commands.Greedy[discord.Role], *, title: str = "Pick your roles"):
-        """Post a panel of self-role buttons: `buttonrole @Red @Blue @Green Colors`"""
+        """Post a panel of self-role buttons
+
+        Example: `,buttonrole @Red @Blue @Green Colors`
+        """
         if not roles or len(roles) > 25:
             raise UserError("Give 1–25 roles")
         b_cfg = await self.get(ctx.guild.id, "roleblacklist")
@@ -435,7 +453,11 @@ class Config(commands.Cog):
     @autoresponder.command(name="add")
     @has_perms(manage_guild=True)
     async def ar_add(self, ctx, *, args: str):
-        """`ar add hello, Hi {user.mention}!` — flags: --exact --reply --delete (supports embed scripts)"""
+        """Reply automatically when someone says a trigger
+
+        Options: `--exact` (whole message only), `--reply` (as a reply), `--delete` (delete the trigger). Embed scripts work too.
+        Example: `,ar add hello, Hi {user.mention}!`
+        """
         if "," not in args:
             raise UserError("Separate the trigger and response with a comma: `ar add trigger, response`")
         trigger, response = (x.strip() for x in args.split(",", 1))
@@ -476,7 +498,10 @@ class Config(commands.Cog):
     @reactiontrigger.command(name="add")
     @has_perms(manage_guild=True)
     async def rt_add(self, ctx, emoji: str, *, trigger: str):
-        """`rt add 💀 skull`"""
+        """React automatically when a word is said
+
+        Example: `,rt add 💀 skull`
+        """
         try:
             await ctx.message.add_reaction(emoji)
         except discord.HTTPException:
@@ -508,7 +533,10 @@ class Config(commands.Cog):
     @commands.group(invoke_without_command=True)
     @has_perms(manage_messages=True)
     async def sticky(self, ctx, channel: discord.TextChannel = None, *, message: str = None):
-        """Keep a message pinned at the bottom of a channel (supports embed scripts)"""
+        """Keep a message at the bottom of a channel
+
+        Embed scripts work too.
+        """
         if not channel or not message:
             return await ctx.send_help(ctx.command)
         cfg = await self.get(ctx.guild.id, "sticky")
@@ -584,7 +612,10 @@ class Config(commands.Cog):
     @commands.group(aliases=["sb"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def starboard(self, ctx, channel: discord.TextChannel = None, threshold: int = 3, emoji: str = "⭐"):
-        """Set up a starboard: `starboard #stars 3 ⭐`"""
+        """Set up a starboard
+
+        Example: `,starboard #stars 3 ⭐`
+        """
         if not channel:
             return await ctx.send_help(ctx.command)
         cfg = await self.get(ctx.guild.id, "starboard")
@@ -658,7 +689,11 @@ class Config(commands.Cog):
     @counter.command(name="add")
     @has_perms(manage_channels=True)
     async def counter_add(self, ctx, kind: str, *, template: str = None):
-        """`counter add members Members: {count}` — kinds: members, humans, bots, boosts, online"""
+        """Add a channel that shows a live count
+
+        Counts: members, humans, bots, boosts, online.
+        Example: `,counter add members Members: {count}`
+        """
         kind = kind.lower()
         if kind not in ("members", "humans", "bots", "boosts", "online"):
             raise UserError("Kinds: members, humans, bots, boosts, online")
@@ -718,7 +753,10 @@ class Config(commands.Cog):
     @commands.group(aliases=["bumpreminder"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def bump(self, ctx, state: str = None):
-        """Remind the server to /bump on Disboard every 2 hours (`bump on`/`bump off`)"""
+        """Remind the server to bump on Disboard every 2 hours
+
+        Example: `,bump on`
+        """
         if state not in ("on", "off"):
             return await ctx.send_help(ctx.command)
         cfg = await self.get(ctx.guild.id, "bump")
@@ -785,7 +823,10 @@ class Config(commands.Cog):
     @commands.group(invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def vanity(self, ctx, role: discord.Role = None, *, text: str = None):
-        """Reward members who put a text (e.g. your invite) in their status: `vanity @Supporter /myserver`"""
+        """Reward members who put your invite or text in their status
+
+        Example: `,vanity @Supporter /myserver`
+        """
         if not role or not text:
             return await ctx.send_help(ctx.command)
         check_role(ctx, role)

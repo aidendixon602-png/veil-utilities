@@ -230,7 +230,10 @@ class Moderation(commands.Cog):
     @commands.guild_only()
     @requires_uperm("helper")
     async def mod_panel(self, ctx: Context, member: discord.Member):
-        """Moderator panel for a member: warn, timeout, kick, jail and their warnings, as buttons"""
+        """Open the moderator panel for a member
+
+        Buttons to warn, time out, kick or jail them, and see their warnings.
+        """
         from core.staffpanel import MOD_ACTIONS, StaffPanel, member_card
         check_target(ctx, member, "open a panel on")
         view = await StaffPanel.build(ctx, member, "Moderator panel", MOD_ACTIONS)
@@ -240,7 +243,10 @@ class Moderation(commands.Cog):
     @commands.guild_only()
     @requires_uperm("admin")
     async def admin_panel(self, ctx: Context, member: discord.Member = None):
-        """Admin panel: ban, softban, strip staff and quarantine for a member, or lockdown, raid mode and panic"""
+        """Open the admin panel for a member or the server
+
+        For a member: ban, softban, strip staff and quarantine. For the server: lockdown, raid mode and panic.
+        """
         from core.staffpanel import ADMIN_MEMBER_ACTIONS, ADMIN_SERVER_ACTIONS, StaffPanel, member_card, server_card
         if member is None:
             view = await StaffPanel.build(ctx, None, "Admin panel", ADMIN_SERVER_ACTIONS)
@@ -256,7 +262,10 @@ class Moderation(commands.Cog):
     @has_perms(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def ban(self, ctx: Context, user: discord.Member | discord.User, *, reason: str = None):
-        """Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages"""
+        """Ban a member, or anyone by user ID
+
+        Add `--purge` to also delete their messages from the last 7 days.
+        """
         delete = 0
         if reason and "--purge" in reason:
             delete, reason = 604800, reason.replace("--purge", "").strip() or None
@@ -306,7 +315,10 @@ class Moderation(commands.Cog):
     @has_perms(administrator=True)
     @commands.bot_has_permissions(ban_members=True)
     async def massban(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
-        """Ban everyone who joined in the last N minutes (raid cleanup)"""
+        """Ban everyone who joined in the last few minutes
+
+        Use it to clean up after a raid.
+        """
         if not 1 <= minutes <= 10080:
             raise UserError("minutes must be between 1 and 10080 (one week)")
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
@@ -335,7 +347,10 @@ class Moderation(commands.Cog):
     @has_perms(kick_members=True)
     @commands.bot_has_permissions(kick_members=True)
     async def masskick(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
-        """Kick everyone who joined in the last N minutes (raid cleanup)"""
+        """Kick everyone who joined in the last few minutes
+
+        Use it to clean up after a raid.
+        """
         if not 1 <= minutes <= 10080:
             raise UserError("minutes must be between 1 and 10080 (one week)")
         cutoff = discord.utils.utcnow() - timedelta(minutes=minutes)
@@ -399,7 +414,10 @@ class Moderation(commands.Cog):
     @requires_uperm("moderator")
     @has_perms(moderate_members=True)
     async def untimeout(self, ctx: Context, member: discord.Member, *, reason: str = None):
-        """Remove a timeout (use `untimeout all` for everyone)"""
+        """Remove a member's timeout
+
+        `,untimeout all` removes everyone's.
+        """
         await check_hierarchy_async(ctx, member, "untimeout")
         if not member.is_timed_out():
             raise UserError(f"{member.mention} isn't timed out")
@@ -430,7 +448,10 @@ class Moderation(commands.Cog):
     @requires_uperm("moderator")
     @has_perms(moderate_members=True)
     async def warn(self, ctx: Context, member: discord.Member, *, reason: str = "No reason provided"):
-        """Warn a member. Auto-punishments can be set with `warnpunish`"""
+        """Warn a member
+
+        `warnpunish` sets what happens after several warnings.
+        """
         await check_hierarchy_async(ctx, member, "warn")
         await self.bot.db.execute("INSERT INTO warns(guild_id,user_id,mod_id,reason,created_at) VALUES(?,?,?,?,?)",
                                   ctx.guild.id, member.id, ctx.author.id, reason, now())
@@ -461,7 +482,10 @@ class Moderation(commands.Cog):
     @requires_uperm("admin")
     @has_perms(administrator=True)
     async def warnpunish(self, ctx: Context, warnings: int, action: str, duration: Duration = None):
-        """Auto-punish at N warnings: `warnpunish 3 timeout 1h`, `warnpunish 5 ban`, `warnpunish 3 none`"""
+        """Set what happens at a number of warnings
+
+        Example: `,warnpunish 3 timeout 1h`
+        """
         rules = await self._cfg(ctx.guild.id, "warnpunish")
         action = action.lower()
         if action == "none":
@@ -539,7 +563,10 @@ class Moderation(commands.Cog):
     @commands.command()
     @has_perms(moderate_members=True)
     async def reason(self, ctx: Context, case: int, *, reason: str):
-        """Update the reason on a case (your own cases, or any case with Manage Server)"""
+        """Change the reason on a case
+
+        Your own cases, or any case with Manage Server.
+        """
         row = await self.bot.db.fetchone("SELECT mod_id, user_id FROM cases WHERE guild_id=? AND case_num=?",
                                          ctx.guild.id, case)
         if row is None:
@@ -743,7 +770,11 @@ class Moderation(commands.Cog):
     @requires_uperm("admin")
     @has_perms(manage_channels=True)
     async def slowmode(self, ctx: Context, delay: str = "0", channel: discord.TextChannel = None):
-        """Set slowmode (e.g. `10s`, `5m`, `0` to disable)"""
+        """Set this channel's slowmode
+
+        `0` turns it off.
+        Example: `,slowmode 10s`
+        """
         channel = channel or ctx.channel
         secs = 0 if delay in ("0", "off") else int(parse_duration(delay).total_seconds())
         if secs > 21600:
@@ -838,7 +869,11 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
-        """Give or take a role: `,r @User @Role` (either order). Has it → removed, doesn't → added"""
+        """Give a member a role, or take it if they have it
+
+        The member and role can go in either order.
+        Example: `,r @User @Role`
+        """
         if not arg2:
             raise UserError(f"usage: `{ctx.clean_prefix}r <member> <role>` or `{ctx.clean_prefix}r add/remove <member> <role>`")
         member, role = await self._resolve_member_role(ctx, arg1, arg2)
@@ -860,7 +895,10 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role_add(self, ctx: Context, arg1: str, *, arg2: str):
-        """Add a role to a member: `,r add @User @Role`"""
+        """Add a role to a member
+
+        Example: `,r add @User @Role`
+        """
         await self._do_role_add(ctx, arg1, arg2)
 
     @role.command(name="remove", aliases=["rem", "del"], usage="<member> <role>", extras={"example": "@user @role"})
@@ -868,7 +906,10 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def role_remove(self, ctx: Context, arg1: str, *, arg2: str):
-        """Remove a role from a member: `,r remove @User @Role`"""
+        """Remove a role from a member
+
+        Example: `,r remove @User @Role`
+        """
         await self._do_role_remove(ctx, arg1, arg2)
 
     @commands.command(name="addrole", aliases=["giverole"], usage="<member> <role>",
@@ -877,7 +918,10 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_addrole(self, ctx: Context, arg1: str, *, arg2: str):
-        """Add a role to a member: `,addrole @User @Role`"""
+        """Add a role to a member
+
+        Example: `,addrole @User @Role`
+        """
         await self._do_role_add(ctx, arg1, arg2)
 
     @commands.command(name="removerole", aliases=["takerole"], usage="<member> <role>",
@@ -886,7 +930,10 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_removerole(self, ctx: Context, arg1: str, *, arg2: str):
-        """Remove a role from a member: `,removerole @User @Role`"""
+        """Remove a role from a member
+
+        Example: `,removerole @User @Role`
+        """
         await self._do_role_remove(ctx, arg1, arg2)
 
     @role.command(name="create")
@@ -985,7 +1032,10 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def role_all(self, ctx: Context, action: str, *, role: discord.Role):
-        """Add/remove a role for everyone: `role all add @Role`"""
+        """Add or remove a role for everyone
+
+        Example: `,role all add @Role`
+        """
         await self._mass_role(ctx, action, role, lambda m: True, "everyone")
 
     @role.command(name="humans")
@@ -1087,7 +1137,10 @@ class Moderation(commands.Cog):
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
     async def rbl_remove(self, ctx: Context, *, role: str):
-        """Unblacklist a role, or `remove deleted` to purge deleted roles"""
+        """Take a role off the role blacklist
+
+        `deleted` clears out roles that no longer exist.
+        """
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         roles = cfg.setdefault("roles", [])
         if role.lower() == "deleted":
@@ -1250,13 +1303,19 @@ class Moderation(commands.Cog):
     @roleblacklist.command(name="check", aliases=["scan", "audit", "search"])
     @commands.guild_only()
     async def rbl_check(self, ctx: Context, *, target: str = None):
-        """Check a user or the whole server for members with BLED (blacklisted) roles"""
+        """Check for members holding blacklisted roles
+
+        Give a member to check just them, or nothing to check the whole server.
+        """
         await self._do_rbl_check(ctx, target)
 
     @commands.command(name="checkbled", aliases=["checkbl", "scanbl", "bledcheck", "rblcheck", "roleblcheck"])
     @commands.guild_only()
     async def cmd_checkbled(self, ctx: Context, *, target: str = None):
-        """Check a user or the whole server for members with BLED (blacklisted) roles"""
+        """Check for members holding blacklisted roles
+
+        Give a member to check just them, or nothing to check the whole server.
+        """
         await self._do_rbl_check(ctx, target)
 
     async def _do_rbl_strip(self, ctx: Context):
@@ -1290,7 +1349,7 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def rbl_strip(self, ctx: Context):
-        """Strip all blacklisted roles from unauthorized members across the server"""
+        """Take blacklisted roles off everyone not allowed to have them"""
         await self._do_rbl_strip(ctx)
 
     @commands.command(name="stripbled", aliases=["purgebled", "rblstrip", "roleblstrip"])
@@ -1298,21 +1357,27 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def cmd_stripbled(self, ctx: Context):
-        """Strip all blacklisted roles from unauthorized members across the server"""
+        """Take blacklisted roles off everyone not allowed to have them"""
         await self._do_rbl_strip(ctx)
 
     @roleblacklist.command(name="authorize", aliases=["auth", "whitelist", "allow"])
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def rbl_authorize(self, ctx: Context, *, target: discord.Member | discord.Role):
-        """Authorize a member or role to bypass the role blacklist: `,rbl auth @user`"""
+        """Let a member or role hold blacklisted roles
+
+        Example: `,rbl auth @user`
+        """
         await self._do_rbl_authorize(ctx, target)
 
     @commands.command(name="rblauth", aliases=["roleblauth", "bledauth", "rblbypass"])
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def cmd_rblauth(self, ctx: Context, *, target: discord.Member | discord.Role):
-        """Authorize a member or role to hold blacklisted roles: `,rblauth @user`"""
+        """Let a member or role hold blacklisted roles
+
+        Example: `,rblauth @user`
+        """
         await self._do_rbl_authorize(ctx, target)
 
     async def _do_rbl_authorize(self, ctx: Context, target: discord.Member | discord.Role):
@@ -1349,7 +1414,10 @@ class Moderation(commands.Cog):
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     async def cmd_rblunauth(self, ctx: Context, *, target: discord.Member | discord.Role):
-        """Revoke role blacklist authorization for a member or role: `,rblunauth @user`"""
+        """Stop a member or role from holding blacklisted roles
+
+        Example: `,rblunauth @user`
+        """
         await self._do_rbl_unauthorize(ctx, target)
 
     async def _do_rbl_unauthorize(self, ctx: Context, target: discord.Member | discord.Role):
@@ -1404,7 +1472,11 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def removepermall(self, ctx: Context, *, permission: str):
-        """Remove a permission from every role below me (e.g. `rpa administrator` after a raid)"""
+        """Remove a permission from every role below the bot
+
+        Useful straight after a raid.
+        Example: `,rpa administrator`
+        """
         from cogs.settings import VALID_PERMS
         perm = permission.lower().replace(" ", "_")
         if perm not in VALID_PERMS:
@@ -1650,7 +1722,10 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def quarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Quarantined by staff"):
-        """Instantly isolate a suspected raider or malicious member, stripping their roles"""
+        """Isolate a member and take their roles
+
+        Use it on a suspected raider. `unquarantine` gives the roles back.
+        """
         from core import perms as _perms
         if _perms.is_bot_developer(member, self.bot):
             raise UserError("you can't quarantine a bot developer")
@@ -1694,7 +1769,10 @@ class Moderation(commands.Cog):
     @has_perms(moderate_members=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def unquarantine(self, ctx: Context, member: discord.Member, *, reason: str = "Released by staff"):
-        """Release a member from quarantine and safely restore non-blacklisted roles"""
+        """Release a member from quarantine
+
+        Gives back their roles, except blacklisted ones.
+        """
         check_target(ctx, member, "unquarantine")
         cfg = await self._cfg(ctx.guild.id, "quarantine")
         saved = cfg.get("quarantined", {}).pop(str(member.id), None)

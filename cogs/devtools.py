@@ -104,7 +104,10 @@ class DevTools(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def massunrole(self, ctx: Context, role: discord.Role = None, flag: str = None):
-        """Remove a role from everyone. Add `samerole` to also wipe the role's permissions"""
+        """Remove a role from everyone
+
+        Add `samerole` to also clear the role's permissions.
+        """
         if role is None:
             raise UserError(f"`{ctx.clean_prefix}massunrole <role mention or ID> [samerole]`")
         if role >= ctx.guild.me.top_role:
@@ -137,7 +140,10 @@ class DevTools(commands.Cog):
     @commands.guild_only()
     @commands.bot_has_permissions(view_audit_log=True)
     async def revert(self, ctx: Context, user: discord.User, duration: Duration):
-        """Best-effort undo of a user's recent destructive actions (bans, role/channel deletes)"""
+        """Undo someone's recent bans and deletions
+
+        Best effort: bans, deleted roles and deleted channels.
+        """
         after = discord.utils.utcnow() - duration
         scanned = found = reverted = skipped = 0
         async with ctx.typing():
@@ -229,7 +235,10 @@ class DevTools(commands.Cog):
 
     @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
     async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
-        """Ban a user across every server the bot is in (re-banned if they rejoin or are unbanned)"""
+        """Ban someone from every server the bot is in
+
+        They're banned again if they rejoin or get unbanned.
+        """
         # never yourself, the bot, a bot developer, the server owner or a whitelisted person, whoever runs it
         check_target(ctx, user, "genreban")
         existing = await self._already(user)
@@ -366,7 +375,7 @@ class DevTools(commands.Cog):
     @commands.command(hidden=True, aliases=["jllogs"])
     @commands.guild_only()
     async def joinleavelogs(self, ctx: Context, channel: discord.TextChannel = None):
-        """Send joins, leaves and kicks to their own channel instead of the main log"""
+        """Log joins, leaves and kicks in their own channel"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "logs")
         cfg["joinleave"] = channel.id if channel else None
         await self.bot.db.set_config(ctx.guild.id, "logs", cfg)

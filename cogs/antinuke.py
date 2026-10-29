@@ -1413,7 +1413,10 @@ class Antinuke(commands.Cog):
     @commands.group(aliases=["an"], invoke_without_command=True)
     @commands.guild_only()
     async def antinuke(self, ctx: Context):
-        """Antinuke status and rules, with buttons to turn it on or off, load a preset, or change a rule"""
+        """Show the antinuke's status and rules
+
+        Buttons turn it on or off, load a preset or change a rule.
+        """
         await self.send_panel(ctx)
 
     @antinuke.command(name="status", aliases=["config", "settings", "panel"])
@@ -1457,7 +1460,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="set", aliases=["rule", "configure"])
     async def an_set(self, ctx: Context, action: str, arg2: str, arg3: str = None, arg4: str = None):
-        """Configure an antinuke rule: `,an set ban 3 ban 60s` or `,an set ban on 3`"""
+        """Configure an antinuke rule
+
+        Example: `,an set ban 3 ban 60s`
+        """
         await antinuke_admin(ctx)
         if arg2.lower() in ("on", "enable", "true", "yes", "off", "disable", "false", "no"):
             state = arg2.lower()
@@ -1477,7 +1483,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="module")
     async def an_module(self, ctx: Context, module: str, state: str, threshold: int = 3):
-        """Toggle an individual module: `antinuke module ban on 3`"""
+        """Turn one antinuke rule on or off
+
+        Example: `,antinuke module ban on 3`
+        """
         await antinuke_admin(ctx)
         k = self.resolve_action(module) or module.lower()
         if k not in MODULES and k not in RULE_LOOKUP:
@@ -1495,7 +1504,10 @@ class Antinuke(commands.Cog):
     # Direct action subcommands matching Midtown Utilities rules
     @antinuke.command(name="ban")
     async def an_cmd_ban(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the ban rule: `,an ban 3 ban 60s`"""
+        """Configure the ban rule
+
+        Example: `,an ban 3 ban 60s`
+        """
         if count is None:
             return await self._show_rule(ctx, "ban")
         if punishment is None or timeframe is None:
@@ -1504,7 +1516,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="botadd", aliases=["bot", "bots"])
     async def an_cmd_botadd(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the bot add rule: `,an botadd 1 ban 60s`"""
+        """Configure the bot add rule
+
+        Example: `,an botadd 1 ban 60s`
+        """
         if count is None:
             return await self._show_rule(ctx, "botadd")
         if punishment is None or timeframe is None:
@@ -1513,7 +1528,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="channelcreate")
     async def an_cmd_channelcreate(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the channel create rule: `,an channelcreate 2 kick 120s`"""
+        """Configure the channel create rule
+
+        Example: `,an channelcreate 2 kick 120s`
+        """
         if count is None:
             return await self._show_rule(ctx, "channelcreate")
         if punishment is None or timeframe is None:
@@ -1522,7 +1540,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="channeldelete")
     async def an_cmd_channeldelete(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the channel delete rule: `,an channeldelete 2 ban 120s`"""
+        """Configure the channel delete rule
+
+        Example: `,an channeldelete 2 ban 120s`
+        """
         if count is None:
             return await self._show_rule(ctx, "channeldelete")
         if punishment is None or timeframe is None:
@@ -1531,7 +1552,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="kick")
     async def an_cmd_kick(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the kick rule: `,an kick 3 ban 120s`"""
+        """Configure the kick rule
+
+        Example: `,an kick 3 ban 120s`
+        """
         if count is None:
             return await self._show_rule(ctx, "kick")
         if punishment is None or timeframe is None:
@@ -1540,7 +1564,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="permissions", aliases=["permission", "perms"])
     async def an_cmd_permissions(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the permission grant rule: `,an permissions 1 strip 60s`"""
+        """Configure the permission grant rule
+
+        Example: `,an permissions 1 strip 60s`
+        """
         if count is None:
             return await self._show_rule(ctx, "permissions")
         if punishment is None or timeframe is None:
@@ -1549,7 +1576,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="rolecreate")
     async def an_cmd_rolecreate(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the role create rule: `,an rolecreate 5 strip 120s`"""
+        """Configure the role create rule
+
+        Example: `,an rolecreate 5 strip 120s`
+        """
         if count is None:
             return await self._show_rule(ctx, "rolecreate")
         if punishment is None or timeframe is None:
@@ -1558,7 +1588,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="roledelete")
     async def an_cmd_roledelete(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the role delete rule: `,an roledelete 5 strip 120s`"""
+        """Configure the role delete rule
+
+        Example: `,an roledelete 5 strip 120s`
+        """
         if count is None:
             return await self._show_rule(ctx, "roledelete")
         if punishment is None or timeframe is None:
@@ -1567,7 +1600,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="roleinvite", aliases=["invite"])
     async def an_cmd_roleinvite(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the invite spam rule (many invites made quickly): `,an roleinvite 10 strip 60s`"""
+        """Configure the invite spam rule
+
+        Example: `,an roleinvite 10 strip 60s`
+        """
         if count is None:
             return await self._show_rule(ctx, "roleinvite")
         if punishment is None or timeframe is None:
@@ -1576,7 +1612,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="serverupdate", aliases=["server"])
     async def an_cmd_serverupdate(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the server update rule: `,an serverupdate 1 strip 60s`"""
+        """Configure the server update rule
+
+        Example: `,an serverupdate 1 strip 60s`
+        """
         if count is None:
             return await self._show_rule(ctx, "serverupdate")
         if punishment is None or timeframe is None:
@@ -1585,7 +1624,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="timeout", aliases=["mute"])
     async def an_cmd_timeout(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the timeout rule: `,an timeout 5 strip 120s`"""
+        """Configure the timeout rule
+
+        Example: `,an timeout 5 strip 120s`
+        """
         if count is None:
             return await self._show_rule(ctx, "timeout")
         if punishment is None or timeframe is None:
@@ -1594,7 +1636,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="webhook", aliases=["webhooks"])
     async def an_cmd_webhook(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the webhook rule: `,an webhook 1 kick 60s`"""
+        """Configure the webhook rule
+
+        Example: `,an webhook 1 kick 60s`
+        """
         if count is None:
             return await self._show_rule(ctx, "webhook")
         if punishment is None or timeframe is None:
@@ -1603,7 +1648,11 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="whitelist", aliases=["wl", "trust"])
     async def an_whitelist(self, ctx: Context, target: discord.Role | discord.Member | discord.User = None):
-        """Trust a user, bot or role (everyone with it): `,an whitelist @user` or `,an whitelist @Role`. No target lists them"""
+        """Trust a user, bot or role in the antinuke
+
+        Trusting a role trusts everyone who has it. With no target, lists who's trusted.
+        Example: `,an whitelist @Mods`
+        """
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
         if target is None:
@@ -1651,7 +1700,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="reset")
     async def an_reset(self, ctx: Context, action: str = None):
-        """Reset an action rule or all rules to defaults: `,an reset ban` or `,an reset`"""
+        """Reset an action rule or all rules to defaults
+
+        Example: `,an reset ban`
+        """
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
         if action and action.lower() != "all":
@@ -1681,7 +1733,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.group(name="preset", invoke_without_command=True)
     async def an_preset(self, ctx: Context):
-        """Manage rule presets: `,an preset save/load/list`"""
+        """Save, load or list antinuke rule presets
+
+        Example: `,an preset save strict`
+        """
         p = ctx.clean_prefix
         await ctx.neutral(f"`{p}an preset save <name>` saves the current rules\n"
                           f"`{p}an preset load <name>` loads default, strict, relaxed or one of yours\n"
@@ -1764,7 +1819,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="admin")
     async def an_admin(self, ctx: Context, member: discord.Member):
-        """Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted"""
+        """Add or remove an antinuke admin (server owner only)
+
+        Antinuke admins can change the antinuke's settings and are trusted by it.
+        """
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
         if ctx.author.id != ctx.guild.owner_id:
@@ -1804,7 +1862,10 @@ class Antinuke(commands.Cog):
     @commands.command(name="autosetup", aliases=["autoprotect"])
     @commands.guild_only()
     async def cmd_autosetup(self, ctx: Context):
-        """Switch on the protection this server hasn't set up yet (antinuke, raid, automod, warnings, staff levels)"""
+        """Switch on any protection this server hasn't set up yet
+
+        Covers the antinuke, raid detection, automod, warning punishments and staff levels. Anything already set up is left alone.
+        """
         if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
             raise UserError("Only the **server owner** can run the automatic setup")
         from core import autosetup
@@ -1815,7 +1876,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="panic", aliases=["emergency"])
     async def an_panic(self, ctx: Context, *, reason: str = None):
-        """Emergency: lock every channel, pause invites and take dangerous permissions off every role"""
+        """Lock the whole server down in an emergency
+
+        Locks every channel, pauses invites and takes dangerous permissions off every role.
+        """
         await antinuke_admin(ctx)
         done = await self.start_panic(ctx.guild, ctx.author, reason)
         await ctx.approve("panic mode is **on**: " + "; ".join(d for d in done if not d.startswith("⚠️"))
@@ -1843,7 +1907,10 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="botquarantine", aliases=["botq"])
     async def an_botquarantine(self, ctx: Context, state: str = None):
-        """Hold back new bots' dangerous permissions until you approve them: `,an botq on|off`"""
+        """Hold new bots' dangerous permissions until you approve them
+
+        Example: `,an botq on`
+        """
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
         if state is None:
@@ -1904,7 +1971,11 @@ class Antinuke(commands.Cog):
     @antiraid.command(name="massjoin")
     @has_perms(administrator=True)
     async def ar_massjoin(self, ctx: Context, joins: int = 0, seconds: int = 10):
-        """Punish everyone in a join wave: `antiraid massjoin 10 10` (0 to disable)"""
+        """Punish everyone who joins in a wave
+
+        `0` turns it off.
+        Example: `,antiraid massjoin 10 10`
+        """
         if joins and not (2 <= joins <= 100 and 1 <= seconds <= 300):
             raise UserError("Use 2–100 joins within 1–300 seconds, e.g. `antiraid massjoin 10 10`")
         await self._ar_set(ctx, "massjoin", {"joins": joins, "seconds": seconds} if joins else None,
@@ -1913,7 +1984,10 @@ class Antinuke(commands.Cog):
     @antiraid.command(name="age")
     @has_perms(administrator=True)
     async def ar_age(self, ctx: Context, days: int = 0):
-        """Punish accounts younger than N days (0 to disable)"""
+        """Punish accounts younger than a number of days
+
+        `0` turns it off.
+        """
         await self._ar_set(ctx, "age", days or None, f"account age filter set to **under {days} days**" if days else "turned off the account age filter")
 
     @antiraid.command(name="avatar")
@@ -1926,7 +2000,7 @@ class Antinuke(commands.Cog):
     @antiraid.command(name="punishment")
     @has_perms(administrator=True)
     async def ar_punishment(self, ctx: Context, punishment: str):
-        """kick, ban or timeout"""
+        """Choose what happens to suspicious joiners: kick, ban or timeout"""
         if punishment not in ("kick", "ban", "timeout"):
             raise UserError("Use `kick`, `ban` or `timeout`")
         await self._ar_set(ctx, "punishment", punishment, f"antiraid punishment set to **{punishment}**")
@@ -1949,14 +2023,20 @@ class Antinuke(commands.Cog):
     @antiraid.command(name="start", aliases=["on", "now"])
     @has_perms(administrator=True)
     async def ar_start(self, ctx: Context):
-        """Turn raid mode on now (pauses invites and DMs, locks channels if set) until joins go quiet"""
+        """Turn raid mode on now
+
+        Pauses invites and DMs and locks channels if set, until joins go quiet.
+        """
         done = await self.start_raid(ctx.guild, "Raid mode was started by hand", by=ctx.author)
         await ctx.approve("raid mode is **on**" + (": " + "; ".join(x.removeprefix("⚠️ ") for x in done) if done else ""))
 
     @antiraid.command(name="end", aliases=["stop", "off", "over"])
     @has_perms(administrator=True)
     async def ar_end(self, ctx: Context):
-        """End raid mode now: resume invites and DMs, unlock the channels it locked"""
+        """End raid mode now
+
+        Resumes invites and DMs and unlocks the channels it locked.
+        """
         cfg = await self._raid_cfg(ctx.guild.id)
         if not cfg.get("raid_state"):
             return await ctx.neutral("raid mode isn't on")
@@ -1966,7 +2046,11 @@ class Antinuke(commands.Cog):
     @antiraid.command(name="lockdown", aliases=["lock"])
     @has_perms(administrator=True)
     async def ar_lockdown(self, ctx: Context, what: str, state: str):
-        """What raid mode does: `antiraid lockdown invites on` (pause invites & DMs) or `antiraid lockdown channels on`"""
+        """Choose what raid mode locks down
+
+        `invites` pauses invites and DMs, `channels` locks every channel.
+        Example: `,antiraid lockdown invites on`
+        """
         what = {"invite": "invites", "invites": "invites", "dms": "invites", "channel": "channels",
                 "channels": "channels", "chat": "channels"}.get(what.lower())
         if what is None:
@@ -1998,13 +2082,20 @@ class Antinuke(commands.Cog):
     @antialt.command(name="minage", aliases=["age", "days"])
     @has_perms(administrator=True)
     async def aa_minage(self, ctx: Context, days: int = 0):
-        """Set minimum account age in days before joining is allowed (0 to disable)"""
+        """Set how old an account must be to join
+
+        In days. `0` turns it off.
+        """
         await self._ar_set(ctx, "age", days or None, f"anti-alt minimum account age set to **{days} days**" if days else "turned off the anti-alt age filter")
 
     @antialt.command(name="action", aliases=["punish", "punishment"])
     @has_perms(administrator=True)
     async def aa_action(self, ctx: Context, action: str):
-        """Set action for alt accounts: `kick`, `ban` or `timeout`"""
+        """Choose what happens to alt accounts
+
+        `kick`, `ban` or `timeout`.
+        Example: `,antialt action kick`
+        """
         action = action.lower()
         if action not in ("kick", "ban", "timeout"):
             raise UserError("Action must be `kick`, `ban` or `timeout`")
@@ -2013,7 +2104,10 @@ class Antinuke(commands.Cog):
     @antialt.command(name="avatar")
     @has_perms(administrator=True)
     async def aa_avatar(self, ctx: Context, state: str):
-        """Toggle blocking accounts without custom avatars: `antialt avatar on/off`"""
+        """Block accounts without a custom avatar
+
+        Example: `,antialt avatar on`
+        """
         on = state.lower() in ("on", "true", "enable", "yes")
         await self._ar_set(ctx, "avatar", on or None, f"turned the anti-alt avatar requirement **{'on' if on else 'off'}**")
 

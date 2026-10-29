@@ -18,7 +18,7 @@ from core import redact
 from core.config import settings
 from core.help import Help
 from core.net import make_public_session
-from core.utils import Colors, Context, Ignored, UserError, compact_failure, input_error_text, uses_compact_replies
+from core.utils import Colors, Context, Ignored, UserError, compact_failure, input_error_text, perm_label, uses_compact_replies
 
 log = logging.getLogger("veil")
 
@@ -616,12 +616,10 @@ class Veil(commands.AutoShardedBot):
                 elif any(p in perms_list for p in ("manage_messages",)):
                     needed_rank = "Helper"
 
-                return await ctx.deny(
-                    f"🔒 Access Denied: This command requires bot permission rank **{needed_rank}+** (`uperm`) to use."
-                )
+                return await ctx.deny(f"you need the **{needed_rank}** level or higher to use this")
             if isinstance(error, commands.BotMissingPermissions):
-                perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-                return await ctx.fail(f"failed: I'm missing {perms}")
+                perms = ", ".join(f"**{perm_label(p)}**" for p in error.missing_permissions)
+                return await ctx.fail(f"failed: I need {perms} for this")
             if isinstance(error, commands.NotOwner):
                 return
             if isinstance(error, commands.NoPrivateMessage):

@@ -375,7 +375,10 @@ class Music(commands.Cog):
 
     @commands.command(aliases=["next", "voteskip", "vs"])
     async def skip(self, ctx: Context):
-        """Skip the current song (DJs and the requester skip instantly, others vote)"""
+        """Skip the current song
+
+        DJs and whoever queued it skip straight away. Everyone else votes.
+        """
         player = await self.player(ctx)
         if not player.current:
             raise UserError("Nothing is playing")
@@ -441,7 +444,11 @@ class Music(commands.Cog):
     @commands.command(name="lyrics", aliases=["ly", "songlyrics"])
     @requires_uperm()
     async def lyrics(self, ctx: Context, *, query: str = None):
-        """Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track)"""
+        """Show a song's lyrics
+
+        With nothing given, shows the lyrics of what's playing.
+        Example: `,lyrics Bohemian Rhapsody`
+        """
         title = query
         artist = ""
 
@@ -508,7 +515,7 @@ class Music(commands.Cog):
 
     @commands.command(aliases=["vol", "v"])
     async def volume(self, ctx: Context, volume: int):
-        """Set volume (0–150)"""
+        """Set the volume, from 0 to 150"""
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         volume = max(0, min(volume, 150))
@@ -556,7 +563,10 @@ class Music(commands.Cog):
 
     @commands.command()
     async def seek(self, ctx: Context, position: str):
-        """Seek to a time: `seek 1:30`"""
+        """Seek to a time
+
+        Example: `,seek 1:30`
+        """
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         if not player.current:
@@ -577,7 +587,10 @@ class Music(commands.Cog):
 
     @commands.command(name="audiofilter", aliases=["preset", "fx"])
     async def audiofilter(self, ctx: Context, preset: str = None):
-        """Audio presets: nightcore, vaporwave, bassboost, 8d, slowed, karaoke, clear"""
+        """Apply an audio effect to the music
+
+        `nightcore`, `vaporwave`, `bassboost`, `8d`, `slowed`, `karaoke` or `clear`.
+        """
         player = await self.player(ctx)
         await self.require_dj(ctx, player)
         f: wavelink.Filters = player.filters
@@ -603,7 +616,10 @@ class Music(commands.Cog):
     @commands.command()
     @has_perms(manage_guild=True)
     async def djrole(self, ctx: Context, *, role: discord.Role | None = None):
-        """Set the DJ role (needed to pause/stop/volume/etc.), or no role to let everyone control music"""
+        """Set the DJ role
+
+        The DJ role is needed to pause, stop or change the volume. With no role, everyone can.
+        """
         cfg = await self.bot.db.get_config(ctx.guild.id, "music")
         if role is None:
             cfg.pop("dj_role", None)

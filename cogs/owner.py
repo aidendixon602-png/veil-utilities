@@ -113,7 +113,10 @@ class Owner(commands.Cog):
     # ================================================================ status
     @commands.command(hidden=True, aliases=["sys", "botstatus", "health"])
     async def system(self, ctx: Context):
-        """Bot health: uptime, latency, shards, memory, database, maintenance state"""
+        """Show the bot's health
+
+        Uptime, latency, shards, memory, database and maintenance.
+        """
         b = self.bot
         e = discord.Embed(title="System", color=Colors.main, timestamp=discord.utils.utcnow())
         e.add_field(name="Uptime", value=fmt_duration(time.time() - b.started_at))
@@ -143,7 +146,10 @@ class Owner(commands.Cog):
     # ================================================================ maintenance / kill switch
     @commands.command(hidden=True, aliases=["maint"])
     async def maintenance(self, ctx: Context, state: str = None, duration: str = None, *, reason: str = ""):
-        """Turn maintenance mode on or off: `maintenance on 5m DB update`, `maintenance off`"""
+        """Turn maintenance mode on or off
+
+        Example: `,maintenance on 5m DB update`
+        """
         if state is None:
             m = self.bot.maintenance
             until = getattr(self.bot, "maintenance_until", None)
@@ -200,7 +206,10 @@ class Owner(commands.Cog):
 
     @commands.group(hidden=True, aliases=["ks", "globaldisable"], invoke_without_command=True)
     async def killswitch(self, ctx: Context, *, command: str):
-        """Instantly disable (or re-enable) a command everywhere — e.g. if it's broken or being abused"""
+        """Turn a command off (or back on) in every server
+
+        For a command that's broken or being abused.
+        """
         cmd = self.bot.get_command(command)
         if not cmd:
             raise UserError(f"No command called `{command}`")
@@ -272,7 +281,7 @@ class Owner(commands.Cog):
 
     @commands.command(name="cogs", hidden=True, aliases=["modules", "extensions"])
     async def cmd_cogs(self, ctx: Context):
-        """List all loaded cogs, extensions, and their registered commands"""
+        """List the loaded modules and their commands"""
         e = discord.Embed(title="🧩 Loaded Extensions & Cogs", color=Colors.main)
         cog_lines = []
         for name, cog in sorted(self.bot.cogs.items()):
@@ -289,7 +298,7 @@ class Owner(commands.Cog):
 
     @commands.command(name="botlogs", hidden=True, aliases=["logfile", "console"])
     async def botlogs(self, ctx: Context, lines: int = 60):
-        """The last N lines of the bot's log file"""
+        """Show the end of the bot's log file"""
         path = settings.log_file
         if not os.path.exists(path):
             raise UserError(f"No log file at `{path}`")
@@ -398,7 +407,10 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True)
     async def blacklist(self, ctx: Context, target_id: int, *, reason: str = None):
-        """Blacklist a user or server ID from the bot (a blacklisted server is left immediately). `unblacklist` lifts it"""
+        """Blacklist a user or server from the bot
+
+        A blacklisted server is left straight away. `unblacklist` lifts it.
+        """
         from core import perms as _perms
         if _perms.is_bot_developer(target_id, self.bot):
             raise UserError("A bot developer can't be blacklisted.")
@@ -435,7 +447,10 @@ class Owner(commands.Cog):
     # ================================================================ process
     @commands.command(hidden=True, aliases=["pull", "updatebot", "botupdate", "syncgit"])
     async def gitpull(self, ctx: Context):
-        """Pull the latest update; reloads changed cogs, or restarts if core files changed"""
+        """Pull the latest update
+
+        Reloads what changed, or restarts if core files changed.
+        """
         msg = await ctx.send("🔄 Pulling the latest update...")
         try:
             result = await asyncio.to_thread(gitinfo.pull, BOT_ROOT)
@@ -494,7 +509,10 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True, aliases=["ver", "build"])
     async def version(self, ctx: Context):
-        """Which update the bot is running, what's on disk and what's the latest, with what to do about a mismatch"""
+        """Show which update the bot is running
+
+        Compares what's running, what's on disk and the latest update, and says what to do if they differ.
+        """
         async with ctx.typing():
             snap = await asyncio.to_thread(gitinfo.snapshot, BOT_ROOT)
             remote_sha, remote_error = await asyncio.to_thread(gitinfo.remote_head, BOT_ROOT)
@@ -514,7 +532,10 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True, aliases=["rl"])
     async def reload(self, ctx: Context, *extensions: str):
-        """Reload cogs without restarting (all if none given). Changes to core/ or main.py need ,restart"""
+        """Reload modules without restarting
+
+        With none given, reloads them all. Changes to core files need `,restart`.
+        """
         exts = [f"cogs.{e}" if not e.startswith("cogs.") else e for e in extensions] or list(self.bot.extensions)
         failed = []
         for ext in exts:
@@ -529,7 +550,10 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True, aliases=["presence", "statusstate"])  # `clear`/`reset` drop the custom text
     async def setpresence(self, ctx: Context, status: str, *, text: str = None):
-        """Change the bot's presence status (dnd, online, idle, invisible) and optional text: `,presence dnd`"""
+        """Change the bot's online status and status text
+
+        Example: `,presence dnd`
+        """
         STATUS_MAP = {
             "online": discord.Status.online,
             "dnd": discord.Status.dnd,
@@ -570,7 +594,10 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True)
     async def setstatus(self, ctx: Context, *, arg: str):
-        """Change the bot's status text or presence: `,setstatus dnd` or `,setstatus 🛡️ Midtown Events Department • ,help`"""
+        """Change the bot's status or status text
+
+        Example: `,setstatus dnd`
+        """
         STATUS_MAP = {
             "online": discord.Status.online,
             "dnd": discord.Status.dnd,
@@ -594,7 +621,10 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True, aliases=["reboot"])
     async def restart(self, ctx: Context, seconds: int = 3):
-        """Restart the bot in a fresh process (loads all code from disk) and announce when back online"""
+        """Restart the bot
+
+        Starts a fresh process and says when it's back.
+        """
         delay = max(1, min(60, seconds))
         start_time = time.time()
         target_ts = int(start_time + delay)
@@ -820,7 +850,7 @@ class Owner(commands.Cog):
 
     @commands.command(name="broadcast", hidden=True, aliases=["devbroadcast", "devannounce"])
     async def cmd_broadcast(self, ctx: Context, *, message: str):
-        """Send an urgent announcement from Veil Developers to all server alert channels"""
+        """Send an announcement to every server's alert channel"""
         sent = 0
         failed = 0
         embed = discord.Embed(
@@ -917,7 +947,10 @@ class Owner(commands.Cog):
     @testnuke.env_developer_only()
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def cmd_testnuke(self, ctx: Context, roles: int = None, channels: int = None):
-        """Rapidly create roles and channels in the test server to check the antinuke (asks first, OWNER_IDS only)"""
+        """Test the antinuke in the test server
+
+        Quickly creates roles and channels so you can see the antinuke react. Asks first; developers only.
+        """
         guild, becomes_test_server = await testnuke.test_guild(self.bot, ctx)
         antinuke = self.bot.get_cog("Antinuke")
         if antinuke is None:
@@ -951,7 +984,10 @@ class Owner(commands.Cog):
     @commands.command(name="testcleanup", hidden=True, aliases=["nukecleanup"])
     @testnuke.env_developer_only()
     async def cmd_testcleanup(self, ctx: Context):
-        """Delete every role and channel a test nuke left behind in the test server (OWNER_IDS only)"""
+        """Delete what a test nuke left behind in the test server
+
+        Developers only.
+        """
         guild, _ = await testnuke.test_guild(self.bot, ctx)
         roles, channels, failed = await testnuke.cleanup(self.bot.get_cog("Antinuke"), guild)
         if not roles and not channels and not failed:
@@ -964,7 +1000,10 @@ class Owner(commands.Cog):
     @commands.command(name="testserver", hidden=True)
     @testnuke.env_developer_only()
     async def cmd_testserver(self, ctx: Context, action: str = None):
-        """See or change the server `testnuke` runs in: `testserver set` (this server) or `testserver clear`"""
+        """See or change the server testnuke runs in
+
+        `set` uses this server, `clear` removes it.
+        """
         from core.config import settings as _settings
         if action is None:
             current = await testnuke.saved_test_guild_id(self.bot)
@@ -987,7 +1026,7 @@ class Owner(commands.Cog):
 
     @commands.command(name="developer", hidden=True, aliases=["dev", "secret", "devcommands", "secretcommands", "devhelp"])
     async def cmd_developer(self, ctx: Context):
-        """Open help on the Developer category (every developer command, same layout as the rest of help)"""
+        """Show the developer commands"""
         help_cmd = ctx.bot.help_command.copy()
         help_cmd.context = ctx
         await help_cmd.open_menu("Developer")

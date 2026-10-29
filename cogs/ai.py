@@ -78,7 +78,10 @@ class AI(commands.Cog):
     @commands.group(aliases=["ai", "chat", "gpt"], invoke_without_command=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def ask(self, ctx: Context, *, prompt: str):
-        """Ask the AI anything — it remembers your last few messages in this channel"""
+        """Ask the AI anything
+
+        It remembers your last few messages in this channel.
+        """
         key = (ctx.channel.id, ctx.author.id)
         hist = self.history[key]
         messages = [{"role": "system", "content": SYSTEM}, *hist, {"role": "user", "content": prompt[:4000]}]
@@ -156,7 +159,11 @@ class AI(commands.Cog):
     @commands.command(aliases=["speak"])
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def tts(self, ctx: Context, *, text: str):
-        """Turn text into speech. Start with a language code for other languages: `tts es hola amigos`"""
+        """Turn text into speech
+
+        Start with a language code for other languages.
+        Example: `,tts es hola amigos`
+        """
         try:
             from gtts import gTTS, lang
         except ImportError:

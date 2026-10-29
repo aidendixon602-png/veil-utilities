@@ -268,7 +268,7 @@ def test_examples_are_built_from_required_arguments():
     async def ping(ctx):
         pass
 
-    assert example_for(ban, ",") == ",ban @user"
+    assert example_for(ban, ",") == ",ban @user spamming"  # a reason makes it read like real use
     assert example_for(give, ",") == ",give @user @role"
     assert example_for(mode, ",") == ",mode on"
     assert example_for(remind, ",") == ",remind 10m hello"
@@ -294,27 +294,33 @@ def test_command_card_has_aliases_parameters_information_and_usage():
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=bot, author=SimpleNamespace(id=1), guild=None)
     card = h.command_embed(cog.ban)
-    fields = {f.name: f.value for f in card.fields}
-    assert card.title == "Command: ban"
-    assert [f.name for f in card.fields] == ["Aliases", "Parameters", "Information", "Usage"]
-    assert [f.inline for f in card.fields] == [True, True, True, False]
-    assert fields["Parameters"] == "user, reason"
-    assert fields["Information"].startswith("⚠️ Admin+")
-    assert fields["Usage"].startswith("```\nSyntax: ,ban ") and "Example: ,ban @user" in fields["Usage"]
-    assert card.footer.text.startswith("Module: admin")  # ban needs Admin: it's under Admin, not Moderator
+    lines = card.description.splitlines()
+    assert card.title == ",ban" and not card.fields
+    assert lines[0] == "Ban a member, or anyone by user ID" and lines[1] == ""
+    assert lines[2].startswith("Add `--purge`") and lines[3] == ""
+    assert lines[4] == "**Usage** `,ban <user> [reason]`"  # no default values in the syntax
+    assert lines[5] == "**Example** `,ban @user spamming`"
+    assert lines[6].startswith("**Requires** Admin level")
+    assert card.footer.text == "Admin · <required> [optional]"  # ban needs Admin: it's under Admin, not Moderator
 
 
-def test_public_commands_say_n_a():
+def test_a_card_only_shows_what_applies():
     @commands.command(aliases=["pong"])
     async def ping(ctx):
         """Check latency"""
 
     ping.cog = None
     card = _help().command_embed(ping)
-    fields = {f.name: f.value for f in card.fields}
-    assert fields == {"Aliases": "pong", "Parameters": "n/a", "Information": "n/a",
-                      "Usage": "```\nSyntax: ,ping\n```"}
-    assert card.description == "Check latency"
+    assert card.description == "Check latency\n\n**Usage** `,ping`\n**Aliases** `pong`"  # no "n/a" anywhere
+    assert "n/a" not in card.description
+
+
+def test_default_values_never_show_in_the_syntax(loaded_bot):
+    h = Help()
+    h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
+    for cmd in loaded_bot.walk_commands():
+        usage_line = next(line for line in h.command_embed(cmd).description.splitlines() if line.startswith("**Usage**"))
+        assert "=" not in usage_line, cmd.qualified_name
 
 
 # ------------------------------------------------------------------ typos
@@ -461,7 +467,8 @@ def test_every_group_pages_through_its_subcommands_within_limits(loaded_bot):
         for page in pages:
             _fits(page)
         if len(pages) > 1:
-            assert pages[0].footer.text.startswith(f"Page 1/{len(pages)} · Module: ")
+            assert pages[0].footer.text.startswith(f"page 1/{len(pages)} · ")
+            assert "**Subcommands**" in pages[0].description
 
 
 # ------------------------------------------------------------------ details found while reading real cards
@@ -475,8 +482,8 @@ def test_subcommands_are_filed_under_their_group(loaded_bot):
 def test_rank_is_not_repeated_as_a_permission(loaded_bot):
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
-    perms = next(f.value for f in h.command_embed(loaded_bot.get_command("ban")).fields if f.name == "Information")
-    assert perms.startswith("⚠️ Admin+") and "Uperm" not in perms
+    line = next(x for x in h.command_embed(loaded_bot.get_command("ban")).description.splitlines() if x.startswith("**Requires**"))
+    assert line.startswith("**Requires** Admin level") and "Uperm" not in line
 
 
 def test_placeholder_argument_names_never_become_fake_examples(loaded_bot):
@@ -493,7 +500,8 @@ def test_a_group_pages_through_its_subcommands(loaded_bot):
     h.is_owner_check = AsyncMock(return_value=True)
     asyncio.run(h.send_group_help(loaded_bot.get_command("role")))
     pages = sent[0]["view"].embeds
-    assert pages[0].title == "Group: role" and any(p.title == "Command: role add" for p in pages)
+    assert pages[0].title == ",role" and any(p.title == ",role add" for p in pages)
+    assert "`,role add` · " in pages[0].description  # the group's card lists its subcommands
     assert [c.emoji.name for c in sent[0]["view"].children] == ["◀", "▶", "✖"]
 
 
@@ -515,8 +523,7 @@ def test_parameters_come_from_a_commands_own_usage_line():
     async def role(ctx, *, text: str):
         """Give or take a role"""
 
-    fields = {f.name: f.value for f in _help().command_embed(role).fields}
-    assert fields["Parameters"] == "member, role"
+    assert "**Usage** `,role <member> <role>`" in _help().command_embed(role).description
 
 
 def test_long_categories_get_page_buttons(loaded_bot):
@@ -533,3 +540,21 @@ def test_long_categories_get_page_buttons(loaded_bot):
     view.current, view.page = None, 0  # home: just the dropdown
     view._build_items()
     assert not any(isinstance(b, PageButton) for b in view.children)
+
+
+def test_no_command_asks_the_user_for_ctx_or_self(loaded_bot):
+    # Commands made by a factory inside a cog once listed `ctx` as an argument, so `,blur` and `,hug` failed with
+    # "ctx is a required argument". Every command's arguments must be things a person types.
+    wrong = {c.qualified_name: list(c.clean_params) for c in loaded_bot.walk_commands()
+             if {"ctx", "self"} & set(c.clean_params)}
+    assert not wrong, wrong
+
+
+def test_every_description_reads_cleanly(loaded_bot):
+    # The first line is the summary shown in lists: short, no code, no full stop. Details and examples go below it.
+    bad = {}
+    for c in loaded_bot.walk_commands():
+        first = (c.help or "").strip().split("\n")[0]
+        if not first or "`" in first or len(first) > 70 or first.endswith("."):
+            bad[c.qualified_name] = first
+    assert not bad, bad

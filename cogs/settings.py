@@ -98,7 +98,10 @@ class Settings(commands.Cog):
 
     @commands.command()
     async def selfprefix(self, ctx: Context, prefix: str = None):
-        """Set a personal prefix that works everywhere (`none` to remove)"""
+        """Set your own prefix that works everywhere
+
+        `none` removes it.
+        """
         if prefix is None or prefix.lower() == "none":
             await self.bot.db.set_selfprefix(ctx.author.id, None)
             return await ctx.approve("removed your self prefix")
@@ -117,7 +120,10 @@ class Settings(commands.Cog):
     @alias.command(name="add")
     @has_perms(manage_guild=True)
     async def alias_add(self, ctx: Context, shortcut: str, *, command: str):
-        """Add an alias, e.g. `alias add b ban` or `alias add hi say hello`"""
+        """Add a shortcut for a command
+
+        Example: `,alias add b ban`
+        """
         shortcut = shortcut.lower()
         command = command.strip()
         if not re.fullmatch(r"[\w\-!?.]{1,32}", shortcut):
@@ -197,7 +203,10 @@ class Settings(commands.Cog):
     @commands.group(aliases=["disablecmd", "dcmd"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def disablecommand(self, ctx: Context, *, command: str):
-        """Disable a command for non-admins (`dcmd list` to see what's disabled)"""
+        """Turn a command off for non-admins
+
+        `,dcmd list` shows what's off.
+        """
         cmd = self.bot.get_command(command)
         if not cmd or cmd.cog_name in ("Settings", "Owner", "Authorization"):
             raise UserError("That command can't be disabled")
@@ -253,7 +262,10 @@ class Settings(commands.Cog):
     @commands.group(aliases=["cmdchannels", "botchannel"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def botchannels(self, ctx: Context, channel: discord.TextChannel = None):
-        """Restrict normal commands to specific channels (`botchannels <#channel>` to toggle)"""
+        """Limit commands to certain channels
+
+        Run it with a channel to add or remove that channel.
+        """
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         channels = s.setdefault("bot_channels", [])
         if channel is None:
@@ -302,13 +314,20 @@ class Settings(commands.Cog):
     @commands.group(aliases=["fp", "fakeperms", "fakeperm"], invoke_without_command=True)
     @is_server_owner()
     async def fakepermissions(self, ctx: Context):
-        """Give roles permissions that only work through the bot, with no dangerous Discord permissions needed"""
+        """Give roles permissions that only work through the bot
+
+        They need no dangerous Discord permissions.
+        """
         await ctx.send_help(ctx.command)
 
     @fakepermissions.command(name="add", aliases=["grant", "give"], usage="<role> [permissions]")
     @is_server_owner()
     async def fp_add(self, ctx: Context, role: discord.Role, *, permissions: str = None):
-        """Give a role permissions for the bot: `fp add @Mods ban members, kick members` (leave them out to pick)"""
+        """Give a role permissions in the bot
+
+        Leave the permissions out to pick them from a menu.
+        Example: `,fp add @Mods ban members, kick members`
+        """
         if not permissions:
             view = FakePermPicker(self, ctx, role)
             return await ctx.neutral(f"pick the permissions to give {role.mention} through the bot", view=view)
@@ -322,7 +341,10 @@ class Settings(commands.Cog):
     @fakepermissions.command(name="remove", aliases=["revoke", "take", "rm"], usage="<role> [permissions|all]")
     @is_server_owner()
     async def fp_remove(self, ctx: Context, role: discord.Role, *, permissions: str = "all"):
-        """Take fake permissions back from a role (`all`, or leave them out, to clear it)"""
+        """Take a role's bot permissions back
+
+        `all`, or nothing, clears them all.
+        """
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
         had = fp.get(str(role.id), [])
         if not had:
