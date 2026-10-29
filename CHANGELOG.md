@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Whitelisted people** (`WHITELISTED_PEOPLE` in `core/perms.py`), starting with thesimisear: no command can target
+  them (a developer's included), and the antinuke, automod, anti-raid, role blacklist, mass actions and network
+  bans all leave them alone.
+- `,unblacklist`.
+
+### Fixed
+
+- **Nothing repeats.** `,genreban` on someone already genrebanned says so (since when, by whom) instead of asking
+  again; servers where they're already banned (by staff or another bot) are skipped and counted, not banned twice;
+  re-bans on rejoin/unban happen once even with Ghost Vanguard enforcing too. `,ungenreban` on someone who isn't
+  genrebanned says so. `,blacklist` no longer lifts a blacklist when run twice: it says it's already in place.
+- Genreban messages read properly: `1 server` / `3 servers` instead of `server(s)`, and say exactly what happened.
+
+### Added
+
 - **`,gv`: Ghost Vanguard's commands, with Veil's prefix.** Ghost Vanguard no longer has slash commands: type
   `,gv` and what used to follow the slash (`,gv raid mode on`, `,gv antinuke whitelist add @user`, `,gv help`).
   Veil checks Ghost Vanguard is in the server and hands the message over (🛡️); Ghost Vanguard runs it with its own

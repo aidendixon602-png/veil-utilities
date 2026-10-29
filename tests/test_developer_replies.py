@@ -71,8 +71,15 @@ def test_blacklist_and_leave_lines(bot):
         bot.get_guild = MagicMock(return_value=None)
         await Owner.blacklist.callback(owner, ctx, 999)
         assert said(ctx) == "blacklisted `999`"
-        await Owner.blacklist.callback(owner, ctx, 999)
-        assert said(ctx) == "unblacklisted `999`"
+        ctx.warn = AsyncMock()
+        bot.db.fetchone = AsyncMock(return_value={"reason": "raids"})
+        await Owner.blacklist.callback(owner, ctx, 999)  # again: says so, and never lifts it
+        assert 999 in bot.blacklist
+        assert said(ctx, "warn").startswith("`999` is already blacklisted (raids).")
+        await Owner.unblacklist.callback(owner, ctx, 999)
+        assert said(ctx) == "lifted the blacklist on `999`" and 999 not in bot.blacklist
+        await Owner.unblacklist.callback(owner, ctx, 999)
+        assert said(ctx, "warn") == "`999` isn't blacklisted."
 
         guild = SimpleNamespace(name="My *Server*", leave=AsyncMock())
         bot.get_guild = MagicMock(return_value=guild)

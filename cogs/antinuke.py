@@ -838,7 +838,7 @@ class Antinuke(commands.Cog):
         from core import perms as _perms
         if user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", []) \
                 or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot) \
-                or _perms.is_trusted_bot(user_id):
+                or _perms.is_trusted_bot(user_id) or _perms.is_whitelisted_person(user_id):
             return True
         try:
             rbl_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
@@ -2037,8 +2037,9 @@ class Antinuke(commands.Cog):
         if member.bot:
             return
         from core import perms as _perms
-        if _perms.is_bot_developer(member.id, self.bot) or _perms.ghost_guards(member.guild):
-            return  # Ghost Vanguard handles raids where it guards
+        if _perms.is_bot_developer(member.id, self.bot) or _perms.ghost_guards(member.guild) \
+                or _perms.is_whitelisted_person(member.id):
+            return  # Ghost Vanguard handles raids where it guards; whitelisted people are never touched
         cfg = await self.bot.db.get_config(member.guild.id, "antiraid")
         if not cfg or member.id in cfg.get("whitelist", []):
             return

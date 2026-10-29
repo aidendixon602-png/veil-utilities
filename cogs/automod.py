@@ -133,7 +133,7 @@ class Automod(commands.Cog):
         if not m.guild or m.author.bot or not isinstance(m.author, discord.Member):
             return
         from core import perms as _perms
-        if _perms.is_bot_developer(m.author, self.bot):
+        if _perms.is_bot_developer(m.author, self.bot) or _perms.is_whitelisted_person(m.author):
             return
         cfg = await self.cfg(m.guild.id)
         if not any(cfg.get(f) for f in FILTERS):
