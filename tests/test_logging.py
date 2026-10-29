@@ -468,27 +468,28 @@ def cmd_ctx(content=",ban @x spam", name="ban", invoked="ban"):
                            command=SimpleNamespace(name=name, qualified_name=name, aliases=["b"], cog_name="Moderation"), invoked_with=invoked)
 
 
-def test_a_command_is_one_line_on_the_card():
-    line = fmt.command_used(cmd_ctx(), "Admin", "Owner", rank=3, ms=84.4)
-    assert line.startswith("<t:") and line.endswith(
-        ":t> · `,ban @x spam` · <#5> · 84 ms · [jump](https://discord.com/channels/10/5/900)")
-    assert "<@7>" not in line  # who ran it is the card's header, not repeated on every line
-    assert "6.2s" in fmt.command_used(cmd_ctx(), "None", "-", ms=6175)
-    assert "\n" not in fmt.command_used(cmd_ctx("a\nb"), "None", "-")
+def _card_text(card) -> str:
+    return "\n".join([card.description or ""] + [f"{f.name}: {f.value}" for f in card.fields])
 
 
-def test_a_failed_command_says_why_on_its_line():
-    line = fmt.command_used(cmd_ctx(), "None", "-", error="You need the Admin permission level")
-    assert ":t> · `,ban @x spam` · <#5> · **failed:** You need the Admin permission level · [jump]" in line
+def test_a_command_gets_its_own_card():
+    card = fmt.command_used(cmd_ctx(), "Admin", "@Staff", rank=3, ms=84.4)
+    assert card.author.name and card.description == "```\n,ban @x spam\n```"
+    fields = {f.name: f.value for f in card.fields}
+    assert fields["Channel"] == "<#5>\n[jump](https://discord.com/channels/10/5/900)"
+    assert fields["Level"] == "Admin\n-# via @Staff" and fields["Result"] == "✅ done in 84 ms"
+    assert card.footer.text == "User ID: 7" and card.color.value == Colors.approve
+    assert "6.2s" in _card_text(fmt.command_used(cmd_ctx(), "None", "-", ms=6175))
+    assert fmt.command_used(cmd_ctx("a\nb"), "None", "-").description == "```\na b\n```"
+    assert {f.name: f.value for f in fmt.command_used(cmd_ctx(), "None", "-").fields}["Level"] == "no level"
+    direct = fmt.command_used(cmd_ctx(), "Owner", "Permissions attached to user")
+    assert {f.name: f.value for f in direct.fields}["Level"] == "Owner\n-# given directly"
 
 
-def test_the_card_has_the_person_on_top_and_their_level_underneath():
-    ok, bad = fmt.command_used(cmd_ctx(), "Admin", "-", ms=5), fmt.command_used(cmd_ctx(), "Admin", "-", error="no")
-    card = fmt.command_card(member(), [ok], "Admin")
-    assert card.author.name and card.footer.text == "Admin · User ID: 7" and card.description == ok
-    assert card.color.value == Colors.main
-    assert fmt.command_card(member(), [ok, bad], "Admin").color.value == Colors.deny  # the latest one failed
-    assert fmt.command_card(member(), [ok], "None").footer.text == "User ID: 7"
+def test_a_failed_command_says_why_in_red():
+    card = fmt.command_used(cmd_ctx(), "None", "-", error="You need the Admin permission level")
+    assert {f.name: f.value for f in card.fields}["Result"] == "❌ You need the Admin permission level"
+    assert card.color.value == Colors.deny
 
 
 def test_bulk_delete_transcript_is_oldest_first():
@@ -810,7 +811,7 @@ def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
                               invoked_with="ping")
         await cog.on_command_completion(ctx)
         card = channel.send.await_args.kwargs["embed"]
-        assert "`,ping` · <#3>" in card.description and "User ID: 77" in card.footer.text
+        assert card.description == "```\n,ping\n```" and "User ID: 77" in card.footer.text
         assert channel.send.await_args.kwargs["allowed_mentions"].users is False  # a log card never pings
         channel.send.reset_mock()
         ctx.author = member(8, "ignored")
@@ -837,7 +838,7 @@ def test_the_command_line_says_how_long_it_took():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_completion(ctx)
-        assert " ms · [jump]" in channel.send.await_args.kwargs["embed"].description
+        assert {f.name: f.value for f in channel.send.await_args.kwargs["embed"].fields}["Result"].endswith(" ms")
     asyncio.run(go())
 
 
@@ -846,18 +847,13 @@ def test_failed_commands_get_a_line_with_the_reason():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_error(ctx, UserError("that member is above you"))
-        line = channel.send.await_args.kwargs["embed"].description
-        assert "`,ban @x` · <#3> · **failed:** that member is above you" in line
-        posted = channel.send.return_value
-        posted.edit = AsyncMock()
-        crash = commands.CommandInvokeError(ValueError("boom"))
-        await cog.on_command_error(ctx, crash)
-        grouped = posted.edit.await_args.kwargs["embed"].description.splitlines()  # joins the same person's card
-        assert len(grouped) == 2 and "**failed:** ValueError: boom" in grouped[1]
-        assert channel.send.await_count == 1
+        result = lambda: {f.name: f.value for f in channel.send.await_args.kwargs["embed"].fields}["Result"]  # noqa: E731
+        assert result() == "❌ that member is above you"
+        await cog.on_command_error(ctx, commands.CommandInvokeError(ValueError("boom")))
+        assert result() == "❌ ValueError: boom" and channel.send.await_count == 2  # a card per command
         await cog.on_command_error(ctx, commands.MissingRequiredArgument(SimpleNamespace(name="member",
                                                                                          displayed_name="member")))
-        assert len(posted.edit.await_args.kwargs["embed"].description.splitlines()) == 2  # a usage slip: no line
+        assert channel.send.await_count == 2  # a usage slip: no card
     asyncio.run(go())
 
 

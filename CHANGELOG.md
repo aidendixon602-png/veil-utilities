@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Command logs: a card per command.** The person's name and avatar on top, the command in a box, then Channel
+  (with a jump link), Level (and where it comes from) and Result side by side; green when it worked, red with the
+  reason when it didn't.
+- **Genreban shows it's working.** After Confirm, the prompt changes to "⏳ Genrebanning @name across N
+  server(s)..." (buttons gone, typing) for at least two seconds before the result. Ungenreban does the same. The
+  ban logs in each server now credit the person who ran it instead of the bot.
+
 ### Removed
 
 - **The bot no longer deletes messages on its own.** Autoclean is gone (and `,autoclean` with it): command
