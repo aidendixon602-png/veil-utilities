@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sqlite3
 import time
 
 import discord
@@ -219,7 +220,7 @@ class DevTools(commands.Cog):
     def _who(user) -> str:
         return f"**{discord.utils.escape_markdown(getattr(user, 'name', None) or str(user.id))}** (`{user.id}`)"
 
-    async def _already(self, user) -> dict | None:
+    async def _already(self, user) -> sqlite3.Row | None:
         return await self.bot.db.fetchone("SELECT * FROM globalbans WHERE user_id=?", user.id)
 
     @staticmethod
@@ -244,8 +245,8 @@ class DevTools(commands.Cog):
         existing = await self._already(user)
         if existing:
             # Already in force: nothing to repeat, and a second confirmation and card would only be noise.
-            since = ts(existing["at"], "R") if existing.get("at") else "earlier"
-            by = f" by <@{existing['mod_id']}>" if existing.get("mod_id") else ""
+            since = ts(existing["at"], "R") if existing["at"] else "earlier"
+            by = f" by <@{existing['mod_id']}>" if existing["mod_id"] else ""
             return await ctx.warn(f"{self._who(user)} is already genrebanned (since {since}{by}). "
                                   "They're banned again automatically if they rejoin or are unbanned.")
         guilds = list(self.bot.guilds)
