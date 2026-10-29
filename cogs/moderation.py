@@ -273,6 +273,15 @@ class Moderation(commands.Cog):
             await check_hierarchy_async(ctx, user, "ban")
         else:
             check_target(ctx, user, "ban")  # banning by ID still can't reach yourself, the owner, a developer or me
+            # someone not in the server may already be on the ban list: say so instead of banning them again
+            try:
+                await ctx.guild.fetch_ban(user)
+            except discord.NotFound:
+                pass
+            except discord.HTTPException:
+                pass  # couldn't read the ban list; Discord will still refuse a real problem below
+            else:
+                raise UserError(f"**{getattr(user, 'name', user)}** is already banned")
         await antinuke_guard(ctx, "ban")
         if isinstance(user, discord.Member):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
