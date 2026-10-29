@@ -2,6 +2,7 @@
 a plain user ID (ban by ID, the network bans), which used to skip the member-only hierarchy check."""
 import asyncio
 import contextlib
+import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -125,6 +126,30 @@ def test_someone_already_genrebanned_is_not_banned_again():
     ctx.bot.db.execute.assert_not_called()
     text = ctx.warn.await_args.args[0]
     assert text.startswith("**raider** (`500`) is already genrebanned (since <t:1700000000:R> by <@7>).")
+
+
+@pytest.mark.parametrize("at, mod_id, details", [
+    (1_700_000_000, 7, "since <t:1700000000:R> by <@7>"),
+    (None, None, "since earlier"),
+    (None, 7, "since earlier by <@7>"),
+    (1_700_000_000, None, "since <t:1700000000:R>"),
+])
+def test_existing_network_ban_with_sqlite_row(at, mod_id, details):
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT ? AS user_id, ? AS mod_id, ? AS at", (OTHER, mod_id, at)).fetchone()
+    other = server(8, 999)
+    ctx = make_ctx(guilds=[other])
+    ctx.bot.db.fetchone.return_value = row
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+
+    asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
+
+    ctx.warn.assert_awaited_once()
+    assert f"already genrebanned ({details})." in ctx.warn.await_args.args[0]
+    ctx.bot.db.execute.assert_not_called()
+    other.ban.assert_not_called()
 
 
 def test_servers_where_they_are_already_banned_are_skipped_not_repeated():
