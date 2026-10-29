@@ -474,6 +474,10 @@ class Antinuke(commands.Cog):
         test = run is not None and actor_id == getattr(self.bot.user, "id", None) and run.owns(entry)
         if not test and (not actor_id or await self._trusted(guild, cfg, actor_id)):
             return
+        if module == "botadd" and not test:
+            from core import perms as _perms
+            if _perms.is_trusted_bot(getattr(entry.target, "id", None)):
+                return  # adding a built-in trusted bot is never an unauthorized bot add
         if not self._matters(module, entry, test=test):
             return
         who = (guild.id, actor_id)
@@ -696,6 +700,9 @@ class Antinuke(commands.Cog):
         whitelisted account can be hacked too). Bots the owner adds themselves are trusted straight away."""
         if not getattr(member, "bot", False) or member.guild is None:
             return
+        from core import perms as _perms
+        if _perms.is_trusted_bot(member.id):
+            return  # a built-in trusted bot keeps its permissions
         guild = member.guild
         cfg = await self.cfg(guild.id)
         if not cfg.get("enabled") or cfg.get("bot_quarantine") is False:
@@ -823,7 +830,8 @@ class Antinuke(commands.Cog):
     async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
         from core import perms as _perms
         if user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", []) \
-                or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot):
+                or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot) \
+                or _perms.is_trusted_bot(user_id):
             return True
         try:
             rbl_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
@@ -1624,7 +1632,10 @@ class Antinuke(commands.Cog):
     async def _show_whitelist(self, ctx: Context, cfg: dict) -> None:
         users = " ".join(f"<@{u}>" for u in cfg.get("whitelist", [])) or "none"
         roles = " ".join(f"<@&{r}>" for r in cfg.get("whitelist_roles", [])) or "none"
-        await ctx.neutral(f"**whitelisted users:** {users}\n**whitelisted roles:** {roles}\n"
+        from core import perms as _perms
+        built_in = " ".join(f"<@{b}>" for b in _perms.TRUSTED_BOTS)
+        always = f"**always trusted (built in):** {built_in}\n" if built_in else ""
+        await ctx.neutral(f"**whitelisted users:** {users}\n**whitelisted roles:** {roles}\n{always}"
                           f"-# `{ctx.clean_prefix}an whitelist @user` or `@Role` to add, "
                           f"`{ctx.clean_prefix}an unwhitelist` to remove")
 

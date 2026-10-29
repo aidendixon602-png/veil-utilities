@@ -36,6 +36,26 @@ BOT_DEVELOPERS: list[int] = []
 # recognised everywhere without listing their IDs in OWNER_IDS (see Veil.discover_developers).
 DISCOVERED_DEVELOPERS: set[int] = set()
 
+# =====================================================================
+# TRUSTED BOTS (Editable directly in this file)
+# =====================================================================
+# Bots that are whitelisted in every server, built in: the antinuke never counts or punishes what they do, adding
+# them is never treated as an unauthorized bot add (nobody is punished and the bot isn't banned), they aren't
+# quarantined when they join, and they may hold blacklisted roles. Only list bots you run yourself: a trusted bot
+# whose token leaks could act in any server without the antinuke stopping it.
+TRUSTED_BOTS: dict[int, str] = {
+    1555002091162837022: "Ghost Vanguard",
+}
+
+
+def is_trusted_bot(user_or_id) -> bool:
+    """Whether this account is one of the built-in trusted bots."""
+    uid = getattr(user_or_id, "id", user_or_id)
+    try:
+        return int(uid) in TRUSTED_BOTS
+    except (TypeError, ValueError):
+        return False
+
 
 def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:
     """Check if a user is a recognized bot developer.

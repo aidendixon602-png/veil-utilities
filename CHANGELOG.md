@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Built-in trusted bots** (`TRUSTED_BOTS` in `core/perms.py`), starting with Ghost Vanguard. In every server the
+  antinuke never counts or punishes what they do, adding one is never an unauthorized bot add, they aren't
+  quarantined when they join, and they may hold blacklisted roles. `,an whitelist` lists them as always trusted.
+
 ### Changed
 
 - **Command logs: a card per command.** The person's name and avatar on top, the command in a box, then Channel
