@@ -277,8 +277,8 @@ class Moderation(commands.Cog):
         if isinstance(user, discord.Member):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
         await ctx.guild.ban(user, reason=audit_reason(ctx.author, reason), delete_message_seconds=delete)
-        num = await create_case(self.bot, ctx.guild, "ban", user, ctx.author, reason)
-        await ctx.warn(f"**{getattr(user, 'name', user)}** has been banned · case #{num}")
+        await create_case(self.bot, ctx.guild, "ban", user, ctx.author, reason)
+        await ctx.warn(f"**{getattr(user, 'name', user)}** has been banned")
 
     @commands.command()
     @requires_uperm("admin")
@@ -294,8 +294,8 @@ class Moderation(commands.Cog):
             await ctx.guild.unban(user, reason=audit_reason(ctx.author, reason))
         except discord.NotFound:
             raise UserError(f"{user.mention} isn't banned")
-        num = await create_case(self.bot, ctx.guild, "unban", user, ctx.author, reason)
-        await ctx.warn(f"**{getattr(user, 'name', user)}** has been unbanned · case #{num}")
+        await create_case(self.bot, ctx.guild, "unban", user, ctx.author, reason)
+        await ctx.warn(f"**{getattr(user, 'name', user)}** has been unbanned")
 
     @commands.command()
     @requires_uperm("admin")
@@ -307,8 +307,8 @@ class Moderation(commands.Cog):
         await antinuke_guard(ctx, "ban")
         await member.ban(reason=audit_reason(ctx.author, reason, "softban"), delete_message_seconds=604800)
         await ctx.guild.unban(member, reason="softban")
-        num = await create_case(self.bot, ctx.guild, "softban", member, ctx.author, reason)
-        await ctx.approve(f"softbanned {member.mention} · case #{num}")
+        await create_case(self.bot, ctx.guild, "softban", member, ctx.author, reason)
+        await ctx.approve(f"softbanned {member.mention}")
 
     @commands.command(aliases=["banrecent"])
     @requires_uperm("admin")

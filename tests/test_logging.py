@@ -515,10 +515,12 @@ def test_a_burst_of_deletions_is_one_card_with_the_names():
 
 def test_case_cards_follow_the_same_shape():
     case = fmt.case_card(12, "ban", member(5, "bad"), member(9, "mod"), "raid")
-    assert case.author.name == "bad" and body(case) == ["**Case #12 · Ban: <@5> by <@9>**", "**Reason:** raid"]
-    assert case.footer.text == "User ID: 5 · Case: 12"
+    assert case.author.name == "bad" and body(case) == ["**Ban: <@5> by <@9>**", "**Reason:** raid"]
+    assert case.footer.text == "User ID: 5"  # bans show no case number
+    kick = fmt.case_card(14, "kick", member(5, "bad"), member(9, "mod"), "raid")
+    assert body(kick)[0] == "**Case #14 · Kick: <@5> by <@9>**" and kick.footer.text == "User ID: 5 · Case: 14"
     by_id = fmt.case_card(13, "unban", discord.Object(5), member(9, "mod"), None)
-    assert body(by_id) == ["**Case #13 · Unban: <@5> by <@9>**", "**Reason:** no reason given"]
+    assert body(by_id) == ["**Unban: <@5> by <@9>**", "**Reason:** no reason given"]
 
 
 # ------------------------------------------------------------------ who did it (audit log)
@@ -1211,8 +1213,8 @@ def test_case_log_uses_the_log_card():
         mod, target = member(9, "mod"), member(5, "bad")
         assert await create_case(bot, guild, "ban", target, mod, "raid") == 12
         embed = sent.send.await_args.kwargs["embed"]
-        assert embed.author.name == "bad" and body(embed) == ["**Case #12 · Ban: <@5> by <@9>**", "**Reason:** raid"]
-        assert embed.footer.text == "User ID: 5 · Case: 12"
+        assert embed.author.name == "bad" and body(embed) == ["**Ban: <@5> by <@9>**", "**Reason:** raid"]
+        assert embed.footer.text == "User ID: 5"
     asyncio.run(go())
 
 
