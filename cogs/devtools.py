@@ -10,7 +10,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
+from core.utils import Colors, Context, DangerConfirm, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
 
 A = discord.AuditLogAction
 
@@ -155,73 +155,88 @@ class DevTools(commands.Cog):
         e.timestamp = discord.utils.utcnow()
         await ctx.send(embed=e)
 
-    # ================================================================ network hardban
-    async def _network_ban(self, ctx: Context, user: discord.abc.Snowflake, reason: str | None, verb: str):
+    # ================================================================ network ban (genreban)
+    def _prompt(self, text: str) -> discord.Embed:
+        e = discord.Embed(description=text, color=Colors.warn, timestamp=discord.utils.utcnow())
+        me = getattr(self.bot, "user", None)
+        name = getattr(me, "display_name", None)
+        if name:
+            e.set_author(name=name, icon_url=getattr(getattr(me, "display_avatar", None), "url", None))
+        return e
+
+    @staticmethod
+    def _who(user) -> str:
+        return f"@{getattr(user, 'name', user)} ( {user.id} )"
+
+    @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
+    async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
+        """Ban a user across every server the bot is in (re-banned if they rejoin or are unbanned)"""
         # never yourself, the bot, a bot developer or the owner of the server you're in, whoever runs it
-        check_target(ctx, user, verb.lower())
+        check_target(ctx, user, "genreban")
         guilds = list(self.bot.guilds)
         owned = [g for g in guilds if g.owner_id == user.id]  # an owner can't be banned from their own server
         guilds = [g for g in guilds if g.owner_id != user.id]
         if not guilds:
             raise UserError(f"{user.mention} owns every server I'm in, there's nowhere to ban them from")
-        note = f"\n-# skipping **{len(owned)}** server{'' if len(owned) == 1 else 's'} they own" if owned else ""
-        if not await ctx.confirm(f"{verb} **{user}** across **{len(guilds)}** servers?{note}"):
-            return await ctx.neutral("cancelled")
+        msg = await ctx.warn("Processing...")
+        skip = f"\n-# skipping **{len(owned)}** server{'' if len(owned) == 1 else 's'} they own" if owned else ""
+        embed = self._prompt(f"Genreban {self._who(user)} from all **{len(guilds)}** server(s)?{skip}")
+        view = DangerConfirm(ctx.author.id, timeout=30)
+        await msg.edit(content=None, embed=embed, view=view)
+        await view.wait()
+        if not view.value:
+            embed.description = f"Cancelled genreban for {self._who(user)}."
+            return await msg.edit(embed=embed, view=None)
+
         await self.bot.db.execute(
             "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
-        banned, failed = [], [f"{g.name} (they own it, skipped)" for g in owned]
+        banned, failed = 0, []
         for g in guilds:
             try:
-                await g.ban(discord.Object(user.id), reason=f"{verb} by {ctx.author}: {reason or 'no reason'}")
-                banned.append(g.name)
-            except discord.Forbidden:
-                failed.append(f"{g.name} (missing permissions)")
-            except discord.HTTPException as ex:
-                failed.append(f"{g.name} ({ex.status})")
-        e = discord.Embed(color=Colors.main, title=f"{verb} Complete")
-        e.description = f"**{user}** (`{user.id}`)"
-        if banned:
-            shown = "\n".join(banned[:40]) + (f"\n…and {len(banned) - 40} more" if len(banned) > 40 else "")
-            e.add_field(name=f"Banned ({len(banned)})", value=shorten(shown, 1024), inline=False)
+                await g.ban(discord.Object(user.id), reason=f"genreban by {ctx.author}: {reason}")
+                banned += 1
+            except discord.HTTPException:
+                failed.append(g.name)
+        lines = [f"**{getattr(user, 'name', user)}** has been genrebanned across **{banned}** server(s)."]
+        if owned:
+            lines.append(f"-# skipped **{len(owned)}** they own")
         if failed:
-            shown = "\n".join(failed[:20]) + (f"\n…and {len(failed) - 20} more" if len(failed) > 20 else "")
-            e.add_field(name=f"Failed ({len(failed)})", value=shorten(shown, 1024), inline=False)
-        e.timestamp = discord.utils.utcnow()
-        await ctx.send(embed=e)
+            lines.append(f"-# couldn't ban in **{len(failed)}**: {shorten(', '.join(failed), 300)}")
+        embed.description = "\n".join(lines)
+        embed.timestamp = discord.utils.utcnow()
+        await msg.edit(embed=embed, view=None)
 
-    @commands.command(hidden=True, aliases=["hb", "globalban"])
-    async def hardban(self, ctx: Context, user: discord.User, *, reason: str = None):
-        """Ban a user across every server the bot is in (re-banned if they rejoin or are unbanned)"""
-        await self._network_ban(ctx, user, reason, "Hard Ban")
-
-    @commands.command(hidden=True)
-    async def genreban(self, ctx: Context, user: discord.User, *, reason: str = None):
-        """Network ban (alias of hardban)"""
-        await self._network_ban(ctx, user, reason, "Genre Ban")
-
-    async def _network_unban(self, ctx: Context, user: discord.User):
+    @commands.command(hidden=True, aliases=["unreban", "unhardban", "globalunban", "unhb"])
+    async def ungenreban(self, ctx: Context, user: discord.User):
+        """Lift a network genreban in every server"""
         row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
         if not row:
-            raise UserError(f"**{user}** isn't hardbanned")
+            raise UserError(f"**{getattr(user, 'name', user)}** is not genrebanned.")
+        guilds = list(self.bot.guilds)
+        msg = await ctx.warn("Processing...")
+        embed = self._prompt(f"Ungenreban {self._who(user)} from all **{len(guilds)}** server(s)?")
+        view = DangerConfirm(ctx.author.id, timeout=30)
+        await msg.edit(content=None, embed=embed, view=view)
+        await view.wait()
+        if not view.value:
+            embed.description = f"Cancelled ungenreban for {self._who(user)}."
+            return await msg.edit(embed=embed, view=None)
+
         await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user.id)
         lifted, failed = 0, []
-        for g in list(self.bot.guilds):
+        for g in guilds:
             try:
-                await g.unban(discord.Object(user.id), reason=f"un-hardban by {ctx.author}")
+                await g.unban(discord.Object(user.id), reason=f"ungenreban by {ctx.author}")
                 lifted += 1
             except discord.NotFound:
                 pass
             except discord.HTTPException:
                 failed.append(g.name)
-        e = discord.Embed(color=Colors.success, description=f"Ungenrebanned **{user}** — lifted in **{lifted}** server(s).")
+        embed.description = f"**{getattr(user, 'name', user)}** has been ungenrebanned from **{lifted}** server(s)."
         if failed:
-            e.add_field(name=f"Failed ({len(failed)})", value=shorten(", ".join(failed), 1024))
-        await ctx.send(embed=e)
-
-    @commands.command(hidden=True, aliases=["ungenreban", "globalunban", "unhb"])
-    async def unhardban(self, ctx: Context, user: discord.User):
-        """Lift a network hardban everywhere"""
-        await self._network_unban(ctx, user)
+            embed.description += f"\n-# couldn't unban in **{len(failed)}**: {shorten(', '.join(failed), 300)}"
+        embed.timestamp = discord.utils.utcnow()
+        await msg.edit(embed=embed, view=None)
 
     @commands.command(hidden=True, aliases=["genrebans", "genrebanlist", "globalbans"])
     async def hardbans(self, ctx: Context):

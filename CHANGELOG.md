@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Genreban / ungenreban prompt.** "Processing..." first, then a confirmation with a red Confirm and a grey Cancel
+  button that only the person who ran it can press, and a one-line result ("**name** has been genrebanned across
+  **3** server(s)"). `reban`, `hardban`, `hb` and `globalban` are aliases of `genreban`; `unreban`, `unhardban` and
+  `unhb` of `ungenreban`. Ban and unban replies read "**name** has been banned · case #12".
+- Still refused, as before: yourself, the server owner, a bot developer and the bot; servers the person owns are
+  skipped. Developer tools stay developer-only.
+
+### Fixed
+
+- **Restored main after a force-push** replaced it with an older copy (which required `OWNER_IDS` and dropped
+  everything since 26 October). Both versions are kept on the `backup/before-force-push` and
+  `backup/genreban-commit` branches.
+
+### Changed
+
 - **Help categories list what each command does.** Instead of a code block of names, each category shows one
   command per line with a short description (and how many subcommands it has), ten per page with ◀ ▶ buttons
   under the category menu.

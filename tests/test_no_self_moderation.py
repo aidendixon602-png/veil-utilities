@@ -2,7 +2,7 @@
 a plain user ID (ban by ID, the network bans), which used to skip the member-only hierarchy check."""
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -21,9 +21,10 @@ def make_ctx(author=AUTHOR, owner=OWNER, guilds=()):
     guild = MagicMock()
     guild.id, guild.owner_id, guild.me = 1, owner, SimpleNamespace(id=BOT)
     guild.ban = AsyncMock()
+    prompt = SimpleNamespace(edit=AsyncMock(), delete=AsyncMock())
     ctx = SimpleNamespace(author=SimpleNamespace(id=author), guild=guild, bot=bot,
                           confirm=AsyncMock(return_value=True), neutral=AsyncMock(), approve=AsyncMock(),
-                          send=AsyncMock())
+                          send=AsyncMock(), warn=AsyncMock(return_value=prompt), prompt=prompt)
     return ctx
 
 
@@ -74,7 +75,18 @@ def test_network_bans_refuse_protected_people_and_record_nothing(target):
         asyncio.run(DevTools.genreban.callback(tools, ctx, user))
     ctx.bot.db.execute.assert_not_called()  # no hardban row, so nothing re-bans them later either
     assert not any(g.ban.called for g in guilds)
-    ctx.confirm.assert_not_called()
+    ctx.warn.assert_not_called()  # refused before any prompt
+
+
+class _Answer:
+    """Stands in for the red Confirm / grey Cancel prompt, already answered."""
+    answer = True
+
+    def __init__(self, *a, **k):
+        self.value = None
+
+    async def wait(self):
+        self.value = _Answer.answer
 
 
 def test_network_ban_skips_servers_the_target_owns():
@@ -82,12 +94,47 @@ def test_network_ban_skips_servers_the_target_owns():
     ctx = make_ctx(guilds=[owned, other])
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    user = SimpleNamespace(id=OTHER, mention=f"<@{OTHER}>")
-    asyncio.run(DevTools.hardban.callback(tools, ctx, user))
+    user = SimpleNamespace(id=OTHER, mention=f"<@{OTHER}>", name="raider")
+    seen = []  # the prompt's text at each edit (the same embed is edited in place)
+    ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, user))
     owned.ban.assert_not_called()
     other.ban.assert_awaited_once()
-    embed = ctx.send.await_args.kwargs["embed"]
-    assert any("they own it" in f.value for f in embed.fields)
+    ctx.warn.assert_awaited_once_with("Processing...")
+    asked, done = seen
+    assert "@raider ( 500 )" in asked and "1** server(s)" in asked and "skipping **1** server they own" in asked
+    assert done.startswith("**raider** has been genrebanned across **1** server(s).") and "skipped **1**" in done
+
+
+def test_cancelling_a_network_ban_does_nothing():
+    other = server(8, 999)
+    ctx = make_ctx(guilds=[other])
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    _Answer.answer = False
+    try:
+        with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer}):
+            asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
+    finally:
+        _Answer.answer = True
+    other.ban.assert_not_called()
+    ctx.bot.db.execute.assert_not_called()
+    assert "Cancelled genreban" in ctx.prompt.edit.await_args.kwargs["embed"].description
+
+
+def test_the_old_names_still_work():
+    assert {"hardban", "reban", "hb", "globalban"} <= set(DevTools.genreban.aliases)
+    assert {"unhardban", "unreban", "unhb"} <= set(DevTools.ungenreban.aliases)
+
+
+def test_developer_tools_stay_developer_only():
+    """A server owner or an Owner-level member must never reach eval, shell, gitpull, genreban..."""
+    ctx = make_ctx(author=OWNER)
+    tools = DevTools.__new__(DevTools)
+    tools.bot = SimpleNamespace(is_owner=AsyncMock(return_value=False))
+    with pytest.raises(Exception):
+        asyncio.run(tools.cog_check(ctx))
 
 
 def test_network_ban_of_someone_who_owns_every_server_is_refused():
@@ -95,7 +142,7 @@ def test_network_ban_of_someone_who_owns_every_server_is_refused():
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
     with pytest.raises(UserError, match="owns every server"):
-        asyncio.run(DevTools.hardban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x")))
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x")))
     ctx.bot.db.execute.assert_not_called()
 
 

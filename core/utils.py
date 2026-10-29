@@ -209,6 +209,30 @@ class Confirm(OwnedView):
         self.stop()
 
 
+class DangerConfirm(OwnedView):
+    """A red Confirm and a grey Cancel button, for actions that reach far (a network ban). Only the person who ran
+    the command can answer, not even another developer."""
+
+    def __init__(self, author_id: int, timeout: float = 30):
+        super().__init__(author_id, timeout=timeout, allow_developers=False)
+        self.value: bool | None = None
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def yes(self, it: discord.Interaction, _):
+        self.value = True
+        await it.response.defer()
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def no(self, it: discord.Interaction, _):
+        self.value = False
+        await it.response.defer()
+        self.stop()
+
+
+MidtownConfirm = DangerConfirm  # the name it was added under
+
+
 def chunk_embeds(title: str, lines: list[str], per_page: int = 10, color: int = Colors.main,
                  numbered: bool = True) -> list[discord.Embed]:
     pages = []
