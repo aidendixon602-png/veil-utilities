@@ -6,13 +6,42 @@ strip/unstrip, massunrole, revert, network hardban/genreban, join-leave logs, an
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, DangerConfirm, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
+from core.utils import Colors, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
 
 A = discord.AuditLogAction
+
+
+WORKING_FOR = 2.0  # seconds a network ban shows "Genrebanning..." at the least
+
+
+class _Working:
+    """Typing while the bans go out, and keeps the working step up for at least WORKING_FOR seconds."""
+
+    def __init__(self, typing, started: float):
+        self.typing, self.started = typing, started
+
+    async def __aenter__(self):
+        try:
+            await self.typing.__aenter__()
+        except Exception:  # typing is only a nicety
+            self.typing = contextlib.nullcontext()
+        return self
+
+    async def __aexit__(self, *exc):
+        left = WORKING_FOR - (time.monotonic() - self.started)
+        if left > 0 and exc[0] is None:
+            await asyncio.sleep(left)
+        try:
+            await self.typing.__aexit__(*exc)
+        except Exception:
+            pass
+        return False
 
 
 class DevTools(commands.Cog):
@@ -164,6 +193,14 @@ class DevTools(commands.Cog):
             e.set_author(name=name, icon_url=getattr(getattr(me, "display_avatar", None), "url", None))
         return e
 
+    async def _working(self, ctx: Context, msg, embed: discord.Embed, text: str):
+        """After Confirm: show that it's working (no buttons, typing indicator) for at least WORKING_FOR seconds,
+        so the step is visible even when every server answers at once."""
+        embed.description = f"⏳ {text}"
+        await msg.edit(embed=embed, view=None)
+        typing = ctx.typing() if hasattr(ctx, "typing") else contextlib.nullcontext()
+        return _Working(typing, time.monotonic())
+
     @staticmethod
     def _who(user) -> str:
         return f"@{getattr(user, 'name', user)} ( {user.id} )"
@@ -191,12 +228,14 @@ class DevTools(commands.Cog):
         await self.bot.db.execute(
             "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
         banned, failed = 0, []
-        for g in guilds:
-            try:
-                await g.ban(discord.Object(user.id), reason=f"genreban by {ctx.author}: {reason}")
-                banned += 1
-            except discord.HTTPException:
-                failed.append(g.name)
+        async with await self._working(ctx, msg, embed, f"Genrebanning {self._who(user)} across **{len(guilds)}** "
+                                                        f"server(s)..."):
+            for g in guilds:
+                try:  # the ban logs read who ran it from this reason, so they credit them instead of the bot
+                    await g.ban(discord.Object(user.id), reason=audit_reason(ctx.author, reason, "genreban"))
+                    banned += 1
+                except discord.HTTPException:
+                    failed.append(g.name)
         lines = [f"**{getattr(user, 'name', user)}** has been genrebanned across **{banned}** server(s)."]
         if owned:
             lines.append(f"-# skipped **{len(owned)}** they own")
@@ -224,14 +263,16 @@ class DevTools(commands.Cog):
 
         await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user.id)
         lifted, failed = 0, []
-        for g in guilds:
-            try:
-                await g.unban(discord.Object(user.id), reason=f"ungenreban by {ctx.author}")
-                lifted += 1
-            except discord.NotFound:
-                pass
-            except discord.HTTPException:
-                failed.append(g.name)
+        async with await self._working(ctx, msg, embed, f"Lifting the genreban on {self._who(user)} in "
+                                                        f"**{len(guilds)}** server(s)..."):
+            for g in guilds:
+                try:
+                    await g.unban(discord.Object(user.id), reason=audit_reason(ctx.author, None, "ungenreban"))
+                    lifted += 1
+                except discord.NotFound:
+                    pass
+                except discord.HTTPException:
+                    failed.append(g.name)
         embed.description = f"**{getattr(user, 'name', user)}** has been ungenrebanned from **{lifted}** server(s)."
         if failed:
             embed.description += f"\n-# couldn't unban in **{len(failed)}**: {shorten(', '.join(failed), 300)}"

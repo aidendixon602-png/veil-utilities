@@ -1,6 +1,7 @@
 """Nobody moderates themselves, the server owner, a bot developer or the bot, including through commands that take
 a plain user ID (ban by ID, the network bans), which used to skip the member-only hierarchy check."""
 import asyncio
+import contextlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -97,12 +98,14 @@ def test_network_ban_skips_servers_the_target_owns():
     user = SimpleNamespace(id=OTHER, mention=f"<@{OTHER}>", name="raider")
     seen = []  # the prompt's text at each edit (the same embed is edited in place)
     ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
-    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, user))
     owned.ban.assert_not_called()
     other.ban.assert_awaited_once()
+    assert other.ban.await_args.kwargs["reason"].startswith("genreban by ")  # the ban log credits who ran it
     ctx.warn.assert_awaited_once_with("Processing...")
-    asked, done = seen
+    asked, working, done = seen
+    assert working.startswith("⏳ Genrebanning @raider ( 500 ) across **1** server(s)")
     assert "@raider ( 500 )" in asked and "1** server(s)" in asked and "skipping **1** server they own" in asked
     assert done.startswith("**raider** has been genrebanned across **1** server(s).") and "skipped **1**" in done
 
@@ -114,7 +117,7 @@ def test_cancelling_a_network_ban_does_nothing():
     tools.bot = ctx.bot
     _Answer.answer = False
     try:
-        with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer}):
+        with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
             asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     finally:
         _Answer.answer = True
@@ -156,3 +159,20 @@ def test_panels_wont_open_on_yourself_or_the_owner(target):
         with pytest.raises(UserError):
             asyncio.run(cmd.callback(cog, ctx, member))
     ctx.send.assert_not_called()
+
+
+def test_the_working_step_stays_up_a_moment():
+    """Even when every server answers at once, "Genrebanning..." is shown for a moment before the result."""
+    from cogs import devtools
+    slept = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    async def go():
+        working = devtools._Working(contextlib.nullcontext(), devtools.time.monotonic())
+        async with working:
+            pass
+    with patch.object(devtools.asyncio, "sleep", fake_sleep):
+        asyncio.run(go())
+    assert slept and 0 < slept[0] <= devtools.WORKING_FOR

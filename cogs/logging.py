@@ -29,8 +29,6 @@ BURST_MAX = 60  # most items on one grouped card
 FEED_WAIT = 1.5  # seconds to gather feed lines (commands, edits, voice) before posting them together
 FEED_KEEP = 60.0  # a feed message keeps taking new lines for this long
 FEED_LIMIT = 1900  # characters in one feed message (Discord allows 2000)
-CARD_KEEP = 120.0  # a person's command card keeps taking their next commands for this long
-CARD_LINES = 12  # commands on one card before a new one starts
 BUTTON_MEMORY = 30.0  # seconds a ban-log button click is remembered, so the ban/unban card names the clicker
 
 
@@ -47,18 +45,6 @@ class _Feed:
 
 # typing a command without what it needs: the person gets the usage card, and the log doesn't need a line about it
 USAGE_SLIPS = (commands.MissingRequiredArgument, commands.MissingRequiredAttachment, commands.TooManyArguments)
-
-
-class _CommandCard:
-    """One person's recent commands in one log channel, shown on a single card that grows."""
-
-    def __init__(self, user, level: str | None):
-        self.user, self.level = user, level
-        self.lines: list[str] = []
-        self.pending: list[str] = []
-        self.message: discord.Message | None = None
-        self.started = 0.0
-        self.task: asyncio.Task | None = None
 
 
 class _Burst:
@@ -461,7 +447,7 @@ class Logging(commands.Cog):
 
     async def _send(self, channel: discord.TextChannel, embed: discord.Embed, *, file: discord.File | None = None,
                     view: discord.ui.View | None = None) -> discord.Message | None:
-        kwargs = {"embed": embed}
+        kwargs = {"embed": embed, "allowed_mentions": discord.AllowedMentions.none()}
         if file:
             kwargs["file"] = file
         if view:
@@ -508,48 +494,6 @@ class Logging(commands.Cog):
                     feed.message = None
                     continue
                 feed.text, feed.started = line, time.monotonic()
-
-    # ------------------------------------------------------------ command cards: a person's commands, one card
-    def post_command(self, channel: discord.TextChannel, user, line: str, level: str | None) -> asyncio.Task:
-        """Add a command to its runner's card in this channel. Commands a person runs within a couple of minutes
-        share a card (edited as they come in) instead of each taking a message."""
-        cards = getattr(self, "_command_cards", None)
-        if cards is None:
-            cards = self._command_cards = {}
-        key = (channel.id, user.id)
-        card = cards.get(key)
-        if card is None or (card.task is None or card.task.done()) and (
-                time.monotonic() - card.started > CARD_KEEP or len(card.lines) >= CARD_LINES):
-            card = cards[key] = _CommandCard(user, level)
-        card.level = level or card.level
-        card.pending.append(line)
-        if card.task is None or card.task.done():
-            card.task = asyncio.create_task(self._flush_card(channel, card))
-        return card.task
-
-    async def _flush_card(self, channel: discord.TextChannel, card: _CommandCard) -> None:
-        while True:
-            await asyncio.sleep(FEED_WAIT)
-            if not card.pending:
-                return
-            new, card.pending = card.pending, []
-            fresh = card.message is None or time.monotonic() - card.started > CARD_KEEP \
-                or len(card.lines) + len(new) > CARD_LINES
-            if not fresh:
-                try:
-                    await card.message.edit(embed=fmt.command_card(card.user, card.lines + new, card.level))
-                    card.lines += new
-                    continue
-                except Exception:  # deleted, or can't be edited any more: start a new card
-                    pass
-            card.lines = new[-CARD_LINES:]
-            try:
-                card.message = await channel.send(embed=fmt.command_card(card.user, card.lines, card.level),
-                                                  allowed_mentions=discord.AllowedMentions.none())
-            except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
-                card.message = None
-                continue
-            card.started = time.monotonic()
 
     # ------------------------------------------------------------ bursts: many of the same thing, one card
     def burst(self, channel: discord.TextChannel, kind: str, obj, actor=None, reason: str | None = None
@@ -1008,8 +952,7 @@ class Logging(commands.Cog):
             permission, granted, rank = "None", "-", None
         started = getattr(ctx, "_log_started", None)
         ms = (time.perf_counter() - started) * 1000 if started is not None else None
-        await self.post_command(channel, ctx.author, fmt.command_used(ctx, permission, granted, rank=rank, ms=ms,
-                                                                 error=error), permission)
+        await self.post(channel, fmt.command_used(ctx, permission, granted, rank=rank, ms=ms, error=error))
 
     @commands.Cog.listener()
     async def on_command_completion(self, ctx: Context):

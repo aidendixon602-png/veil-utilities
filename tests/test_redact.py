@@ -39,17 +39,22 @@ def _fields(embed):
     return {f.name: f.value for f in embed.fields}
 
 
+def _text(card) -> str:
+    return "\n".join([card.description or ""] + [f.value for f in card.fields])
+
+
 def test_developer_command_logs_hide_their_arguments():
-    shown = logembeds.command_used(_ctx(",eval print(bot.http.token)", hidden=True, cog="Owner"), "Bot Developer", "Built-in")
+    shown = _text(logembeds.command_used(_ctx(",eval print(bot.http.token)", hidden=True, cog="Owner"),
+                                         "Bot Developer", "Built-in"))
     assert "print" not in shown and "arguments hidden" in shown and ",eval" in shown
 
 
 def test_ordinary_command_logs_still_show_the_command_but_scrubbed():
     token = "MTIzNDU2Nzg5MDEyMzQ1Njc4.GabcDE." + "x" * 38
-    line = logembeds.command_used(_ctx(f",say {token}"), "Admin", "role")
+    line = _text(logembeds.command_used(_ctx(f",say {token}"), "Admin", "role"))
     assert ",say" in line and token not in line
 
 
 def test_failed_command_reasons_are_scrubbed():
-    line = logembeds.command_used(_ctx(",x"), "Admin", "role", error=f'File "{redact.ROOT}/core/bot.py" broke')
+    line = _text(logembeds.command_used(_ctx(",x"), "Admin", "role", error=f'File "{redact.ROOT}/core/bot.py" broke'))
     assert redact.ROOT not in line and "broke" in line
