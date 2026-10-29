@@ -202,6 +202,25 @@ class Confirm(OwnedView):
         self.stop()
 
 
+class MidtownConfirm(OwnedView):
+    """Red/Danger Confirm button and Grey/Secondary Cancel button matching Midtown prompt style."""
+    def __init__(self, author_id: int, timeout: float = 30):
+        super().__init__(author_id, timeout=timeout, allow_developers=False)
+        self.value = None
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def yes(self, it, _):
+        self.value = True
+        await it.response.defer()
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def no(self, it, _):
+        self.value = False
+        await it.response.defer()
+        self.stop()
+
+
 def chunk_embeds(title: str, lines: list[str], per_page: int = 10, color: int = Colors.main,
                  numbered: bool = True) -> list[discord.Embed]:
     pages = []

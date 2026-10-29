@@ -240,7 +240,7 @@ class Moderation(commands.Cog):
             await dm_target(user, ctx.guild, "banned", ctx.author, reason)
         await ctx.guild.ban(user, reason=f"{ctx.author} ({ctx.author.id}): {reason}", delete_message_seconds=delete)
         num = await create_case(self.bot, ctx.guild, "ban", user, ctx.author, reason)
-        await ctx.approve(f"Banned **{user}** • case `#{num}`")
+        await ctx.warn(f"**{getattr(user, 'name', user)}** has been banned.")
 
     @commands.command()
     @requires_uperm("admin")
@@ -250,14 +250,14 @@ class Moderation(commands.Cog):
         """Unban a user"""
         gb = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
         if gb and not await self.bot.is_owner(ctx.author):
-            raise UserError(f"**{user}** is hardbanned across the network — a developer must lift it with `unhardban`")
+            raise UserError(f"**{getattr(user, 'name', user)}** is hardbanned across the network — a developer must lift it with `ungenreban`")
         await antinuke_guard(ctx, "unban")
         try:
             await ctx.guild.unban(user, reason=f"{ctx.author}: {reason}")
         except discord.NotFound:
-            raise UserError(f"**{user}** isn't banned")
+            raise UserError(f"**{getattr(user, 'name', user)}** isn't banned")
         num = await create_case(self.bot, ctx.guild, "unban", user, ctx.author, reason)
-        await ctx.approve(f"Unbanned **{user}** • case `#{num}`")
+        await ctx.warn(f"**{getattr(user, 'name', user)}** has been unbanned.")
 
     @commands.command()
     @requires_uperm("admin")
