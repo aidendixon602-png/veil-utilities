@@ -49,14 +49,14 @@ class TestHierarchy:
 
 class TestRestart:
     def test_restart_triggers_clean_reboot(self):
-        """Restart must trigger in-process reboot without killing the container (prevents crash backoff)."""
+        """Restart must close the bot and request a restart (main.py re-execs) without killing the container."""
         import asyncio
 
         from cogs.owner import Owner
 
         bot = SimpleNamespace(_restart_requested=False, close=AsyncMock())
         ctx = SimpleNamespace(approve=AsyncMock())
-        cog = SimpleNamespace(bot=bot)
+        cog = Owner(bot)
         asyncio.run(Owner.restart.callback(cog, ctx))
         ctx.approve.assert_awaited_once()
         assert bot._restart_requested is True
@@ -78,7 +78,7 @@ class TestRestart:
             guild=SimpleNamespace(id=456),
             author=SimpleNamespace(id=789),
         )
-        cog = SimpleNamespace(bot=bot)
+        cog = Owner(bot)
         try:
             asyncio.run(Owner.restart.callback(cog, ctx, seconds=4))
             ctx.approve.assert_awaited_once()
@@ -165,57 +165,38 @@ class TestPermissionHierarchy:
     def test_hierarchy_order_and_ranks(self):
         from core import perms
 
-        expected_keys = [
-            "botdev",
-            "serverowner",
-            "supremeleader",
-            "overseer",
-            "botmanager",
-            "headadmin",
-            "admin",
-            "mod",
-            "helper",
-        ]
-        assert perms.HIERARCHY_KEYS == expected_keys
-
-        expected_display = [
-            "Bot Developer",
-            "Server Owner",
-            "Supreme Leader",
-            "Overseer",
-            "Bot Manager",
-            "Head Admin",
-            "Admin",
-            "Mod",
-            "Helper",
-        ]
-        assert perms.HIERARCHY_ORDER == expected_display
-
-        # Overseer (rank 6) must be higher than Bot Manager (rank 5)
+        assert perms.HIERARCHY_KEYS == ["developer", "owner", "supremeleader", "overseer",
+                                        "headadmin", "admin", "moderator", "helper"]
+        assert perms.HIERARCHY_ORDER == ["Developer", "Server Owner", "Owner", "Co-Owner",
+                                         "Server Manager", "Admin", "Moderator", "Helper"]
         levels = perms.PRESETS
-        assert levels["overseer"][1] > levels["botmanager"][1]
-        assert levels["overseer"][1] == 6
-        assert levels["botmanager"][1] == 5
-        assert levels["supremeleader"][1] == 7
-        assert levels["headadmin"][1] == 4
-        assert levels["admin"][1] == 3
-        assert levels["mod"][1] == 2
-        assert levels["helper"][1] == 1
-
-        # Supreme Leader has administrator
+        assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 4, 3, 2, 1]
+        assert levels["supremeleader"][1] == perms.COOWNER_RANK
         assert "administrator" in levels["supremeleader"][2]
-        # Overseer has executive oversight without administrator
-        assert "administrator" not in levels["overseer"][2]
-        assert "mute_members" in levels["overseer"][2]
-        assert "manage_guild" in levels["overseer"][2]
-        # Bot Manager has bot management suite without administrator
-        assert "administrator" not in levels["botmanager"][2]
-        assert "view_audit_log" in levels["botmanager"][2]
-        assert "manage_events" in levels["botmanager"][2]
-        # All three tiers have distinct, non-identical permission sets
-        assert set(levels["botmanager"][2]) != set(levels["overseer"][2])
-        assert set(levels["overseer"][2]) != set(levels["supremeleader"][2])
-        assert set(levels["botmanager"][2]) != set(levels["supremeleader"][2])
+        assert set(levels["overseer"][2]) == {p for p in perms.ALL_BOT_PERMS if p != "administrator"}
+        assert "botmanager" not in levels  # folded into Head Admin
+        assert set(levels["headadmin"][2]) < set(levels["overseer"][2])
+
+    def test_old_level_names_still_work_and_are_migrated(self):
+        from core import perms
+        cfg = {"users": {"1": "coowner", "2": "manager", "4": "mod", "5": "admin"},
+               "roles": {"9": "mod"}, "overrides": {"coowner": {"name": "Co-Owner", "rank": 8},
+                                                    "mod": {"perms": ["manage_messages"]}}}
+        assert perms.user_key(cfg, 1) == "supremeleader" and perms.role_key(cfg, 9) == "moderator"
+        assert perms.migrate(cfg) is True
+        assert cfg["users"] == {"1": "supremeleader", "2": "overseer", "4": "moderator", "5": "admin"}
+        assert cfg["roles"] == {"9": "moderator"}
+        assert cfg["overrides"] == {"supremeleader": {"rank": 8}, "moderator": {"perms": ["manage_messages"]}}
+        assert perms.all_levels(cfg)["supremeleader"]["name"] == "Owner"
+        assert perms.migrate(cfg) is False
+        # typed names: the new names, and every old one, mean what they say now (saved keys never changed)
+        for typed, key in (("Owner", "supremeleader"), ("Co-Owner", "overseer"), ("coowner", "overseer"),
+                           ("Server Manager", "headadmin"), ("Supreme Leader", "supremeleader"),
+                           ("Overseer", "overseer"), ("Head Admin", "headadmin"), ("Manager", "headadmin"),
+                           ("Bot Manager", "headadmin"), ("mod", "moderator"), ("Moderator", "moderator")):
+            assert perms.resolve_key({}, typed) == key, typed
+        for typed in ("Server Owner", "guild owner", "Bot Developer", "dev", "Developer"):
+            assert perms.is_reserved(typed) in ("Server Owner", "Developer")
 
     def test_requires_uperm_checks(self):
         import asyncio
@@ -231,8 +212,8 @@ class TestPermissionHierarchy:
         # 1. Dev passes
         ctx_dev = SimpleNamespace(
             guild=SimpleNamespace(id=1, owner_id=100),
-            author=SimpleNamespace(id=1277709272041394187, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
-            bot=SimpleNamespace(owner_ids=frozenset({1277709272041394187}), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
+            author=SimpleNamespace(id=4242, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
+            bot=SimpleNamespace(owner_ids=frozenset({4242}), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
         )
         assert asyncio.run(predicate(ctx_dev)) is True
 
@@ -259,15 +240,15 @@ class TestPermissionHierarchy:
             author=SimpleNamespace(id=999, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
             bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
         )
-        with pytest.raises(UserError, match="user permission"):
+        with pytest.raises(UserError, match="permission level or higher"):
             asyncio.run(predicate(ctx_stranger))
 
         # 5. Member with helper fails command requiring mod
-        @requires_uperm("mod")
+        @requires_uperm("mod")  # the old name still works
         async def mod_cmd(ctx):
             pass
         mod_predicate = mod_cmd.__commands_checks__[0]
-        with pytest.raises(UserError, match="user permission"):
+        with pytest.raises(UserError, match="permission level or higher"):
             asyncio.run(mod_predicate(ctx_helper))
 
     def test_check_hierarchy_async_bot_rank_protection(self):
@@ -310,6 +291,6 @@ class TestPermissionHierarchy:
         ctx = SimpleNamespace(guild=guild, author=author, bot=bot)
 
         # Admin cannot assign an Administrator role
-        with pytest.raises(UserError, match="Only the Server Owner, Bot Developers, or Supreme Leader"):
+        with pytest.raises(UserError, match=r"\*\*Owner\*\* level can give out roles with Administrator"):
             asyncio.run(check_role_assignable(ctx, admin_role))
 

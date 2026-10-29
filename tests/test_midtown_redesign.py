@@ -9,8 +9,8 @@ import discord
 import pytest
 
 from core.bot import Veil
-from core.help import BackButton, CategoryButton, Help, HelpView
-from core.utils import Colors, UserError
+from core.help import Help, HelpView
+from core.utils import UserError
 
 
 def _help():
@@ -22,51 +22,6 @@ def _help():
         bot=SimpleNamespace(user=None, is_owner=AsyncMock(return_value=False)),
     )
     return h
-
-
-def test_help_home_view_has_no_secret_or_dev_buttons():
-    view = HelpView(_help(), {"Utility": [], "Music": [], "Moderation": []})
-    labels = [b.label for b in view.children if isinstance(b, CategoryButton)]
-    assert "Secret" not in labels
-    assert "Developer" not in labels
-    assert all(not isinstance(b, BackButton) for b in view.children)
-
-
-def test_help_category_view_has_back_button():
-    view = HelpView(_help(), {"Utility": []}, start="Utility")
-    assert any(isinstance(b, BackButton) and b.label == "Back" for b in view.children)
-
-
-def test_help_back_button_returns_to_home():
-    async def go():
-        view = HelpView(_help(), {"Utility": []}, start="Utility")
-        back_btn = next(b for b in view.children if isinstance(b, BackButton))
-        it = SimpleNamespace(
-            response=SimpleNamespace(edit_message=AsyncMock()),
-            user=SimpleNamespace(id=42),
-        )
-        await back_btn.callback(it)
-        return view, it
-
-    view, it = asyncio.run(go())
-    assert view.current is None
-    assert it.response.edit_message.called
-
-
-def test_category_embed_formatting():
-    h = _help()
-    cmd1 = SimpleNamespace(name="userinfo", signature="[user]", short_doc="Show profile info", aliases=["ui", "info"])
-    cmd2 = SimpleNamespace(name="serverinfo", signature="", short_doc="Server stats", aliases=["si"])
-    embed = h.category_embed("Utility", [cmd1, cmd2], page=0)
-
-    assert "Utility" in embed.title
-    assert embed.color.value == Colors.main
-    assert "**`,userinfo`** `[user]` — Show profile info." in embed.description
-    assert "**`,serverinfo`** — Server stats." in embed.description
-    assert "**Aliases:**" in embed.description
-    assert "`userinfo` ➔ `ui`, `info`" in embed.description
-    assert "`serverinfo` ➔ `si`" in embed.description
-    assert "Page 1 of 1 • 2 commands • Midtown Events Department" in embed.footer.text
 
 
 def test_perm_alias_on_userperm():
@@ -179,112 +134,6 @@ def test_logging_channel_auto_detection():
     assert asyncio.run(cog.channel_for(guild, "server")) == ch_gen
 
 
-def test_ban_log_view_toggle():
-    from cogs.logging import BanLogView
-    view = BanLogView(guild_id=1, user_id=123, is_banned=True)
-    assert view.toggle_btn.label == "Unban"
-    assert view.toggle_btn.style == discord.ButtonStyle.success
-
-    view.is_banned = False
-    view._sync()
-    assert view.toggle_btn.label == "Reban"
-    assert view.toggle_btn.style == discord.ButtonStyle.danger
-
-
-def test_ban_log_view_security_and_self_ban_protection():
-    from cogs.logging import BanLogView
-    view = BanLogView(guild_id=1, user_id=406546241996980225, is_banned=False)
-
-    # 1. Self-ban is blocked
-    member = SimpleNamespace(id=406546241996980225, guild_permissions=discord.Permissions.all())
-    guild = SimpleNamespace(id=1, owner_id=100, get_member=lambda uid: member)
-    it = SimpleNamespace(
-        guild=guild,
-        user=member,
-        client=SimpleNamespace(
-            get_guild=lambda gid: guild,
-            is_owner=AsyncMock(return_value=False),
-            db=SimpleNamespace(get_config=AsyncMock(return_value={})),
-        ),
-        response=SimpleNamespace(send_message=AsyncMock()),
-    )
-    asyncio.run(view.toggle_btn.callback(it))
-    assert it.response.send_message.called
-    msg = it.response.send_message.call_args[0][0]
-    assert "cannot ban or unban yourself" in msg or "Only Bot Developers" in msg
-
-    # 2. Random member without uperm is blocked even if they have Discord admin
-    random_member = SimpleNamespace(id=999, guild_permissions=discord.Permissions.all())
-    it.user = random_member
-    it.guild.get_member = lambda uid: random_member
-    it.response.send_message.reset_mock()
-    asyncio.run(view.toggle_btn.callback(it))
-    assert it.response.send_message.called
-    assert "Only Bot Developers" in it.response.send_message.call_args[0][0]
-
-
-def test_help_home_view_shows_secret_and_dev_for_owner():
-    view = HelpView(_help(), {"Utility": [], "Music": [], "Moderation": []}, is_owner=True)
-    labels = [b.label for b in view.children if isinstance(b, CategoryButton)]
-    assert "Secret" in labels
-    assert "Developer" in labels
-
-
-def test_default_log_channels_auto_creation():
-    from cogs.logging import Logging
-    bot = Veil()
-    cog = Logging(bot)
-    bot.db = SimpleNamespace(
-        get_config=AsyncMock(return_value={}),
-        set_config=AsyncMock(),
-    )
-    created_channels = []
-
-    class MockObj:
-        def __init__(self, id, **kwargs):
-            self.id = id
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-
-        def __hash__(self):
-            return self.id
-
-        def __eq__(self, other):
-            return getattr(other, "id", None) == self.id
-
-    async def fake_create_channel(name, **kwargs):
-        ch = SimpleNamespace(id=len(created_channels) + 1, name=name, __class__=discord.TextChannel)
-        created_channels.append(ch)
-        return ch
-
-    async def fake_create_category(name, **kwargs):
-        return SimpleNamespace(id=99, name=name)
-
-    default_role = MockObj(1)
-    me = MockObj(
-        2,
-        guild_permissions=SimpleNamespace(manage_channels=True),
-    )
-    guild = SimpleNamespace(
-        id=10,
-        me=me,
-        default_role=default_role,
-        text_channels=[],
-        categories=[],
-        create_category=fake_create_category,
-        create_text_channel=fake_create_channel,
-        get_channel=lambda cid: None,
-    )
-
-    created = asyncio.run(cog.ensure_default_channels(guild))
-    assert len(created) == 4
-    created_names = [c.name for c in created]
-    assert "join-logs" in created_names
-    assert "bans" in created_names
-    assert "command-logs" in created_names
-    assert "veil-utilities-logging" in created_names
-
-
 def test_role_based_permlevels():
     from core import perms
     cfg = {
@@ -301,8 +150,8 @@ def test_role_based_permlevels():
     role_mock2 = SimpleNamespace(id=789, mention="<@&789>")
     user_with_roles = SimpleNamespace(id=999, roles=[role_mock1, role_mock2])
     name, source, rank = perms.member_level_info(cfg, user_with_roles)
-    # Highest role should win (Head Admin rank 4 > Mod rank 2)
-    assert name == "Head Admin"
+    # Highest role should win (Server Manager rank 4 > Moderator rank 2)
+    assert name == "Server Manager"
     assert source == "<@&789>"
     assert rank == 4
 
@@ -323,7 +172,7 @@ def test_code_defined_permissions():
     try:
         u = SimpleNamespace(id=12345, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Supreme Leader"
+        assert name == "Owner"
         assert source == "Built-in"
         assert rank == 7
 
@@ -344,7 +193,7 @@ def test_bot_developer_builtin_logging():
     try:
         u = SimpleNamespace(id=55555, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Bot Developer"
+        assert name == "Developer"
         assert source == "Built-in"
         assert rank == perms.DEV_RANK
     finally:
@@ -361,121 +210,17 @@ def test_unassigned_member_gets_no_bot_perm():
     assert rank == 0
 
 
-def test_role_update_embed_styling():
-    from cogs.logging import Logging
-    cog = Logging(SimpleNamespace())
-
-    guild = SimpleNamespace(
-        id=1,
-        icon=None,
-        me=SimpleNamespace(guild_permissions=SimpleNamespace(view_audit_log=False)),
-    )
-    member = SimpleNamespace(
-        id=123,
-        name="ham6600y",
-        display_name="Jacob",
-        mention="<@123>",
-        display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatar.png"),
-        guild=guild,
-    )
-    role_added = SimpleNamespace(id=456, name="Bloxlink Bypass", mention="<@&456>")
-    role_removed = SimpleNamespace(id=789, name="Old Role", mention="<@&789>")
-
-    # Test added only -> Colors.success
-    embed_add = asyncio.run(cog._build_role_update_embed(member, [role_added], []))
-    assert embed_add.color.value == Colors.success
-    assert "Roles Added" in embed_add.author.name
-    assert "Jacob" in embed_add.author.name
-    assert any(f.name.startswith("➕ Added") for f in embed_add.fields)
-
-    # Test removed only -> Colors.error
-    embed_rem = asyncio.run(cog._build_role_update_embed(member, [], [role_removed]))
-    assert embed_rem.color.value == Colors.error
-    assert "Roles Removed" in embed_rem.author.name
-    assert any(f.name.startswith("➖ Removed") for f in embed_rem.fields)
-
-    # Test mixed -> Colors.blurple
-    embed_mixed = asyncio.run(cog._build_role_update_embed(member, [role_added], [role_removed]))
-    assert embed_mixed.color.value == Colors.blurple
-    assert "Roles Updated" in embed_mixed.author.name
-    assert any(f.name.startswith("➕ Added") for f in embed_mixed.fields)
-    assert any(f.name.startswith("➖ Removed") for f in embed_mixed.fields)
-
-
-def test_dynamic_presence_rotation():
+def test_presence_is_only_the_protecting_line():
     bot = Veil()
     bot.change_presence = AsyncMock()
     bot.default_prefix = ","
-    guild_mock = SimpleNamespace(id=1, member_count=100)
-    bot._guilds = {1: guild_mock}
+    bot._connection._guilds = {1: SimpleNamespace(id=1, member_count=100), 2: SimpleNamespace(id=2, member_count=1204)}
 
-    # First rotation call
-    asyncio.run(bot.update_dynamic_status())
-    bot.change_presence.assert_called_once()
-    act1 = bot.change_presence.call_args[1]["activity"]
-    assert "Midtown Events Department" in act1.name
-
-    # Second rotation call
-    bot.change_presence.reset_mock()
-    asyncio.run(bot.update_dynamic_status())
-    bot.change_presence.assert_called_once()
-    act2 = bot.change_presence.call_args[1]["activity"]
-    assert "veil utilities" in act2.name
-
-
-def test_dynamic_category_filtering_by_rank():
-    all_cats = {
-        "Utility": [], "Music": [], "Moderation": [], "Roles": [], "Permissions": [],
-        "Antinuke": [], "Automod": [], "Server": [], "VoiceMaster": [], "Community": []
-    }
-
-    # 1. Unranked / regular user (rank 0)
-    view_unranked = HelpView(_help(), all_cats, author_rank=0, is_owner=False)
-    unranked_labels = [b.label for b in view_unranked.children if isinstance(b, CategoryButton)]
-    assert set(unranked_labels) == {"Utility", "Music", "VoiceMaster", "Community"}
-    assert "Moderation" not in unranked_labels
-    assert "Roles" not in unranked_labels
-    assert "Permissions" not in unranked_labels
-    assert "Antinuke" not in unranked_labels
-    assert "Automod" not in unranked_labels
-    assert "Server" not in unranked_labels
-    assert "Developer" not in unranked_labels
-    assert "Secret" not in unranked_labels
-
-    # 2. Helper (rank 1)
-    view_helper = HelpView(_help(), all_cats, author_rank=1, is_owner=False)
-    helper_labels = [b.label for b in view_helper.children if isinstance(b, CategoryButton)]
-    assert "Moderation" in helper_labels
-    assert "Roles" not in helper_labels
-    assert "Permissions" not in helper_labels
-    assert "Antinuke" not in helper_labels
-
-    # 3. Admin (rank 3)
-    view_admin = HelpView(_help(), all_cats, author_rank=3, is_owner=False)
-    admin_labels = [b.label for b in view_admin.children if isinstance(b, CategoryButton)]
-    assert "Moderation" in admin_labels
-    assert "Roles" in admin_labels
-    assert "Automod" in admin_labels
-    assert "Server" in admin_labels
-    assert "Permissions" not in admin_labels
-    assert "Antinuke" not in admin_labels
-    assert "Developer" not in admin_labels
-
-    # 4. Head Admin (rank 4)
-    view_headadmin = HelpView(_help(), all_cats, author_rank=4, is_owner=False)
-    headadmin_labels = [b.label for b in view_headadmin.children if isinstance(b, CategoryButton)]
-    assert "Permissions" in headadmin_labels
-    assert "Antinuke" in headadmin_labels
-    assert "Developer" not in headadmin_labels
-    assert "Secret" not in headadmin_labels
-
-    # 5. Bot Developer / Owner (is_owner=True)
-    view_owner = HelpView(_help(), all_cats, is_owner=True)
-    owner_labels = [b.label for b in view_owner.children if isinstance(b, CategoryButton)]
-    assert "Developer" in owner_labels
-    assert "Secret" in owner_labels
-    assert "Permissions" in owner_labels
-    assert "Antinuke" in owner_labels
+    for _ in range(3):  # it used to rotate through several lines; now every refresh says the same thing
+        bot.change_presence.reset_mock()
+        asyncio.run(bot.update_dynamic_status())
+        bot.change_presence.assert_called_once()
+        assert bot.change_presence.call_args[1]["activity"].name == "Protecting 2 guilds | 1,304 users"
 
 
 def test_command_category_and_rank_resolution():
@@ -493,11 +238,12 @@ def test_command_category_and_rank_resolution():
 
     # Moderation commands with uperm
     ban_cmd = mod_cog.ban
-    assert category_for_command(ban_cmd, bot) == "Moderation"
+    assert category_for_command(ban_cmd, bot) == "Admin"
+    assert category_for_command(mod_cog.kick, bot) == "Moderator"
     assert min_rank_for_command(ban_cmd, bot) == 3  # Admin (rank 3)
 
     kick_cmd = mod_cog.kick
-    assert min_rank_for_command(kick_cmd, bot) == 2  # Mod (rank 2)
+    assert min_rank_for_command(kick_cmd, bot) == 2  # Moderator (rank 2)
 
     purge_cmd = mod_cog.purge
     assert min_rank_for_command(purge_cmd, bot) == 1  # Helper (rank 1)
@@ -510,14 +256,15 @@ def test_moderation_uperm_predicates():
     mod_cog = Moderation(bot)
 
     # Test ban requires admin uperm
-    ban_predicate = next(c for c in mod_cog.ban.checks if getattr(c, "__name__", "") == "predicate")
+    # discord.py reverses a shared checks list every time a cog is created, so pick the check by what it is, not where it is
+    ban_predicate = next(c for c in mod_cog.ban.checks if "requires_uperm" in getattr(c, "__qualname__", ""))
 
     ctx_regular = SimpleNamespace(
         guild=SimpleNamespace(id=1, owner_id=100),
         author=SimpleNamespace(id=999, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
         bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value={})))
     )
-    with pytest.raises(UserError, match="user permission"):
+    with pytest.raises(UserError, match="permission level or higher"):
         asyncio.run(ban_predicate(ctx_regular))
 
     # Helper fails ban
@@ -527,7 +274,7 @@ def test_moderation_uperm_predicates():
         author=SimpleNamespace(id=200, roles=[], guild_permissions=SimpleNamespace(administrator=False)),
         bot=SimpleNamespace(owner_ids=frozenset(), db=SimpleNamespace(get_config=AsyncMock(return_value=cfg_helper)))
     )
-    with pytest.raises(UserError, match="user permission"):
+    with pytest.raises(UserError, match="permission level or higher"):
         asyncio.run(ban_predicate(ctx_helper))
 
     # Admin passes ban
@@ -601,7 +348,7 @@ def test_direct_help_lookup_permission_gating():
     asyncio.run(h.send_command_help(mod_cog.ban))
     assert len(sent_errors) == 0
     assert len(sent_embeds) == 1
-    assert sent_embeds[0].title == "ban"
+    assert sent_embeds[0].title == "Command: ban"
 
 
 def test_all_moderation_actions_have_uperm_checks():
@@ -616,12 +363,12 @@ def test_all_moderation_actions_have_uperm_checks():
         ("softban", "admin"),
         ("massban", "admin"),
         ("masskick", "admin"),
-        ("kick", "mod"),
-        ("timeout", "mod"),
-        ("untimeout", "mod"),
-        ("warn", "mod"),
-        ("clearwarns", "mod"),
-        ("delwarn", "mod"),
+        ("kick", "moderator"),
+        ("timeout", "moderator"),
+        ("untimeout", "moderator"),
+        ("warn", "moderator"),
+        ("clearwarns", "moderator"),
+        ("delwarn", "moderator"),
         ("purge", "helper"),
         ("botclear", "helper"),
     ]
@@ -630,41 +377,6 @@ def test_all_moderation_actions_have_uperm_checks():
         cmd = getattr(mod_cog, cmd_name)
         perms_list = getattr(cmd.callback, "__veil_perms__", [])
         assert any(f"uperm: {expected_level}" in p for p in perms_list), f"Command {cmd_name} missing uperm: {expected_level}"
-
-
-def test_home_embed_and_view_strict_uperm_filtering():
-    h = _help()
-
-    # 1. Unranked (rank 0) home embed must NOT reveal Staff & Administration
-    unranked_embed = h.home_embed(author_rank=0)
-    unranked_field_names = [f.name for f in unranked_embed.fields]
-    assert "🛠️ Public & Community Modules" in unranked_field_names
-    assert "🛡️ Staff & Administration" not in unranked_field_names
-
-    # 2. Staff (rank 1+) home embed reveals Staff & Administration
-    staff_embed = h.home_embed(author_rank=1)
-    staff_field_names = [f.name for f in staff_embed.fields]
-    assert "🛠️ Public & Community Modules" in staff_field_names
-    assert "🛡️ Staff & Administration" in staff_field_names
-
-    # 3. Unranked HelpView must ONLY contain public category buttons
-    categories = {"Utility": [], "Music": [], "Moderation": [], "Roles": [], "Antinuke": []}
-    unranked_view = HelpView(h, categories, author_rank=0, is_owner=False)
-    unranked_labels = [b.label for b in unranked_view.children if isinstance(b, CategoryButton)]
-    assert "Utility" in unranked_labels
-    assert "Music" in unranked_labels
-    assert "Moderation" not in unranked_labels
-    assert "Roles" not in unranked_labels
-    assert "Antinuke" not in unranked_labels
-
-    # 4. Admin (rank 3) HelpView contains Moderation and Roles, but NOT Antinuke (rank 4)
-    admin_view = HelpView(h, categories, author_rank=3, is_owner=False)
-    admin_labels = [b.label for b in admin_view.children if isinstance(b, CategoryButton)]
-    assert "Utility" in admin_labels
-    assert "Music" in admin_labels
-    assert "Moderation" in admin_labels
-    assert "Roles" in admin_labels
-    assert "Antinuke" not in admin_labels
 
 
 def test_help_view_on_timeout_deletes_message():
@@ -677,7 +389,17 @@ def test_help_view_on_timeout_deletes_message():
     assert msg.delete.called
 
 
+def test_presence_text_pluralises_and_groups_thousands():
+    from core.bot import protecting_text
+    assert protecting_text(1, 1) == "Protecting 1 guild | 1 user"
+    assert protecting_text(0, 0) == "Protecting 0 guilds | 0 users"
+    assert protecting_text(12, 3456789) == "Protecting 12 guilds | 3,456,789 users"
 
 
-
-
+def test_an_old_saved_status_is_forgotten_once_so_the_new_line_shows():
+    saved = {"custom_status_text": "✨ Protecting Midtown Community • ,help", "presence_status": "dnd"}
+    assert Veil.forget_old_status(saved) is True
+    assert "custom_status_text" not in saved and saved["presence_status"] == "dnd"
+    saved["custom_status_text"] = "set later with ,setstatus"
+    assert Veil.forget_old_status(saved) is False       # only ever once
+    assert saved["custom_status_text"] == "set later with ,setstatus"

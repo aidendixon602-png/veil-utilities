@@ -268,12 +268,14 @@ class Fun(commands.Cog):
     @commands.bot_has_permissions(manage_webhooks=True, manage_messages=True)
     async def uwulock(self, ctx: Context, member: discord.Member):
         """Toggle forcing someone's messages into uwu speak"""
+        from core.utils import check_target
+        check_target(ctx, member, "uwulock")
         cfg = await self.bot.db.get_config(ctx.guild.id, "uwulock")
         locked = cfg.setdefault("users", [])
         if member.id in locked:
-            locked.remove(member.id); msg = f"Freed {member.mention} from uwulock"
+            locked.remove(member.id); msg = f"freed {member.mention} from uwulock"
         else:
-            locked.append(member.id); msg = f"{member.mention} is now uwulocked"
+            locked.append(member.id); msg = f"uwulocked {member.mention}"
         await self.bot.db.set_config(ctx.guild.id, "uwulock", cfg)
         await ctx.approve(msg)
 

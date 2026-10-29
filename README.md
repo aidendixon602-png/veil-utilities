@@ -7,16 +7,15 @@
 [![check](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml/badge.svg)](https://github.com/aidendixon602-png/veil-utilities/actions/workflows/check.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-ff4d6d?style=flat-square&logo=python&logoColor=white&labelColor=1a1118)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.7%2B-ff4d6d?style=flat-square&logo=discord&logoColor=white&labelColor=1a1118)](https://github.com/Rapptz/discord.py)
-![commands](https://img.shields.io/badge/commands-473-b10f2e?style=flat-square&labelColor=1a1118)
-![modules](https://img.shields.io/badge/modules-28-b10f2e?style=flat-square&labelColor=1a1118)
-![tests](https://img.shields.io/badge/tests-218%20passing-57F287?style=flat-square&labelColor=1a1118)
+![commands](https://img.shields.io/badge/commands-494-b10f2e?style=flat-square&labelColor=1a1118)
+![modules](https://img.shields.io/badge/modules-20-b10f2e?style=flat-square&labelColor=1a1118)
 [![license](https://img.shields.io/badge/license-MIT-ff4d6d?style=flat-square&labelColor=1a1118)](LICENSE)
 [![code style: ruff](https://img.shields.io/badge/code%20style-ruff-ff4d6d?style=flat-square&labelColor=1a1118)](https://github.com/astral-sh/ruff)
 ![last commit](https://img.shields.io/github/last-commit/aidendixon602-png/veil-utilities?style=flat-square&color=b10f2e&labelColor=1a1118)
 
 **Protection, moderation and community tools in one bot — built to replace the five you're running now.**
 
-[Features](#-features) · [Quick start](#-quick-start) · [All commands](COMMANDS.md) · [Developer suite](SECRET_COMMANDS.md) · [Hosting](HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+[Features](#-features) · [Quick start](#-quick-start) · [All commands](docs/COMMANDS.md) · [Hosting](docs/HOSTING.md) · [Contributing](.github/CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 <details>
 <summary><b>📑 Contents</b></summary>
@@ -47,7 +46,7 @@
 <td width="33%" valign="top">
 
 ### 🛡️ Stops nukes cold
-Audit-log antinuke with per-action thresholds. It **reverts the damage**, punishes the attacker, and DMs the owner a full alert card with every role they held.
+Audit-log antinuke with per-action thresholds. It punishes the attacker, then **puts the server back**: unbans their victims, rebuilds deleted channels and roles (with members and overwrites), and deletes whatever they created. `,an` shows every rule with buttons to turn it on, load a preset or change a rule. A join wave turns on raid mode, which pauses invites and DMs until it's quiet.
 
 </td>
 <td width="33%" valign="top">
@@ -89,12 +88,12 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 
 | | Module | Highlights |
 |:-:|---|---|
-| 🛡️ | **Antinuke** | 14 attack types (mass ban/kick/timeout/unban, channel & role deletes, webhooks, bot adds, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, auto-revert, ban / kick / strip, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
+| 🛡️ | **Antinuke** | 17 attack types (mass ban/kick/timeout/unban, channel & role deletes and edits, mass role changes on members, webhooks and webhook @everyone spam, bot adds, emoji deletes, prunes, vanity changes, dangerous permission grants on roles, members and channel overwrites…), sliding-window thresholds, undoes everything the attacker did in the last 10 minutes, ban / kick / strip, a button panel (`,an`), raid mode that pauses invites and DMs, `,an panic` (lock everything down, owner lifts it), new bots quarantined until the owner approves them, only the owner can turn it off, global alerts to developers. Also watches actions done **through the bot's own commands**, so fake permissions can't be used to nuke |
 | 🚨 | **Antiraid** | Mass-join raid mode, minimum account age, no-avatar filter, per-user bypass |
 | 🔨 | **Moderation** | Numbered cases + mod-log, DM notices, warn escalation, hardban, jail with role restore, force-nickname, `massban`, 10 purge filters, lockdown, nuke, mass role tools |
 | 🧹 | **Automod** | Invites, links (with allowlist), spam, caps, mentions, emojis, zalgo, words, regex → delete or timeout |
 | 🎙️ | **VoiceMaster** | Join-to-create channels with a button panel: lock, hide, rename, limit, claim, transfer. Remembers each user's settings |
-| 🔑 | **Permissions** | Named per-member levels (Helper → Supreme Leader, plus automatic Server Owner & Bot Dev), role blacklist, `removepermall` to strip a permission from every role after a raid |
+| 🔑 | **Permissions** | Named levels for members and roles: Helper → Moderator → Admin → Server Manager → Co-Owner → Owner, plus automatic Server Owner & Developer, role blacklist, `removepermall` to strip a permission from every role after a raid |
 | 🧩 | **Server** | Welcome / goodbye / boost, autoroles, reaction & button roles, autoresponders, sticky messages, starboard, counters, bump reminders, vanity rewards |
 | 📈 | **Levels** | Message **and** voice XP, role rewards, XP multipliers, leaderboard |
 | 🎉 | **Community** | Giveaways with requirements, tickets with transcripts |
@@ -110,13 +109,11 @@ Maintenance mode, a global kill switch, error IDs with tracebacks, log tailing a
 <br/>
 
 <div align="center">
-<img src="assets/help-preview.svg" alt="The ,help menu with category buttons" width="720"/>
+<img src="assets/help-preview.png" alt="The ,help menu: a button per category; each category lists its commands with arguments, then a Back button" width="460"/>
 </div>
 
-15 category buttons plus **Home** for the overview, one owner-locked menu: only the person who ran
-`,help` can click, the active category lights up, and the red **Secret** button lists the developer
-tools — it only opens for developers. Every bot response also replies to your message (without pinging).
-The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command list, so they can never disagree.
+A plain home card with one button per category you're allowed to open. Each category is a single page: every command with its arguments and what it does (`,play <query>` - play a song or playlist.), then its aliases, and a ← Back button. `,help <command>` gives a card with syntax, an example, aliases and the rank or permissions it needs, and a typo suggests close matches. The menu is owner-locked: only the person who ran `,help` can use it, and the **Developer** category only appears for developers. Every bot response also replies to your message (without pinging).
+The menu and [the command reference](docs/COMMANDS.md) are both built from the live command list, so they can never disagree.
 
 </details>
 
@@ -127,7 +124,7 @@ The menu and [COMMANDS.md](COMMANDS.md) are both built from the live command lis
 git clone https://github.com/aidendixon602-png/veil-utilities
 cd veil-utilities
 pip install -r requirements.txt
-cp .env.example .env          # add DISCORD_TOKEN and your OWNER_IDS
+cp .env.example .env          # add your DISCORD_TOKEN, that's all it needs
 python main.py
 ```
 
@@ -137,12 +134,12 @@ python main.py
 
 ```
 ,antinuke enable            ,antiraid massjoin 10 10
-,log set all #logs          ,modlog #mod-logs
+,logs setup                 ,modlog #mod-logs
 ,vm setup                   ,leveling on
 ,fp grant @Mods ban_members, kick_members, moderate_members
 ```
 
-> **Hosting on Wispbyte or another Pterodactyl panel?** Follow [HOSTING.md](HOSTING.md). It covers the 512 MB free plan, GitHub auto-deploy and troubleshooting.
+> **Hosting on Wispbyte or another Pterodactyl panel?** Follow the [hosting guide](docs/HOSTING.md). It covers the 512 MB free plan, GitHub auto-deploy and troubleshooting.
 
 ## 🏗️ Architecture
 
@@ -169,11 +166,13 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 | Variable | Purpose |
 |---|---|
 | `DISCORD_TOKEN` | Your bot token. **Never commit it.** |
-| `OWNER_IDS` | Developer user IDs (comma-separated). They unlock the Secret tools and server authorization |
+| `OWNER_IDS` | Optional. Developers are found automatically (the owner or team of your bot's Discord application); list IDs here only to add more. Developers unlock the Developer commands and server authorization |
 | `AUTH_REQUIRED` | `true` = only authorized servers can use the bot |
+| `PRIVATE_MODE` | `true` (default) = only developers, server owners and people with a permission level can run commands; everyone else and DMs are ignored silently. `false` opens public commands to every member |
 | `LOW_MEMORY` | `true` on small hosts: smaller caches and image limits |
-| `ERROR_LOG_CHANNEL` | Channel that receives a traceback for every crash |
+| `ERROR_LOG_CHANNEL` | Optional. The bot makes a private `#veil-errors` channel for crash tracebacks (and `#veil-auth` for server alerts) by itself; set an ID only to use your own channel |
 | `ANTINUKE_DEV_ALERTS` | DM developers a "Global antinuke alert" whenever antinuke fires |
+| `TEST_GUILD_ID` | Optional. Pins the test server for `,testnuke`; normally it's picked in Discord (`,testserver set`, or the first confirmed `,testnuke`) |
 
 **Integrations: all optional.** Everything below works out of the box. Keys only make things faster or unlock extras.
 
@@ -189,12 +188,12 @@ Everything lives in `.env` (copy `.env.example`). Only the first two are require
 
 ## 👑 Developer tools
 
-Hidden from everyone else and listed under the red **Secret** help button (or `,secret` / `,developer`):
+Hidden from everyone else and listed under **Developer** in the help menu (or `,dev` / `,secret`):
 
 | Command | What it does |
 |---|---|
-| `developer` · `dev` | **NEW**: Live 15-metric telemetry card (RAM, WebSocket & DB latency, shards, uptime, error counter) with 5 interactive buttons |
-| `secret` · `devcommands` | **NEW**: Interactive Developer Suite with live telemetry header and 5 categorized modules (40 commands) |
+| `developer` · `dev` · `secret` | Opens help on the Developer category: every developer command, same layout as the rest of help |
+| `testnuke [roles] [channels]` · `testcleanup` | Fake nuke in the test server (picked in Discord with `testserver set` or the first confirmed test) to check the antinuke catches and undoes it; asks for confirmation first, nobody is punished. `testcleanup` removes anything left. Only for IDs in `OWNER_IDS` |
 | `eval` · `sql` · `sudo` · `shell` | **NEW**: Python evaluation, raw SQL queries, sudo impersonation, and container bash shell execution |
 | `portal` · `broadcast` | **NEW**: Instant server invite link creator and global alert broadcast |
 | `system` | Live system health: uptime, shard latency, memory, CPU, database size, error sequence |
@@ -215,39 +214,36 @@ Hidden from everyone else and listed under the red **Secret** help button (or `,
 pip install -r requirements-dev.txt
 ruff check .          # lint
 python -m pytest -q   # unit tests + offline smoke test (loads every module)
-python scripts/gen_commands.py   # regenerate COMMANDS.md after adding/changing commands
+python scripts/gen_commands.py   # regenerate docs/COMMANDS.md after adding/changing commands
 ```
 
 Version lives in [`pyproject.toml`](pyproject.toml). CI — lint, the full test suite, the smoke test that loads every module, and `.env.example` validation — runs on every push, on Python 3.11 and 3.12.
-A test fails if `COMMANDS.md` doesn't match the real commands, so the reference never goes stale.
+A test fails if `docs/COMMANDS.md` doesn't match the real commands, so the reference never goes stale.
 
 ## 🧱 Project structure
 ```
 veil-utilities/
-├── main.py                  entry point — validates the environment, then starts the bot
-├── core/
-│   ├── bot.py               prefixes, aliases, global checks, error tracking, cog loading
+├── main.py                  entry point: checks the environment, pulls updates, starts the bot
+├── core/                    the engine
+│   ├── bot.py               prefixes, aliases, global checks, error handling, cog loading
 │   ├── config.py            typed, validated settings loaded from .env
 │   ├── db.py                SQLite + PostgreSQL backend with per-server JSON config
-│   ├── dashboard.py         per-server web dashboard
-│   ├── help.py              the interactive button help menu & Developer telemetry suite
-│   ├── modlog.py            numbered moderation cases
-│   ├── net.py               safe HTTP for user-supplied links (blocks private/internal addresses)
+│   ├── help.py              the ,help menu: category buttons, pages, command cards
+│   ├── logembeds.py         every log card, in one place
 │   ├── perms.py             named permission levels & staff hierarchy
-│   ├── ai_providers.py      Groq / Gemini / OpenRouter / OpenAI auto-detect + free fallback
-│   ├── lavalink_nodes.py    free Lavalink nodes with health checks, failover, and DAVE E2EE
-│   └── utils.py             embeds, paginator, embed scripting, permission checks
-├── cogs/                    one file per module (28 total)
-├── assets/                  banner, help-menu preview, social preview
-├── fonts/                   bundled caption font (DejaVu)
-├── scripts/                 gen_commands.py (builds COMMANDS.md from the live commands)
-├── tests/                   216 tests + docs check; all run on every push
-├── lavalink/                optional music server config
-├── COMMANDS.md              auto-generated reference of all 473 commands
-├── SECRET_COMMANDS.md       complete reference of all 40 developer secret suite commands
-├── HOSTING.md               free hosting walkthrough (Wispbyte and friends)
-├── CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE
-└── .github/                 CI, dependabot, issue and PR templates
+│   └── …                    dashboard, modlog, antinuke restore, redaction, git updates, utils
+├── cogs/                    one file per feature module
+├── tests/                   pytest suite; runs on every push
+├── scripts/                 gen_commands.py (keeps docs/COMMANDS.md and the badges in sync)
+├── docs/
+│   ├── COMMANDS.md          auto-generated reference of every command
+│   ├── HOSTING.md           free hosting walkthrough (Wispbyte and other Pterodactyl panels)
+│   └── lavalink/            optional self-hosted music server config
+├── assets/                  banner, previews, bundled caption font
+├── .github/                 CI, contributing guide, security policy, code of conduct, templates
+├── .env.example             every setting, documented
+├── pyproject.toml · requirements.txt · requirements-dev.txt
+└── CHANGELOG.md · LICENSE · README.md
 ```
 
 
@@ -259,7 +255,7 @@ veil-utilities/
 - [x] PostgreSQL backend option for large deployments
 - [x] Audit pass over automod · logging · permissions cogs
 - [x] Developer lockdown: hidden commands are invisible to non-developers
-- [x] Interactive Secret Developer Suite with real-time telemetry card
+- [x] Developer commands in the same help menu (developers only)
 - [x] Automatic developer authorization & BLED bypass
 - [ ] More image filters and AI models
 
@@ -267,9 +263,9 @@ Have an idea? [Open a feature request](https://github.com/aidendixon602-png/veil
 
 ## 🤝 Contributing
 
-Pull requests are welcome — [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the coding style and
+Pull requests are welcome — [CONTRIBUTING.md](.github/CONTRIBUTING.md) covers the setup, the coding style and
 the three commands to run before pushing (`ruff`, the tests, and `gen_commands.py`).
-Found a security problem? Please follow [SECURITY.md](SECURITY.md) instead of opening an issue.
+Found a security problem? Please follow [SECURITY.md](.github/SECURITY.md) instead of opening an issue.
 
 ## 📜 License
 

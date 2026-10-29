@@ -78,6 +78,9 @@ def _mock_context(bot, guild, author):
     ctx.neutral = AsyncMock()
     ctx.warn = AsyncMock()
     ctx.send = AsyncMock()
+    ctx.done = AsyncMock()
+    ctx.fail = AsyncMock()
+    ctx.compact = AsyncMock()
     return ctx
 
 
@@ -415,11 +418,11 @@ def test_dev_automatic_authorization(bot):
             await check_role_assignable(non_dev_ctx, blacklisted_role)
 
         # Bot Developer cannot be quarantined
-        with pytest.raises(UserError, match="cannot quarantine a bot developer"):
+        with pytest.raises(UserError, match="can.t quarantine a bot developer"):
             await Moderation.quarantine.callback(mod_cog, non_dev_ctx, dev_member)
 
         # Bot Developer cannot be jailed
-        with pytest.raises(UserError, match="cannot jail a bot developer"):
+        with pytest.raises(UserError, match="can.t jail a bot developer"):
             await Moderation.jail.callback(mod_cog, non_dev_ctx, dev_member)
 
     asyncio.run(_run())
@@ -442,14 +445,14 @@ def test_strict_roleblacklist_uperm_gating(bot):
         unranked_author = _mock_member(100)
         unranked_author.guild = guild
         ctx_unranked = _mock_context(bot, guild, unranked_author)
-        with pytest.raises(UserError, match=r"Head Admin.*uperm"):
+        with pytest.raises(UserError, match=r"Server Manager.*level"):
             await mod_cog._do_rbl_authorize(ctx_unranked, target)
 
         # 2. Admin rank (rank 3) lacks Head Admin rank (rank 4) -> BLOCKED from authorizing
         admin_author = _mock_member(200)
         admin_author.guild = guild
         ctx_admin = _mock_context(bot, guild, admin_author)
-        with pytest.raises(UserError, match=r"Head Admin.*uperm"):
+        with pytest.raises(UserError, match=r"Server Manager.*level"):
             await mod_cog._do_rbl_authorize(ctx_admin, target)
 
         # 3. Head Admin rank (rank 4) -> SUCCEEDS
@@ -470,10 +473,13 @@ def test_strict_roleblacklist_uperm_gating(bot):
     asyncio.run(_run())
 
 
-def test_authorized_author_can_assign_blacklisted_role(bot):
+def test_authorized_author_can_assign_blacklisted_role(bot, monkeypatch):
+    from core import perms as _perms
+    monkeypatch.setattr(_perms, "BOT_DEVELOPERS", [4242])
+
     async def _run():
         guild = _mock_guild(123)
-        dev_author = _mock_member(1277709272041394187)
+        dev_author = _mock_member(4242)
         dev_author.guild = guild
         target = _mock_member(666)
         target.guild = guild

@@ -57,11 +57,11 @@ def test_urls_lose_trailing_slash():
     assert Settings.from_env({"AI_BASE_URL": "https://example.com/v1/"}).ai_base_url == "https://example.com/v1"
 
 
-def test_runtime_requires_token_and_owner():
+def test_runtime_only_requires_the_token():
     with pytest.raises(ConfigError) as exc:
         Settings.from_env({}).require_runtime()
-    assert len(exc.value.problems) == 2
-    Settings.from_env({"DISCORD_TOKEN": "abc", "OWNER_IDS": "1"}).require_runtime()
+    assert len(exc.value.problems) == 1 and "DISCORD_TOKEN" in exc.value.problems[0]
+    Settings.from_env({"DISCORD_TOKEN": "abc"}).require_runtime()  # developers are found from the Discord application
 
 
 def test_summary_never_leaks_secrets():

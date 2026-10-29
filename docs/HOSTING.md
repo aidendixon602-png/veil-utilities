@@ -17,7 +17,7 @@ while editing a large GIF. Member caches grow with server size, so very large se
 ## 3. Upload the files
 1. Open the server's **File Manager**.
 2. Upload `veil-utilities-wispbyte.zip` and **Unarchive** it. `main.py`, `requirements.txt`, `core/`, `cogs/`
-   and `fonts/` must sit at the top level (not inside another folder).
+   and `assets/` must sit at the top level (not inside another folder).
 3. Delete the zip afterwards.
 
 ## 4. Create your `.env`
@@ -25,7 +25,6 @@ while editing a large GIF. Member caches grow with server size, so very large se
 2. Fill in at least:
    ```
    DISCORD_TOKEN=your-token-here
-   OWNER_IDS=your-user-id
    LOW_MEMORY=true
    ```
 3. Add any optional keys you want (Last.fm, Spotify, AI, Twitch…). Save.
@@ -37,6 +36,26 @@ Open the **Startup** tab and set:
 
 If your panel has no requirements setting, put this in **Additional Python packages** instead:
 `discord.py aiosqlite aiohttp python-dotenv wavelink Pillow gTTS feedparser`
+
+### One-line startup command
+Some panels have a single **Startup Command** box instead of separate settings. Paste one of these
+(`main.py` pulls the latest commit from GitHub on every boot unless `AUTO_SYNC_GIT=0` is set in `.env`, so the
+command only has to install packages when `requirements.txt` changes, then start the bot):
+
+Files directly in `/home/container` (recommended):
+```
+cd /home/container && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
+```
+
+Files in a subfolder (`/home/container/veil-utilities`):
+```
+cd /home/container/veil-utilities && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
+```
+
+Fastest boot, never installs packages (only once everything is installed; new packages won't be picked up):
+```
+cd /home/container && python main.py
+```
 
 ## 6. Start it
 Press **Start** and watch the **Console**. The first boot installs packages (a minute or two), then you should see:
@@ -54,8 +73,32 @@ Invite the bot, drag its role to the top of the role list, and run `,help`.
 Music needs a **Lavalink** server (Java), which won't fit in 512 MB next to the bot, so by default the bot uses
 **free public Lavalink nodes** and needs no setup. It connects to several at once and switches automatically when one
 goes down. Public nodes can be slow or busy at times. For rock-solid music, host Lavalink 4.2+ somewhere else
-(config in `lavalink/application.yml`) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
+(config in [`docs/lavalink/application.yml`](lavalink/application.yml)) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
 to turn music off.
+
+## Web dashboard (optional)
+The dashboard is **off** by default. It lets server owners edit role blacklist, log channels and antinuke
+settings in a browser.
+
+**Only on this machine:** set `DASHBOARD_ENABLED=true`. It listens on `127.0.0.1:8080` and nobody else can
+reach it. Wispbyte has no way to open a local address, so use the next option there.
+
+**Public, with Discord login:**
+1. Developer portal → your app → **OAuth2**. Reset and copy the **Client Secret** (the Client ID is read from the bot itself).
+2. Under **Redirects**, add your dashboard address followed by `/callback`, for example
+   `http://123.45.67.89:25565/callback` (Wispbyte shows the address and port on the server's **Network** tab).
+3. In `.env`:
+   ```
+   DASHBOARD_ENABLED=true
+   DASHBOARD_PORT=25565                       # the port Wispbyte gave you
+   DASHBOARD_URL=http://123.45.67.89:25565    # exactly what you added in step 2, without /callback
+   DISCORD_CLIENT_SECRET=...
+   DASHBOARD_SECRET=                          # optional: 32+ random characters keeps people logged in across restarts
+   ```
+4. Restart. People sign in with Discord and only see servers they **own**; developers see every server.
+
+A plain `http://` address works, but login cookies then travel unencrypted. Put the dashboard behind HTTPS
+(a domain with a reverse proxy such as Caddy or Cloudflare Tunnel) if other people will use it.
 
 ## Troubleshooting
 | Console says | Fix |
@@ -66,7 +109,8 @@ to turn music off.
 | `AI unavailable: … rejected the API key` | `AI_API_KEY` is wrong or revoked. Make a new key, or delete the line to use the free AI |
 | `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
 | `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
-| The bot leaves your server right away | Server authorization: your ID must be in `OWNER_IDS`, or run `,authorize <server id>` |
+| `Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL` | Fill in both, or clear both for a localhost-only dashboard |
+| The bot leaves your server right away | Server authorization: it stays in servers owned by a developer (you, as the owner of the bot's Discord application); for any other server run `,authorize <server id>` |
 
 ---
 
@@ -106,7 +150,19 @@ The panel only clones into an **empty** server folder. If you already uploaded t
 
 ## 4. Updating the bot
 Edit or upload changed files on GitHub (or commit + push with GitHub Desktop), then press **Restart** on Wispbyte
-or run `,restart` in Discord. Your `.env` and database stay untouched because they aren't in git.
+or run `,gitpull` in Discord. `,gitpull` reloads changed cogs straight away and restarts by itself when core files
+changed. If `requirements.txt` changed, restart from the panel so new packages get installed. Your `.env` and database stay untouched because they aren't in git.
+
+## 5. Checking that the host really runs the newest code
+- **`,version`** (developers) shows the commit the bot is running, the commit on disk and the latest one, and what
+  to do if they differ (`,gitpull`, `,restart`, or fixing the repo address). Only short commit IDs are posted in
+  Discord: the repository, account and commit titles stay in the host console.
+- **The console** prints one `[git]` line on every start: `updated abc1234 -> def5678`, `up to date at …`, or
+  `sync FAILED, still running …` with the reason (GitHub login rejected, host can't reach GitHub, wrong repo address,
+  folder isn't a git checkout). The startup box also lists the **Running Commit**.
+- **`,gitpull`** reports the same reasons in Discord instead of a bare error.
+- Files edited by hand on the host no longer stop updates: your changes are saved to `local-edits-<date>.patch` in
+  the bot folder and the sync carries on. Set `AUTO_SYNC_GIT=0` in `.env` to stop the bot pulling at all.
 
 **If your token ever ends up on GitHub**, even for a second, reset it immediately in the Discord developer
 portal. Bots scan GitHub for leaked tokens within minutes.

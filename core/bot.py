@@ -14,11 +14,11 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
+from core import redact
 from core.config import settings
-from core.db import Database
 from core.help import Help
 from core.net import make_public_session
-from core.utils import Colors, Context, Ignored, UserError
+from core.utils import Colors, Context, Ignored, UserError, compact_failure, input_error_text, uses_compact_replies
 
 log = logging.getLogger("veil")
 
@@ -61,11 +61,23 @@ def intent_plans():
     ]
 
 
+def _lower_first(text: str) -> str:
+    """'Member not found.' -> 'member not found' (keeps 'I ...', mentions, bold and code as they are)."""
+    text = text.strip().rstrip(".")
+    if text[:1].isupper() and not text.startswith(("I ", "I'")):
+        text = text[0].lower() + text[1:]
+    return text
+
+
+def protecting_text(guilds: int, users: int) -> str:
+    """'Protecting 3 guilds | 1,204 users' (singular when there is exactly one)."""
+    return f"Protecting {guilds:,} guild{'' if guilds == 1 else 's'} | {users:,} user{'' if users == 1 else 's'}"
+
+
 class Veil(commands.AutoShardedBot):
     def __init__(self, intents: discord.Intents | None = None, connector: aiohttp.BaseConnector | None = None):
         from core import perms as _perms
         owners = set(settings.owner_ids) | set(_perms.BOT_DEVELOPERS)
-        owners.add(1277709272041394187)
         status_name = (getattr(settings, "status_type", None) or "online").lower()
         STATUS_MAP = {
             "online": discord.Status.online,
@@ -83,11 +95,6 @@ class Veil(commands.AutoShardedBot):
             except Exception:
                 connector = None
 
-        initial_status_text = (
-            settings.status
-            if settings.status and settings.status not in ("veil utilities | ,help", "default", "dynamic")
-            else f"🛡️ Midtown Events Department • {settings.prefix}help"
-        )
         super().__init__(
             command_prefix=self._get_prefix,
             intents=intents or discord.Intents.all(),
@@ -97,7 +104,7 @@ class Veil(commands.AutoShardedBot):
             owner_ids=owners or None,
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, replied_user=False),
             status=self.presence_status,
-            activity=discord.CustomActivity(name=initial_status_text),
+            # no activity until the guilds are known (on_ready): "Protecting 0 guilds" would flash first
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
             proxy=settings.proxy,
@@ -114,6 +121,7 @@ class Veil(commands.AutoShardedBot):
         self.blacklist: set[int] = set()
         self.authorized: set[int] = set()
         self.auth_required = settings.auth_required
+        self.private_mode = settings.private_mode
         # developer controls (persisted in config under guild 0, module "global")
         self.maintenance: str | None = None
         self.maintenance_until: float | None = None
@@ -124,10 +132,31 @@ class Veil(commands.AutoShardedBot):
         self._cmd_cooldowns: dict[int, list[float]] = defaultdict(list)
         self._spam_warned: dict[int, float] = {}
         self._restart_requested: bool = False
+        self.dev_channels: dict[str, int] = {}  # private error/auth channels the bot made (core/devchannels.py)
+        self._dev_channels_ready = False
 
     # ------------------------------------------------------------- setup
+    async def discover_developers(self) -> None:
+        """Developers = the IDs in OWNER_IDS plus the owner (or every member of the team) of the bot's Discord
+        application, so nobody has to look up and paste their own ID."""
+        if self.user is None:  # not logged in (docs/tooling build the bot without connecting)
+            return
+        try:
+            app = await asyncio.wait_for(self.application_info(), timeout=15)
+        except Exception as e:  # never let this stop the bot from starting
+            log.warning("Couldn't read the bot's Discord application (%s): developers are only the IDs in OWNER_IDS",
+                        e or type(e).__name__)
+            return
+        from core import perms as _perms
+        found = {app.owner.id} | ({m.id for m in app.team.members} if app.team else set())
+        _perms.DISCOVERED_DEVELOPERS.update(found)
+        self.owner_ids = frozenset(set(self.owner_ids or ()) | found)
+        log.info("Developers: %d (%d from OWNER_IDS, the rest from the Discord application)",
+                 len(self.owner_ids), len(settings.owner_ids))
+
     async def setup_hook(self) -> None:
         await self.db.connect()
+        await self.discover_developers()
         self.session = aiohttp.ClientSession(headers={"User-Agent": "veil-utilities-discord-bot/1.0"},
                                              timeout=aiohttp.ClientTimeout(total=15))
         self.public_session = make_public_session(headers={"User-Agent": "veil-utilities-discord-bot/1.0"})
@@ -145,10 +174,13 @@ class Veil(commands.AutoShardedBot):
         }
         if persisted_status and persisted_status in STATUS_MAP:
             self.presence_status = STATUS_MAP[persisted_status]
+        if self.forget_old_status(g):
+            await self.db.set_config(0, "global", g)
         self.maintenance = g.get("maintenance")
         self.maintenance_until = g.get("maintenance_until")
         self._maintenance_channel_id = g.get("maintenance_channel_id")
         self.killswitch = set(g.get("killswitch", []))
+        self.dev_channels = dict(g.get("dev_channels", {}))
         for ext in EXTENSIONS:
             try:
                 await self.load_extension(ext)
@@ -157,6 +189,20 @@ class Veil(commands.AutoShardedBot):
         self.add_check(self._global_check)
         if not self.presence_rotator.is_running():
             self.presence_rotator.start()
+        await self.start_dashboard()
+
+    async def start_dashboard(self) -> None:
+        """Start the web dashboard once, only when DASHBOARD_ENABLED=true (see core/dashboard.py)."""
+        if not settings.dashboard_enabled or getattr(self, "dashboard", None):
+            return
+        from core.dashboard import DashboardServer
+        dashboard = DashboardServer.from_settings(self, settings)
+        try:
+            await dashboard.start()
+        except Exception as e:
+            log.warning("Could not start the web dashboard on %s:%d: %s", dashboard.host, dashboard.port, e)
+            return
+        self.dashboard = dashboard
 
     async def close(self) -> None:
         if hasattr(self, "presence_rotator") and self.presence_rotator.is_running():
@@ -173,7 +219,7 @@ class Veil(commands.AutoShardedBot):
                 await session.close()
         await self.db.close()
 
-    @tasks.loop(minutes=1.5)
+    @tasks.loop(minutes=5)  # member counts drift; joins and leaves of servers refresh it straight away
     async def presence_rotator(self):
         await self.update_dynamic_status()
 
@@ -181,37 +227,30 @@ class Veil(commands.AutoShardedBot):
     async def before_presence_rotator(self):
         await self.wait_until_ready()
 
+    @staticmethod
+    def forget_old_status(g: dict) -> bool:
+        """Once: drop a status text saved by an older version (they rotated lines and could save a custom one) so
+        the "Protecting X guilds | Y users" line shows. `,setstatus <text>` still works afterwards. True if changed."""
+        if g.get("status_v2"):
+            return False
+        g.pop("custom_status_text", None)
+        g["status_v2"] = True
+        return True
+
+    def protecting_text(self) -> str:
+        """The status line: how many servers and users the bot protects (users are summed over the servers)."""
+        return protecting_text(len(self.guilds), sum(g.member_count or 0 for g in self.guilds))
+
     async def update_dynamic_status(self):
         try:
-            users = sum(g.member_count or 0 for g in self.guilds)
-            guilds = len(self.guilds)
-            custom_text = None
+            custom_text = None  # only a developer's `,setstatus <text>` replaces the default line
             if hasattr(self, "db") and getattr(self.db, "is_connected", True):
                 try:
                     g = await self.db.get_config(0, "global")
                     custom_text = g.get("custom_status_text")
                 except Exception:
                     pass
-            if custom_text:
-                text = custom_text
-            else:
-                status_template = settings.status
-                if not status_template or status_template in ("veil utilities | ,help", "default", "dynamic", "🛡️ Midtown Events Department • ,help"):
-                    statuses = [
-                        f"🛡️ Midtown Events Department • {self.default_prefix}help",
-                        f"⚡ veil utilities • {users:,} members",
-                        f"🔒 Zero-Trust Security • {guilds} guilds",
-                        f"✨ Protecting Midtown Community • {self.default_prefix}help",
-                    ]
-                    idx = getattr(self, "_presence_index", 0)
-                    text = statuses[idx % len(statuses)]
-                    self._presence_index = idx + 1
-                else:
-                    try:
-                        text = status_template.format(users=users, guilds=guilds, prefix=self.default_prefix)
-                    except Exception:
-                        text = status_template
-            activity = discord.CustomActivity(name=text)
+            activity = discord.CustomActivity(name=custom_text or self.protecting_text())
             await self.change_presence(status=self.presence_status, activity=activity)
         except Exception:
             pass
@@ -229,14 +268,13 @@ class Veil(commands.AutoShardedBot):
                  self.user, len(self.guilds), commands_total, self.default_prefix)
         await self.update_dynamic_status()
         await self.check_restart_notification()
-
-        try:
-            from core.dashboard import DashboardServer
-            port = int(os.environ.get("DASHBOARD_PORT", os.environ.get("PORT", 8080)))
-            self.dashboard = DashboardServer(self, port=port)
-            await self.dashboard.start()
-        except Exception as e:
-            log.warning("Could not start dashboard: %s", e)
+        if not self._dev_channels_ready:  # on_ready fires again after every reconnect
+            self._dev_channels_ready = True
+            try:
+                from core import devchannels
+                await devchannels.ensure(self)
+            except Exception:
+                log.exception("Setting up the developer channels failed")
 
     async def check_restart_notification(self):
         state_file = ".restart_state.json"
@@ -305,6 +343,23 @@ class Veil(commands.AutoShardedBot):
         except Exception:
             pass
 
+        # the restart ended the command before it could clean up after itself: do it now
+        from core import autoclean
+        on, delay = await autoclean.settings_for(self, getattr(channel, "guild", None))
+        if on:
+            command_id = state.get("command_message_id")
+            if command_id:
+                autoclean.remember(command_id)
+                try:
+                    await channel.get_partial_message(command_id).delete()
+                except (discord.HTTPException, AttributeError):
+                    pass
+            if msg is not None:
+                try:
+                    await msg.delete(delay=delay)
+                except (discord.HTTPException, AttributeError, TypeError):
+                    pass
+
     # ------------------------------------------------------------- prefixes
     async def _get_prefix(self, bot, message: discord.Message):
         prefixes = []
@@ -361,12 +416,53 @@ class Veil(commands.AutoShardedBot):
         if await self._may_run_commands(message):
             await self.process_commands(message)
 
-    async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        # re-run commands that were fixed within 60s (same gate as on_message, or edits would bypass the blacklist)
-        if before.content == after.content or (discord.utils.utcnow() - after.created_at).total_seconds() >= 60:
+    # ------------------------------------------------------------- buttons that nothing answers
+    def _component_is_live(self, it: discord.Interaction) -> bool:
+        """Is anything still listening for this button/menu? (Mirrors how discord.py routes component clicks.)"""
+        store = getattr(self._connection, "_view_store", None)
+        data = getattr(it, "data", None) or {}
+        custom_id = data.get("custom_id")
+        if store is None or custom_id is None:
+            return True  # can't tell: assume yes rather than talk over a real handler
+        if any(pattern.fullmatch(custom_id) for pattern in getattr(store, "_dynamic_items", {})):
+            return True
+        key = (data.get("component_type"), custom_id)
+        views = getattr(store, "_views", {})
+        message_id = getattr(getattr(it, "message", None), "id", None)
+        return key in views.get(message_id, {}) or key in views.get(None, {})
+
+    async def on_interaction(self, it: discord.Interaction):
+        """Never leave a click unanswered ("The application didn't respond in time").
+
+        A menu that has expired (timed out, or from before a restart) has nothing listening to it any more: say so
+        privately and take its dead buttons off. Anything else gets a silent acknowledgement if its handler hasn't
+        answered within 2.5 seconds (Discord gives up at 3)."""
+        if it.type is not discord.InteractionType.component:
             return
-        if await self._may_run_commands(after):
-            await self.process_commands(after)
+        if not self._component_is_live(it):
+            try:
+                if getattr(it.message, "author", None) is not None and it.message.author.id == self.user.id:
+                    await it.response.edit_message(view=None)
+                    await it.followup.send("This menu has expired. Run the command again to get a fresh one.",
+                                           ephemeral=True)
+                else:
+                    await it.response.send_message("This menu has expired. Run the command again.", ephemeral=True)
+            except discord.HTTPException:
+                pass
+            return
+        await asyncio.sleep(2.5)
+        if not it.response.is_done():
+            try:
+                await it.response.defer()
+            except discord.HTTPException:
+                pass  # answered in the meantime
+
+    # Editing a message never runs a command: a command is what was typed when the message was sent. (An edit used to
+    # re-run it, which let a message be turned into a different command after the fact.)
+
+    async def on_command_completion(self, ctx: Context):
+        from core import autoclean
+        await autoclean.after_command(ctx, ran=True)
 
     async def on_guild_join(self, guild: discord.Guild):
         if guild.id in self.blacklist:
@@ -378,8 +474,6 @@ class Veil(commands.AutoShardedBot):
 
     async def is_owner(self, user: discord.abc.User | int) -> bool:
         uid = getattr(user, "id", user)
-        if uid == 1277709272041394187:
-            return True
         from core import perms as _perms
         if _perms.is_bot_developer(uid, self):
             return True
@@ -416,6 +510,20 @@ class Veil(commands.AutoShardedBot):
             return True
         return False
 
+    async def is_trusted(self, ctx: Context) -> bool:
+        """Private mode: a developer, the server owner, or someone given a permission level.
+
+        Stricter than `is_staff_member`: Discord's Administrator / Manage Server alone doesn't count."""
+        if not ctx.guild:
+            return False
+        if ctx.author.id == ctx.guild.owner_id or await self.is_owner(ctx.author):
+            return True
+        from core import perms as _perms
+        if _perms.rank_of(await self.db.get_config(ctx.guild.id, "permlevels"), ctx.author) >= 1:
+            return True
+        fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
+        return any(fake_cfg.get(str(r.id)) for r in getattr(ctx.author, "roles", []))
+
     # ------------------------------------------------------------- checks
     async def _global_check(self, ctx: Context) -> bool:
         if ctx.guild is None and ctx.cog is not None and ctx.cog.qualified_name in GUILD_ONLY_COGS:
@@ -445,6 +553,8 @@ class Veil(commands.AutoShardedBot):
         root_name = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in self.killswitch or root_name in self.killswitch:
             raise UserError(f"`{ctx.command.qualified_name}` has been temporarily disabled by the developers")
+        if self.private_mode and not await self.is_trusted(ctx):
+            raise Ignored()  # a private bot doesn't answer strangers or DMs, not even to say no
         if ctx.guild is None:
             return True
         if not self.is_authorized(ctx.guild.id):
@@ -495,39 +605,54 @@ class Veil(commands.AutoShardedBot):
     # ------------------------------------------------------------- errors
     async def on_command_error(self, ctx: Context, error: commands.CommandError):
         try:
+            await self._handle_command_error(ctx, error)
+        finally:
+            from core import autoclean
+            await autoclean.after_command(ctx, ran=False)  # only cleans up when the person was shown something
+
+    async def _handle_command_error(self, ctx: Context, error: commands.CommandError):
+        try:
             error = getattr(error, "original", error)
             if isinstance(error, (commands.CommandNotFound, Ignored)):
                 return
+            staff_only = isinstance(error, UserError) and ("staff-only" in str(error) or "restricted to" in str(error))
+            # one red "failed: reason" line for everything that stops a command; a missing Discord permission
+            # on an ordinary command keeps its rank-based wording below
+            rank_wording = isinstance(error, commands.MissingPermissions) and not uses_compact_replies(ctx)
+            if not staff_only and not rank_wording:
+                text = compact_failure(ctx, error)
+                if text:
+                    return await ctx.fail(text)
             if isinstance(error, UserError):
                 err_msg = str(error)
                 del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None
-                return await ctx.warn(err_msg, delete_after=del_after)
+                return await ctx.deny(err_msg, delete_after=del_after)
             if isinstance(error, commands.MissingRequiredArgument):
                 return await ctx.send_help(ctx.command)
             if isinstance(error, commands.MissingPermissions):
                 perms_list = error.missing_permissions
                 needed_rank = "Admin"
                 if "administrator" in perms_list:
-                    needed_rank = "Supreme Leader"
+                    needed_rank = "Owner"
                 elif any(p in perms_list for p in ("manage_guild", "manage_webhooks")):
-                    needed_rank = "Head Admin"
+                    needed_rank = "Server Manager"
                 elif any(p in perms_list for p in ("manage_roles", "ban_members", "manage_channels")):
                     needed_rank = "Admin"
                 elif any(p in perms_list for p in ("kick_members", "moderate_members", "manage_nicknames")):
-                    needed_rank = "Mod"
+                    needed_rank = "Moderator"
                 elif any(p in perms_list for p in ("manage_messages",)):
                     needed_rank = "Helper"
 
-                return await ctx.warn(
+                return await ctx.deny(
                     f"🔒 Access Denied: This command requires bot permission rank **{needed_rank}+** (`uperm`) to use."
                 )
             if isinstance(error, commands.BotMissingPermissions):
                 perms = ", ".join(f"`{p.replace('_', ' ')}`" for p in error.missing_permissions)
-                return await ctx.warn(f"I'm missing {perms} permission")
+                return await ctx.fail(f"failed: I'm missing {perms}")
             if isinstance(error, commands.NotOwner):
                 return
             if isinstance(error, commands.NoPrivateMessage):
-                return await ctx.warn("This command can only be used in servers")
+                return await ctx.fail("failed: this command can only be used in servers")
             if isinstance(error, commands.CommandOnCooldown):
                 now = time.monotonic()
                 uid = ctx.author.id
@@ -536,38 +661,41 @@ class Veil(commands.AutoShardedBot):
                     return await ctx.warn(f"Slow down, try again in **{error.retry_after:.1f}s**", delete_after=3.5)
                 return
             if isinstance(error, commands.MaxConcurrencyReached):
-                return await ctx.warn("This command is already running")
+                return await ctx.fail("failed: this is already running")
             if isinstance(error, (commands.MemberNotFound, commands.UserNotFound)):
-                return await ctx.warn(f"I couldn't find a user matching `{error.argument}`")
+                return await ctx.fail(f"failed: couldn't find a member matching `{error.argument}`")
             if isinstance(error, commands.RoleNotFound):
-                return await ctx.warn(f"I couldn't find a role matching `{error.argument}`")
+                return await ctx.fail(f"failed: couldn't find a role matching `{error.argument}`")
             if isinstance(error, commands.ChannelNotFound):
-                return await ctx.warn(f"I couldn't find a channel matching `{error.argument}`")
+                return await ctx.fail(f"failed: couldn't find a channel matching `{error.argument}`")
+            if isinstance(error, commands.BadUnionArgument):  # name what was typed, not the parameter
+                return await ctx.fail(f"failed: {input_error_text(error)}")
             if isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.BadLiteralArgument,
                                   commands.TooManyArguments)):
-                return await ctx.warn(str(error))
+                return await ctx.fail(f"failed: {_lower_first(str(error))}")
             if isinstance(error, commands.UserInputError):  # quote errors, bad flags, ...
-                return await ctx.warn(str(error) or "That input isn't valid")
+                return await ctx.fail("failed: " + (_lower_first(str(error)) or "that input isn't valid"))
             if isinstance(error, commands.DisabledCommand):
-                return await ctx.warn("That command is disabled right now")
+                return await ctx.fail("failed: that command is disabled right now")
             if isinstance(error, commands.CheckFailure):
-                return await ctx.warn(str(error) or "You can't use this command")
+                return await ctx.fail("failed: " + (_lower_first(str(error)) or "you can't use this command"))
             if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
-                return await ctx.warn("That took too long, try again in a moment")
+                return await ctx.fail("failed: that took too long, try again in a moment")
             if isinstance(error, discord.Forbidden):
-                return await ctx.warn("I don't have permission to do that (check my role position & permissions)")
+                return await ctx.fail("failed: I'm not allowed to, check my role position and permissions")
             if isinstance(error, discord.HTTPException):
-                return await ctx.warn(f"Discord rejected that: `{error.text or error.status}`")
+                return await ctx.fail(f"failed: Discord rejected that (`{error.text or error.status}`)")
             tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-            log.error("Unhandled error in %s:\n%s", ctx.command, tb)
+            log.error("Unhandled error in %s:\n%s", ctx.command, tb)  # the host console keeps everything
             self._error_seq += 1
+            # what is remembered and posted is scrubbed: server admins can read the channels and commands that show it
             record = {"id": self._error_seq, "command": ctx.command.qualified_name if ctx.command else "?",
-                      "content": ctx.message.content[:300], "user": ctx.author.id,
+                      "content": redact.scrub(ctx.message.content[:300]), "user": ctx.author.id,
                       "guild": ctx.guild.id if ctx.guild else None, "time": time.time(),
-                      "error": f"{type(error).__name__}: {error}", "traceback": tb}
+                      "error": redact.scrub(f"{type(error).__name__}: {error}"), "traceback": redact.scrub(tb)}
             self.recent_errors.appendleft(record)
             # don't echo the exception message itself: it can contain file paths, SQL or other internals.
-            # developers can see the full details with the error ID (and in ERROR_LOG_CHANNEL).
+            # developers can see the full details with the error ID (and in the private #veil-errors channel).
             try:
                 await ctx.send(embed=discord.Embed(
                     color=Colors.error,
@@ -575,7 +703,8 @@ class Veil(commands.AutoShardedBot):
                                 f"It has been reported — error ID `{record['id']}`."))
             except discord.HTTPException:
                 pass
-            channel = self.get_channel(settings.error_log_channel or 0)
+            from core import devchannels
+            channel = devchannels.channel_for(self, "errors")
             if channel:
                 e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",
                                   description=f"```py\n{tb[-3900:]}```", timestamp=discord.utils.utcnow())

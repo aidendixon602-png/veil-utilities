@@ -1,6 +1,6 @@
 # Command reference
 
-474 commands. Default prefix `,`. `<required>` `[optional]`.
+494 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -26,18 +26,21 @@ _Stop rogue admins and raids before they wreck your server_
 | `antialt avatar <state>` | Toggle blocking accounts without custom avatars: `antialt avatar on/off` | administrator |
 | `antialt minage [days=0]` (age, days) | Set minimum account age in days before joining is allowed (0 to disable) | administrator |
 | `antialt whitelist <user>` (allow, trust) | Whitelist an alt account so it can join without being blocked | administrator |
-| `antinuke` (an) | View antinuke rules and status overview |  |
+| `antinuke` (an) | Antinuke status and rules, with buttons to turn it on or off, load a preset, or change a rule |  |
 | `antinuke admin <member>` | Toggle an antinuke admin (server owner only) — admins can configure antinuke and are trusted |  |
 | `antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
+| `antinuke approve <bot>` (approvebot) | Give a quarantined new bot its permissions back (server owner only) |  |
 | `antinuke ban [count] [punishment] [timeframe]` | Configure the ban rule: `,an ban 3 ban 60s` |  |
 | `antinuke botadd [count] [punishment] [timeframe]` (bot, bots) | Configure the bot add rule: `,an botadd 1 ban 60s` |  |
+| `antinuke botquarantine [state]` (botq) | Hold back new bots' dangerous permissions until you approve them: `,an botq on\|off` |  |
 | `antinuke channelcreate [count] [punishment] [timeframe]` | Configure the channel create rule: `,an channelcreate 2 kick 120s` |  |
 | `antinuke channeldelete [count] [punishment] [timeframe]` | Configure the channel delete rule: `,an channeldelete 2 ban 120s` |  |
-| `antinuke disable` (off) | Turn antinuke off |  |
+| `antinuke disable` (off) | Turn antinuke off (server owner only) |  |
 | `antinuke enable` (on) | Turn antinuke on |  |
 | `antinuke kick [count] [punishment] [timeframe]` | Configure the kick rule: `,an kick 3 ban 120s` |  |
 | `antinuke log [channel]` | Set where antinuke alerts go (owner always gets a DM) |  |
 | `antinuke module <module> <state> [threshold=3]` | Toggle an individual module: `antinuke module ban on 3` |  |
+| `antinuke panic [reason]` (emergency) | Emergency: lock every channel, pause invites and take dangerous permissions off every role |  |
 | `antinuke permissions [count] [punishment] [timeframe]` (permission, perms) | Configure the permission grant rule: `,an permissions 1 strip 60s` |  |
 | `antinuke preset` | Manage rule presets: `,an preset save/load/list` |  |
 | `antinuke preset list` | List available antinuke presets |  |
@@ -47,22 +50,27 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke reset [action]` | Reset an action rule or all rules to defaults: `,an reset ban` or `,an reset` |  |
 | `antinuke rolecreate [count] [punishment] [timeframe]` | Configure the role create rule: `,an rolecreate 5 strip 120s` |  |
 | `antinuke roledelete [count] [punishment] [timeframe]` | Configure the role delete rule: `,an roledelete 5 strip 120s` |  |
-| `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the role invite rule: `,an roleinvite 1 strip 60s` |  |
+| `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the invite spam rule (many invites made quickly): `,an roleinvite 10 strip 60s` |  |
 | `antinuke serverupdate [count] [punishment] [timeframe]` (server) | Configure the server update rule: `,an serverupdate 1 strip 60s` |  |
 | `antinuke set <action> <arg2> [arg3] [arg4]` (rule, configure) | Configure an antinuke rule: `,an set ban 3 ban 60s` or `,an set ban on 3` |  |
-| `antinuke status` (config, settings) | View antinuke rules and status overview |  |
+| `antinuke status` (config, settings, panel) | Antinuke status and rules, with buttons to change them |  |
 | `antinuke timeout [count] [punishment] [timeframe]` (mute) | Configure the timeout rule: `,an timeout 5 strip 120s` |  |
 | `antinuke toggle` (on/off) | Toggle antinuke on or off |  |
-| `antinuke unwhitelist <user>` (unwl, untrust) | Remove a user or bot from the antinuke whitelist |  |
+| `antinuke unpanic` (calm, endpanic) | End panic mode and put everything back (server owner only) |  |
+| `antinuke unwhitelist <target>` (unwl, untrust) | Stop trusting a user, bot or role |  |
 | `antinuke webhook [count] [punishment] [timeframe]` (webhooks) | Configure the webhook rule: `,an webhook 1 kick 60s` |  |
-| `antinuke whitelist <user>` (wl, trust) | Add a user or bot to the antinuke whitelist |  |
+| `antinuke whitelist [target]` (wl, trust) | Trust a user, bot or role (everyone with it): `,an whitelist @user` or `,an whitelist @Role`. No target lists them |  |
 | `antinuke window <seconds>` | Set the default time window thresholds are counted over |  |
 | `antiraid` (raid) | Filter suspicious joins: mass joins, new accounts, no avatar | administrator |
 | `antiraid age [days=0]` | Punish accounts younger than N days (0 to disable) | administrator |
 | `antiraid avatar <state>` | Punish accounts with no avatar (on/off) | administrator |
+| `antiraid end` (stop, off, over) | End raid mode now: resume invites and DMs, unlock the channels it locked | administrator |
+| `antiraid lockdown <what> <state>` (lock) | What raid mode does: `antiraid lockdown invites on` (pause invites & DMs) or `antiraid lockdown channels on` | administrator |
 | `antiraid massjoin [joins=0] [seconds=10]` | Punish everyone in a join wave: `antiraid massjoin 10 10` (0 to disable) | administrator |
 | `antiraid punishment <punishment>` | kick, ban or timeout | administrator |
+| `antiraid start` (on, now) | Turn raid mode on now (pauses invites and DMs, locks channels if set) until joins go quiet | administrator |
 | `antiraid whitelist <user>` | Let a specific user bypass antiraid | administrator |
+| `autosetup` (autoprotect) | Switch on the protection this server hasn't set up yet (antinuke, raid, automod, warnings, staff levels) |  |
 
 ## 🧹 Automod
 _Automatic chat filters_
@@ -86,7 +94,7 @@ _Automatic chat filters_
 | `filter newlines [limit=0]` | Block messages with N+ line breaks (0 disables) | manage guild |
 | `filter regex <pattern>` | Toggle a blocked regex pattern | manage guild |
 | `filter spam [messages=0] [seconds=5]` | Limit messages per N seconds: `filter spam 5 5` (0 disables) | manage guild |
-| `filter word <word>` (words, add) | Toggle a blocked word (end with * to match partial words) | manage guild |
+| `filter word <word>` (words, add) | Toggle a blocked word (end with `*` to match partial words) | manage guild |
 | `filter zalgo <state>` | Block zalgo/glitch text | manage guild |
 
 ## 🧩 Config
@@ -303,12 +311,18 @@ _Log server events to channels_
 
 | Command | Description | Permission |
 |---|---|---|
-| `cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | Clean up duplicate logging channels created by the bot | manage guild |
-| `log` (logs) | View logging channels | manage guild |
-| `log cleanup` (clean, purgeduplicates, cleanupchannels) | Clean up duplicate logging channels created by the bot | manage guild |
-| `log set <kind> [channel]` | Set a log channel: `log set messages #logs` or `log set all #logs` (no channel = auto/off) | manage guild |
-| `log setup [mode=default]` (init, default, defaults) | Automatically create default log channels under VEIL LOGS. Use `log setup all` to include security logs (#antinuke-logs and #message-logs). | manage guild |
-| `setuplogs [mode=default]` (setupchannels, autologs) | Automatically create default log channels: #join-logs, #bans, #command-logs, #veil-utilities-logging | manage guild |
+| `cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | Delete duplicate log channels the bot created (same as `logs cleanup`) | manage guild |
+| `logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild |
+| `logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild |
+| `logs cleanup` (clean, purgeduplicates, cleanupchannels) | Delete duplicate log channels the bot created, and an empty VEIL LOGS category | manage guild |
+| `logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild |
+| `logs ignore add <target>` | Ignore a channel or member | manage guild |
+| `logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild |
+| `logs off <category>` (disable) | Stop a category (or `all`) from being logged | manage guild |
+| `logs set <category> [channel]` | Send a category to a channel: `logs set messages #logs`. Use `off` to stop it or `auto` to find it by name | manage guild |
+| `logs setup [mode]` (init, default, defaults, create) | Give every log category its own private channel under VEIL LOGS (at the top). `on`/`off`: do it in every server automatically | manage guild |
+| `logs test` | Send a test line to every category that has a channel, so you can see what's missing permissions | manage guild |
+| `setuplogs` (setupchannels, autologs) | Create a private channel for every log category (same as `logs setup`) | manage guild |
 
 ## 🔨 Moderation
 _Keep your server in line_
@@ -317,23 +331,25 @@ _Keep your server in line_
 |---|---|---|
 | `addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
 | `addrole <arg1> <arg2>` (giverole) | Add a role to a member: `,addrole @User @Role` | manage roles, uperm: admin |
+| `admin [member]` (adminpanel, ap) | Admin panel: ban, softban, strip staff and quarantine for a member, or lockdown, raid mode and panic | uperm: admin |
 | `ban <user> [reason]` | Ban a member (or any user by ID). Add `--purge` to delete their last 7 days of messages | ban members, uperm: admin |
 | `botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
 | `checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check a user or the whole server for members with BLED (blacklisted) roles |  |
-| `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: mod |
-| `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: mod |
-| `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames, uperm: mod |
+| `clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: moderator |
+| `delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: moderator |
+| `forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames, uperm: moderator |
 | `hide [channel]` | Hide a channel from @everyone | manage channels, uperm: admin |
-| `jail <member> [reason]` | Jail a member: strips their roles and confines them to #jail | manage roles, moderate members, uperm: mod |
-| `jail list` | List jailed members | moderate members, uperm: mod |
+| `jail <member> [reason]` | Jail a member: strips their roles and confines them to #jail | manage roles, moderate members, uperm: moderator |
+| `jail list` | List jailed members | moderate members, uperm: moderator |
 | `jail setup` | Create the jail role and channel | administrator, uperm: admin |
-| `kick <member> [reason]` | Kick a member | kick members, uperm: mod |
+| `kick <member> [reason]` | Kick a member | kick members, uperm: moderator |
 | `lock [channel] [reason]` | Prevent @everyone from sending messages | manage channels, uperm: admin |
 | `lockdown [reason=lockdown]` | Lock every text channel in the server | administrator, uperm: headadmin |
 | `massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last N minutes (raid cleanup) | administrator, ban members, uperm: admin |
 | `masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last N minutes (raid cleanup) | kick members, uperm: admin |
-| `nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: mod |
+| `mod <member>` (modpanel, mp) | Moderator panel for a member: warn, timeout, kick, jail and their warnings, as buttons | uperm: helper |
+| `nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: moderator |
 | `nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, uperm: headadmin |
 | `purge <amount> [member]` (clear, c, prune) | Delete messages (optionally only from one member) | manage messages, uperm: helper |
 | `purge after <message_id>` | Delete every message after a message ID | manage messages |
@@ -345,22 +361,22 @@ _Keep your server in line_
 | `purge invites [amount=100]` | Delete messages containing invites | manage messages |
 | `purge links [amount=100]` | Delete messages containing links | manage messages |
 | `purge mentions [amount=100]` | Delete messages that mention users | manage messages |
-| `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members, uperm: mod |
+| `quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Instantly isolate a suspected raider or malicious member, stripping their roles | manage roles, moderate members, uperm: moderator |
 | `rblauth <target>` (roleblauth, bledauth, rblbypass) | Authorize a member or role to hold blacklisted roles: `,rblauth @user` | manage roles, uperm: headadmin |
 | `rblunauth <target>` (roleblunauth, bledunauth) | Revoke role blacklist authorization for a member or role: `,rblunauth @user` | manage roles, uperm: headadmin |
 | `reason <case> <reason>` | Update the reason on a case (your own cases, or any case with Manage Server) | moderate members |
 | `removepermall <permission>` (rpa) | Remove a permission from every role below me (e.g. `rpa administrator` after a raid) | administrator, manage roles |
 | `removerole <arg1> <arg2>` (takerole) | Remove a role from a member: `,removerole @User @Role` | manage roles, uperm: admin |
-| `role <arg1> [arg2]` (r, changerole, cr) | Toggle a role on a member: `,role @User @Role` or `,role @Role @User` (aliases: `,changerole`, `,cr`) | manage roles, uperm: admin |
-| `role add <arg1> <arg2>` | Add a role to a member: `,role add @User @Role` | manage roles, uperm: admin |
-| `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator, uperm: headadmin |
-| `role bots <action> <role>` | Add/remove a role for all bots | administrator, uperm: headadmin |
+| `role <arg1> [arg2]` (r, changerole, cr) | Give or take a role: `,r @User @Role` (either order). Has it → removed, doesn't → added | manage roles, uperm: admin |
+| `role add <arg1> <arg2>` | Add a role to a member: `,r add @User @Role` | manage roles, uperm: admin |
+| `role all <action> <role>` | Add/remove a role for everyone: `role all add @Role` | administrator, manage roles, uperm: headadmin |
+| `role bots <action> <role>` | Add/remove a role for all bots | administrator, manage roles, uperm: headadmin |
 | `role color <role> <color>` (colour) | Change a role's color | manage roles, uperm: admin |
 | `role create <name>` | Create a role | manage roles, uperm: admin |
 | `role delete <role>` | Delete a role | manage roles, uperm: admin |
 | `role hoist <role>` | Toggle showing a role separately | manage roles, uperm: admin |
-| `role humans <action> <role>` | Add/remove a role for all humans | administrator, uperm: headadmin |
-| `role remove <arg1> <arg2>` (rem, del) | Remove a role from a member: `,role remove @User @Role` | manage roles, uperm: admin |
+| `role humans <action> <role>` | Add/remove a role for all humans | administrator, manage roles, uperm: headadmin |
+| `role remove <arg1> <arg2>` (rem, del) | Remove a role from a member: `,r remove @User @Role` | manage roles, uperm: admin |
 | `role rename <role> <name>` | Rename a role | manage roles, uperm: admin |
 | `roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles, uperm: admin |
 | `roleblacklist add <role>` | Blacklist a role | manage roles, uperm: admin |
@@ -377,16 +393,16 @@ _Keep your server in line_
 | `softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members, uperm: admin |
 | `stripbled` (purgebled, rblstrip, roleblstrip) | Strip all blacklisted roles from unauthorized members across the server | manage roles, uperm: headadmin |
 | `stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, uperm: headadmin |
-| `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members, uperm: mod |
+| `timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members, uperm: moderator |
 | `unban <user> [reason]` | Unban a user | ban members, uperm: admin |
 | `unhide [channel]` (reveal) | Reveal a hidden channel | manage channels, uperm: admin |
-| `unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: mod |
+| `unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: moderator |
 | `unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels, uperm: admin |
 | `unlockdown` | Unlock every text channel | administrator, uperm: headadmin |
-| `unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine and safely restore non-blacklisted roles | manage roles, moderate members, uperm: mod |
-| `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout (use `untimeout all` for everyone) | moderate members, uperm: mod |
+| `unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine and safely restore non-blacklisted roles | manage roles, moderate members, uperm: moderator |
+| `untimeout <member> [reason]` (unmute, untime, uto) | Remove a timeout (use `untimeout all` for everyone) | moderate members, uperm: moderator |
 | `untimeout all [reason]` | Remove timeouts from every timed-out member | moderate members, uperm: admin |
-| `warn <member> [reason=No reason provided]` | Warn a member. Auto-punishments can be set with `warnpunish` | moderate members, uperm: mod |
+| `warn <member> [reason=No reason provided]` | Warn a member. Auto-punishments can be set with `warnpunish` | moderate members, uperm: moderator |
 | `warnings <member>` (warns) | List a member's warnings | moderate members |
 | `warnpunish <warnings> <action> [duration]` | Auto-punish at N warnings: `warnpunish 3 timeout 1h`, `warnpunish 5 ban`, `warnpunish 3 none` | administrator, uperm: admin |
 
@@ -402,11 +418,11 @@ _Play music in voice channels (Spotify/YouTube/SoundCloud via Lavalink)_
 | `djrole [role]` | Set the DJ role (needed to pause/stop/volume/etc.), or no role to let everyone control music | manage guild |
 | `loop [mode=track]` | Loop mode: track, queue or off |  |
 | `lyrics [query]` (ly, songlyrics) | Fetch song lyrics from LRCLIB: `lyrics Bohemian Rhapsody` (defaults to current voice track) | uperm: helper |
-| `pause` | Pause |  |
+| `pause` | Pause the music |  |
 | `play <query>` (p) | Play a song or playlist (URL or search) |  |
 | `queue` (q) | Show the queue |  |
 | `remove <position>` | Remove a track from the queue |  |
-| `resume` | Resume |  |
+| `resume` | Resume the music |  |
 | `seek <position>` | Seek to a time: `seek 1:30` |  |
 | `shuffle` | Shuffle the queue |  |
 | `skip` (next, voteskip, vs) | Skip the current song (DJs and the requester skip instantly, others vote) |  |
@@ -440,14 +456,16 @@ _Configure how the bot behaves in your server_
 | `alias add <shortcut> <command>` | Add an alias, e.g. `alias add b ban` or `alias add hi say hello` | manage guild |
 | `alias list` | List aliases | manage guild |
 | `alias remove <shortcut>` (delete, del) | Remove an alias | manage guild |
+| `autoclean [setting]` (autodelete, cleanreplies) | Delete command messages once they've run and the bot's replies after a delay: `autoclean on`, `off` or `30` | manage guild |
 | `botchannels [channel]` (cmdchannels, botchannel) | Restrict normal commands to specific channels (`botchannels <#channel>` to toggle) | manage guild |
 | `disablecommand <command>` (disablecmd, dcmd) | Disable a command for non-admins (`dcmd list` to see what's disabled) | manage guild |
 | `disablecommand list` | List disabled commands | manage guild |
 | `enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
-| `fakepermissions` (fp, fakeperms) | Give roles permissions that only work through the bot — no dangerous Discord perms needed |  |
-| `fakepermissions grant <role> <permissions>` (add) | Grant fake permissions, e.g. `fp grant @Mods ban_members, kick_members` |  |
-| `fakepermissions list` | List fake permissions |  |
-| `fakepermissions revoke <role> [permissions=all]` (remove) | Revoke fake permissions from a role (`all` to clear) |  |
+| `fakepermissions` (fp, fakeperms, fakeperm) | Give roles permissions that only work through the bot, with no dangerous Discord permissions needed |  |
+| `fakepermissions add <role> [permissions]` (grant, give) | Give a role permissions for the bot: `fp add @Mods ban members, kick members` (leave them out to pick) |  |
+| `fakepermissions list` (show, view) | See which roles have fake permissions |  |
+| `fakepermissions remove <role> [permissions=all]` (revoke, take, rm) | Take fake permissions back from a role (`all`, or leave them out, to clear it) |  |
+| `fakepermissions reset` (clear) | Remove every fake permission in the server |  |
 | `ignore <target>` | Toggle whether the bot ignores commands from a channel or member | manage guild |
 | `ignore list` | List ignored channels and users |  |
 | `modlog [channel]` | Set (or clear) the channel where moderation cases are posted | manage guild |
@@ -504,7 +522,6 @@ _Handy everyday tools_
 | `firstmessage [channel]` (firstmsg) | Jump to the first message in a channel |  |
 | `icon` (servericon) | Get the server icon |  |
 | `inrole <role>` | List members with a role |  |
-| `invite` (inv) | Invite the bot |  |
 | `membercount` (mc) | Member count breakdown |  |
 | `messageboard [days=0]` (topmsgs, topmessages) | Most active members (optionally over the last N days) |  |
 | `messages [member]` (msgs) | Message stats for a member |  |
@@ -514,7 +531,7 @@ _Handy everyday tools_
 | `ping` | Latency |  |
 | `poll <question>` | Quick poll — `poll Pizza? \| Yes \| No \| Maybe` for options | manage messages |
 | `reactionsnipe` (rs) | Show recently removed reactions |  |
-| `remind <duration> [reminder=something]` (remindme, reminder) | `remind 2h30m take out the trash` |  |
+| `remind <duration> [reminder=something]` (remindme, reminder) | Set a reminder: `remind 2h30m take out the trash` |  |
 | `remind delete <reminder_id>` (remove, cancel) | Cancel a reminder |  |
 | `remind list` | Your reminders |  |
 | `roleinfo <role>` (ri) | Info about a role |  |

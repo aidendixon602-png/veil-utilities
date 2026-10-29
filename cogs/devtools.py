@@ -1,6 +1,6 @@
 """Developer-only dangerous tools, shown under the red Secret help button.
 
-Everything here is restricted to the bot's developers (OWNER_IDS):
+Everything here is restricted to the bot's developers:
 strip/unstrip, massunrole, revert, network hardban/genreban, join-leave logs, and antinuke presets.
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, Duration, UserError, chunk_embeds, now, shorten, ts, MidtownConfirm, requires_uperm, has_perms
+from core.utils import Colors, Context, DangerConfirm, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
 
 A = discord.AuditLogAction
 
@@ -23,18 +23,9 @@ class DevTools(commands.Cog):
         self.bot = bot
 
     async def cog_check(self, ctx: Context) -> bool:
-        from core import perms as _perms
-        if _perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author):
+        if await self.bot.is_owner(ctx.author):
             return True
-        if ctx.guild and ctx.author.id == ctx.guild.owner_id:
-            return True
-        db = getattr(self.bot, "db", None)
-        if db and ctx.guild:
-            pl_cfg = await db.get_config(ctx.guild.id, "permlevels")
-            author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=False, is_dev=False, has_admin=False)
-            if author_rank >= 7:  # Supreme Leader
-                return True
-        raise commands.NotOwner()
+        raise commands.NotOwner()  # silent — don't confirm the command exists
 
     # ================================================================ strip / unstrip
     @commands.command(hidden=True)
@@ -42,6 +33,7 @@ class DevTools(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def strip(self, ctx: Context, member: discord.Member):
         """Remove every role from a member (restore with unstrip)"""
+        check_target(ctx, member, "strip")
         removable = [r for r in member.roles if not r.is_default() and not r.managed and r < ctx.guild.me.top_role]
         if not removable:
             raise UserError(f"I can't remove any of {member.mention}'s roles")
@@ -69,7 +61,7 @@ class DevTools(commands.Cog):
         if roles:
             await member.add_roles(*roles, reason=f"unstrip by {ctx.author}")
         await self.bot.db.set_config(ctx.guild.id, "strips", cfg)
-        await ctx.approve(f"Restored **{len(roles)}** role(s) to {member.mention}.")
+        await ctx.approve(f"restored **{len(roles)}** role{'' if len(roles) == 1 else 's'} to {member.mention}")
 
     # ================================================================ massunrole
     @commands.command(hidden=True)
@@ -85,7 +77,7 @@ class DevTools(commands.Cog):
         members = list(role.members)
         if not members and flag != "samerole":
             raise UserError(f"Nobody has {role.mention}")
-        msg = await ctx.neutral(f"Removing {role.mention} from **{len(members)}** member(s)…")
+        msg = await ctx.neutral(f"removing {role.mention} from **{len(members)}** member{'' if len(members) == 1 else 's'}…")
         done = 0
         for m in members:
             try:
@@ -163,157 +155,86 @@ class DevTools(commands.Cog):
         e.timestamp = discord.utils.utcnow()
         await ctx.send(embed=e)
 
-    # ================================================================ network hardban
+    # ================================================================ network ban (genreban)
+    def _prompt(self, text: str) -> discord.Embed:
+        e = discord.Embed(description=text, color=Colors.warn, timestamp=discord.utils.utcnow())
+        me = getattr(self.bot, "user", None)
+        name = getattr(me, "display_name", None)
+        if name:
+            e.set_author(name=name, icon_url=getattr(getattr(me, "display_avatar", None), "url", None))
+        return e
+
+    @staticmethod
+    def _who(user) -> str:
+        return f"@{getattr(user, 'name', user)} ( {user.id} )"
+
     @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
-    @requires_uperm("supremeleader")
-    @has_perms(administrator=True)
-    async def genreban(self, ctx: Context, target: str, *, reason: str = "Genre ban across authorized servers"):
-        """Ban a user across every authorized server (re-banned if they rejoin or are unbanned)"""
-        msg = await ctx.warn("Processing...")
-
-        user = None
-        user_id = None
-        clean_target = target.strip("<@!>")
-        try:
-            user_id = int(clean_target)
-            user = self.bot.get_user(user_id)
-            if not user:
-                try:
-                    user = await self.bot.fetch_user(user_id)
-                except Exception:
-                    pass
-        except ValueError:
-            try:
-                user = await commands.UserConverter().convert(ctx, target)
-                user_id = user.id
-            except Exception:
-                pass
-
-        if not user_id:
-            await msg.delete()
-            raise UserError(f"Could not find user `{target}`.")
-
-        from core import perms as _perms
-        if user and _perms.is_bot_developer(user, self.bot):
-            await msg.delete()
-            raise UserError("You cannot genreban a bot developer.")
-
-        display_name = f"@{user.name}" if user else f"User `{user_id}`"
-        display_user_str = f"{display_name} ( {user_id} )"
-
+    async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
+        """Ban a user across every server the bot is in (re-banned if they rejoin or are unbanned)"""
+        # never yourself, the bot, a bot developer or the owner of the server you're in, whoever runs it
+        check_target(ctx, user, "genreban")
         guilds = list(self.bot.guilds)
-        guild_count = len(guilds)
-
-        embed = discord.Embed(
-            description=f"Genreban {display_user_str} from all **{guild_count}** authorized server(s)?",
-            color=Colors.warn,
-        )
-        if self.bot.user:
-            embed.set_author(name=self.bot.user.display_name, icon_url=self.bot.user.display_avatar.url)
-        footer = await ctx._footer()
-        if footer:
-            embed.set_footer(text=footer)
-            embed.timestamp = discord.utils.utcnow()
-
-        view = MidtownConfirm(ctx.author.id, timeout=30)
+        owned = [g for g in guilds if g.owner_id == user.id]  # an owner can't be banned from their own server
+        guilds = [g for g in guilds if g.owner_id != user.id]
+        if not guilds:
+            raise UserError(f"{user.mention} owns every server I'm in, there's nowhere to ban them from")
+        msg = await ctx.warn("Processing...")
+        skip = f"\n-# skipping **{len(owned)}** server{'' if len(owned) == 1 else 's'} they own" if owned else ""
+        embed = self._prompt(f"Genreban {self._who(user)} from all **{len(guilds)}** server(s)?{skip}")
+        view = DangerConfirm(ctx.author.id, timeout=30)
         await msg.edit(content=None, embed=embed, view=view)
         await view.wait()
-
         if not view.value:
-            embed.description = f"Cancelled genreban for {display_user_str}."
-            await msg.edit(embed=embed, view=None)
-            return
+            embed.description = f"Cancelled genreban for {self._who(user)}."
+            return await msg.edit(embed=embed, view=None)
 
         await self.bot.db.execute(
-            "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user_id, ctx.author.id, reason, now())
+            "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
         banned, failed = 0, []
         for g in guilds:
             try:
-                await g.ban(discord.Object(user_id), reason=f"genreban by {ctx.author}: {reason}")
+                await g.ban(discord.Object(user.id), reason=f"genreban by {ctx.author}: {reason}")
                 banned += 1
-            except discord.Forbidden:
-                failed.append(g.name)
             except discord.HTTPException:
                 failed.append(g.name)
-
-        embed.description = f"**{user.name if user else user_id}** has been genrebaned across **{banned}** server(s)."
-        embed.set_footer(text=footer)
+        lines = [f"**{getattr(user, 'name', user)}** has been genrebanned across **{banned}** server(s)."]
+        if owned:
+            lines.append(f"-# skipped **{len(owned)}** they own")
+        if failed:
+            lines.append(f"-# couldn't ban in **{len(failed)}**: {shorten(', '.join(failed), 300)}")
+        embed.description = "\n".join(lines)
         embed.timestamp = discord.utils.utcnow()
         await msg.edit(embed=embed, view=None)
 
     @commands.command(hidden=True, aliases=["unreban", "unhardban", "globalunban", "unhb"])
-    @requires_uperm("supremeleader")
-    @has_perms(administrator=True)
-    async def ungenreban(self, ctx: Context, target: str):
-        """Lift a network genreban across every authorized server"""
-        msg = await ctx.warn("Processing...")
-
-        user = None
-        user_id = None
-        clean_target = target.strip("<@!>")
-        try:
-            user_id = int(clean_target)
-            user = self.bot.get_user(user_id)
-            if not user:
-                try:
-                    user = await self.bot.fetch_user(user_id)
-                except Exception:
-                    pass
-        except ValueError:
-            try:
-                user = await commands.UserConverter().convert(ctx, target)
-                user_id = user.id
-            except Exception:
-                pass
-
-        if not user_id:
-            await msg.delete()
-            raise UserError(f"Could not find user `{target}`.")
-
-        display_name = f"@{user.name}" if user else f"User `{user_id}`"
-        display_user_str = f"{display_name} ( {user_id} )"
-
-        row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user_id)
+    async def ungenreban(self, ctx: Context, user: discord.User):
+        """Lift a network genreban in every server"""
+        row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
         if not row:
-            await msg.delete()
-            raise UserError(f"**{user.name if user else user_id}** is not genrebanned.")
-
+            raise UserError(f"**{getattr(user, 'name', user)}** is not genrebanned.")
         guilds = list(self.bot.guilds)
-        guild_count = len(guilds)
-
-        embed = discord.Embed(
-            description=f"Ungenreban {display_user_str} from all **{guild_count}** authorized server(s)?",
-            color=Colors.warn,
-        )
-        if self.bot.user:
-            embed.set_author(name=self.bot.user.display_name, icon_url=self.bot.user.display_avatar.url)
-        footer = await ctx._footer()
-        if footer:
-            embed.set_footer(text=footer)
-            embed.timestamp = discord.utils.utcnow()
-
-        view = MidtownConfirm(ctx.author.id, timeout=30)
+        msg = await ctx.warn("Processing...")
+        embed = self._prompt(f"Ungenreban {self._who(user)} from all **{len(guilds)}** server(s)?")
+        view = DangerConfirm(ctx.author.id, timeout=30)
         await msg.edit(content=None, embed=embed, view=view)
         await view.wait()
-
         if not view.value:
-            embed.description = f"Cancelled ungenreban for {display_user_str}."
-            await msg.edit(embed=embed, view=None)
-            return
+            embed.description = f"Cancelled ungenreban for {self._who(user)}."
+            return await msg.edit(embed=embed, view=None)
 
-        await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user_id)
+        await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user.id)
         lifted, failed = 0, []
         for g in guilds:
             try:
-                await g.unban(discord.Object(user_id), reason=f"ungenreban by {ctx.author}")
+                await g.unban(discord.Object(user.id), reason=f"ungenreban by {ctx.author}")
                 lifted += 1
             except discord.NotFound:
                 pass
             except discord.HTTPException:
                 failed.append(g.name)
-
-        embed.description = f"**{user.name if user else user_id}** has been ungenrebaned from **{lifted}** server(s)."
-        embed.set_footer(text=footer)
+        embed.description = f"**{getattr(user, 'name', user)}** has been ungenrebanned from **{lifted}** server(s)."
+        if failed:
+            embed.description += f"\n-# couldn't unban in **{len(failed)}**: {shorten(', '.join(failed), 300)}"
         embed.timestamp = discord.utils.utcnow()
         await msg.edit(embed=embed, view=None)
 
@@ -353,10 +274,9 @@ class DevTools(commands.Cog):
         cfg["joinleave"] = channel.id if channel else None
         await self.bot.db.set_config(ctx.guild.id, "logs", cfg)
         if channel:
-            await ctx.approve(f"Join/leave logs set to {channel.mention}.\n"
-                              "Joins, leaves, and kicks will go here instead of the main log.")
+            await ctx.approve(f"joins, leaves and kicks will go to {channel.mention}")
         else:
-            await ctx.approve("Join/leave logs cleared — they go to the main member log again.")
+            await ctx.approve("joins, leaves and kicks go to the member log again")
 
     # ================================================================ antinuke presets
     @commands.group(hidden=True, aliases=["anpreset"], invoke_without_command=True)
@@ -372,7 +292,7 @@ class DevTools(commands.Cog):
         presets = await self.bot.db.get_config(0, "anpresets")
         presets[name.lower()] = an
         await self.bot.db.set_config(0, "anpresets", presets)
-        await ctx.approve(f"Saved antinuke preset **{name.lower()}**.")
+        await ctx.approve(f"saved antinuke preset **{name.lower()}**")
 
     @antinukepreset.command(name="load", aliases=["apply"])
     @commands.guild_only()
@@ -388,13 +308,15 @@ class DevTools(commands.Cog):
         for keep in ("admins", "whitelist", "log"):
             merged[keep] = current.get(keep, preset.get(keep))
         await self.bot.db.set_config(ctx.guild.id, "antinuke", merged)
-        await ctx.approve(f"Applied antinuke preset **{name.lower()}** to this server.")
+        await ctx.approve(f"applied antinuke preset **{name.lower()}** to this server")
 
     @antinukepreset.command(name="list")
     async def anp_list(self, ctx: Context):
         """List antinuke presets"""
         presets = await self.bot.db.get_config(0, "anpresets")
-        await ctx.neutral("Antinuke presets: " + (", ".join(f"`{n}`" for n in presets) or "none"))
+        if not presets:
+            return await ctx.warn("there are no antinuke presets")
+        await ctx.neutral("antinuke presets: " + ", ".join(f"`{n}`" for n in presets))
 
     @antinukepreset.command(name="delete", aliases=["remove"])
     async def anp_delete(self, ctx: Context, name: str):
@@ -403,7 +325,7 @@ class DevTools(commands.Cog):
         if presets.pop(name.lower(), None) is None:
             raise UserError(f"No preset named `{name.lower()}`")
         await self.bot.db.set_config(0, "anpresets", presets)
-        await ctx.approve(f"Deleted preset **{name.lower()}**.")
+        await ctx.approve(f"deleted preset **{name.lower()}**")
 
 
 async def setup(bot):

@@ -1,19 +1,21 @@
-"""Regenerate COMMANDS.md from the bot's actual commands.
+"""Regenerate docs/COMMANDS.md (and the README's command/module badges) from the bot's actual commands.
 
-    python scripts/gen_commands.py           # rewrite COMMANDS.md
-    python scripts/gen_commands.py --check   # exit 1 if COMMANDS.md is out of date (used by the tests)
+    python scripts/gen_commands.py           # rewrite docs/COMMANDS.md and the README badges
+    python scripts/gen_commands.py --check   # exit 1 if either is out of date (used by the tests)
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-OUT = ROOT / "COMMANDS.md"
+OUT = ROOT / "docs" / "COMMANDS.md"
+README = ROOT / "README.md"
 HIDDEN_COGS = {"Owner", "Authorization", "Jishaku"}
 
 
@@ -68,6 +70,18 @@ def render(bot) -> str:
     return "\n".join(head + body).rstrip() + "\n"
 
 
+def badges(readme: str, commands: int, modules: int) -> str:
+    """The README with its `commands-N` / `modules-N` badges set to the real numbers."""
+    readme = re.sub(r"badge/commands-\d+", f"badge/commands-{commands}", readme)
+    return re.sub(r"badge/modules-\d+", f"badge/modules-{modules}", readme)
+
+
+def counts(text: str) -> tuple[int, int]:
+    """(commands, modules) as written in the generated reference."""
+    total = int(re.search(r"^(\d+) commands\.", text, re.M).group(1))
+    return total, len(re.findall(r"^## ", text, re.M))
+
+
 async def build() -> str:
     tmp = tempfile.mkdtemp()
     os.environ.setdefault("DISCORD_TOKEN", "x")
@@ -88,14 +102,19 @@ async def build() -> str:
 
 def main() -> int:
     text = asyncio.run(build())
+    readme = README.read_text(encoding="utf-8")
+    fresh = badges(readme, *counts(text))
     if "--check" in sys.argv:
-        if OUT.read_text(encoding="utf-8") != text:
-            print("COMMANDS.md is out of date — run: python scripts/gen_commands.py")
+        stale = [name for name, ok in (("docs/COMMANDS.md", OUT.read_text(encoding="utf-8") == text),
+                                       ("the README badges", readme == fresh)) if not ok]
+        if stale:
+            print(f"{' and '.join(stale)} out of date — run: python scripts/gen_commands.py")
             return 1
-        print("COMMANDS.md is up to date")
+        print("docs/COMMANDS.md and the README badges are up to date")
         return 0
     OUT.write_text(text, encoding="utf-8")
-    print(f"Wrote {OUT.relative_to(ROOT)}")
+    README.write_text(fresh, encoding="utf-8")
+    print(f"Wrote {OUT.relative_to(ROOT)} and the README badges")
     return 0
 
 

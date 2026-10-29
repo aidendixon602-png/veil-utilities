@@ -4,6 +4,10 @@
 !.env.example
 
 # runtime data (lives on the host, not in git)
+.restart_state.json
+.requirements.hash
+local-edits-*.patch
+.local/
 *.db
 *.db-shm
 *.db-wal
@@ -29,4 +33,7 @@ venv/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# shared editor settings are kept; personal ones are not
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

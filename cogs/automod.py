@@ -12,6 +12,7 @@ import discord
 import regex
 from discord.ext import commands
 
+from core import autoclean
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, shorten
 
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/[\w-]+", re.I)
@@ -50,6 +51,23 @@ class Automod(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.spam: dict[tuple[int, int], deque] = defaultdict(deque)
+        self.hits: dict[tuple[int, int], deque] = defaultdict(deque)  # filter hits, for escalation
+
+    def escalates(self, cfg: dict, m: discord.Message) -> bool:
+        """Count a filter hit; True when this person reached the escalation limit (their count starts over)."""
+        esc = cfg.get("escalate")
+        if not esc:
+            return False
+        key = (m.guild.id, m.author.id)
+        now = time.monotonic()
+        hits = self.hits[key]
+        hits.append(now)
+        while hits and now - hits[0] > int(esc.get("within", 600)):
+            hits.popleft()
+        if len(hits) >= int(esc.get("hits", 3)):
+            del self.hits[key]
+            return True
+        return False
 
     async def cfg(self, gid):
         return await self.bot.db.get_config(gid, "filters", {"exempt_roles": [], "exempt_channels": [],
@@ -135,6 +153,14 @@ class Automod(commands.Cog):
                 await m.author.timeout(timedelta(seconds=cfg.get("timeout", 60)), reason=f"Automod: {why}")
             except discord.HTTPException:
                 pass
+        elif self.escalates(cfg, m):  # the same person tripping the filters again and again: a short timeout
+            esc = cfg["escalate"]
+            try:
+                await m.author.timeout(timedelta(seconds=int(esc.get("timeout", 600))),
+                                       reason=f"Automod: {esc.get('hits', 3)} filter hits in a row")
+                why += f" · timed out for {int(esc.get('timeout', 600)) // 60} min for repeated hits"
+            except discord.HTTPException:
+                pass
         try:
             await m.channel.send(embed=discord.Embed(color=Colors.warn, description=f"⚠️ {m.author.mention}: {why}"),
                                  delete_after=5)
@@ -148,8 +174,8 @@ class Automod(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
-        if not message.guild or message.author.bot or not message.content:
-            return
+        if not message.guild or message.author.bot or not message.content or autoclean.was_cleaned(message.id):
+            return  # (a command the bot tidied away is not a ghost ping)
         from core import perms as _perms
         if _perms.is_bot_developer(message.author, self.bot):
             return
@@ -204,7 +230,7 @@ class Automod(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         cfg["antighostping"] = True
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve("Anti-Ghostping detection enabled")
+        await ctx.approve("turned anti-ghostping **on**")
 
     @antighostping.command(name="off", aliases=["disable"])
     @has_perms(manage_guild=True)
@@ -213,7 +239,7 @@ class Automod(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         cfg["antighostping"] = False
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve("Anti-Ghostping detection disabled")
+        await ctx.approve("turned anti-ghostping **off**")
 
     @antighostping.command(name="channel")
     @has_perms(manage_guild=True)
@@ -222,7 +248,7 @@ class Automod(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         cfg["ghostping_channel"] = channel.id if channel else None
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Ghostping alerts will be sent to {channel.mention if channel else 'the channel where the ping occurred'}")
+        await ctx.approve(f"ghostping alerts will go to {channel.mention}" if channel else "ghostping alerts will go to the channel where the ping happened")
 
     @commands.group(aliases=["automod", "am"], invoke_without_command=True)
     @has_perms(manage_guild=True)
@@ -248,7 +274,7 @@ class Automod(commands.Cog):
         else:
             cfg[key] = value
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"**{label}** filter {'enabled' if value else 'disabled'}")
+        await ctx.approve(f"turned the **{label}** filter **{'on' if value else 'off'}**")
 
     @staticmethod
     def _on(state: str) -> bool:
@@ -273,9 +299,14 @@ class Automod(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("links_allow", [])
         domain = _domain(domain)
-        lst.remove(domain) if domain in lst else lst.append(domain)
+        if domain in lst:
+            lst.remove(domain)
+            msg = f"`{domain}` is no longer allowed through the link filter"
+        else:
+            lst.append(domain)
+            msg = f"`{domain}` is now allowed through the link filter"
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Allowed domains: {', '.join(lst) or 'none'}")
+        await ctx.approve(msg)
 
     @filter.command(name="spam")
     @has_perms(manage_guild=True)
@@ -326,18 +357,18 @@ class Automod(commands.Cog):
     @filter.command(name="word", aliases=["words", "add"])
     @has_perms(manage_guild=True)
     async def f_word(self, ctx, *, word: str):
-        """Toggle a blocked word (end with * to match partial words)"""
+        """Toggle a blocked word (end with `*` to match partial words)"""
         if len(word) > 100:
             raise UserError("Words can be at most 100 characters")
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("words", [])
         word = word.lower()
         if word in lst:
-            lst.remove(word); msg = f"Unblocked `{word}`"
+            lst.remove(word); msg = f"unblocked `{word}`"
         elif len(lst) >= 100:
             raise UserError("100 blocked words max — remove one first")
         else:
-            lst.append(word); msg = f"Blocked `{word}`"
+            lst.append(word); msg = f"blocked `{word}`"
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(msg)
 
@@ -355,12 +386,14 @@ class Automod(commands.Cog):
         lst = cfg.setdefault("regex", [])
         if pattern in lst:
             lst.remove(pattern)
+            msg = f"unblocked pattern `{pattern}`"
         elif len(lst) >= 20:
-            raise UserError("20 patterns max — each one runs on every message")
+            raise UserError("20 patterns max, each one runs on every message")
         else:
             lst.append(pattern)
+            msg = f"blocked pattern `{pattern}`"
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Toggled pattern `{pattern}`")
+        await ctx.approve(msg)
 
     @filter.command(name="list")
     @has_perms(manage_guild=True)
@@ -368,7 +401,9 @@ class Automod(commands.Cog):
         """List blocked words and patterns"""
         cfg = await self.cfg(ctx.guild.id)
         lines = [f"`{w}`" for w in cfg.get("words", [])] + [f"regex `{p}`" for p in cfg.get("regex", [])]
-        await ctx.paginate(chunk_embeds("Blocked words", lines, 20))
+        if not lines:
+            return await ctx.warn("no words or patterns are blocked")
+        await ctx.paginate(chunk_embeds(f"Blocked words ({len(lines)})", lines, 20))
 
     @filter.command(name="exempt")
     @has_perms(manage_guild=True)
@@ -377,9 +412,14 @@ class Automod(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         key = "exempt_roles" if isinstance(target, discord.Role) else "exempt_channels"
         lst = cfg.setdefault(key, [])
-        lst.remove(target.id) if target.id in lst else lst.append(target.id)
+        if target.id in lst:
+            lst.remove(target.id)
+            msg = f"{target.mention} is no longer exempt from the filters"
+        else:
+            lst.append(target.id)
+            msg = f"{target.mention} is now exempt from the filters"
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Toggled exemption for {target.mention}")
+        await ctx.approve(msg)
 
     @filter.command(name="action")
     @has_perms(manage_guild=True)
@@ -392,7 +432,7 @@ class Automod(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         cfg["action"], cfg["timeout"] = action, seconds
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"Violations → **{action}**" + (f" for {seconds}s" if action == "timeout" else ""))
+        await ctx.approve(f"violations will now **{action}**" + (f" for {seconds}s" if action == "timeout" else ""))
 
 
 async def setup(bot):
