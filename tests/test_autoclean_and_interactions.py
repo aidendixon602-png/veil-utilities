@@ -6,10 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
-import pytest
 
 import core.autoclean as ac
-from core.utils import Context, UserError
 
 
 class FakeDB:
