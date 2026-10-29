@@ -48,6 +48,24 @@ TRUSTED_BOTS: dict[int, str] = {
 }
 
 
+# =====================================================================
+# WHITELISTED PEOPLE (Editable directly in this file)
+# =====================================================================
+# People the bot never takes any action against, in any server: no moderation command can target them (not even a
+# developer's), and the antinuke, automod, anti-raid, role blacklist and network bans all leave them alone.
+WHITELISTED_PEOPLE: dict[int, str] = {
+    843909457616044092: "thesimisear",
+}
+
+
+def is_whitelisted_person(user_or_id) -> bool:
+    uid = getattr(user_or_id, "id", user_or_id)
+    try:
+        return int(uid) in WHITELISTED_PEOPLE
+    except (TypeError, ValueError):
+        return False
+
+
 GHOST_VANGUARD_ID = next(bid for bid, name in TRUSTED_BOTS.items() if name == "Ghost Vanguard")
 
 

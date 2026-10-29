@@ -12,9 +12,15 @@ import time
 import discord
 from discord.ext import commands
 
+from core import perms
 from core.utils import Colors, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
 
 A = discord.AuditLogAction
+
+
+def plural(n: int, word: str) -> str:
+    """`1 server`, `3 servers`: never `server(s)`."""
+    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 WORKING_FOR = 2.0  # seconds a network ban shows "Genrebanning..." at the least
@@ -109,6 +115,8 @@ class DevTools(commands.Cog):
         msg = await ctx.neutral(f"removing {role.mention} from **{len(members)}** member{'' if len(members) == 1 else 's'}…")
         done = 0
         for m in members:
+            if perms.is_whitelisted_person(m):
+                continue  # roles are never taken from whitelisted people
             try:
                 await m.remove_roles(role, reason=f"massunrole by {ctx.author}")
                 done += 1
@@ -203,68 +211,108 @@ class DevTools(commands.Cog):
 
     @staticmethod
     def _who(user) -> str:
-        return f"@{getattr(user, 'name', user)} ( {user.id} )"
+        return f"**{discord.utils.escape_markdown(getattr(user, 'name', None) or str(user.id))}** (`{user.id}`)"
+
+    async def _already(self, user) -> dict | None:
+        return await self.bot.db.fetchone("SELECT * FROM globalbans WHERE user_id=?", user.id)
+
+    @staticmethod
+    async def _banned_in(guild, user_id: int) -> bool | None:
+        """Whether they're already banned there (by anyone, another bot included); None if it can't be checked."""
+        try:
+            await guild.fetch_ban(discord.Object(user_id))
+            return True
+        except discord.NotFound:
+            return False
+        except discord.HTTPException:
+            return None
 
     @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
     async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
         """Ban a user across every server the bot is in (re-banned if they rejoin or are unbanned)"""
-        # never yourself, the bot, a bot developer or the owner of the server you're in, whoever runs it
+        # never yourself, the bot, a bot developer, the server owner or a whitelisted person, whoever runs it
         check_target(ctx, user, "genreban")
+        existing = await self._already(user)
+        if existing:
+            # Already in force: nothing to repeat, and a second confirmation and card would only be noise.
+            since = ts(existing["at"], "R") if existing.get("at") else "earlier"
+            by = f" by <@{existing['mod_id']}>" if existing.get("mod_id") else ""
+            return await ctx.warn(f"{self._who(user)} is already genrebanned (since {since}{by}). "
+                                  "They're banned again automatically if they rejoin or are unbanned.")
         guilds = list(self.bot.guilds)
         owned = [g for g in guilds if g.owner_id == user.id]  # an owner can't be banned from their own server
         guilds = [g for g in guilds if g.owner_id != user.id]
         if not guilds:
-            raise UserError(f"{user.mention} owns every server I'm in, there's nowhere to ban them from")
-        msg = await ctx.warn("Processing...")
-        skip = f"\n-# skipping **{len(owned)}** server{'' if len(owned) == 1 else 's'} they own" if owned else ""
-        embed = self._prompt(f"Genreban {self._who(user)} from all **{len(guilds)}** server(s)?{skip}")
+            raise UserError(f"{user.mention} owns every server I'm in, so there's nowhere to ban them from")
+        msg = await ctx.warn("Checking...")
+        lines = [f"Genreban {self._who(user)} from {plural(len(guilds), 'server')}?",
+                 f"**Reason:** {discord.utils.escape_markdown(shorten(reason, 300))}"]
+        if owned:
+            lines.append(f"-# They own {plural(len(owned), 'server')}, which will be skipped.")
+        embed = self._prompt("\n".join(lines))
         view = DangerConfirm(ctx.author.id, timeout=30)
         await msg.edit(content=None, embed=embed, view=view)
         await view.wait()
         if not view.value:
-            embed.description = f"Cancelled genreban for {self._who(user)}."
+            embed.description = f"Genreban of {self._who(user)} cancelled. Nothing was changed."
+            embed.color = Colors.neutral
+            return await msg.edit(embed=embed, view=None)
+        if await self._already(user):  # someone else did it while this was waiting for Confirm
+            embed.description = f"{self._who(user)} was genrebanned by someone else in the meantime. Nothing was repeated."
             return await msg.edit(embed=embed, view=None)
 
         await self.bot.db.execute(
             "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
-        banned, failed = 0, []
-        async with await self._working(ctx, msg, embed, f"Genrebanning {self._who(user)} across **{len(guilds)}** "
-                                                        f"server(s)..."):
+        banned, already, failed = 0, 0, []
+        async with await self._working(ctx, msg, embed, f"Genrebanning {self._who(user)} in "
+                                                        f"{plural(len(guilds), 'server')}..."):
             for g in guilds:
+                if await self._banned_in(g, user.id):
+                    already += 1  # banned there already (by staff or another bot): no second ban, no second log
+                    continue
                 try:  # the ban logs read who ran it from this reason, so they credit them instead of the bot
                     await g.ban(discord.Object(user.id), reason=audit_reason(ctx.author, reason, "genreban"))
                     banned += 1
                 except discord.HTTPException:
                     failed.append(g.name)
-        lines = [f"**{getattr(user, 'name', user)}** has been genrebanned across **{banned}** server(s)."]
+        lines = [f"{self._who(user)} is genrebanned."]
+        done = [f"banned in {plural(banned, 'server')}"] if banned else []
+        if already:
+            done.append(f"already banned in {plural(already, 'server')}")
+        if done:
+            lines.append("-# " + (", ".join(done)).capitalize())
         if owned:
-            lines.append(f"-# skipped **{len(owned)}** they own")
+            lines.append(f"-# Skipped {plural(len(owned), 'server')} they own")
         if failed:
-            lines.append(f"-# couldn't ban in **{len(failed)}**: {shorten(', '.join(failed), 300)}")
+            lines.append(f"-# Couldn't ban in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}")
         embed.description = "\n".join(lines)
+        embed.color = Colors.deny
         embed.timestamp = discord.utils.utcnow()
         await msg.edit(embed=embed, view=None)
 
     @commands.command(hidden=True, aliases=["unreban", "unhardban", "globalunban", "unhb"])
     async def ungenreban(self, ctx: Context, user: discord.User):
         """Lift a network genreban in every server"""
-        row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
-        if not row:
-            raise UserError(f"**{getattr(user, 'name', user)}** is not genrebanned.")
+        if not await self._already(user):
+            return await ctx.warn(f"{self._who(user)} isn't genrebanned, so there's nothing to lift.")
         guilds = list(self.bot.guilds)
-        msg = await ctx.warn("Processing...")
-        embed = self._prompt(f"Ungenreban {self._who(user)} from all **{len(guilds)}** server(s)?")
+        msg = await ctx.warn("Checking...")
+        embed = self._prompt(f"Lift the genreban on {self._who(user)} in {plural(len(guilds), 'server')}?")
         view = DangerConfirm(ctx.author.id, timeout=30)
         await msg.edit(content=None, embed=embed, view=view)
         await view.wait()
         if not view.value:
-            embed.description = f"Cancelled ungenreban for {self._who(user)}."
+            embed.description = f"Lifting the genreban on {self._who(user)} was cancelled. Nothing was changed."
+            embed.color = Colors.neutral
+            return await msg.edit(embed=embed, view=None)
+        if not await self._already(user):
+            embed.description = f"The genreban on {self._who(user)} was already lifted by someone else."
             return await msg.edit(embed=embed, view=None)
 
         await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user.id)
         lifted, failed = 0, []
         async with await self._working(ctx, msg, embed, f"Lifting the genreban on {self._who(user)} in "
-                                                        f"**{len(guilds)}** server(s)..."):
+                                                        f"{plural(len(guilds), 'server')}..."):
             for g in guilds:
                 try:
                     await g.unban(discord.Object(user.id), reason=audit_reason(ctx.author, None, "ungenreban"))
@@ -273,38 +321,46 @@ class DevTools(commands.Cog):
                     pass
                 except discord.HTTPException:
                     failed.append(g.name)
-        embed.description = f"**{getattr(user, 'name', user)}** has been ungenrebanned from **{lifted}** server(s)."
+        lines = [f"The genreban on {self._who(user)} is lifted."]
+        lines.append(f"-# Unbanned in {plural(lifted, 'server')}" if lifted else "-# They weren't banned in any server")
         if failed:
-            embed.description += f"\n-# couldn't unban in **{len(failed)}**: {shorten(', '.join(failed), 300)}"
+            lines.append(f"-# Couldn't unban in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}")
+        embed.description = "\n".join(lines)
+        embed.color = Colors.approve
         embed.timestamp = discord.utils.utcnow()
         await msg.edit(embed=embed, view=None)
 
     @commands.command(hidden=True, aliases=["genrebans", "genrebanlist", "globalbans"])
     async def hardbans(self, ctx: Context):
-        """List network hardbans"""
+        """List network genrebans"""
         rows = await self.bot.db.fetchall("SELECT * FROM globalbans ORDER BY at DESC")
-        lines = [f"<@{r['user_id']}> (`{r['user_id']}`) — by <@{r['mod_id']}> {ts(r['at'])}\n> {r['reason'] or 'no reason'}"
-                 for r in rows]
-        await ctx.paginate(chunk_embeds(f"Network hardbans ({len(rows)})", lines, 8, numbered=False))
+        if not rows:
+            return await ctx.neutral("Nobody is genrebanned.")
+        lines = [f"<@{r['user_id']}> (`{r['user_id']}`) · by <@{r['mod_id']}> {ts(r['at'], 'R')}\n"
+                 f"-# {discord.utils.escape_markdown(shorten(r['reason'] or 'No reason given', 200))}" for r in rows]
+        await ctx.paginate(chunk_embeds(f"Genrebans · {len(rows)}", lines, 8, numbered=False))
+
+    async def _enforce(self, guild: discord.Guild, user_id: int, why: str) -> None:
+        """A genrebanned person rejoined or was unbanned: ban them again, once, quietly if it's already done."""
+        if perms.is_whitelisted_person(user_id) or guild.owner_id == user_id:
+            return
+        if not await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user_id):
+            return
+        if await self._banned_in(guild, user_id):
+            return  # another bot (or staff) already banned them again
+        try:
+            await guild.ban(discord.Object(user_id), reason=f"Genreban enforced: {why}")
+        except discord.HTTPException:
+            pass
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
-        row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", member.id)
-        if row:
-            try:
-                await member.ban(reason="network hardban")
-            except discord.HTTPException:
-                pass
+        await self._enforce(member.guild, member.id, "they rejoined")
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
-        row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user.id)
-        if row:
-            await asyncio.sleep(1)
-            try:
-                await guild.ban(discord.Object(user.id), reason="network hardban (unban attempted)")
-            except discord.HTTPException:
-                pass
+        await asyncio.sleep(1)  # let any other bot's re-ban land first, so there's only ever one
+        await self._enforce(guild, user.id, "they were unbanned")
 
     # ================================================================ join/leave logs
     @commands.command(hidden=True, aliases=["jllogs"])

@@ -398,20 +398,32 @@ class Owner(commands.Cog):
 
     @commands.command(hidden=True)
     async def blacklist(self, ctx: Context, target_id: int, *, reason: str = None):
-        """Toggle blacklisting a user or server ID (blacklisted servers are left immediately)"""
+        """Blacklist a user or server ID from the bot (a blacklisted server is left immediately). `unblacklist` lifts it"""
         from core import perms as _perms
         if _perms.is_bot_developer(target_id, self.bot):
-            raise UserError("Cannot blacklist a bot developer.")
+            raise UserError("A bot developer can't be blacklisted.")
+        if _perms.is_whitelisted_person(target_id):
+            raise UserError(f"<@{target_id}> is whitelisted, so the bot won't take any action against them")
         if target_id in self.bot.blacklist:
-            self.bot.blacklist.discard(target_id)
-            await self.bot.db.execute("DELETE FROM blacklist WHERE id=?", target_id)
-            return await ctx.approve(f"unblacklisted `{target_id}`")
+            # Running it again used to lift the blacklist; now it only says it's already in place.
+            row = await self.bot.db.fetchone("SELECT reason FROM blacklist WHERE id=?", target_id)
+            why = f" ({discord.utils.escape_markdown(row['reason'])})" if row and row["reason"] else ""
+            return await ctx.warn(f"`{target_id}` is already blacklisted{why}. `{ctx.clean_prefix}unblacklist {target_id}` lifts it.")
         self.bot.blacklist.add(target_id)
         await self.bot.db.execute("INSERT OR REPLACE INTO blacklist VALUES(?,?)", target_id, reason)
         g = self.bot.get_guild(target_id)
         if g:
             await g.leave()
         await ctx.approve(f"blacklisted `{target_id}`" + (f" and left **{discord.utils.escape_markdown(g.name)}**" if g else ""))
+
+    @commands.command(hidden=True, aliases=["unbl"])
+    async def unblacklist(self, ctx: Context, target_id: int):
+        """Lift a user's or server's blacklist"""
+        if target_id not in self.bot.blacklist:
+            return await ctx.warn(f"`{target_id}` isn't blacklisted.")
+        self.bot.blacklist.discard(target_id)
+        await self.bot.db.execute("DELETE FROM blacklist WHERE id=?", target_id)
+        await ctx.approve(f"lifted the blacklist on `{target_id}`")
 
     @commands.command(hidden=True, aliases=["bl"])
     async def blacklisted(self, ctx: Context):

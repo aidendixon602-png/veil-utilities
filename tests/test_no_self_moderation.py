@@ -61,8 +61,10 @@ def test_ban_by_user_id_never_reaches_protected_people(target):
     ctx.guild.ban.assert_not_called()
 
 
-def server(gid, owner):
-    return SimpleNamespace(id=gid, name=f"server {gid}", owner_id=owner, ban=AsyncMock())
+def server(gid, owner, banned=False):
+    not_found = discord.NotFound(MagicMock(status=404), "Unknown Ban")
+    return SimpleNamespace(id=gid, name=f"server {gid}", owner_id=owner, ban=AsyncMock(),
+                           fetch_ban=AsyncMock(return_value=object()) if banned else AsyncMock(side_effect=not_found))
 
 
 @pytest.mark.parametrize("target", [AUTHOR, OWNER, DEV, BOT])
@@ -103,11 +105,54 @@ def test_network_ban_skips_servers_the_target_owns():
     owned.ban.assert_not_called()
     other.ban.assert_awaited_once()
     assert other.ban.await_args.kwargs["reason"].startswith("genreban by ")  # the ban log credits who ran it
-    ctx.warn.assert_awaited_once_with("Processing...")
+    ctx.warn.assert_awaited_once_with("Checking...")
     asked, working, done = seen
-    assert working.startswith("⏳ Genrebanning @raider ( 500 ) across **1** server(s)")
-    assert "@raider ( 500 )" in asked and "1** server(s)" in asked and "skipping **1** server they own" in asked
-    assert done.startswith("**raider** has been genrebanned across **1** server(s).") and "skipped **1**" in done
+    assert asked.startswith("Genreban **raider** (`500`) from 1 server?") and "They own 1 server, which will be skipped" in asked
+    assert working.startswith("⏳ Genrebanning **raider** (`500`) in 1 server...")
+    assert done == ("**raider** (`500`) is genrebanned.\n-# Banned in 1 server\n-# Skipped 1 server they own")
+    assert "(s)" not in asked + working + done
+
+
+def test_someone_already_genrebanned_is_not_banned_again():
+    other = server(8, 999)
+    ctx = make_ctx(guilds=[other])
+    ctx.bot.db.fetchone = AsyncMock(return_value={"user_id": OTHER, "mod_id": 7, "reason": "raid", "at": 1_700_000_000})
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
+    other.ban.assert_not_called()
+    ctx.bot.db.execute.assert_not_called()
+    text = ctx.warn.await_args.args[0]
+    assert text.startswith("**raider** (`500`) is already genrebanned (since <t:1700000000:R> by <@7>).")
+
+
+def test_servers_where_they_are_already_banned_are_skipped_not_repeated():
+    banned_by_other_bot, fresh = server(8, 999, banned=True), server(9, 999)
+    ctx = make_ctx(guilds=[banned_by_other_bot, fresh])
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    seen = []
+    ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
+    banned_by_other_bot.ban.assert_not_called()
+    fresh.ban.assert_awaited_once()
+    assert seen[-1].endswith("-# Banned in 1 server, already banned in 1 server")
+
+
+def test_rejoining_is_enforced_once_and_never_on_whitelisted_people():
+    tools = DevTools.__new__(DevTools)
+    tools.bot = SimpleNamespace(db=SimpleNamespace(fetchone=AsyncMock(return_value={"user_id": OTHER})))
+    g = server(8, 999)
+    asyncio.run(tools._enforce(g, OTHER, "they rejoined"))
+    g.ban.assert_awaited_once()
+    already = server(9, 999, banned=True)
+    asyncio.run(tools._enforce(already, OTHER, "they were unbanned"))
+    already.ban.assert_not_called()  # another bot re-banned them first: no second ban
+    simi = server(10, 999)
+    asyncio.run(tools._enforce(simi, 843909457616044092, "they rejoined"))
+    simi.ban.assert_not_called()
 
 
 def test_cancelling_a_network_ban_does_nothing():
@@ -123,7 +168,7 @@ def test_cancelling_a_network_ban_does_nothing():
         _Answer.answer = True
     other.ban.assert_not_called()
     ctx.bot.db.execute.assert_not_called()
-    assert "Cancelled genreban" in ctx.prompt.edit.await_args.kwargs["embed"].description
+    assert ctx.prompt.edit.await_args.kwargs["embed"].description == "Genreban of **r** (`500`) cancelled. Nothing was changed."
 
 
 def test_the_old_names_still_work():
@@ -176,3 +221,35 @@ def test_the_working_step_stays_up_a_moment():
     with patch.object(devtools.asyncio, "sleep", fake_sleep):
         asyncio.run(go())
     assert slept and 0 < slept[0] <= devtools.WORKING_FOR
+
+
+def test_thesimisear_is_whitelisted_from_everything():
+    from cogs.moderation import Moderation as Mod
+    simi = 843909457616044092
+    assert perms.is_whitelisted_person(simi) and perms.WHITELISTED_PEOPLE[simi] == "thesimisear"
+    for actor in (AUTHOR, OWNER, DEV):  # not even the server owner or a developer
+        with pytest.raises(UserError, match="whitelisted"):
+            check_target(make_ctx(author=actor), discord.Object(simi), "ban")
+    cog = Mod.__new__(Mod)
+    cog.bot = SimpleNamespace(owner_ids=set(), owner_id=None)
+    assert cog._is_role_authorized(SimpleNamespace(owner_id=1), SimpleNamespace(id=simi, roles=[]), {})
+
+
+def test_antinuke_automod_and_anti_raid_leave_the_whitelisted_person_alone():
+    from cogs.antinuke import Antinuke
+    from cogs.automod import Automod
+    simi = 843909457616044092
+    an = Antinuke.__new__(Antinuke)
+    an.bot = SimpleNamespace(user=SimpleNamespace(id=BOT), owner_ids=set(), owner_id=None,
+                             db=SimpleNamespace(get_config=AsyncMock(return_value={"age": 30})))
+    g = SimpleNamespace(id=1, owner_id=OWNER, get_member=lambda uid: None)
+    assert asyncio.run(an._trusted(g, {}, simi))
+    asyncio.run(Antinuke.on_member_join(an, SimpleNamespace(id=simi, bot=False, guild=g)))
+    an.bot.db.get_config.assert_not_awaited()  # anti-raid never looked at them
+    am = Automod.__new__(Automod)
+    am.bot = SimpleNamespace(owner_ids=set(), owner_id=None)
+    am.cfg = AsyncMock()
+    author = MagicMock(spec=discord.Member)
+    author.id, author.bot = simi, False
+    asyncio.run(Automod.on_message(am, SimpleNamespace(guild=g, author=author, content="x")))
+    am.cfg.assert_not_awaited()  # automod never looked at the message

@@ -739,6 +739,8 @@ def check_target(ctx: Context, target: discord.abc.Snowflake, action: str = "mod
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
     tid = getattr(target, "id", target)
+    if _perms.is_whitelisted_person(tid):
+        raise UserError(f"<@{tid}> is whitelisted, so the bot won't take any action against them")
     if tid == ctx.author.id:
         raise UserError(f"You can't {action} yourself")
     guild = getattr(ctx, "guild", None)

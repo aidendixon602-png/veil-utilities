@@ -17,6 +17,7 @@ if not hasattr(_cu, "check_role_assignable"):
     except Exception:
         pass
 
+from core import perms as perms_mod
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
@@ -316,7 +317,7 @@ class Moderation(commands.Cog):
         targets = [
             m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
             and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
-            and not _perms.is_bot_developer(m, self.bot)
+            and not _perms.is_bot_developer(m, self.bot) and not _perms.is_whitelisted_person(m)
             and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)
             and (is_owner or _perms.rank_of(pl_cfg, m, is_owner=False, is_dev=False, has_admin=False) == 0)
         ]
@@ -344,7 +345,7 @@ class Moderation(commands.Cog):
         targets = [
             m for m in ctx.guild.members if m.joined_at and m.joined_at >= cutoff
             and not m.bot and m != ctx.author and m.id != ctx.guild.owner_id
-            and not _perms.is_bot_developer(m, self.bot)
+            and not _perms.is_bot_developer(m, self.bot) and not _perms.is_whitelisted_person(m)
             and m.top_role < ctx.guild.me.top_role and (is_owner or m.top_role < ctx.author.top_role)
             and (is_owner or _perms.rank_of(pl_cfg, m, is_owner=False, is_dev=False, has_admin=False) == 0)
         ]
@@ -955,7 +956,8 @@ class Moderation(commands.Cog):
             await check_role_assignable(ctx, role)
         else:
             check_role(ctx, role)
-        targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))]
+        targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))
+                   and (add or not perms_mod.is_whitelisted_person(m))]  # roles are never taken from whitelisted people
         if not targets:
             raise UserError("nobody to update")
         msg = await ctx.compact(Colors.neutral, f"⏳ updating **{len(targets)}** members…")
@@ -1031,7 +1033,7 @@ class Moderation(commands.Cog):
         mid = getattr(member, "id", 0)
         if _perms.is_bot_developer(mid, self.bot) or mid == getattr(guild, "owner_id", None):
             return True
-        if _perms.is_trusted_bot(mid):
+        if _perms.is_trusted_bot(mid) or _perms.is_whitelisted_person(mid):
             return True
         if mid in _perms.CODE_USERS:
             return True
