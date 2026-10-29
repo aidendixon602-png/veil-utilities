@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The bot no longer deletes messages on its own.** Autoclean is gone (and `,autoclean` with it): command
+  messages and the bot's replies stay. The help menu stays when it times out (only its dropdown goes), error
+  replies don't vanish after 5 seconds, and after a restart the restart message is edited to say it's back
+  instead of posting a second message that deleted itself.
+
 ### Changed
 
 - **Genreban / ungenreban prompt.** "Processing..." first, then a confirmation with a red Confirm and a grey Cancel

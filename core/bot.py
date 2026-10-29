@@ -335,30 +335,11 @@ class Veil(commands.AutoShardedBot):
             except Exception:
                 pass
 
-        try:
-            await channel.send(
-                f"✅ **Veil Utilities is back online!** (Restart completed in `{duration:.1f}s`)",
-                delete_after=15,
-            )
-        except Exception:
-            pass
-
-        # the restart ended the command before it could clean up after itself: do it now
-        from core import autoclean
-        on, delay = await autoclean.settings_for(self, getattr(channel, "guild", None))
-        if on:
-            command_id = state.get("command_message_id")
-            if command_id:
-                autoclean.remember(command_id)
-                try:
-                    await channel.get_partial_message(command_id).delete()
-                except (discord.HTTPException, AttributeError):
-                    pass
-            if msg is not None:
-                try:
-                    await msg.delete(delay=delay)
-                except (discord.HTTPException, AttributeError, TypeError):
-                    pass
+        if msg is None:  # the restart message is gone: say it here instead
+            try:
+                await channel.send(f"✅ **Veil Utilities is back online!** (Restart completed in `{duration:.1f}s`)")
+            except Exception:
+                pass
 
     # ------------------------------------------------------------- prefixes
     async def _get_prefix(self, bot, message: discord.Message):
@@ -459,10 +440,6 @@ class Veil(commands.AutoShardedBot):
 
     # Editing a message never runs a command: a command is what was typed when the message was sent. (An edit used to
     # re-run it, which let a message be turned into a different command after the fact.)
-
-    async def on_command_completion(self, ctx: Context):
-        from core import autoclean
-        await autoclean.after_command(ctx, ran=True)
 
     async def on_guild_join(self, guild: discord.Guild):
         if guild.id in self.blacklist:
@@ -604,11 +581,7 @@ class Veil(commands.AutoShardedBot):
 
     # ------------------------------------------------------------- errors
     async def on_command_error(self, ctx: Context, error: commands.CommandError):
-        try:
-            await self._handle_command_error(ctx, error)
-        finally:
-            from core import autoclean
-            await autoclean.after_command(ctx, ran=False)  # only cleans up when the person was shown something
+        await self._handle_command_error(ctx, error)
 
     async def _handle_command_error(self, ctx: Context, error: commands.CommandError):
         try:
@@ -625,8 +598,7 @@ class Veil(commands.AutoShardedBot):
                     return await ctx.fail(text)
             if isinstance(error, UserError):
                 err_msg = str(error)
-                del_after = 5.0 if ("staff-only" in err_msg or "restricted to" in err_msg) else None
-                return await ctx.deny(err_msg, delete_after=del_after)
+                return await ctx.deny(err_msg)
             if isinstance(error, commands.MissingRequiredArgument):
                 return await ctx.send_help(ctx.command)
             if isinstance(error, commands.MissingPermissions):

@@ -490,9 +490,10 @@ class HelpView(OwnedView):
         await respond_or_edit(it, self.home, self)
 
     async def on_timeout(self):
+        """The menu stays where it is; only the dropdown and buttons go once nobody can use them."""
         if self.message:
             try:
-                await self.message.delete()
+                await self.message.edit(view=None)
             except discord.HTTPException:
                 pass
 

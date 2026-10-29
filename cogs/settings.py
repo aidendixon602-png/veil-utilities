@@ -6,7 +6,6 @@ import re
 import discord
 from discord.ext import commands
 
-from core import autoclean as autoclean_mod
 from core.utils import (DANGEROUS_PERMS, Colors, Context, OwnedView, UserError, chunk_embeds, has_perms,
                         human_join, is_server_owner)
 
@@ -96,31 +95,6 @@ class Settings(commands.Cog):
         s["prefix"] = prefix
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
         await ctx.approve(f"set the server prefix to `{prefix}`")
-
-    @commands.command(aliases=["autodelete", "cleanreplies"])
-    @commands.guild_only()
-    @has_perms(manage_guild=True)
-    async def autoclean(self, ctx: Context, setting: str = None):
-        """Delete command messages once they've run and the bot's replies after a delay: `autoclean on`, `off` or `30`"""
-        s = await self.bot.db.get_config(ctx.guild.id, "settings")
-        clean = {"on": True, "delay": autoclean_mod.DEFAULT_DELAY, **(s.get("autoclean") or {})}
-        if setting is None:
-            state = f"on: replies go after **{clean['delay']}s**" if clean["on"] else "off"
-            return await ctx.neutral(f"autoclean is **{state}** · `{ctx.clean_prefix}autoclean on`, `off` "
-                                     f"or a number of seconds")
-        word = setting.lower().rstrip("s")
-        if word in ("on", "enable", "true", "yes"):
-            clean["on"] = True
-        elif word in ("off", "disable", "false", "no"):
-            clean["on"] = False
-        elif word.isdigit() and 3 <= int(word) <= 600:
-            clean.update(on=True, delay=int(word))
-        else:
-            raise UserError("Use `on`, `off`, or how many seconds replies stay (3–600)")
-        s["autoclean"] = clean
-        await self.bot.db.set_config(ctx.guild.id, "settings", s)
-        await ctx.approve(f"autoclean is **on**: command messages go once they've run, replies after **{clean['delay']}s**"
-                          if clean["on"] else "autoclean is **off**: commands and replies stay")
 
     @commands.command()
     async def selfprefix(self, ctx: Context, prefix: str = None):
