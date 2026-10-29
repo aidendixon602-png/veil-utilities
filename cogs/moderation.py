@@ -1031,6 +1031,8 @@ class Moderation(commands.Cog):
         mid = getattr(member, "id", 0)
         if _perms.is_bot_developer(mid, self.bot) or mid == getattr(guild, "owner_id", None):
             return True
+        if _perms.is_trusted_bot(mid):
+            return True
         if mid in _perms.CODE_USERS:
             return True
         auth_list = cfg.get("authorized", [])
