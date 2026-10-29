@@ -27,6 +27,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
     ("Antinuke", ["Antinuke"], []),
+    ("Ghost Vanguard", ["Vanguard"], []),
     ("Automod", ["Automod"], []),
     ("Server", ["Config", "Settings"], []),
     ("VoiceMaster", ["VoiceMaster"], []),
@@ -48,7 +49,8 @@ PINNED: dict[str, list[str]] = {
 }
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
 # other words people type for a category (`,help moderation` still opens Moderator)
-CATEGORY_ALIASES = {"moderation": "moderator", "moderators": "moderator", "mods": "moderator",
+CATEGORY_ALIASES = {"gv": "ghost vanguard", "vanguard": "ghost vanguard", "ghost": "ghost vanguard",
+                    "moderation": "moderator", "moderators": "moderator", "mods": "moderator",
                     "admins": "admin", "administration": "admin", "administrator": "admin"}
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
@@ -70,6 +72,7 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Automod": 4,       # Server Manager+
     "Permissions": 6,   # Co-Owner+
     "Antinuke": 7,      # Owner+
+    "Ghost Vanguard": 0,  # everyone can type ,gv: Ghost Vanguard checks its own ranks for each command
 }
 
 # the level a Discord permission checked by a command maps to (matches has_perms' "you need ..." messages)
@@ -89,6 +92,7 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Roles": "🏷️",
     "Permissions": "🔒",
     "Antinuke": "🚨",
+    "Ghost Vanguard": "👻",
     "Automod": "🤖",
     "Server": "⚙️",
     "VoiceMaster": "🎙️",
@@ -107,6 +111,7 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Roles": "Role commands, autoroles, reaction roles, role blacklist",
     "Permissions": "Bot ranks (uperm), staff limits and command access",
     "Antinuke": "Real-time server protection and anti-raid",
+    "Ghost Vanguard": "The server's guard: ,gv <command>, ,gv help lists them",
     "Automod": "Spam, link and invite filtering",
     "Server": "Server setup, welcome messages and settings",
     "VoiceMaster": "Temporary voice channels and VC controls",

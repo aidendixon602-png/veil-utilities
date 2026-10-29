@@ -48,6 +48,17 @@ TRUSTED_BOTS: dict[int, str] = {
 }
 
 
+GHOST_VANGUARD_ID = next(bid for bid, name in TRUSTED_BOTS.items() if name == "Ghost Vanguard")
+
+
+def ghost_guards(guild) -> bool:
+    """Whether Ghost Vanguard is in this server. It is the guard there: Veil's own antinuke watching and
+    anti-raid step aside so the two never act on the same thing (Veil still limits what's done through its own
+    commands, which Ghost Vanguard trusts and so doesn't watch)."""
+    get_member = getattr(guild, "get_member", None)
+    return get_member is not None and get_member(GHOST_VANGUARD_ID) is not None
+
+
 def is_trusted_bot(user_or_id) -> bool:
     """Whether this account is one of the built-in trusted bots."""
     uid = getattr(user_or_id, "id", user_or_id)

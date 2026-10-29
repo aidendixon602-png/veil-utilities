@@ -1,6 +1,6 @@
 # Command reference
 
-493 commands. Default prefix `,`. `<required>` `[optional]`.
+494 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -543,6 +543,13 @@ _Handy everyday tools_
 | `togglesnipe` | Enable/disable snipe commands server-wide | manage guild |
 | `uptime` (up) | How long the bot has been online |  |
 | `userinfo [user]` (ui, info, whois, user) | Info about a user |  |
+
+## 👻 Vanguard
+_Ghost Vanguard's commands: `,gv help` lists them_
+
+| Command | Description | Permission |
+|---|---|---|
+| `gv [command]` (vanguard, ghost) | Run a Ghost Vanguard command: `,gv raid mode on`, `,gv antinuke status`, `,gv help` for the list |  |
 
 ## 🎙️ VoiceMaster
 _Temporary personal voice channels_
