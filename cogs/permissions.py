@@ -48,7 +48,10 @@ class Permissions(commands.Cog):
     @commands.group(aliases=["perm", "perms", "uperm", "ups", "permission", "permissions"], case_insensitive=True, invoke_without_command=True)
     @commands.guild_only()
     async def userperm(self, ctx: Context, *, target: str = None):
-        """Manage members' and roles' permission levels. Checks target if given, or shows levels."""
+        """Manage members' and roles' permission levels
+
+        Give a member or role to see their level, or nothing to list the levels.
+        """
         if target:
             clean = target.strip()
             words = clean.split(maxsplit=1)

@@ -363,38 +363,41 @@ class Imaging(commands.Cog):
 
     # ------------------------------------------------------------ simple effects
     def _simple(name, fn, doc):  # noqa: N805
-        @commands.command(name=name, help=doc + " — attach, reply to, or mention an image/user/emoji")
-        @commands.cooldown(1, 4, commands.BucketType.user)
         async def cmd(self, ctx: Context, *, image: str = None):
             await self.apply(ctx, fn, name, image)
-        return cmd
+        # discord.py only treats the first parameter as `self` for functions it sees as class methods; a function
+        # made inside a factory isn't one, so without this `ctx` would become an argument the user has to type.
+        cmd.__qualname__ = f"Imaging.{name}"
+        cmd = commands.cooldown(1, 4, commands.BucketType.user)(cmd)
+        return commands.command(name=name, help=doc + "\n\nWorks on an attached image, the message you reply to, a "
+                                                      "member's avatar (mention them) or a custom emoji.")(cmd)
 
     blur = _simple("blur", fx_blur, "Blur an image")
     deepfry = _simple("deepfry", fx_deepfry, "Deep-fry an image")
-    invert = _simple("invert", fx_invert, "Invert colors")
-    grayscale = _simple("grayscale", fx_grayscale, "Black and white")
-    sepia = _simple("sepia", fx_sepia, "Old-photo sepia tone")
+    invert = _simple("invert", fx_invert, "Invert an image's colors")
+    grayscale = _simple("grayscale", fx_grayscale, "Make an image black and white")
+    sepia = _simple("sepia", fx_sepia, "Give an image an old-photo sepia tone")
     pixelate = _simple("pixelate", fx_pixelate, "Pixelate an image")
-    jpeg = _simple("jpeg", fx_jpeg, "Destroy it with JPEG compression")
-    posterize = _simple("posterize", fx_posterize, "Posterize colors")
-    edges = _simple("edges", fx_edges, "Edge detection")
-    emboss = _simple("emboss", fx_emboss, "Emboss effect")
-    sharpen = _simple("sharpen", fx_sharpen, "Over-sharpen")
-    upsidedown = _simple("upsidedown", fx_flip, "Flip upside down")
-    mirror = _simple("mirror", fx_mirror, "Mirror horizontally")
-    rotate = _simple("rotate", fx_rotate, "Rotate 90°")
-    circle = _simple("circle", fx_circle, "Crop into a circle")
-    brighten = _simple("brighten", fx_bright, "Brighten")
-    saturate = _simple("saturate", fx_saturate, "Crank the saturation")
-    warp = _simple("warp", fx_swirlish, "Wavy distortion")
-    solarize = _simple("solarize", fx_solarize, "Solarize (negative highlights)")
-    glitch = _simple("glitch", fx_glitch, "Corrupted glitch effect")
-    sketch = _simple("sketch", fx_sketch, "Pencil sketch")
-    rainbow = _simple("rainbow", fx_rainbow, "Rainbow gradient overlay")
-    vignette = _simple("vignette", fx_vignette, "Dark vignette border")
-    duotone = _simple("duotone", fx_duotone, "veil-brand duotone (pink on dark)")
-    censor = _simple("censor", fx_censor, "Mosaic-censor the center band")
-    oilify = _simple("oilify", fx_oilify, "Oil painting effect")
+    jpeg = _simple("jpeg", fx_jpeg, "Crush an image with heavy JPEG compression")
+    posterize = _simple("posterize", fx_posterize, "Posterize an image's colors")
+    edges = _simple("edges", fx_edges, "Trace the edges in an image")
+    emboss = _simple("emboss", fx_emboss, "Emboss an image")
+    sharpen = _simple("sharpen", fx_sharpen, "Over-sharpen an image")
+    upsidedown = _simple("upsidedown", fx_flip, "Flip an image upside down")
+    mirror = _simple("mirror", fx_mirror, "Mirror an image left to right")
+    rotate = _simple("rotate", fx_rotate, "Rotate an image 90°")
+    circle = _simple("circle", fx_circle, "Crop an image into a circle")
+    brighten = _simple("brighten", fx_bright, "Brighten an image")
+    saturate = _simple("saturate", fx_saturate, "Crank up an image's saturation")
+    warp = _simple("warp", fx_swirlish, "Warp an image with a wavy distortion")
+    solarize = _simple("solarize", fx_solarize, "Solarize an image (inverted highlights)")
+    glitch = _simple("glitch", fx_glitch, "Add a corrupted glitch effect")
+    sketch = _simple("sketch", fx_sketch, "Turn an image into a pencil sketch")
+    rainbow = _simple("rainbow", fx_rainbow, "Lay a rainbow gradient over an image")
+    vignette = _simple("vignette", fx_vignette, "Add a dark vignette around an image")
+    duotone = _simple("duotone", fx_duotone, "Recolor an image in a pink-on-dark duotone")
+    censor = _simple("censor", fx_censor, "Mosaic-censor the middle of an image")
+    oilify = _simple("oilify", fx_oilify, "Make an image look like an oil painting")
     del _simple
 
     # ------------------------------------------------------------ text effects
@@ -407,7 +410,11 @@ class Imaging(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 4, commands.BucketType.user)
     async def meme(self, ctx: Context, *, text: str):
-        """Impact-style meme text: `meme top text | bottom text` (attach or reply to an image)"""
+        """Add meme text to an image
+
+        Attach an image or reply to one. Split top and bottom text with `|`.
+        Example: `,meme top text | bottom text`
+        """
         await self.apply(ctx, partial(fx_meme, text=text[:200]), "meme")
 
     @commands.command(aliases=["randomfx"])

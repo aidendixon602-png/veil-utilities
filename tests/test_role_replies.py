@@ -116,7 +116,7 @@ def test_missing_discord_permission_keeps_rank_wording_outside_role_commands(bot
         ctx.fail, ctx.deny = AsyncMock(), AsyncMock()
         await bot.on_command_error(ctx, commands.MissingPermissions(["ban_members"]))
         ctx.fail.assert_not_awaited()
-        assert "**Admin+**" in ctx.deny.await_args.args[0]
+        assert "the **Admin** level or higher" in ctx.deny.await_args.args[0]
     asyncio.run(go())
 
 

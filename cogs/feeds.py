@@ -274,13 +274,17 @@ class Feeds(commands.Cog):
     @commands.group(name="feeds", aliases=["socials", "notify", "alerts"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def feed(self, ctx: Context):
-        """Post new content from YouTube, Twitch, SoundCloud, Reddit, Instagram, TikTok, X or any RSS feed"""
+        """Post new uploads from YouTube, Twitch, Reddit, X and more"""
         await ctx.send_help(ctx.command)
 
     @feed.command(name="add")
     @has_perms(manage_guild=True)
     async def feed_add(self, ctx: Context, platform: str, account: str, channel: discord.TextChannel = None):
-        """`feeds add youtube MrBeast #videos` — platforms: youtube, twitch, soundcloud, reddit, instagram, tiktok, x, rss"""
+        """Post an account's new uploads in a channel
+
+        Platforms: YouTube, Twitch, SoundCloud, Reddit, Instagram, TikTok, X and RSS.
+        Example: `,feeds add youtube MrBeast #videos`
+        """
         platform = ALIASES.get(platform.lower(), platform.lower())
         if platform not in PLATFORMS:
             raise UserError(f"Platforms: {', '.join(f'`{p}`' for p in PLATFORMS)}")
@@ -312,7 +316,10 @@ class Feeds(commands.Cog):
     @feed.command(name="remove", aliases=["delete"])
     @has_perms(manage_guild=True)
     async def feed_remove(self, ctx: Context, feed_id: str):
-        """Remove a feed by its ID (see `feeds list`)"""
+        """Remove a feed
+
+        Use the ID from `feeds list`.
+        """
         cfg = await self.cfg(ctx.guild.id)
         f = cfg["items"].pop(feed_id.lstrip("#"), None)
         if not f:
@@ -344,7 +351,10 @@ class Feeds(commands.Cog):
     @feed.command(name="message")
     @has_perms(manage_guild=True)
     async def feed_message(self, ctx: Context, feed_id: str, *, message: str = None):
-        """Custom post message (embed scripts + {feed.title} {feed.link} {feed.author} {feed.image} {feed.account}); `none` resets"""
+        """Change the message a feed posts
+
+        Embed scripts work, with {feed.title}, {feed.link}, {feed.author}, {feed.image} and {feed.account}. `none` goes back to the default.
+        """
         cfg = await self.cfg(ctx.guild.id)
         f = cfg["items"].get(feed_id.lstrip("#"))
         if not f:

@@ -12,7 +12,7 @@ import typing
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, OwnedView, respond_or_edit, shorten_md
+from core.utils import Colors, OwnedView, perm_label, respond_or_edit, shorten_md
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 
@@ -370,7 +370,11 @@ def example_for(cmd, prefix: str) -> str:
                   if p.default is inspect.Parameter.empty and p.kind is not inspect.Parameter.VAR_POSITIONAL]
         if not params or any(re.fullmatch(r"arg\d*", p.name) for p in params):
             return ""  # placeholder names say nothing; commands like that set extras={"example": ...}
-        return f"{prefix}{cmd.qualified_name} " + " ".join(_example_value(p) for p in params)
+        words = [_example_value(p) for p in params]
+        optional = [p for p in (getattr(cmd, "clean_params", None) or {}).values() if p.default is not inspect.Parameter.empty]
+        if any(p.name == "reason" for p in optional):  # a reason makes moderation examples read like real use
+            words.append("spamming")
+        return f"{prefix}{cmd.qualified_name} " + " ".join(words)
     except Exception:
         return ""
 
@@ -558,39 +562,41 @@ class Help(commands.HelpCommand):
         return pages[max(0, min(page, len(pages) - 1))]
 
     def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None) -> discord.Embed:
-        """A command card, greed / bleed style: what it does, Aliases / Parameters / Information side by side,
-        then a Usage block with the syntax and an example. The footer names the module (and page, for groups)."""
+        """A command's card: what it does, then Usage, Example, Aliases and what it needs, one line each. Nothing
+        is shown that doesn't apply (no "n/a"), and default values stay out of the syntax. A group's card lists its
+        subcommands."""
         p = self.context.clean_prefix
         bot = getattr(self.context, "bot", None)
-        kind = "Group" if isinstance(cmd, commands.Group) else "Command"
-        e = self._brand(discord.Embed(title=f"{kind}: {cmd.qualified_name}", color=HELP_COLOR,
-                                      description=cmd.help or cmd.short_doc or "no description yet"))
-
-        aliases = ", ".join(getattr(cmd, "aliases", None) or []) or "n/a"
-        own_usage = getattr(cmd, "usage", None)
-        if isinstance(own_usage, str) and own_usage.strip():  # commands that read their own arguments say so here
-            params = list(dict.fromkeys(re.findall(r"[<\[]([^<>\[\]|]+)", own_usage)))
-        else:
-            params = [_arg_name(n, prm) for n, prm in (getattr(cmd, "clean_params", None) or {}).items()
-                      if n not in ("ctx", "self")]
+        about = (cmd.help or cmd.short_doc or "").strip() or "No description yet."
+        # an "Example: `...`" line in the description is the command's own example: it goes in the Example slot
+        written = [ln for ln in about.splitlines() if ln.startswith("Example:")]
+        about = "\n".join(ln for ln in about.splitlines() if not ln.startswith("Example:")).strip()
+        lines = [about[0].upper() + about[1:], ""]
+        lines.append(f"**Usage** `{p}{cmd.qualified_name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}`")
+        example = written[0].split(":", 1)[1].strip() if written else (f"`{example_for(cmd, p)}`" if example_for(cmd, p) else "")
+        if example and example != f"`{p}{cmd.qualified_name}`":
+            lines.append(f"**Example** {example}")
+        aliases = [a for a in (getattr(cmd, "aliases", None) or [])]
+        if aliases:
+            lines.append("**Aliases** " + " ".join(f"`{a}`" for a in aliases[:8]))
         needs = []
         rank = min_rank_for_command(cmd, bot)
         if rank > 0:
-            needs.append(f"{rank_name(rank)}+")
-        needs += [x.replace("_", " ").title() for x in perms_of(cmd) if not x.lower().startswith("uperm")]
-        e.add_field(name="Aliases", value=shorten_md(aliases, 1024), inline=True)
-        e.add_field(name="Parameters", value=", ".join(params) or "n/a", inline=True)
-        e.add_field(name="Information", value=("⚠️ " + ", ".join(needs)) if needs else "n/a", inline=True)
-
-        block = f"Syntax: {usage(p, cmd)}"
-        example = example_for(cmd, p)
-        if example:
-            block += f"\nExample: {example}"
-        e.add_field(name="Usage", value=f"```\n{block}\n```", inline=False)
-
-        module = category_for_command(cmd, bot).lower()
-        where = f"Page {page[0]}/{page[1]} · " if page and page[1] > 1 else ""
-        e.set_footer(text=f"{where}Module: {module} · <required> [optional]")
+            needs.append(f"{rank_name(rank)} level")
+        needs += [perm_label(x) for x in perms_of(cmd) if not x.lower().startswith("uperm")]
+        if needs:
+            lines.append("**Requires** " + ", ".join(dict.fromkeys(needs)))
+        if isinstance(cmd, commands.Group) and (page is None or page[0] == 1):
+            subs = sorted((c for c in cmd.commands if not c.hidden), key=lambda c: c.name)
+            if subs:
+                lines += ["", "**Subcommands**"]
+                lines += [f"`{p}{c.qualified_name}` · {blurb(c, 60)}" for c in subs[:15]]
+                if len(subs) > 15:
+                    lines.append(f"-# and {len(subs) - 15} more")
+        e = self._brand(discord.Embed(title=f"{p}{cmd.qualified_name}", color=HELP_COLOR,
+                                      description=shorten_md("\n".join(lines), 4000)))
+        where = f"page {page[0]}/{page[1]} · " if page and page[1] > 1 else ""
+        e.set_footer(text=f"{where}{category_for_command(cmd, bot)} · <required> [optional]")
         return e
 
     # ------------------------------------------------------------ who is asking

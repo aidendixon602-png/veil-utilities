@@ -75,6 +75,13 @@ class TTTButton(discord.ui.Button["TicTacToe"]):
         await it.response.edit_message(content=text, view=v)
 
 
+_ACTION_HELP = {
+    "highfive": "High-five someone",
+    "handhold": "Hold someone's hand",
+    "wave": "Wave at someone",
+    "peck": "Give someone a little kiss",
+}
+
 class Fun(commands.Cog):
     """Games and silly commands"""
     emoji = "🎲"
@@ -98,7 +105,10 @@ class Fun(commands.Cog):
 
     @commands.command(aliases=["dice"])
     async def roll(self, ctx: Context, dice: str = "1d6"):
-        """Roll dice: `roll 2d20`, `roll 100`"""
+        """Roll dice
+
+        Example: `,roll 2d20`
+        """
         m = re.fullmatch(r"(\d*)d(\d+)", dice.lower())
         if m:
             n, sides = int(m.group(1) or 1), int(m.group(2))
@@ -113,7 +123,10 @@ class Fun(commands.Cog):
 
     @commands.command(aliases=["pick"])
     async def choose(self, ctx: Context, *, options: str):
-        """Pick between options: `choose pizza, tacos, sushi`"""
+        """Pick one of several options
+
+        Example: `,choose pizza, tacos, sushi`
+        """
         opts = [o.strip() for o in re.split(r",|\bor\b|\|", options) if o.strip()]
         if len(opts) < 2:
             raise UserError("Give at least two options separated by commas")
@@ -251,10 +264,12 @@ class Fun(commands.Cog):
         await ctx.send(embed=e)
 
     def _make(name):  # noqa: N805 - factory for interaction commands
-        @commands.command(name=name, help=f"{name.title()} someone")
         async def cmd(self, ctx: Context, member: discord.Member = None):
             await self._interact(ctx, name, member)
-        return cmd
+        # discord.py only treats the first parameter as `self` for functions it sees as class methods; a function
+        # made inside a factory isn't one, so without this `ctx` would become an argument the user has to type.
+        cmd.__qualname__ = f"Fun.{name}"
+        return commands.command(name=name, help=_ACTION_HELP.get(name, f"{name.title()} someone"))(cmd)
 
     hug = _make("hug"); kiss = _make("kiss"); pat = _make("pat"); slap = _make("slap"); cuddle = _make("cuddle")
     poke = _make("poke"); bite = _make("bite"); highfive = _make("highfive"); wave = _make("wave")

@@ -256,7 +256,10 @@ class VoiceMaster(commands.Cog):
     @voicemaster.command(name="defaultname")
     @has_perms(manage_guild=True)
     async def vm_defaultname(self, ctx: Context, *, name: str):
-        """Default channel name (`{user}` = owner's name)"""
+        """Set the default name for new voice channels
+
+        `{user}` is the channel owner's name.
+        """
         cfg = await self.bot.db.get_config(ctx.guild.id, "voicemaster")
         cfg["name"] = name
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)

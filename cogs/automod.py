@@ -295,7 +295,10 @@ class Automod(commands.Cog):
     @filter.command(name="allowlink")
     @has_perms(manage_guild=True)
     async def f_allowlink(self, ctx, domain: str):
-        """Toggle a domain allowed through the link filter (e.g. youtube.com)"""
+        """Allow or disallow a site through the link filter
+
+        Example: `,filter allowlink youtube.com`
+        """
         cfg = await self.cfg(ctx.guild.id)
         lst = cfg.setdefault("links_allow", [])
         domain = _domain(domain)
@@ -311,7 +314,11 @@ class Automod(commands.Cog):
     @filter.command(name="spam")
     @has_perms(manage_guild=True)
     async def f_spam(self, ctx, messages: int = 0, seconds: int = 5):
-        """Limit messages per N seconds: `filter spam 5 5` (0 disables)"""
+        """Limit how many messages someone can send in a few seconds
+
+        `0` turns it off.
+        Example: `,filter spam 5 5`
+        """
         if messages and not (2 <= messages <= 30 and 2 <= seconds <= 120):
             raise UserError("Spam limits: 2-30 messages per 2-120 seconds")
         await self._toggle(ctx, "spam", [messages, seconds] if messages else None, "Spam")
@@ -357,7 +364,10 @@ class Automod(commands.Cog):
     @filter.command(name="word", aliases=["words", "add"])
     @has_perms(manage_guild=True)
     async def f_word(self, ctx, *, word: str):
-        """Toggle a blocked word (end with `*` to match partial words)"""
+        """Block or unblock a word
+
+        End it with `*` to also match words that start with it.
+        """
         if len(word) > 100:
             raise UserError("Words can be at most 100 characters")
         cfg = await self.cfg(ctx.guild.id)
@@ -424,7 +434,11 @@ class Automod(commands.Cog):
     @filter.command(name="action")
     @has_perms(manage_guild=True)
     async def f_action(self, ctx, action: str, seconds: int = 60):
-        """What happens on a violation: `delete` or `timeout <seconds>`"""
+        """Choose what happens when a message breaks a filter
+
+        `delete`, or `timeout` with a number of seconds.
+        Example: `,filter action timeout 60`
+        """
         if action not in ("delete", "timeout"):
             raise UserError("Action must be `delete` or `timeout`")
         if action == "timeout" and not 10 <= seconds <= 2_419_200:

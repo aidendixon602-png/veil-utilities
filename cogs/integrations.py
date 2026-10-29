@@ -117,7 +117,10 @@ class Integrations(commands.Cog):
     @commands.group(aliases=["lf", "fm"], invoke_without_command=True)
     @requires_uperm()
     async def lastfm(self, ctx: Context, member: discord.Member = None):
-        """Show what you're listening to (same as `np`)"""
+        """Show what you're listening to on Last.fm
+
+        Same as `np`.
+        """
         await self.nowplaying(ctx, member)
 
     @lastfm.command(name="set", aliases=["login", "link"])
@@ -208,7 +211,10 @@ class Integrations(commands.Cog):
 
     @lastfm.command(name="topartists", aliases=["ta"])
     async def lf_topartists(self, ctx, period: str = "all", member: discord.Member = None):
-        """Top artists — period: 7d 1m 3m 6m 1y all"""
+        """Your top artists on Last.fm
+
+        Periods: 7d, 1m, 3m, 6m, 1y or all.
+        """
         await self._top(ctx, member, "user.gettopartists", "topartists", period, "top artists")
 
     @lastfm.command(name="toptracks", aliases=["tt"])
@@ -302,7 +308,10 @@ class Integrations(commands.Cog):
     @commands.command(aliases=["dictionary", "dict"])
     @requires_uperm()
     async def define(self, ctx: Context, *, word: str):
-        """English dictionary definitions, phonetics, and usage examples: `define serendipity`"""
+        """Look up an English word
+
+        Example: `,define serendipity`
+        """
         word_clean = word.strip().lower()
         quoted = urllib.parse.quote(word_clean)
         try:
@@ -356,7 +365,10 @@ class Integrations(commands.Cog):
     @commands.command(aliases=["currency", "exchange"])
     @requires_uperm()
     async def convert(self, ctx: Context, amount: float, from_curr: str, to_curr: str):
-        """Convert currencies with live European Central Bank exchange rates: `convert 100 USD EUR`"""
+        """Convert between currencies at today's rates
+
+        Example: `,convert 100 USD EUR`
+        """
         from_c = from_curr.upper()
         to_c = to_curr.upper()
         if from_c == to_c:
@@ -388,7 +400,10 @@ class Integrations(commands.Cog):
     @commands.command(aliases=["ip", "geoip"])
     @requires_uperm()
     async def ipinfo(self, ctx: Context, query: str):
-        """IP address and domain geolocation intelligence: `ipinfo 1.1.1.1`"""
+        """Look up where an IP address or domain is
+
+        Example: `,ipinfo 1.1.1.1`
+        """
         clean_target = query.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
         data = await self.get_json(f"http://ip-api.com/json/{urllib.parse.quote(clean_target)}",
                                    fields="status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query")
@@ -413,7 +428,10 @@ class Integrations(commands.Cog):
     @commands.command(name="pypi", aliases=["pythonpkg", "pip"])
     @requires_uperm()
     async def pypi(self, ctx: Context, package: str):
-        """Python package lookup on PyPI: `pypi discord.py`"""
+        """Look up a Python package on PyPI
+
+        Example: `,pypi discord.py`
+        """
         quoted = urllib.parse.quote(package.strip().lower())
         try:
             data = await self.get_json(f"https://pypi.org/pypi/{quoted}/json")
@@ -440,7 +458,10 @@ class Integrations(commands.Cog):
     @commands.command(name="npm", aliases=["nodejs", "npmpkg"])
     @requires_uperm()
     async def npm(self, ctx: Context, package: str):
-        """Node.js package lookup on NPM: `npm express`"""
+        """Look up a package on npm
+
+        Example: `,npm express`
+        """
         quoted = urllib.parse.quote(package.strip().lower())
         try:
             data = await self.get_json(f"https://registry.npmjs.org/{quoted}")
@@ -468,7 +489,10 @@ class Integrations(commands.Cog):
     @commands.command(name="qr", aliases=["qrcode"])
     @requires_uperm()
     async def qr(self, ctx: Context, *, text_or_url: str):
-        """Generate a scannable QR code for text or a URL: `qr https://discord.gg`"""
+        """Make a QR code for text or a link
+
+        Example: `,qr https://discord.gg`
+        """
         encoded = urllib.parse.quote(text_or_url)
         qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=350x350&data={encoded}&margin=10"
         e = discord.Embed(title="📱 QR Code Generator", color=Colors.main)
@@ -480,7 +504,10 @@ class Integrations(commands.Cog):
     @commands.command()
     @requires_uperm()
     async def weather(self, ctx: Context, *, location: str):
-        """Current weather anywhere with full forecast metrics: `weather Tokyo`"""
+        """Show the weather anywhere
+
+        Example: `,weather Tokyo`
+        """
         geo = await self.get_json("https://geocoding-api.open-meteo.com/v1/search", name=location, count=1)
         if not geo.get("results"):
             raise UserError(f"Location `{location}` not found.")
@@ -523,7 +550,10 @@ class Integrations(commands.Cog):
     @commands.group(aliases=["gh"], invoke_without_command=True)
     @requires_uperm()
     async def github(self, ctx: Context, username: str):
-        """GitHub profile lookup with full details: `github torvalds`"""
+        """Look up a GitHub profile
+
+        Example: `,github torvalds`
+        """
         u = await self.get_json(f"https://api.github.com/users/{urllib.parse.quote(username)}")
         e = discord.Embed(color=Colors.neutral, title=u.get("name") or u["login"], url=u["html_url"], description=u.get("bio") or "*No bio provided.*")
         e.set_thumbnail(url=u["avatar_url"])
@@ -545,7 +575,10 @@ class Integrations(commands.Cog):
     @github.command(name="repo")
     @requires_uperm()
     async def gh_repo(self, ctx: Context, repo: str):
-        """Repository lookup: `gh repo owner/name`"""
+        """Look up a GitHub repository
+
+        Example: `,gh repo owner/name`
+        """
         if repo.count("/") != 1:
             raise UserError("Use the format `owner/name`, e.g. `gh repo discord/discord-api-docs`")
         r = await self.get_json(f"https://api.github.com/repos/{urllib.parse.quote(repo.strip('/'), safe='/')}")
@@ -563,7 +596,10 @@ class Integrations(commands.Cog):
     @commands.command(aliases=["price", "coin"])
     @requires_uperm()
     async def crypto(self, ctx: Context, coin: str = "bitcoin", currency: str = "usd"):
-        """Crypto price, market cap, and 24h metrics: `crypto btc usd`"""
+        """Show a cryptocurrency's price and market data
+
+        Example: `,crypto btc usd`
+        """
         currency = currency.lower()
         search = await self.get_json("https://api.coingecko.com/api/v3/search", query=coin)
         if not search.get("coins"):
@@ -602,7 +638,10 @@ class Integrations(commands.Cog):
     @commands.command(aliases=["mcserver", "mc_status"])
     @requires_uperm()
     async def minecraft(self, ctx: Context, address: str):
-        """Minecraft server status (Java & Bedrock): `minecraft hypixel.net`"""
+        """Check a Minecraft server's status
+
+        Example: `,minecraft hypixel.net`
+        """
         address = address.strip().removeprefix("https://").removeprefix("http://").strip("/")
         quoted = urllib.parse.quote(address, safe=":")
         d = await self.get_json(f"https://api.mcsrvstat.us/3/{quoted}")
@@ -666,7 +705,10 @@ class Integrations(commands.Cog):
     @commands.command(aliases=["tr"])
     @requires_uperm()
     async def translate(self, ctx: Context, language: str, *, text: str = None):
-        """Translate text (or reply to a message): `translate es hello`"""
+        """Translate text, or the message you reply to
+
+        Example: `,translate es hello`
+        """
         if text is None and ctx.message.reference and isinstance(ctx.message.reference.resolved, discord.Message):
             text = ctx.message.reference.resolved.content
         if not text:

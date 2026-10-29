@@ -216,7 +216,10 @@ class Levels(commands.Cog):
     @leveling.command(name="message")
     @has_perms(manage_guild=True)
     async def lv_message(self, ctx, *, message: str = None):
-        """Level-up message (`{level}` + all variables; `none` to silence)"""
+        """Set the level-up message
+
+        Use `{level}` and the usual variables. `none` turns it off.
+        """
         await self._set(ctx, message=None if message in (None, "none") else message)
         await ctx.approve("updated the level-up message")
 
@@ -279,7 +282,11 @@ class Levels(commands.Cog):
     @leveling.command(name="multiplier")
     @has_perms(manage_guild=True)
     async def lv_mult(self, ctx, role: discord.Role, multiplier: float = 1.0):
-        """XP multiplier for a role, e.g. boosters ×2 (1 to remove)"""
+        """Give a role more XP per message
+
+        `1` removes the multiplier.
+        Example: `,leveling multiplier @Booster 2`
+        """
         cfg = await self.cfg(ctx.guild.id)
         if multiplier == 1:
             cfg["multipliers"].pop(str(role.id), None)

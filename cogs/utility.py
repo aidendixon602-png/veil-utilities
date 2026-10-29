@@ -218,7 +218,10 @@ class Utility(commands.Cog):
     # ================================================================ reminders
     @commands.group(aliases=["remindme", "reminder"], invoke_without_command=True)
     async def remind(self, ctx: Context, duration: Duration, *, reminder: str = "something"):
-        """Set a reminder: `remind 2h30m take out the trash`"""
+        """Set a reminder
+
+        Example: `,remind 2h30m take out the trash`
+        """
         count = (await self.bot.db.fetchone("SELECT COUNT(*) c FROM reminders WHERE user_id=?", ctx.author.id))["c"]
         if count >= 25:
             raise UserError(f"You have 25 reminders already — remove some with `{ctx.clean_prefix}remind delete <id>`")
@@ -450,7 +453,10 @@ class Utility(commands.Cog):
     @commands.command(aliases=["ce", "embed"])
     @has_perms(manage_messages=True)
     async def createembed(self, ctx: Context, *, script: str):
-        """Send a message from an embed script — see `embedhelp`"""
+        """Send a message built from an embed script
+
+        `embedhelp` explains how to write one.
+        """
         payload = build_message(script, build_vars(ctx.author, ctx.guild, ctx.channel))
         await ctx.send(**payload)
 
@@ -556,7 +562,11 @@ class Utility(commands.Cog):
     @commands.command()
     @has_perms(manage_messages=True)
     async def poll(self, ctx: Context, *, question: str):
-        """Quick poll — `poll Pizza? | Yes | No | Maybe` for options"""
+        """Start a quick poll
+
+        Separate the question and the options with `|`.
+        Example: `,poll Pizza? | Yes | No | Maybe`
+        """
         parts = [p.strip() for p in question.split("|") if p.strip()]
         e = discord.Embed(color=Colors.main, title=parts[0])
         e.set_footer(text=f"Poll by {ctx.author}")
@@ -632,7 +642,10 @@ class Utility(commands.Cog):
     @commands.command(aliases=["topmsgs", "topmessages"])
     @commands.guild_only()
     async def messageboard(self, ctx: Context, days: int = 0):
-        """Most active members (optionally over the last N days)"""
+        """Show the most active members
+
+        Give a number of days to only count recent messages.
+        """
         if days:
             since = datetime.fromtimestamp(now() - days * 86400, timezone.utc).strftime("%Y-%m-%d")
             rows = await self.bot.db.fetchall("SELECT user_id, SUM(count) c FROM msgstats WHERE guild_id=? AND day>=? "

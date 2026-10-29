@@ -688,8 +688,21 @@ def uses_compact_replies(ctx: Context) -> bool:
     return bool(cmd.extras.get("compact") or root.extras.get("compact"))
 
 
-def _plain_permission(name: str) -> str:
-    return name.replace("_", " ").replace("guild", "server").title()
+# Discord's own names where they differ from the API's
+_PERM_LABELS = {
+    "manage_guild": "Manage Server", "moderate_members": "Timeout Members", "manage_emojis": "Manage Expressions",
+    "manage_emojis_and_stickers": "Manage Expressions", "manage_expressions": "Manage Expressions",
+    "use_application_commands": "Use Commands", "view_audit_log": "View Audit Log", "external_emojis": "Use External Emojis",
+    "manage_roles": "Manage Roles", "manage_webhooks": "Manage Webhooks", "send_tts_messages": "Send TTS Messages",
+}
+
+
+def perm_label(name: str) -> str:
+    """A permission as Discord shows it: `manage_guild` -> Manage Server."""
+    return _PERM_LABELS.get(name.lower(), name.replace("_", " ").title())
+
+
+_plain_permission = perm_label
 
 
 def _soften(text: str) -> str:
