@@ -124,12 +124,17 @@ class TestRestart:
             asyncio.run(bot.check_restart_notification())
             # State file should be cleaned up
             assert not os.path.exists(".restart_state.json")
-            # Message edited
+            # The restart message is edited to say it's back (no second message to clean up later)
             orig_msg.edit.assert_awaited_once()
-            # Channel notified
-            channel.send.assert_awaited_once()
-            send_text = channel.send.call_args[0][0]
-            assert "back online" in send_text.lower()
+            assert "back online" in orig_msg.edit.await_args.kwargs["embed"].description.lower()
+            channel.send.assert_not_awaited()
+            # ...and if that message is gone, it says so in the channel instead
+            with open(".restart_state.json", "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            channel.fetch_message = AsyncMock(side_effect=Exception("deleted"))
+            asyncio.run(bot.check_restart_notification())
+            assert "back online" in channel.send.call_args[0][0].lower()
+            assert "delete_after" not in channel.send.call_args.kwargs
         finally:
             if os.path.exists(".restart_state.json"):
                 os.remove(".restart_state.json")

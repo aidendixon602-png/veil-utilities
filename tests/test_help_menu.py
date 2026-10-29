@@ -175,11 +175,12 @@ def test_non_developers_cannot_open_the_developer_category():
     it.response.edit_message.assert_not_awaited()
 
 
-def test_menu_message_is_deleted_on_timeout():
+def test_an_expired_menu_stays_and_only_loses_its_dropdown():
     view = HelpView(_help(), {"Utility": []})
-    view.message = SimpleNamespace(delete=AsyncMock())
+    view.message = SimpleNamespace(delete=AsyncMock(), edit=AsyncMock())
     asyncio.run(view.on_timeout())
-    assert view.message.delete.called
+    view.message.delete.assert_not_called()
+    view.message.edit.assert_awaited_once_with(view=None)
 
 
 # ------------------------------------------------------------------ category cards

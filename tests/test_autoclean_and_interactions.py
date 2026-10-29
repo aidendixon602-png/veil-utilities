@@ -1,15 +1,13 @@
-"""Channels stay clean (command messages go once they've run, replies after the delay, menus when they close),
-clicks are always answered, and the log/snipe/ghost-ping checks don't mistake the clean-up for a user deleting."""
+"""The bot never deletes command messages or its replies; clicks are always answered; and when the bot does delete
+something on purpose, the log/snipe/ghost-ping checks don't mistake it for a user deleting a message."""
 import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
-import pytest
 
 import core.autoclean as ac
-from core.utils import Context, UserError
 
 
 class FakeDB:
@@ -25,114 +23,6 @@ class FakeDB:
 
 def message(mid):
     return SimpleNamespace(id=mid, delete=AsyncMock())
-
-
-def ctx_for(name="ping", settings=None, parent=None):
-    command = SimpleNamespace(qualified_name=name, root_parent=parent)
-    return SimpleNamespace(guild=SimpleNamespace(id=10), command=command, message=message(1),
-                           bot=SimpleNamespace(db=FakeDB(settings)))
-
-
-@pytest.fixture
-def no_wait(monkeypatch):
-    waited = []
-
-    async def fake_sleep(seconds):
-        waited.append(seconds)
-    monkeypatch.setattr(ac.asyncio, "sleep", fake_sleep)
-    return waited
-
-
-def finish(ctx, ran=True):
-    async def go():
-        await ac.after_command(ctx, ran=ran)
-        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        if pending:
-            await asyncio.gather(*pending)  # the delayed deletions
-    asyncio.run(go())
-
-
-def test_the_command_message_goes_and_the_reply_follows_after_the_delay(no_wait):
-    ctx = ctx_for()
-    reply = message(2)
-    ac.track(ctx, reply, None)
-    finish(ctx)
-    ctx.message.delete.assert_awaited_once()
-    reply.delete.assert_awaited_once()
-    assert no_wait == [15] and ac.was_cleaned(1)
-
-
-def test_the_delay_follows_the_server_setting(no_wait):
-    ctx = ctx_for(settings={"autoclean": {"on": True, "delay": 30}})
-    ac.track(ctx, message(2), None)
-    finish(ctx)
-    assert no_wait == [30]
-
-
-def test_turned_off_nothing_is_deleted(no_wait):
-    ctx = ctx_for(settings={"autoclean": {"on": False}})
-    reply = message(2)
-    ac.track(ctx, reply, None)
-    finish(ctx)
-    ctx.message.delete.assert_not_awaited()
-    reply.delete.assert_not_awaited()
-
-
-def test_a_menu_goes_when_it_closes_not_after_the_delay(no_wait):
-    ctx = ctx_for("help")
-    menu = message(2)
-    view = SimpleNamespace(timeout=300, is_finished=lambda: False, wait=AsyncMock())
-    ac.track(ctx, menu, view)
-    finish(ctx)
-    view.wait.assert_awaited_once()
-    menu.delete.assert_awaited_once()
-    assert no_wait == []
-
-
-def test_lasting_buttons_and_content_commands_stay(no_wait):
-    ctx = ctx_for("giveaway start")
-    panel = message(2)
-    ac.track(ctx, panel, SimpleNamespace(timeout=None))  # giveaway / button roles: buttons that never expire
-    finish(ctx)
-    panel.delete.assert_not_awaited()
-    ctx.message.delete.assert_awaited_once()
-    poll = ctx_for("poll")
-    posted = message(3)
-    ac.track(poll, posted, None)
-    finish(poll)
-    posted.delete.assert_not_awaited()
-
-
-def test_a_failed_check_that_showed_nothing_leaves_the_message(no_wait):
-    ctx = ctx_for()
-    finish(ctx, ran=False)
-    ctx.message.delete.assert_not_awaited()
-
-
-def test_an_error_reply_is_cleaned_up_too(no_wait):
-    ctx = ctx_for()
-    error_reply = message(2)
-    ac.track(ctx, error_reply, None)
-    finish(ctx, ran=False)
-    ctx.message.delete.assert_awaited_once()
-    error_reply.delete.assert_awaited_once()
-
-
-def test_cleaning_runs_once_per_command(no_wait):
-    ctx = ctx_for()
-    finish(ctx)
-    finish(ctx)
-    assert ctx.message.delete.await_count == 1
-
-
-def test_context_send_remembers_its_replies():
-    sent = message(5)
-    ctx = Context.__new__(Context)
-    ctx.message = SimpleNamespace(to_reference=lambda **kw: None)
-    ctx.__dict__["channel"] = SimpleNamespace(send=AsyncMock(return_value=sent))
-    view = object()
-    asyncio.run(Context.send(ctx, "hi", view=view))
-    assert ctx._autoclean_replies == [(sent, view)]
 
 
 # ------------------------------------------------------------------ the clean-up isn't a user deleting a message
@@ -217,21 +107,20 @@ def test_dynamic_buttons_count_as_live(monkeypatch):
 
 # ------------------------------------------------------------------ the setting
 
-def test_the_autoclean_command_switches_and_sets_the_delay():
+
+def test_nothing_is_deleted_after_a_command():
+    """Command messages and the bot's replies stay: there's no clean-up after a command any more."""
+    from core.bot import Veil
+    assert not hasattr(ac, "after_command") and not hasattr(ac, "track")
+    assert "on_command_completion" not in vars(Veil)
+
+
+def test_the_autoclean_command_is_gone():
     from cogs.settings import Settings
-    db = FakeDB()
-    cog = Settings.__new__(Settings)
-    cog.bot = SimpleNamespace(db=db)
-    ctx = SimpleNamespace(guild=SimpleNamespace(id=10), approve=AsyncMock(), neutral=AsyncMock(), clean_prefix=",")
-    asyncio.run(Settings.autoclean.callback(cog, ctx, "30s"))
-    assert db.store["settings"]["autoclean"] == {"on": True, "delay": 30}
-    asyncio.run(Settings.autoclean.callback(cog, ctx, "off"))
-    assert db.store["settings"]["autoclean"]["on"] is False
-    with pytest.raises(UserError):
-        asyncio.run(Settings.autoclean.callback(cog, ctx, "forever"))
+    assert not hasattr(Settings, "autoclean")
 
 
-def test_restart_commands_are_cleaned_up_once_the_bot_is_back(tmp_path, monkeypatch):
+def test_after_a_restart_the_status_message_is_edited_and_nothing_is_deleted(tmp_path, monkeypatch):
     from core.bot import Veil
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".restart_state.json").write_text(json.dumps(
@@ -244,6 +133,7 @@ def test_restart_commands_are_cleaned_up_once_the_bot_is_back(tmp_path, monkeypa
                               send=AsyncMock(), get_partial_message=lambda mid: command if mid == 32 else None)
     bot.get_channel = lambda cid: channel if cid == 30 else None
     asyncio.run(bot.check_restart_notification())
-    command.delete.assert_awaited_once()
-    status.delete.assert_awaited_once_with(delay=15)
-    assert ac.was_cleaned(32)
+    status.edit.assert_awaited_once()
+    command.delete.assert_not_awaited()
+    status.delete.assert_not_awaited()
+    channel.send.assert_not_awaited()  # the edited status says it already

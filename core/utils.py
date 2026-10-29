@@ -64,8 +64,6 @@ class Context(commands.Context["Veil"]):
         except discord.HTTPException:
             kwargs.pop("reference", None)
             message = await self.channel.send(*args, **kwargs)
-        from core import autoclean
-        autoclean.track(self, message, kwargs.get("view"))  # cleaned up after the command, if the server wants
         return message
 
     # ---- replies: one line, greed / bleed style: "✅ @you: banned @x" (no author header, no footer)

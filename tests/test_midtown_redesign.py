@@ -379,14 +379,14 @@ def test_all_moderation_actions_have_uperm_checks():
         assert any(f"uperm: {expected_level}" in p for p in perms_list), f"Command {cmd_name} missing uperm: {expected_level}"
 
 
-def test_help_view_on_timeout_deletes_message():
+def test_help_view_on_timeout_keeps_the_message():
     h = _help()
     view = HelpView(h, {"Utility": []}, author_rank=0)
-    msg = SimpleNamespace(delete=AsyncMock())
+    msg = SimpleNamespace(delete=AsyncMock(), edit=AsyncMock())
     view.message = msg
 
     asyncio.run(view.on_timeout())
-    assert msg.delete.called
+    assert not msg.delete.called and msg.edit.await_args.kwargs == {"view": None}
 
 
 def test_presence_text_pluralises_and_groups_thousands():
