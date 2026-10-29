@@ -173,3 +173,31 @@ def test_nobody_to_ban_raises_a_user_error(bot):
         with pytest.raises(UserError, match="nobody joined in that window"):
             await Moderation.massban.callback(cog, ctx, 30)
     asyncio.run(go())
+
+
+def _outsider(name="gone", uid=70):
+    user = MagicMock(spec=discord.User, mention=f"<@{uid}>", id=uid)
+    user.name = name
+    return user
+
+
+def test_banning_someone_already_on_the_ban_list_fails_without_banning_again(bot, monkeypatch):
+    async def go():
+        monkeypatch.setattr("cogs.moderation.check_target", MagicMock())
+        cog, ctx, _ = setup(bot)
+        ctx.guild.fetch_ban = AsyncMock(return_value=MagicMock())  # they're on the list
+        with pytest.raises(UserError, match=r"\*\*gone\*\* is already banned"):
+            await Moderation.ban.callback(cog, ctx, _outsider(), reason="spam")
+        ctx.guild.ban.assert_not_awaited()
+    asyncio.run(go())
+
+
+def test_banning_someone_not_on_the_ban_list_goes_ahead(bot, monkeypatch):
+    async def go():
+        monkeypatch.setattr("cogs.moderation.check_target", MagicMock())
+        cog, ctx, _ = setup(bot)
+        ctx.guild.fetch_ban = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "Unknown Ban"))
+        await Moderation.ban.callback(cog, ctx, _outsider(), reason="spam")
+        ctx.guild.ban.assert_awaited_once()
+        assert said(ctx, "warn") == "**gone** has been banned"
+    asyncio.run(go())
