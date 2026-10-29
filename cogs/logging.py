@@ -83,7 +83,7 @@ KINDS: dict[str, Kind] = {k.key: k for k in (
          ("channel-logs", "channels")),
     Kind("voice", "Voice", "🎙️", "Voice joins, leaves, moves and server mutes", "voice-logs", ("voice-logs", "vc-logs")),
     Kind("bans", "Moderation", "🔨", "Bans and unbans, plus kicks and timeouts unless the channel is called bans",
-         "mod-logs", ("mod-logs", "modlog", "bans", "ban-logs", "ban-log", "punishments")),
+         "mod-logs", ("mod-logs", "modlog", "ban-logs", "ban-log", "punishments")),
     Kind("timeouts", "Timeouts", "⏳", "Optional: give timeouts (mutes) their own channel", None,
          ("mute-logs", "timeout-logs", "mute-log", "timeout-log", "mutes", "timeouts")),
     Kind("server", "Server", "⚙️", "Server settings, invites and emojis", "server-logs",
@@ -123,7 +123,7 @@ def canon(name: str) -> str | None:
 log = std_logging.getLogger("veil.logs")
 
 SHARED_NAMES = {"veil-utilities-logging", "logs", "bot-logs"}  # catch-all channels from older setups
-LOG_LIKE_NAMES = {"bans", "punishments", "modlog", "veil-security"}  # log channels without "log" in the name
+LOG_LIKE_NAMES = {"punishments", "modlog", "veil-security"}  # log channels without "log" in the name
 
 
 def _shared(channel, uses: dict[int, int]) -> bool:
@@ -135,6 +135,8 @@ def _is_log_channel(channel) -> bool:
     """Safe to file under VEIL LOGS: made by the bot or named like a log channel (never e.g. #roles or #general)."""
     name = channel.name.lower()
     topic = getattr(channel, "topic", None)
+    if name in OTHER_BOT_CHANNELS:
+        return False  # another bot's log channel: never filed under VEIL LOGS
     return "log" in name or name in LOG_LIKE_NAMES or (isinstance(topic, str) and topic.startswith("Veil Utilities ·"))
 
 
@@ -161,16 +163,25 @@ async def _to_top(guild, category) -> bool:
         return False
 
 
+# Ghost Vanguard's log channels. Veil never logs into them, even when one is set in an older config: two bots
+# posting ban cards (each with its own Unban / Reban buttons) into one channel just gets in each other's way.
+OTHER_BOT_CHANNELS = {"bans", "ghost-vanguard-logging", "midtown-vanguard-logging"}
+
+
+def other_bots_channel(channel) -> bool:
+    return getattr(channel, "name", "").lower() in OTHER_BOT_CHANNELS
+
+
 def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
     """The channel a category logs to: the one set in the config, else a channel with a recognisable name."""
     chain = [kind] + (["members"] if kind == "joinleave" else [])  # joins and leaves ride with the member log
-    text_channels = list(getattr(guild, "text_channels", []))
+    text_channels = [c for c in getattr(guild, "text_channels", []) if not other_bots_channel(c)]
     for key in chain:  # a category's own setting, then a channel named for it, before falling back to the next
         value = cfg.get(key)
         if value == OFF:
             return None
         channel = guild.get_channel(value or 0)
-        if isinstance(channel, discord.TextChannel):
+        if isinstance(channel, discord.TextChannel) and not other_bots_channel(channel):
             return channel
         for channel in text_channels:
             if channel.name.lower() in KINDS[key].names:
@@ -597,7 +608,8 @@ class Logging(commands.Cog):
             if not kind.channel or cfg.get(key) == OFF:
                 continue  # not created by default, or switched off on purpose
             current = guild.get_channel(cfg.get(key) or 0)
-            if isinstance(current, discord.TextChannel) and not _shared(current, uses):
+            if isinstance(current, discord.TextChannel) and not _shared(current, uses) \
+                    and not other_bots_channel(current):
                 continue  # pointed at a channel of its own: keep it
             todo.append(kind)
 

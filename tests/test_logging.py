@@ -143,8 +143,8 @@ def test_joins_and_leaves_follow_the_member_log_unless_given_their_own():
 
 
 def test_legacy_channel_names_still_work():
-    guild = make_guild([text_channel(1, "bans"), text_channel(2, "veil-utilities-logging"), text_channel(3, "command-logs")])
-    assert L._channel_for(guild, {}, "bans").name == "bans"
+    guild = make_guild([text_channel(1, "ban-logs"), text_channel(2, "veil-utilities-logging"), text_channel(3, "command-logs")])
+    assert L._channel_for(guild, {}, "bans").name == "ban-logs"
     assert L._channel_for(guild, {}, "commands").name == "command-logs"
     assert L._channel_for(guild, {}, "server").name == "veil-utilities-logging"
     assert L._channel_for(guild, {}, "antinuke").name == "veil-utilities-logging"
@@ -1271,17 +1271,18 @@ def test_setup_splits_the_old_catch_all_channel_and_files_log_channels_under_vei
         report = await cog.organize(guild)
 
         assert {c.name for c in report.created} == {"message-logs", "member-logs", "role-logs", "channel-logs",
-                                                    "voice-logs", "server-logs"}
+                                                    "voice-logs", "server-logs", "mod-logs"}  # #bans is Ghost Vanguard's
         assert all(kwargs["category"].id == 50 for _, kwargs in created)       # made inside the existing category
-        assert {c.name for c in report.moved} == {"join-logs", "bans", "command-logs", "veil-utilities-logging"}
-        for ch in (joins, bans, cmds, veil):
+        assert {c.name for c in report.moved} == {"join-logs", "command-logs", "veil-utilities-logging"}
+        for ch in (joins, cmds, veil):
             assert ch.edit.await_args.kwargs["category"].id == 50
+        bans.edit.assert_not_awaited()                                         # another bot's channel: left alone
         anti.edit.assert_not_awaited()                                         # already there
         general.edit.assert_not_awaited()                                      # never touch non-log channels
         roles.edit.assert_not_awaited()
         assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # filed and listed, not deleted
         veil.delete.assert_not_awaited()
-        assert store["logs"]["bans"] == 3 and store["logs"]["commands"] == 4  # dedicated ones kept
+        assert store["logs"]["bans"] != 3 and store["logs"]["commands"] == 4  # #bans swapped for Veil's own
         assert store["logs"]["messages"] != 1
     asyncio.run(go())
 
@@ -1417,3 +1418,15 @@ def test_only_developers_switch_automatic_setup(monkeypatch):
         await cog._set_auto(ctx, "off")
         assert store["global"]["auto_log_setup"] is False
     asyncio.run(go())
+
+
+def test_veil_stays_out_of_ghost_vanguards_log_channels():
+    """Ghost Vanguard logs into #bans and #ghost-vanguard-logging. Veil never posts there, even if an older
+    config points at one, and never moves them into VEIL LOGS."""
+    gv_bans, gv_logs, mine = (text_channel(1, "bans"), text_channel(2, "ghost-vanguard-logging"),
+                              text_channel(3, "mod-logs"))
+    guild = make_guild([gv_bans, gv_logs, mine])
+    assert L._channel_for(guild, {"bans": 1}, "bans") is mine  # the old setting is skipped
+    assert L._channel_for(make_guild([gv_bans, gv_logs]), {"bans": 1, "server": 2}, "bans") is None
+    assert L._channel_for(make_guild([gv_logs]), {"server": 2}, "server") is None
+    assert not L._is_log_channel(gv_bans) and not L._is_log_channel(gv_logs)

@@ -129,7 +129,7 @@ def test_logging_channel_auto_detection():
     guild = SimpleNamespace(id=10, text_channels=[ch_join, ch_bans, ch_cmd, ch_gen], get_channel=lambda cid: None)
 
     assert asyncio.run(cog.channel_for(guild, "joinleave")) == ch_join
-    assert asyncio.run(cog.channel_for(guild, "bans")) == ch_bans
+    assert asyncio.run(cog.channel_for(guild, "bans")) is None  # #bans belongs to Ghost Vanguard
     assert asyncio.run(cog.channel_for(guild, "commands")) == ch_cmd
     assert asyncio.run(cog.channel_for(guild, "server")) == ch_gen
 
