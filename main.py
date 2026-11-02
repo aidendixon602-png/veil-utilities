@@ -162,13 +162,14 @@ async def run_bot(show_banner: bool = True) -> bool:
         print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
     log.info("Connecting to Discord Gateway with auto-sharding...")
 
-    # Dual-stack strategy: try IPv4 first (bypasses blocked datacenter IPv6 ranges);
-    # fallback to IPv6 if IPv4 encounters a block, or vice-versa.
+    # socket.has_ipv6 only means Python supports IPv6, not that this host has a working IPv6 route.
+    # A proxy selects its own route, so trying the same proxy a second time cannot switch families.
     families_to_try = [socket.AF_INET]
-    if socket.has_ipv6:
+    if socket.has_ipv6 and not settings.proxy:
         families_to_try.append(socket.AF_INET6)
 
     last_429 = None
+    last_network_error = None
     for family in families_to_try:
         family_name = "IPv4" if family == socket.AF_INET else "IPv6"
         for intents, warning in intent_plans():
@@ -197,9 +198,16 @@ async def run_bot(show_banner: bool = True) -> bool:
             except discord.LoginFailure:
                 sys.exit("Discord rejected DISCORD_TOKEN. Open https://discord.com/developers/applications -> your bot "
                          "-> Bot -> Reset Token, paste the new token into .env (no quotes, no 'Bot ' prefix) and restart.")
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError, discord.GatewayNotFound) as err:
+                last_network_error = err
+                log.warning("%s route could not connect to Discord: %s", family_name, netcalm.describe(err))
+                break
 
+    # Preserve a rate limit from the first route even if the fallback cannot resolve/connect.
     if last_429 is not None:
         raise last_429
+    if last_network_error is not None:
+        raise last_network_error
     sys.exit("Discord refused every intent combination. " + INTENT_HELP)
 
 
@@ -247,6 +255,7 @@ def main() -> None:
             log.info("Stopped on request (panel stop button or Ctrl+C); exiting.")
             break
         except Exception as exc:
+            import aiohttp
             import discord
 
             is_429 = False
@@ -260,24 +269,25 @@ def main() -> None:
             if not is_429 and ("429" in str(exc) and "global rate limits" in str(exc)):
                 is_429 = True
 
-            if is_429:
+            is_network_error = isinstance(
+                exc, (aiohttp.ClientConnectionError, asyncio.TimeoutError, discord.GatewayNotFound)
+            )
+            if is_429 or is_network_error:
                 first_boot = False
-                log.warning("═" * 70)
-                log.warning(" [RATE LIMIT] Discord Cloudflare Edge Block (HTTP 429)")
-                log.warning(" Discord temporarily blocked API requests from this server's IP address")
-                log.warning(" ('exceeding global rate limits'). This happens on shared hosting")
-                log.warning(" nodes (Wispbyte/Pterodactyl) when other bots share the IP or after restarts.")
-                log.warning(" Keeping process alive to prevent Wispbyte crash loops and allow cooldown.")
-                log.warning(" Waiting %ds before reconnecting. Cooldown usually clears in 10-15m.", rate_limit_backoff)
-                log.warning(" [TIP] To bypass immediately without waiting: configure DISCORD_PROXY in .env")
-                log.warning("═" * 70)
+                if is_429:
+                    log.warning("Discord returned HTTP 429. The hosting IP may be rate-limited; "
+                                "a shared hosting IP can be affected by other users.")
+                else:
+                    log.warning("Unable to connect to Discord: %s", netcalm.describe(exc))
+                log.warning("Keeping the process alive; retrying in %ds. If this persists, "
+                            "contact your host about Discord connectivity or rate limits.", rate_limit_backoff)
                 wait_left = rate_limit_backoff
                 while wait_left > 0:
                     step = min(15, wait_left)
                     time.sleep(step)
                     wait_left -= step
                     if wait_left > 0:
-                        log.info(" Rate limit cooldown: %ds remaining until reconnect retry...", wait_left)
+                        log.info(" Reconnect retry in %ds...", wait_left)
                 rate_limit_backoff = min(300, rate_limit_backoff + 60)
                 continue
 
