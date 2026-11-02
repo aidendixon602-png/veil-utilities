@@ -1,6 +1,5 @@
 """veil utilities — entry point."""
 import asyncio
-import importlib.util
 import logging
 import os
 import sys
@@ -16,11 +15,36 @@ sys.path.insert(0, ROOT)
 # import name -> pip package name (they differ for some, e.g. `dotenv` is installed as `python-dotenv`)
 REQUIRED = {"discord": "discord.py", "aiosqlite": "aiosqlite", "aiohttp": "aiohttp", "PIL": "Pillow",
             "regex": "regex"}
-missing = [pkg for mod, pkg in REQUIRED.items() if importlib.util.find_spec(mod) is None]
-if missing:
-    sys.exit("Missing Python packages: " + ", ".join(missing) + "\n"
-             "Install them with:  python -m pip install -r requirements.txt\n"
-             "(On a hosting panel, add them to the 'Additional Python Packages' field.)")
+# Use real imports, not find_spec: a package can be installed yet unloadable on the running Python.
+# On 3.13+ `import discord` dies with "No module named 'audioop'" (the stdlib module was removed;
+# audioop-lts in requirements.txt brings it back). find_spec can't see that and the boot crashed with
+# a raw traceback — on hosting consoles that's reported as "the bot doesn't start" with no usable error.
+missing: list[str] = []
+broken: list[str] = []
+audioop_hint = False
+for module, package in REQUIRED.items():
+    try:
+        __import__(module)
+    except ModuleNotFoundError as error:
+        if error.name == module.split(".")[0]:
+            missing.append(package)  # the package itself isn't installed
+        else:
+            broken.append(f"{package} ({error})")  # installed, but something inside it won't load
+            audioop_hint = audioop_hint or error.name == "audioop"
+    except Exception as error:  # e.g. a compiled wheel built for a different Python or CPU
+        broken.append(f"{package} ({type(error).__name__}: {error})")
+if missing or broken:
+    lines = []
+    if missing:
+        lines.append("Missing Python packages: " + ", ".join(missing))
+    if broken:
+        lines.append("Installed packages that won't load on this Python: " + ", ".join(broken))
+    lines.append("Install them with:  python -m pip install -r requirements.txt")
+    lines.append("(On a hosting panel, add them to the 'Additional Python Packages' field.)")
+    if audioop_hint:
+        lines.append("Hint: 'audioop' was removed in Python 3.13 — add audioop-lts to the packages "
+                     "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
+    sys.exit("\n".join(lines))
 
 
 def load_env_file(path: str) -> None:
