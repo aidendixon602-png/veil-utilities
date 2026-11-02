@@ -112,6 +112,7 @@ A plain `http://` address works, but login cookies then travel unencrypted. Put 
 | `No module named 'audioop'` | The server runs Python 3.13+, which removed that module — install the packages once more so `audioop-lts` from requirements.txt is picked up, add `audioop-lts` to **Additional Python packages**, or switch the server image to Python 3.11/3.12 |
 | `Installed packages that won't load on this Python` | One package doesn't match the server's Python version — reinstall the requirements and restart |
 | `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
+| Starts, then stops with no error | Usually the host killing it for RAM on the 512 MB plan (no traceback is printed for that). The bot now detects the container limit and turns LOW_MEMORY on by itself — check the new `Memory Limit:` line in the startup banner. Also try `MUSIC_ENABLED=false`. If the console says `Discord closed the connection`, make sure no second bot/server runs with the same token |
 | `Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL` | Fill in both, or clear both for a localhost-only dashboard |
 | The bot leaves your server right away | Server authorization: it stays in servers owned by a developer (you, as the owner of the bot's Discord application); for any other server run `,authorize <server id>` |
 
