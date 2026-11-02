@@ -12,7 +12,7 @@ while editing a large GIF. Member caches grow with server size, so very large se
 ## 2. Create the server on Wispbyte
 1. Sign up at <https://wispbyte.com> and create a new server.
 2. Choose the **Python** (Discord bot) type. If you can pick a Python version, choose **3.11 or 3.12**
-   (3.10 is the minimum).
+   (3.10 is the minimum). 3.13+ works too — `requirements.txt` includes `audioop-lts` for it.
 
 ## 3. Upload the files
 1. Open the server's **File Manager**.
@@ -35,7 +35,8 @@ Open the **Startup** tab and set:
 - **Requirements file**: `requirements.txt` — the panel installs the packages on each start.
 
 If your panel has no requirements setting, put this in **Additional Python packages** instead:
-`discord.py aiosqlite aiohttp python-dotenv wavelink Pillow gTTS feedparser`
+`discord.py aiosqlite aiohttp python-dotenv wavelink Pillow gTTS feedparser regex PyNaCl davey`
+(on Python 3.13 or newer, add `audioop-lts` to that list as well)
 
 ### One-line startup command
 Some panels have a single **Startup Command** box instead of separate settings. Paste one of these
@@ -108,6 +109,8 @@ A plain `http://` address works, but login cookies then travel unencrypted. Put 
 | `Discord rejected DISCORD_TOKEN` | Reset the token and paste the new one, with no spaces or quotes |
 | `AI unavailable: … rejected the API key` | `AI_API_KEY` is wrong or revoked. Make a new key, or delete the line to use the free AI |
 | `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
+| `No module named 'audioop'` | The server runs Python 3.13+, which removed that module — install the packages once more so `audioop-lts` from requirements.txt is picked up, add `audioop-lts` to **Additional Python packages**, or switch the server image to Python 3.11/3.12 |
+| `Installed packages that won't load on this Python` | One package doesn't match the server's Python version — reinstall the requirements and restart |
 | `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
 | `Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL` | Fill in both, or clear both for a localhost-only dashboard |
 | The bot leaves your server right away | Server authorization: it stays in servers owned by a developer (you, as the owner of the bot's Discord application); for any other server run `,authorize <server id>` |
