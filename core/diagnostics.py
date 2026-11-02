@@ -169,6 +169,11 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
     ]
     if getattr(settings, "proxy", None):
         diag.append(("Network Proxy:", "Configured (Active)"))
+    from core.memlimit import container_memory_limit_mb
+    container_limit_mb = container_memory_limit_mb()
+    if container_limit_mb is not None:
+        diag.append(("Memory Limit:", f"{container_limit_mb} MB (container) — LOW_MEMORY "
+                                      f"{'on' if settings.low_memory else 'off'}, using {memory_mb()} now"))
     return diag
 
 

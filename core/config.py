@@ -180,15 +180,27 @@ class Settings:
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
+        from core.memlimit import container_memory_limit_mb
+
         r = _Reader(dict(os.environ) if env is None else env)
         music_off = (r.raw("LAVALINK_URI") or "").lower() in {"off", "none", "false", "disabled", "0"}
+        low_memory = r.bool("LOW_MEMORY", False)
+        # On a small container (Wispbyte's free plan is 512 MB) use the low-memory profile even when
+        # LOW_MEMORY isn't set: nobody sets it, the bot goes over the cap, and the host kills it —
+        # which looks like "the bot starts, then suddenly stops". An explicit LOW_MEMORY always wins.
+        # Only reads the real machine (env is None); tests pass an env dict and stay deterministic.
+        container_limit_mb: int | None = None
+        if not low_memory and env is None and r.raw("LOW_MEMORY") is None:
+            container_limit_mb = container_memory_limit_mb()
+            if container_limit_mb is not None and container_limit_mb <= 768:
+                low_memory = True
         settings = cls(
             discord_token=_clean_token(r.str("DISCORD_TOKEN")),
             owner_ids=r.snowflakes("OWNER_IDS"),
             prefix=r.str("PREFIX", ","),
             status_type=r.str("BOT_STATUS", r.str("STATUS_TYPE", "online")).lower(),
             db_path=r.str("DB_PATH", "veil.db"),
-            low_memory=r.bool("LOW_MEMORY", False),
+            low_memory=low_memory,
             database_url=r.str("DATABASE_URL"),
             auth_required=r.bool("AUTH_REQUIRED", True),
             auth_log_channel=r.snowflake("AUTH_LOG_CHANNEL"),

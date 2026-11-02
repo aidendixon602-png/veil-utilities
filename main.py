@@ -229,6 +229,12 @@ def main() -> None:
         try:
             should_restart = asyncio.run(run_bot(show_banner=first_boot))
             if not should_restart:
+                # bot.start() returned without a restart request: Discord closed the gateway for good.
+                # Say so loudly — otherwise the panel just shows the bot "suddenly stopping" with no error.
+                log.warning("Discord closed the connection, so the process is exiting (the panel usually "
+                            "starts it right back). If this keeps happening minutes after boot, check that no "
+                            "OTHER bot instance is running with the same token (old server, your PC), and that "
+                            "this host isn't killing the process for going over its memory limit.")
                 break
             log.info("──────────────────────────────────────────")
             log.info(" Restart requested — starting a fresh process…")
@@ -238,6 +244,7 @@ def main() -> None:
             rate_limit_backoff = 60
             first_boot = True
         except KeyboardInterrupt:
+            log.info("Stopped on request (panel stop button or Ctrl+C); exiting.")
             break
         except Exception as exc:
             import discord
