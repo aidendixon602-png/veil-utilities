@@ -180,3 +180,70 @@ def test_postgres_placeholders_are_numbered_in_one_pass():
 
     assert _pg_query("SELECT a FROM t WHERE b=? AND c=?", 2) == "SELECT a FROM t WHERE b=$1 AND c=$2"
     assert _pg_query("SELECT '?' AS literal, a FROM t WHERE b=?", 1) == "SELECT '?' AS literal, a FROM t WHERE b=$1"
+
+
+def test_postgres_upgrades_legacy_32_bit_schema_and_preserves_data(pg_dsn):
+    """Exercise the migration on a separate real database, not just the generated SQL."""
+    import uuid
+    from urllib.parse import urlsplit, urlunsplit
+
+    import asyncpg
+
+    from core.db import INTEGER_COLUMNS, SCHEMA, _split_statements
+
+    async def go():
+        name = "migration_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(pg_dsn)
+        await admin.execute(f'CREATE DATABASE "{name}"')
+        await admin.close()
+        parts = urlsplit(pg_dsn)
+        dsn = urlunsplit((parts.scheme, parts.netloc, "/" + name, parts.query, parts.fragment))
+        old = await asyncpg.connect(dsn)
+        legacy = SCHEMA.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+        for statement in _split_statements(legacy):
+            await old.execute(statement)
+        await old.execute("INSERT INTO authorized VALUES(1,2,3,'original')")
+        await old.close()
+
+        async def work(db):
+            row = await db.fetchone("SELECT * FROM authorized WHERE guild_id=?", 1)
+            assert row["authorized_by"] == 2 and row["note"] == "original"
+            snowflake = 1555002091162837022
+            await db.execute("INSERT INTO authorized VALUES(?,?,?,?)", snowflake, snowflake, 3, "big")
+            await db.execute("INSERT INTO config VALUES(?,?,?)", snowflake, "antinuke", "{}")
+            assert (await db.fetchone("SELECT guild_id FROM authorized WHERE guild_id=?", snowflake))[0] == snowflake
+            for table, columns in INTEGER_COLUMNS.items():
+                rows = await db.fetchall("SELECT column_name FROM information_schema.columns "
+                                         "WHERE table_schema=current_schema() AND table_name=? "
+                                         "AND data_type='integer'", table)
+                assert not ({r["column_name"] for r in rows} & set(columns)), table
+            indices = await db.fetchall("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()")
+            assert "idx_warns_member" in {r["indexname"] for r in indices}
+
+        await with_db(dsn, work)
+        # A second connect must be safe and the upgraded data must survive.
+        async def again(db):
+            row = await db.fetchone("SELECT note FROM authorized WHERE guild_id=?", 1555002091162837022)
+            assert row["note"] == "big"
+        await with_db(dsn, again)
+    asyncio.run(go())
+
+
+def test_postgres_incident_outbox_stores_and_delivers(pg_dsn, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from core import incidents
+    monkeypatch.setattr(incidents, "recipients", lambda bot: {1555002091162837022})
+
+    async def work(db):
+        manager = incidents.IncidentManager(SimpleNamespace(db=db))
+        incident_id = await manager.record(kind="antinuke", severity="critical", guild_id=1555002091162837022,
+                                           actor_id=1555002091162837022, summary="Threshold", action="Blocked")
+        manager._send = AsyncMock()
+        await manager.deliver_due()
+        row = await db.fetchone("SELECT * FROM security_incidents WHERE incident_id=?", incident_id)
+        assert row["guild_id"] == "1555002091162837022"
+        assert row["next_attempt"] is None
+        manager._send.assert_awaited_once()
+    asyncio.run(with_db(pg_dsn, work))

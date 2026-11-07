@@ -1,11 +1,12 @@
 """Antinuke alert cards: one card per incident, an honest Result field, and notice DMs only to the right people."""
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 
-from cogs.antinuke import Antinuke
+from cogs.antinuke import Antinuke, settings
 
 BOT_ID, OWNER, ATTACKER, VICTIM = 4, 1, 5, 6
 
@@ -129,3 +130,29 @@ def test_no_roles_means_no_roles_field():
     attacker.roles = [attacker.roles[0]]  # only @everyone
     respond(cog, guild, "ban", SimpleNamespace(target=victim, action=discord.AuditLogAction.ban))
     assert field(sent[0][0]["embed"], "Their roles") is None
+
+
+def test_real_incident_is_queued_once_with_truthful_result_and_owner_not_duplicated():
+    cog, guild, attacker, victim, sent = setup(attacker_top=99)
+    cog.bot.incident_manager = SimpleNamespace(record=AsyncMock(return_value="incident"))
+    entry = SimpleNamespace(target=victim, action=discord.AuditLogAction.ban)
+    with patch("core.incidents.recipients", return_value={OWNER}), patch(
+        "cogs.antinuke.settings", replace(settings, antinuke_dev_alerts=True)
+    ):
+        respond(cog, guild, "ban", entry)
+        respond(cog, guild, "ban", entry)
+    cog.bot.incident_manager.record.assert_awaited_once()
+    record = cog.bot.incident_manager.record.await_args.kwargs
+    assert record["kind"] == "antinuke" and record["actor_id"] == ATTACKER
+    assert "Not punished" in record["action"]
+    guild.owner.send.assert_not_awaited()  # the owner is a developer and gets the queued copy
+
+
+def test_failed_incident_write_keeps_existing_owner_and_developer_alerts():
+    cog, guild, attacker, victim, sent = setup()
+    cog.bot.incident_manager = SimpleNamespace(record=AsyncMock(side_effect=RuntimeError("DB unavailable")))
+    entry = SimpleNamespace(target=victim, action=discord.AuditLogAction.ban)
+    with patch("cogs.antinuke.settings", replace(settings, antinuke_dev_alerts=True)):
+        respond(cog, guild, "ban", entry)
+    guild.owner.send.assert_awaited_once()
+    assert punishment(sent[0][0]["embed"]) == "Banned"

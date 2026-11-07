@@ -58,3 +58,12 @@ def test_ordinary_command_logs_still_show_the_command_but_scrubbed():
 def test_failed_command_reasons_are_scrubbed():
     line = _text(logembeds.command_used(_ctx(",x"), "Admin", "role", error=f'File "{redact.ROOT}/core/bot.py" broke'))
     assert redact.ROOT not in line and "broke" in line
+
+
+def test_slotted_settings_secrets_are_scrubbed_even_when_not_in_environment(monkeypatch):
+    import core.config as config
+
+    token = "unusual-bot-token-value"
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+    monkeypatch.setattr(config, "_settings", config.Settings.from_env({"DISCORD_TOKEN": token}))
+    assert token not in redact.scrub("failure included " + token)

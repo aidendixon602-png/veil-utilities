@@ -121,8 +121,13 @@ class AntinukePanel(OwnedView):
     # -- what's on screen
     def embed(self) -> discord.Embed:
         if self.rule is None:
-            return home_embed(self.cfg, self.prefix, self.guild)
-        return rule_embed(self.cfg, self.rule, self.prefix)
+            embed = home_embed(self.cfg, self.prefix, self.guild)
+        else:
+            embed = rule_embed(self.cfg, self.rule, self.prefix)
+        an = _an()
+        if an._perms.ghost_guards(self.guild):
+            embed.description = ((embed.description or "") + "\n\n" + an.OVERLAP_NOTE).strip()
+        return embed
 
     def _build(self):
         self.clear_items()

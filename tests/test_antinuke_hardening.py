@@ -202,3 +202,17 @@ def test_the_approve_button_is_owner_only():
     assert "Only the server owner" in it.response.send_message.await_args.args[0]
     assert ApproveBotButton(10, 900).item.custom_id == "anbot:10:900"
     assert DANGEROUS_MASK.administrator and DANGEROUS_MASK.ban_members and not DANGEROUS_MASK.send_messages
+
+
+def test_bot_quarantine_still_operates_with_ghost_present(monkeypatch):
+    from core.perms import GHOST_VANGUARD_ID
+    monkeypatch.setattr("cogs.antinuke.asyncio.sleep", AsyncMock())
+    cog, guild, _ = setup()
+    own = _role(70, "NewBot", 5, discord.Permissions(administrator=True).value, managed=True)
+    _guild(cog, guild, [own])
+    original = guild.get_member
+    guild.get_member = lambda uid: SimpleNamespace(id=GHOST_VANGUARD_ID, bot=True) if uid == GHOST_VANGUARD_ID else original(uid)
+    cog._log_channel = AsyncMock(return_value=None)
+    bot = _new_bot(guild, 77, [own])
+    asyncio.run(cog.quarantine_new_bot(bot))
+    assert not own.permissions.administrator

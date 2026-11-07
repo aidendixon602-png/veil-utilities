@@ -111,7 +111,7 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Roles": "Role commands, autoroles, reaction roles, role blacklist",
     "Permissions": "Bot ranks (uperm), staff limits and command access",
     "Antinuke": "Real-time server protection and anti-raid",
-    "Ghost Vanguard": "The server's guard: ,gv <command>, ,gv help lists them",
+    "Ghost Vanguard": "Optional bridge: ,gv <command>, ,gv help lists them",
     "Automod": "Spam, link and invite filtering",
     "Server": "Server setup, welcome messages and settings",
     "VoiceMaster": "Temporary voice channels and VC controls",

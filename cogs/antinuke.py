@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from copy import deepcopy
 import time
 from collections import defaultdict, deque
@@ -16,8 +17,10 @@ from core.nukerestore import Snapshots, collapse, display, restore_channels, res
 from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
 from core import perms as _perms
 
-GHOST_NOTE = ("🛡️ **Ghost Vanguard guards this server**, so this antinuke only limits what's done through Veil's own "
-              "commands. Ghost Vanguard's settings: `{p}gv antinuke status`.")
+log = logging.getLogger("veil.antinuke")
+
+OVERLAP_NOTE = ("⚠️ Ghost Vanguard is present. If both bots protect this server, disable overlapping rules "
+                "in one bot to avoid duplicate actions.")
 
 # verbs for the "that would … at once" message
 VERBS = {"ban": "ban", "kick": "kick", "channeldelete": "delete channels for", "roledelete": "delete roles for",
@@ -475,8 +478,6 @@ class Antinuke(commands.Cog):
         actor_id = entry.user_id
         run = self.test_runs.get(guild.id)
         test = run is not None and actor_id == getattr(self.bot.user, "id", None) and run.owns(entry)
-        if not test and _perms.ghost_guards(guild):
-            return  # Ghost Vanguard watches this server's audit log
         if not test and (not actor_id or await self._trusted(guild, cfg, actor_id)):
             return
         if module == "botadd" and not test:
@@ -523,8 +524,6 @@ class Antinuke(commands.Cog):
         """A webhook pinging @everyone / @here again and again (a stolen webhook URL, a nuke's last step): delete
         the webhook and what it sent. Only while the antinuke and its Webhook rule are on."""
         if not message.webhook_id or message.guild is None or not getattr(message, "mention_everyone", False):
-            return
-        if _perms.ghost_guards(message.guild):
             return
         cfg = await self.cfg(message.guild.id)
         if not cfg.get("enabled") or not (cfg.get("modules", {}).get("webhook") or {}).get("on"):
@@ -707,8 +706,8 @@ class Antinuke(commands.Cog):
         if not getattr(member, "bot", False) or member.guild is None:
             return
         from core import perms as _perms
-        if _perms.is_trusted_bot(member.id) or _perms.ghost_guards(member.guild):
-            return  # a built-in trusted bot keeps its permissions; Ghost Vanguard holds new bots where it guards
+        if _perms.is_trusted_bot(member.id):
+            return  # built-in trusted bots keep their permissions
         guild = member.guild
         cfg = await self.cfg(guild.id)
         if not cfg.get("enabled") or cfg.get("bot_quarantine") is False:
@@ -1280,6 +1279,25 @@ class Antinuke(commands.Cog):
         if test is not None:
             test.incidents.append(inc)
 
+        queued = False
+        queued_recipients = set()
+        manager = getattr(self.bot, "incident_manager", None)
+        if test is None and manager:
+            try:
+                await manager.record(kind="antinuke", severity="critical", guild_id=guild.id, actor_id=actor_id,
+                                     summary=f"Antinuke threshold reached: {LABELS.get(module, module)}.",
+                                     action=inc.result,
+                                     details={"Server": guild.name, "Threshold": f"{inc.threshold} in {inc.window}s",
+                                              "Restored": ", ".join(inc.undone) or "None reported",
+                                              "Problems": ", ".join(inc.problems) or "None reported"},
+                                     notify=settings.antinuke_dev_alerts)
+                if settings.antinuke_dev_alerts:
+                    from core.incidents import recipients
+                    queued_recipients = recipients(self.bot)
+                    queued = bool(queued_recipients)
+            except Exception:
+                log.exception("Failed to persist antinuke incident for guild %s; using direct alerts", guild.id)
+
         jump = discord.ui.View()
         jump.add_item(discord.ui.Button(label="Open server", url=f"https://discord.com/channels/{guild.id}"))
         log_channel = await self._log_channel(guild, cfg)
@@ -1288,9 +1306,10 @@ class Antinuke(commands.Cog):
             targets: list[tuple] = [(log_channel, "test run")] if log_channel else []
             dev_ids, dev_footer = sorted(settings.owner_ids), "test run · sent to developers"
         else:
-            targets = [(d, "antinuke alert") for d in (log_channel, guild.owner) if d]
+            targets = [(d, "antinuke alert") for d in (log_channel, guild.owner)
+                       if d and not (d is guild.owner and guild.owner_id in queued_recipients)]
             dev_ids, dev_footer = [], "antinuke alert · sent to developers"
-            if settings.antinuke_dev_alerts:
+            if settings.antinuke_dev_alerts and not queued:
                 from cogs.authorization import developers
                 dev_ids = sorted(await developers(self.bot))
         for uid in dev_ids:
@@ -1347,10 +1366,7 @@ class Antinuke(commands.Cog):
     async def send_panel(self, ctx: Context) -> None:
         cfg = await self.cfg(ctx.guild.id)
         panel = AntinukePanel(self, ctx.guild, ctx.author.id, cfg, ctx.clean_prefix)
-        embed = panel.embed()
-        if _perms.ghost_guards(ctx.guild):
-            embed.description = (GHOST_NOTE.format(p=ctx.clean_prefix) + "\n\n" + (embed.description or "")).strip()
-        panel.message = await ctx.send(embed=embed, view=panel)
+        panel.message = await ctx.send(embed=panel.embed(), view=panel)
 
     def resolve_action(self, name: str) -> str | None:
         s = name.lower().replace("_", "").replace(" ", "").replace("-", "")
@@ -1436,14 +1452,13 @@ class Antinuke(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         guild = ctx.guild
         active = sum(bool(mod.get("on")) for mod in cfg.get("modules", {}).values() if isinstance(mod, dict))
-        delegated = _perms.ghost_guards(guild)
         lines = [f"Antinuke: **{'on' if cfg.get('enabled') else 'off'}** · **{active}** rules enabled"]
-        if delegated:
-            lines.append("⚠️ Ghost Vanguard handles audit-log protection here; Veil only guards its own commands.")
-        elif not cfg.get("enabled"):
+        if not cfg.get("enabled"):
             lines.append(f"⚠️ Rules won't run until `{ctx.clean_prefix}an toggle on`.")
         elif not active:
             lines.append("⚠️ No rules are enabled.")
+        if _perms.ghost_guards(guild):
+            lines.append(OVERLAP_NOTE)
         me = getattr(guild, "me", None)
         perms = getattr(me, "guild_permissions", None)
         checks = (("view_audit_log", "View Audit Log"), ("manage_roles", "Manage Roles"),
@@ -2041,7 +2056,7 @@ class Antinuke(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "antiraid")
         embed = discord.Embed(title="Antiraid", color=Colors.main)
         if _perms.ghost_guards(ctx.guild):
-            embed.description = GHOST_NOTE.format(p=ctx.clean_prefix).replace(f"{ctx.clean_prefix}gv antinuke", f"{ctx.clean_prefix}gv raid")
+            embed.description = OVERLAP_NOTE
         mj = cfg.get("massjoin")
         embed.add_field(name="Mass join", value=f"{mj['joins']} joins / {mj['seconds']}s" if mj else "off")
         embed.add_field(name="Account age", value=f"< {cfg['age']} days" if cfg.get("age") else "off")
@@ -2230,9 +2245,8 @@ class Antinuke(commands.Cog):
         if member.bot:
             return
         from core import perms as _perms
-        if _perms.is_bot_developer(member.id, self.bot) or _perms.ghost_guards(member.guild) \
-                or _perms.is_whitelisted_person(member.id):
-            return  # Ghost Vanguard handles raids where it guards; whitelisted people are never touched
+        if _perms.is_bot_developer(member.id, self.bot) or _perms.is_whitelisted_person(member.id):
+            return  # developers and built-in whitelisted people are never touched
         cfg = await self.bot.db.get_config(member.guild.id, "antiraid")
         if not cfg or member.id in cfg.get("whitelist", []):
             return

@@ -19,8 +19,8 @@ undo supported damage. These controls are inspired by [Bleed](https://docs.bleed
 ```
 
 `,an` opens Veil's status panel. `,an health` checks the bot's core permissions and member intent, and warns
-when Ghost Vanguard handles audit-log protection. The check cannot guarantee that the bot can act on every target. Existing positional commands such as `,an ban 3 ban 60s`, presets and the
-panel still work. Changing a rule does **not** turn on the antinuke itself; use `,an toggle on` first.
+about overlapping protection if Ghost Vanguard is present. The check cannot guarantee that the bot can act on every
+target. Existing positional commands such as `,an ban 3 ban 60s`, presets and the panel still work. Changing a rule does **not** turn on the antinuke itself; use `,an toggle on` first.
 Only the server owner or a bot developer can turn the whole antinuke off.
 
 - `--threshold` is the number of actions that triggers the rule, from 1 to 100.
@@ -49,6 +49,8 @@ authorization is a different system and does not grant an antinuke whitelist.
 
 Detection and rollback are best-effort, not a guarantee. Audit events must reach Veil; the bot needs the relevant
 Discord permissions and a high enough role to punish or restore changes. Some events cannot be undone. Veil
-intentionally ignores some routine actions by other bots, and where Ghost Vanguard is configured as the server's
-protector it handles audit-log detection instead. See `,an status` and check alerts for the actual rule state.
-Test changes in a disposable server before relying on them.
+intentionally ignores some routine actions by other bots. Veil works independently of Ghost Vanguard, including when
+both bots are present. **Disable overlapping protection in one bot** to avoid duplicate punishment or rollback.
+Existing Veil settings are preserved: if antinuke is off, explicitly enable it with `,an toggle on`; check raid
+settings with `,antiraid`. Veil still treats Ghost Vanguard as a built-in trusted bot; `,gv` is an optional bridge,
+not a protection requirement. See `,an status` and `,an health`, and test in a disposable server first.

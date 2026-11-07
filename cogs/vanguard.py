@@ -1,6 +1,6 @@
 """`,gv`: Ghost Vanguard's commands, typed with Veil's prefix.
 
-Ghost Vanguard (the server's guard) has no slash commands. Its commands are `,gv` followed by what used to come
+Ghost Vanguard is optional; it has no slash commands. Its commands are `,gv` followed by what used to come
 after the slash: `,gv raid mode on`, `,gv antinuke whitelist add @user`, `,gv help`. Veil checks Ghost Vanguard is
 in the server and reacts 🛡️ to the message; that reaction from Veil's own account is the hand-off, and Ghost
 Vanguard then runs the command with its own ranks, permissions and confirmations and answers in the channel.

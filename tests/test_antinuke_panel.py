@@ -256,3 +256,17 @@ def test_panel_uses_effective_global_defaults_for_legacy_rules():
     cfg = {"punishment": "kick", "window": 90, "modules": {"ban": {"on": True}}}
     state = rule_state(cfg, "ban")
     assert state["punishment"] == "kick" and state["window"] == 90
+
+
+def test_overlapping_protection_warning_survives_panel_navigation():
+    from core.perms import GHOST_VANGUARD_ID
+    cog, guild = setup()
+    guild.get_member = lambda uid: SimpleNamespace(id=uid) if uid == GHOST_VANGUARD_ID else None
+    panel, embed = open_panel(cog, guild)
+    assert embed.description.count("avoid duplicate actions") == 1
+    press(panel, "Turn on")
+    assert panel.embed().description.count("avoid duplicate actions") == 1
+    press(panel, "Ban")
+    assert panel.embed().description.count("avoid duplicate actions") == 1
+    press(panel, "← Back")
+    assert panel.embed().description.count("avoid duplicate actions") == 1
