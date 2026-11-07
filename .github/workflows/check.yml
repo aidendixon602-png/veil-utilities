@@ -56,6 +56,7 @@ jobs:
           if [ "$status" -ne 0 ]; then
             python - <<'EOF'
           import os
+          import re
           import xml.etree.ElementTree as ET
           from pathlib import Path
           path = Path(os.environ["RUNNER_TEMP"]) / "pytest-results.xml"
@@ -65,7 +66,14 @@ jobs:
                       # Report only the test identifier, not captured output or parameter values.
                       name = case.get("name", "unknown").split("[", 1)[0]
                       group = case.get("classname", "tests")
-                      print(f"::error title=Test failure::{group}.{name}")
+                      failure = case.find("failure")
+                      if failure is None:
+                          failure = case.find("error")
+                      text = failure.text or ""
+                      locations = re.findall(r"(?m)^((?:tests|core|cogs)/[\w./-]+\.py:\d+):", text)
+                      types = re.findall(r"(?m)^E\s+([A-Za-z_][\w.]*(?:Error|Exception|Failure))\b", text)
+                      details = ", ".join(locations[-3:] + types[-1:])
+                      print(f"::error title=Test failure::{group}.{name} {details}")
           EOF
             exit "$status"
           fi
