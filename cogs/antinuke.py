@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
@@ -129,16 +130,14 @@ def parse_timeframe(tf: str | int) -> int:
     if isinstance(tf, int):
         return max(5, min(tf, 86400))
     s = str(tf).strip().lower()
-    if s.endswith("s"):
+    multiplier = 1
+    if s.endswith(("s", "m", "h")):
+        multiplier = {"s": 1, "m": 60, "h": 3600}[s[-1]]
         s = s[:-1]
-    elif s.endswith("m"):
-        return max(5, min(int(float(s[:-1]) * 60), 86400))
-    elif s.endswith("h"):
-        return max(5, min(int(float(s[:-1]) * 3600), 86400))
     try:
-        val = int(float(s))
+        val = int(float(s) * multiplier)
         return max(5, min(val, 86400))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         raise UserError(f"Invalid timeframe `{tf}`. Example: `60s`, `120s`, `2m`")
 
 
@@ -866,7 +865,7 @@ class Antinuke(commands.Cog):
         guild = ctx.guild
         cfg = await self.cfg(guild.id)
         mod = cfg["modules"].get(module)
-        if not cfg.get("enabled") or not mod or not mod.get("on"):
+        if not cfg.get("enabled") or not mod or not mod.get("on") or mod.get("command", True) is False:
             return
         if await self._trusted(guild, cfg, ctx.author.id):
             return
@@ -1338,10 +1337,11 @@ class Antinuke(commands.Cog):
         for k, v in target.items():
             rule_def = RULE_LOOKUP.get(k)
             cfg.setdefault("modules", {})[k] = {
-                "on": True,
+                "on": v.get("on", True),
                 "threshold": v.get("threshold", rule_def["threshold"] if rule_def else 3),
                 "window": v.get("window", rule_def["window"] if rule_def else 60),
                 "punishment": v.get("punishment", rule_def["punishment"] if rule_def else "ban"),
+                "command": v.get("command", True),
             }
 
     async def send_panel(self, ctx: Context) -> None:
@@ -1367,7 +1367,8 @@ class Antinuke(commands.Cog):
             "serverupdate": "serverupdate", "guild": "serverupdate", "vanity": "serverupdate", "server": "serverupdate",
             "timeout": "timeout", "mute": "timeout", "timeouts": "timeout",
             "webhook": "webhook", "webhooks": "webhook",
-            "emoji": "emoji", "prune": "prune", "unban": "unban",
+            "emoji": "emoji", "emojidelete": "emoji", "prune": "prune", "memberprune": "prune", "unban": "unban",
+            "channelupdate": "channelupdate", "roleupdate": "roleupdate", "memberroles": "memberroles",
         }
         return alias_map.get(s)
 
@@ -1401,13 +1402,17 @@ class Antinuke(commands.Cog):
         mod = cfg.get("modules", {}).get(action, {})
         rule = RULE_LOOKUP.get(action)
         if not rule:
-            raise UserError(f"Unknown action `{action}`")
+            if action not in MODULES:
+                raise UserError(f"Unknown action `{action}`")
+            rule = {"name": LABELS.get(action, action), "threshold": 3, "window": 60, "punishment": "ban"}
         name = rule["name"]
         th = mod.get("threshold", rule["threshold"])
         win = mod.get("window", rule["window"])
         pun = mod.get("punishment", rule["punishment"])
         tag_str = f" · {UNDOES[action]}" if action in UNDOES else ""
-        await ctx.neutral(f"**{name}** rule: **{th} in {win}s** → {pun}{tag_str}")
+        state = "on" if mod.get("on") else "off"
+        command_note = " · Veil command detection off" if mod.get("command") is False else ""
+        await ctx.neutral(f"**{name}** rule: **{th} in {win}s** → {pun}{tag_str} · {state}{command_note}")
 
     # ================================================================ commands
     @commands.group(aliases=["an"], invoke_without_command=True)
@@ -1445,11 +1450,14 @@ class Antinuke(commands.Cog):
         await ctx.approve("turned antinuke **off**")
 
     @antinuke.command(name="toggle", aliases=["on/off"])
-    async def an_toggle(self, ctx: Context):
-        """Toggle antinuke on or off"""
+    async def an_toggle(self, ctx: Context, state: str = None):
+        """Toggle antinuke, or explicitly set it to on or off"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
-        if cfg.get("enabled"):
+        if state is not None and state.lower() not in ("on", "off"):
+            raise UserError("State must be `on` or `off`")
+        desired = not cfg.get("enabled") if state is None else state.lower() == "on"
+        if not desired:
             self._owner_to_turn_off(ctx.guild, ctx.author.id)
             cfg["enabled"] = False
             await self.security_notice(ctx.guild, ctx.author, "turned the antinuke **off**")
@@ -1467,10 +1475,15 @@ class Antinuke(commands.Cog):
         await antinuke_admin(ctx)
         if arg2.lower() in ("on", "enable", "true", "yes", "off", "disable", "false", "no"):
             state = arg2.lower()
-            threshold = int(arg3) if arg3 and arg3.isdigit() else 3
+            if arg3 is not None and (not arg3.isdigit() or not 1 <= int(arg3) <= 100):
+                raise UserError("Threshold must be a number from 1 to 100")
             k = self.resolve_action(action) or action.lower()
             cfg = await self.cfg(ctx.guild.id)
-            cfg["modules"][k] = {"on": state in ("on", "enable", "true", "yes"), "threshold": threshold}
+            if k not in MODULES and k not in RULE_LOOKUP:
+                raise UserError(f"Unknown module `{action}`")
+            threshold = int(arg3) if arg3 else cfg["modules"].get(k, {}).get("threshold", 3)
+            cfg["modules"].setdefault(k, {}).update({"on": state in ("on", "enable", "true", "yes"),
+                                                       "threshold": threshold})
             await self.save(ctx.guild.id, cfg)
             return await ctx.approve(f"turned `{k}` **{'on' if cfg['modules'][k]['on'] else 'off'}** (threshold **{threshold}**)")
         if arg3 is None or arg4 is None:
@@ -1482,7 +1495,7 @@ class Antinuke(commands.Cog):
         await self._update_rule(ctx, action, count, arg3, arg4)
 
     @antinuke.command(name="module")
-    async def an_module(self, ctx: Context, module: str, state: str, threshold: int = 3):
+    async def an_module(self, ctx: Context, module: str, state: str, threshold: int = None):
         """Turn one antinuke rule on or off
 
         Example: `,antinuke module ban on 3`
@@ -1495,156 +1508,208 @@ class Antinuke(commands.Cog):
         state = state.lower()
         if state not in ("on", "enable", "true", "yes", "off", "disable", "false", "no"):
             raise UserError("State must be `on` or `off`")
-        threshold = max(1, min(threshold, 100))
-        cfg["modules"][k] = {"on": state in ("on", "enable", "true", "yes"), "threshold": threshold}
+        if threshold is None:
+            threshold = cfg["modules"].get(k, {}).get("threshold", 3)
+        elif not 1 <= threshold <= 100:
+            raise UserError("Threshold must be a number from 1 to 100")
+        cfg["modules"].setdefault(k, {}).update({"on": state in ("on", "enable", "true", "yes"),
+                                                   "threshold": threshold})
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"turned `{k}` **{'on' if cfg['modules'][k]['on'] else 'off'}**"
                           + ("" if k in INSTANT else f" (threshold **{threshold}**)"))
 
-    # Direct action subcommands matching Midtown Utilities rules
+    async def _configure_direct(self, ctx: Context, actions: tuple[str, ...], count=None, punishment=None,
+                                timeframe=None, flags=None):
+        """Configure existing rules without resetting settings not named by the user."""
+        if count is None:
+            for action in actions:
+                await self._show_rule(ctx, action)
+            return
+        state = str(count).lower()
+        if state not in ("on", "off"):
+            if len(actions) != 1 or punishment is None or timeframe is None or flags:
+                raise UserError(f"Usage: `{ctx.clean_prefix}an {actions[0]} <count> <punishment> <timeframe>`")
+            try:
+                number = int(count)
+            except ValueError:
+                raise UserError("Use `on`, `off`, or a numeric count")
+            return await self._update_rule(ctx, actions[0], number, punishment, timeframe)
+
+        await antinuke_admin(ctx)
+        tokens = " ".join(str(x) for x in (punishment, timeframe, flags) if x is not None).split()
+        options = {}
+        while tokens:
+            flag = tokens.pop(0).lower()
+            if flag not in ("--threshold", "--do", "--window", "--command") or not tokens or flag in options:
+                raise UserError("Use `--threshold <1-100>`, `--do <ban|kick|strip>`, "
+                                "`--window <time>` or `--command <on|off>` once each")
+            options[flag] = tokens.pop(0).lower()
+        if "--threshold" in options:
+            try:
+                threshold = int(options["--threshold"])
+            except ValueError:
+                raise UserError("Threshold must be a number from 1 to 100")
+            if not 1 <= threshold <= 100:
+                raise UserError("Threshold must be a number from 1 to 100")
+            if threshold != 1 and any(a in INSTANT for a in actions):
+                raise UserError("This rule always triggers on the first action; its threshold must be 1")
+        if "--do" in options and options["--do"] not in ("ban", "kick", "strip"):
+            raise UserError("Punishment must be `ban`, `kick`, or `strip`")
+        if "permissions" in actions and options.get("--do", "strip") != "strip":
+            raise UserError("The permission grant rule always strips roles")
+        if "--command" in options and options["--command"] not in ("on", "off"):
+            raise UserError("`--command` must be `on` or `off`")
+        window = parse_timeframe(options["--window"]) if "--window" in options else None
+        cfg = await self.cfg(ctx.guild.id)
+        modules = cfg.setdefault("modules", {})
+        for action in actions:
+            rule = RULE_LOOKUP.get(action, {"threshold": 3, "window": 60, "punishment": "ban"})
+            mod = modules.setdefault(action, {"threshold": rule["threshold"], "window": rule["window"],
+                                               "punishment": rule["punishment"]})
+            mod["on"] = state == "on"
+            if "--threshold" in options:
+                mod["threshold"] = threshold
+            if "--do" in options:
+                mod["punishment"] = options["--do"]
+            if window is not None:
+                mod["window"] = window
+            if "--command" in options:
+                mod["command"] = options["--command"] == "on"
+            if action == "roleinvite":
+                cfg["invite_rule_v2"] = True  # an explicitly chosen threshold isn't legacy data
+        await self.save(ctx.guild.id, cfg)
+        if state == "off" or options.get("--command") == "off":
+            await self.security_notice(ctx.guild, ctx.author,
+                                       f"changed antinuke rules {', '.join(actions)} "
+                                       + ("to off" if state == "off" else "to ignore Veil commands"))
+        message = f"turned **{', '.join(actions)}** {state}"
+        if len(actions) > 1:
+            message += " (each action has its own counter)"
+        if options.get("--command") == "off":
+            message += "; actions through Veil won't count for these rules"
+        if state == "on" and not cfg.get("enabled"):
+            message += "; antinuke is still off — enable it to enforce rules"
+        await ctx.approve(message)
+
     @antinuke.command(name="ban")
-    async def an_cmd_ban(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the ban rule
+    async def an_cmd_ban(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure ban rule"""
+        await self._configure_direct(ctx, ("ban",), count, punishment, timeframe, flags)
 
-        Example: `,an ban 3 ban 60s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "ban")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an ban <count> <punishment> <timeframe>` (e.g. `{ctx.clean_prefix}an ban 3 ban 60s`)")
-        await self._update_rule(ctx, "ban", count, punishment, timeframe)
+    @antinuke.command(name="botadd", aliases=['bot', 'bots', 'bot_add'])
+    async def an_cmd_botadd(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure bot add rule"""
+        await self._configure_direct(ctx, ("botadd",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="botadd", aliases=["bot", "bots"])
-    async def an_cmd_botadd(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the bot add rule
+    @antinuke.command(name="channelcreate", aliases=['channel_create'])
+    async def an_cmd_channelcreate(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure channel create rule"""
+        await self._configure_direct(ctx, ("channelcreate",), count, punishment, timeframe, flags)
 
-        Example: `,an botadd 1 ban 60s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "botadd")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an botadd <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "botadd", count, punishment, timeframe)
-
-    @antinuke.command(name="channelcreate")
-    async def an_cmd_channelcreate(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the channel create rule
-
-        Example: `,an channelcreate 2 kick 120s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "channelcreate")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an channelcreate <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "channelcreate", count, punishment, timeframe)
-
-    @antinuke.command(name="channeldelete")
-    async def an_cmd_channeldelete(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the channel delete rule
-
-        Example: `,an channeldelete 2 ban 120s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "channeldelete")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an channeldelete <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "channeldelete", count, punishment, timeframe)
+    @antinuke.command(name="channeldelete", aliases=['channel_delete'])
+    async def an_cmd_channeldelete(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure channel delete rule"""
+        await self._configure_direct(ctx, ("channeldelete",), count, punishment, timeframe, flags)
 
     @antinuke.command(name="kick")
-    async def an_cmd_kick(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the kick rule
+    async def an_cmd_kick(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure kick rule"""
+        await self._configure_direct(ctx, ("kick",), count, punishment, timeframe, flags)
 
-        Example: `,an kick 3 ban 120s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "kick")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an kick <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "kick", count, punishment, timeframe)
+    @antinuke.command(name="permissions", aliases=['permission', 'perms'])
+    async def an_cmd_permissions(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure permission grant rule"""
+        await self._configure_direct(ctx, ("permissions",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="permissions", aliases=["permission", "perms"])
-    async def an_cmd_permissions(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the permission grant rule
+    @antinuke.command(name="rolecreate", aliases=['role_create'])
+    async def an_cmd_rolecreate(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure role create rule"""
+        await self._configure_direct(ctx, ("rolecreate",), count, punishment, timeframe, flags)
 
-        Example: `,an permissions 1 strip 60s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "permissions")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an permissions <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "permissions", count, punishment, timeframe)
+    @antinuke.command(name="roledelete", aliases=['role_delete'])
+    async def an_cmd_roledelete(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure role delete rule"""
+        await self._configure_direct(ctx, ("roledelete",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="rolecreate")
-    async def an_cmd_rolecreate(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the role create rule
+    @antinuke.command(name="roleinvite", aliases=['invite'])
+    async def an_cmd_roleinvite(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure invite spam rule"""
+        await self._configure_direct(ctx, ("roleinvite",), count, punishment, timeframe, flags)
 
-        Example: `,an rolecreate 5 strip 120s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "rolecreate")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an rolecreate <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "rolecreate", count, punishment, timeframe)
+    @antinuke.command(name="serverupdate", aliases=['server', 'guild_update'])
+    async def an_cmd_serverupdate(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure server update rule"""
+        await self._configure_direct(ctx, ("serverupdate",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="roledelete")
-    async def an_cmd_roledelete(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the role delete rule
+    @antinuke.command(name="timeout", aliases=['mute'])
+    async def an_cmd_timeout(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure timeout rule"""
+        await self._configure_direct(ctx, ("timeout",), count, punishment, timeframe, flags)
 
-        Example: `,an roledelete 5 strip 120s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "roledelete")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an roledelete <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "roledelete", count, punishment, timeframe)
+    @antinuke.command(name="webhook", aliases=['webhooks'])
+    async def an_cmd_webhook(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure webhook rule"""
+        await self._configure_direct(ctx, ("webhook",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="roleinvite", aliases=["invite"])
-    async def an_cmd_roleinvite(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the invite spam rule
+    @antinuke.command(name="channelupdate", aliases=['channel_update'])
+    async def an_cmd_channelupdate(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure channel edit rule"""
+        await self._configure_direct(ctx, ("channelupdate",), count, punishment, timeframe, flags)
 
-        Example: `,an roleinvite 10 strip 60s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "roleinvite")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an roleinvite <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "roleinvite", count, punishment, timeframe)
+    @antinuke.command(name="roleupdate", aliases=['role_update'])
+    async def an_cmd_roleupdate(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure role edit rule"""
+        await self._configure_direct(ctx, ("roleupdate",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="serverupdate", aliases=["server"])
-    async def an_cmd_serverupdate(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the server update rule
+    @antinuke.command(name="memberroles", aliases=['member_roles'])
+    async def an_cmd_memberroles(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure member roles rule"""
+        await self._configure_direct(ctx, ("memberroles",), count, punishment, timeframe, flags)
 
-        Example: `,an serverupdate 1 strip 60s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "serverupdate")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an serverupdate <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "serverupdate", count, punishment, timeframe)
+    @antinuke.command(name="emoji", aliases=['emoji_delete'])
+    async def an_cmd_emoji(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure emoji delete rule"""
+        await self._configure_direct(ctx, ("emoji",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="timeout", aliases=["mute"])
-    async def an_cmd_timeout(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the timeout rule
+    @antinuke.command(name="unban")
+    async def an_cmd_unban(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure unban rule"""
+        await self._configure_direct(ctx, ("unban",), count, punishment, timeframe, flags)
 
-        Example: `,an timeout 5 strip 120s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "timeout")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an timeout <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "timeout", count, punishment, timeframe)
+    @antinuke.command(name="prune", aliases=['member_prune'])
+    async def an_cmd_prune(self, ctx: Context, count: str = None, punishment: str = None,
+                           timeframe: str = None, *, flags: str = None):
+        """Configure member prune rule"""
+        await self._configure_direct(ctx, ("prune",), count, punishment, timeframe, flags)
 
-    @antinuke.command(name="webhook", aliases=["webhooks"])
-    async def an_cmd_webhook(self, ctx: Context, count: int = None, punishment: str = None, timeframe: str = None):
-        """Configure the webhook rule
+    @antinuke.command(name="role")
+    async def an_cmd_role(self, ctx: Context, state: str = None, punishment: str = None,
+                            timeframe: str = None, *, flags: str = None):
+        """Configure role create and delete rules (separate counters)"""
+        await self._configure_direct(ctx, ('rolecreate', 'roledelete'), state, punishment, timeframe, flags)
 
-        Example: `,an webhook 1 kick 60s`
-        """
-        if count is None:
-            return await self._show_rule(ctx, "webhook")
-        if punishment is None or timeframe is None:
-            raise UserError(f"Usage: `{ctx.clean_prefix}an webhook <count> <punishment> <timeframe>`")
-        await self._update_rule(ctx, "webhook", count, punishment, timeframe)
+    @antinuke.command(name="channel")
+    async def an_cmd_channel(self, ctx: Context, state: str = None, punishment: str = None,
+                            timeframe: str = None, *, flags: str = None):
+        """Configure channel create and delete rules (separate counters)"""
+        await self._configure_direct(ctx, ('channelcreate', 'channeldelete'), state, punishment, timeframe, flags)
 
     @antinuke.command(name="whitelist", aliases=["wl", "trust"])
     async def an_whitelist(self, ctx: Context, target: discord.Role | discord.Member | discord.User = None):
@@ -1751,7 +1816,7 @@ class Antinuke(commands.Cog):
             raise UserError("Preset name is too long (max 30 chars)")
         cfg = await self.cfg(ctx.guild.id)
         presets = cfg.setdefault("presets", {})
-        presets[name] = {k: v for k, v in cfg["modules"].items() if k in RULE_LOOKUP}
+        presets[name] = {k: deepcopy(v) for k, v in cfg["modules"].items() if k in RULE_LOOKUP or k in MODULES}
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(f"saved the current rules as preset **{name}**")
 

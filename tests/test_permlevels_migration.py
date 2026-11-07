@@ -44,3 +44,17 @@ def test_the_level_list_is_numbered_highest_first():
         assert "everything except Administrator\n-# 2 members" in text
         assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
     asyncio.run(go())
+
+
+def test_role_permission_view_only_lists_roles_in_rank_order():
+    async def go():
+        db = SimpleNamespace(get_config=AsyncMock(return_value={"users": {"3": "admin"},
+                                                                "roles": {"7": "moderator", "8": "admin"}}),
+                             set_config=AsyncMock())
+        cog = Permissions(SimpleNamespace(db=db))
+        ctx = SimpleNamespace(guild=SimpleNamespace(id=10), paginate=AsyncMock())
+        await Permissions.up_roles.callback(cog, ctx)
+        text = ctx.paginate.await_args.args[0][0].description
+        assert text.index("<@&8>") < text.index("<@&7>")
+        assert "<@3>" not in text
+    asyncio.run(go())

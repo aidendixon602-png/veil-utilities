@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Antinuke rule flags:** configure individual rules with `on`/`off`, `--threshold`, `--do`,
+  `--window` and `--command`. Role and channel shortcuts configure their create and delete rules
+  independently. The panel shows when command detection is off. See `docs/ANTINUKE.md`.
+
+- The dashboard server overview now has search, antinuke filtering, member sorting and per-server status.
+  Bot developers can access all servers; server owners can only see their own.
+- `,perm roles` lists role permission assignments separately from member assignments.
+
 - **Whitelisted people** (`WHITELISTED_PEOPLE` in `core/perms.py`), starting with thesimisear: no command can target
   them (a developer's included), and the antinuke, automod, anti-raid, role blacklist, mass actions and network
   bans all leave them alone.

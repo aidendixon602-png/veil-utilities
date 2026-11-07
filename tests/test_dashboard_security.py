@@ -341,3 +341,44 @@ def test_login_mode_session_is_not_valid_in_local_mode():
 
     run(local, scenario)
     assert bot.db.writes == []
+
+
+def test_server_overview_filters_sorting_and_owner_privacy():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True}
+    bot.db.store[(GUILD_ID, "logs")] = {"commands": 123, "bans": -1, "ignore": {"users": [10]}}
+    server = login_server(bot)
+    _, dev_headers = cookie(server, BOT_OWNER)
+    _, owner_headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        r = await client.get("/?sort=members", headers=dev_headers)
+        text = await r.text()
+        assert text.index("Test Server</a>") < text.index("Other</a>")
+        assert "1 configured" in text and "2 of 2 servers shown" in text
+        r = await client.get("/?antinuke=on", headers=dev_headers)
+        text = await r.text()
+        assert "Test Server</a>" in text and "Other</a>" not in text
+        r = await client.get("/?q=777", headers=owner_headers)
+        text = await r.text()
+        assert "Other</a>" not in text and "0 of 1 servers shown" in text
+        r = await client.get("/?q=%3Cscript%3E", headers=dev_headers)
+        text = await r.text()
+        assert 'value="&lt;script&gt;"' in text and '<script>' not in text
+
+    run(server, scenario)
+
+
+def test_configured_developers_can_access_all_servers(monkeypatch):
+    from core import perms
+    monkeypatch.setattr(perms, "BOT_DEVELOPERS", [STRANGER])
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, STRANGER)
+
+    async def scenario(client):
+        r = await client.get("/api/guilds", headers=headers)
+        assert {g["id"] for g in await r.json()} == {str(GUILD_ID), str(OTHER_GUILD_ID)}
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}", headers=headers)).status == 200
+
+    run(server, scenario)
