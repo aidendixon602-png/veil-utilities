@@ -1,29 +1,30 @@
 ---
 name: Bug report
-about: Something broke? Tell us what happened.
+about: Report a reproducible problem in Veil Utilities.
 title: "[Bug] "
 labels: bug
 assignees: ""
 ---
 
+> For security vulnerabilities, use the [security policy](https://github.com/aidendixon602-png/veil-utilities/security/policy), not a public issue. Never post tokens, `.env` files, database credentials or private user data.
+
 ## What happened?
 
-<!-- A clear description of the bug. Paste the exact command you ran and any error ID the bot gave you. -->
-
-## What did you expect?
+## Expected behavior
 
 ## Steps to reproduce
 
-1. Run `,...`
-2. Do ...
-3. See error
+1.
+2.
+3.
 
-## Your setup
+## Environment
 
-- Host (Wispbyte / VPS / local):
-- Running version or commit:
-- Python version (if you know it):
+- Release or commit:
+- Python version and operating system/host:
+- Database backend (SQLite or PostgreSQL):
+- Command and prefix used, if applicable:
 
-## Anything else
+## Additional context
 
-<!-- Screenshots, log lines, or links to messages. Never paste your bot token or .env values. -->
+<!-- Include only sanitized logs or screenshots. Do not test destructive actions in production. -->

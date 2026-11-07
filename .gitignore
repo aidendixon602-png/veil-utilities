@@ -1,5 +1,6 @@
 # secrets — never commit your bot token
 .env
+.env.*
 *.env
 !.env.example
 
@@ -12,6 +13,12 @@ local-edits-*.patch
 *.db-shm
 *.db-wal
 *.db.gz
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pem
+*.key
 *.log
 *.log.*
 logs/
@@ -28,6 +35,9 @@ venv/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # os / editor junk
 .DS_Store

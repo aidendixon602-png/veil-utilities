@@ -1,167 +1,47 @@
-# Hosting veil utilities on Wispbyte
+# Hosting and updating Veil Utilities
 
-Wispbyte's free plan (512 MB RAM) is enough for this bot: it uses about 60 MB idle and ~150 MB at peak
-while editing a large GIF. Member caches grow with server size, so very large servers will use more.
+[README](../README.md) · [Configuration](CONFIGURATION.md) · [Operations](OPERATIONS.md) · [Antinuke](ANTINUKE.md)
 
-## 1. Prepare the bot in Discord
-1. <https://discord.com/developers/applications> → your app → **Bot**.
-2. Turn on all three **Privileged Gateway Intents**: Presence, Server Members, Message Content.
-3. **Reset Token** and copy it. Never share it or post it anywhere.
-4. Copy your own Discord user ID (Settings → Advanced → Developer Mode, then right-click your name → Copy User ID).
+## Deployment checklist
 
-## 2. Create the server on Wispbyte
-1. Sign up at <https://wispbyte.com> and create a new server.
-2. Choose the **Python** (Discord bot) type. If you can pick a Python version, choose **3.11 or 3.12**
-   (3.10 is the minimum). 3.13+ works too — `requirements.txt` includes `audioop-lts` for it.
+1. Prepare a Discord bot in the [Developer Portal](https://discord.com/developers/applications). Enable Message Content for prefix commands; enable Server Members and Presence if the features you use need them. Invite it with the permissions and role position needed for those features.
+2. Choose a host with a supported Python version, internet access to Discord and any chosen integrations, and **persistent, writable storage**. CI is configured for Python 3.10–3.13; the project declares Python 3.10 or newer. Resource use depends on server size and enabled features.
+3. Clone or upload this repository so `main.py`, `requirements.txt`, `core/`, `cogs/` and `assets/` are together. Create a virtual environment and install `requirements.txt`. Copy `.env.example` to `.env`, set the token and review [configuration](CONFIGURATION.md), especially `OWNER_IDS`, authorization and private mode.
+4. Persist `DB_PATH`, its SQLite sidecars and backups outside ephemeral containers, or configure PostgreSQL with its own backups. Protect `.env`, database URLs, logs and backups.
+5. Set the **process environment** variable `AUTO_SYNC_GIT=0` if you want a controlled deployment. Start with `python main.py` in the project directory and use a process manager or hosting panel to restart on failure.
+6. Check startup logs, run `,help` in an authorized server and verify intended permissions. Test security rules and restoration in a disposable server, not production.
 
-## 3. Upload the files
-1. Open the server's **File Manager**.
-2. Upload `veil-utilities-wispbyte.zip` and **Unarchive** it. `main.py`, `requirements.txt`, `core/`, `cogs/`
-   and `assets/` must sit at the top level (not inside another folder).
-3. Delete the zip afterwards.
+### Panel hosts, including Wispbyte
 
-## 4. Create your `.env`
-1. In the File Manager, open `.env.example`, copy everything, then create a **New File** named `.env` and paste.
-2. Fill in at least:
-   ```
-   DISCORD_TOKEN=your-token-here
-   LOW_MEMORY=true
-   ```
-3. Add any optional keys you want (Last.fm, Spotify, AI, Twitch…). Save.
-
-## 5. Startup settings
-Open the **Startup** tab and set:
-- **Main / app file** (often called `PY_FILE` or "App py file"): `main.py`
-- **Requirements file**: `requirements.txt` — the panel installs the packages on each start.
-
-If your panel has no requirements setting, put this in **Additional Python packages** instead:
-`discord.py aiosqlite asyncpg aiohttp python-dotenv wavelink Pillow gTTS feedparser regex PyNaCl davey`
-(on Python 3.13 or newer, add `audioop-lts` to that list as well)
-
-### One-line startup command
-If the panel runs `python main.py` without installing packages, and its startup command is editable, use a
-virtual environment. For an existing Git checkout of `main` directly in `/home/container`:
+Panel interfaces differ. Choose a Python application, set the entry point to `main.py`, and configure the panel to install `requirements.txt` or run a startup command that does so. For a checkout already located in `/home/container`, a possible Linux command is:
 
 ```bash
-cd /home/container && git pull --ff-only origin main && python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && exec .venv/bin/python main.py
+cd /home/container && python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && AUTO_SYNC_GIT=0 exec .venv/bin/python main.py
 ```
 
-For uploaded files without Git, omit `git pull --ff-only origin main &&`. If the files are in a subfolder,
-change the `cd` path. The first start installs everything; later starts reuse `.venv` and check dependencies.
-A failed pull or install stops startup rather than running an incomplete version. Panel startup fields vary: if the
-command is locked, use its requirements or additional packages setting above. Do not delete `.env` or `veil.db`.
+Adjust the path and startup syntax to your host. A first installation needs package-index access. Panel storage and restart policies vary; verify that `.env`, the database and backups persist across rebuilds. For uploads, use a current repository archive rather than relying on an assumed prebuilt ZIP name. See [troubleshooting](OPERATIONS.md#troubleshooting) if imports or startup fail.
 
-## 6. Start it
-Press **Start** and watch the **Console**. The first boot installs packages (a minute or two), then you should see:
+## Updating
+
+Back up the database and `.env` before an update and review the [changelog](../CHANGELOG.md), [production audit](PRODUCTION_AUDIT.md) and release notes. Test the update on a non-production copy where practical. A typical clean checkout of `main` can be updated manually:
+
+```bash
+git status
+git pull --ff-only origin main
+python -m pip install -r requirements.txt
+AUTO_SYNC_GIT=0 python main.py
 ```
-Logged in as veil utilities#1234 (…) in N guilds
-```
-Invite the bot, drag its role to the top of the role list, and run `,help`.
 
-## Keeping it online
-- Wispbyte's free plan asks you to **log in to the panel every two weeks**. Set a reminder.
-- `,restart` restarts the bot from Discord. `,system` shows memory use, and `,backup` DMs you the database.
-  Run a backup every so often, since everything (settings, levels, cases) lives in `veil.db`.
+Run the last command under your process manager rather than starting a second bot instance. Do not use this procedure to overwrite local changes; inspect `git status` and resolve them first. A fast-forward pull fails rather than rewriting a divergent checkout.
 
-## Music on a small plan
-Music needs a **Lavalink** server (Java), which won't fit in 512 MB next to the bot, so by default the bot uses
-**free public Lavalink nodes** and needs no setup. It connects to several at once and switches automatically when one
-goes down. Public nodes can be slow or busy at times. For rock-solid music, host Lavalink 4.2+ somewhere else
-(config in [`docs/lavalink/application.yml`](lavalink/application.yml)) and set `LAVALINK_URI` / `LAVALINK_PASSWORD`. Set `MUSIC_ENABLED=false`
-to turn music off.
+**Important:** Unless `AUTO_SYNC_GIT=0` is already present in the process environment, `main.py` fetches `origin/main` and performs `git reset --hard` to that fetched commit at startup. This happens **before `.env` is loaded** and may discard local commits or tracked changes. A patch of tracked edits may be written, but it is not a complete backup. The developer `,gitpull` command also uses a hard reset. Explicit deployment and backups are safer than relying on the startup sync.
 
-## Web dashboard (optional)
-The dashboard is **off** by default. It lets server owners edit role blacklist, log channels and antinuke
-settings in a browser.
+PostgreSQL upgrades may alter tables and take locks; test and back up first. Changing `DB_PATH` or `DATABASE_URL` does not migrate data. Details and restore cautions are in [database operations](OPERATIONS.md#database-and-backups).
 
-**Only on this machine:** set `DASHBOARD_ENABLED=true`. It listens on `127.0.0.1:8080` and nobody else can
-reach it. Wispbyte has no way to open a local address, so use the next option there.
+## Dashboard
 
-**Public, with Discord login:**
-1. Developer portal → your app → **OAuth2**. Reset and copy the **Client Secret** (the Client ID is read from the bot itself).
-2. Under **Redirects**, add your dashboard address followed by `/callback`, for example
-   `http://123.45.67.89:25565/callback` (Wispbyte shows the address and port on the server's **Network** tab).
-3. In `.env`:
-   ```
-   DASHBOARD_ENABLED=true
-   DASHBOARD_PORT=25565                       # the port Wispbyte gave you
-   DASHBOARD_URL=http://123.45.67.89:25565    # exactly what you added in step 2, without /callback
-   DISCORD_CLIENT_SECRET=...
-   DASHBOARD_SECRET=                          # optional: 32+ random characters keeps people logged in across restarts
-   ```
-4. Restart. People sign in with Discord and only see servers they **own**; developers see every server.
+The optional dashboard is off by default. Set `DASHBOARD_ENABLED=true` to start it. Without OAuth it binds to loopback and treats local visitors as bot owners; do **not** publish this mode. To use Discord login, configure `DISCORD_CLIENT_SECRET`, `DASHBOARD_URL` and the Discord OAuth redirect `<DASHBOARD_URL>/callback`; the client ID is detected or can be set explicitly. Set a strong `DASHBOARD_SECRET` of at least 32 characters to keep sessions across restarts. Use HTTPS and a correctly configured reverse proxy, and keep the secret private. See [dashboard settings](CONFIGURATION.md#optional-dashboard) and [`core/dashboard.py`](../core/dashboard.py) for the access model.
 
-A plain `http://` address works, but login cookies then travel unencrypted. Put the dashboard behind HTTPS
-(a domain with a reverse proxy such as Caddy or Cloudflare Tunnel) if other people will use it.
+## Rollback
 
-## Troubleshooting
-| Console says | Fix |
-|---|---|
-| `Set DISCORD_TOKEN in your .env file` | `.env` is missing, misnamed, or not in the same folder as `main.py` |
-| `Discord refused a privileged intent` | The bot still starts with fewer features. Turn on the three intents in the developer portal (step 1) and restart |
-| `Discord rejected DISCORD_TOKEN` | Reset the token and paste the new one, with no spaces or quotes |
-| `AI unavailable: … rejected the API key` | `AI_API_KEY` is wrong or revoked. Make a new key, or delete the line to use the free AI |
-| `Missing Python packages` / `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
-| `No module named 'audioop'` | The server runs Python 3.13+, which removed that module — install the packages once more so `audioop-lts` from requirements.txt is picked up, add `audioop-lts` to **Additional Python packages**, or switch the server image to Python 3.11/3.12 |
-| `Installed packages that won't load on this Python` | One package doesn't match the server's Python version — reinstall the requirements and restart |
-| `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |
-| Discord HTTP 429 / `IPv6 route could not connect` | The IPv4 address may be rate-limited and IPv6 may not be available on the host. Leave the bot running: it retries with increasing delays up to five minutes. Repeated restarts won't fix the hosting IP's rate limit. If it persists, contact Wispbyte about Discord connectivity or the shared IP's rate limit |
-| `Unable to connect to Discord` / DNS errors | The bot retries without exiting. If the error persists, ask Wispbyte to check DNS and network access to `discord.com:443` from the server |
-| Starts, then stops with no error | Check the panel's exit status and memory graph for an out-of-memory kill. The bot detects small container limits and turns LOW_MEMORY on automatically unless you explicitly set it — check `Memory Limit:` in the startup banner. Also try `MUSIC_ENABLED=false` |
-| `Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL` | Fill in both, or clear both for a localhost-only dashboard |
-| The bot leaves your server right away | Server authorization: it stays in servers owned by a developer (you, as the owner of the bot's Discord application); for any other server run `,authorize <server id>` |
-
----
-
-# Deploying from GitHub (recommended)
-
-Keeping the code on GitHub means you can edit it anywhere, keep a history of changes, and have Wispbyte pull
-the newest version every time the bot restarts.
-
-## 1. Put the code on GitHub
-1. Create a **New repository** on <https://github.com>. Make it **Private**.
-2. Upload the files, either way:
-   - **Website:** on the empty repo page click *uploading an existing file*, drag in everything from the unzipped
-     folder (including `.gitignore` — turn on "show hidden files" if you can't see it), then **Commit changes**.
-   - **GitHub Desktop:** *File → Add local repository* → pick the unzipped folder → *Publish repository*
-     (keep "Keep this code private" checked).
-3. Check the repo on github.com: `.env`, `veil.db` and `veil.log` must **not** be there. `.gitignore` keeps them out.
-
-## 2. Let Wispbyte read a private repo
-1. GitHub → *Settings → Developer settings → Personal access tokens → Fine-grained tokens* → **Generate new token**.
-2. Repository access: **Only select repositories** → your bot repo.
-3. Permissions → Repository → **Contents: Read-only**. Generate and copy the token.
-
-## 3. Point Wispbyte at the repo
-In the server's **Startup** tab (names vary slightly between panels):
-- **Git Repo Address**: `https://github.com/<you>/<repo>.git`
-- **Git Branch**: `main`
-- **Git Username**: your GitHub username
-- **Git Access Token**: the token from step 2
-- **Auto Update**: **On** (pulls the latest code on every restart)
-- **App py file**: `main.py` • **Requirements file**: `requirements.txt`
-
-The panel only clones into an **empty** server folder. If you already uploaded the files by hand:
-1. Download your `.env` and `veil.db` from the File Manager first (they hold your token and all settings).
-2. Delete everything in the File Manager.
-3. Start the server once, so it clones the repo.
-4. Upload `.env` and `veil.db` back.
-
-## 4. Updating the bot
-Edit or upload changed files on GitHub (or commit + push with GitHub Desktop), then press **Restart** on Wispbyte
-or run `,gitpull` in Discord. `,gitpull` reloads changed cogs straight away and restarts by itself when core files
-changed. If `requirements.txt` changed, restart from the panel so new packages get installed. Your `.env` and database stay untouched because they aren't in git.
-
-## 5. Checking that the host really runs the newest code
-- **`,version`** (developers) shows the commit the bot is running, the commit on disk and the latest one, and what
-  to do if they differ (`,gitpull`, `,restart`, or fixing the repo address). Only short commit IDs are posted in
-  Discord: the repository, account and commit titles stay in the host console.
-- **The console** prints one `[git]` line on every start: `updated abc1234 -> def5678`, `up to date at …`, or
-  `sync FAILED, still running …` with the reason (GitHub login rejected, host can't reach GitHub, wrong repo address,
-  folder isn't a git checkout). The startup box also lists the **Running Commit**.
-- **`,gitpull`** reports the same reasons in Discord instead of a bare error.
-- Files edited by hand on the host no longer stop updates: your changes are saved to `local-edits-<date>.patch` in
-  the bot folder and the sync carries on. Set `AUTO_SYNC_GIT=0` in `.env` to stop the bot pulling at all.
-
-**If your token ever ends up on GitHub**, even for a second, reset it immediately in the Discord developer
-portal. Bots scan GitHub for leaked tokens within minutes.
+Stop the bot, restore a verified database backup on a separate copy first, and deploy the intended code revision using your normal release process. Do not run a previous version against a newer schema without testing compatibility. Coordinate restoration of SQLite WAL sidecars or use the PostgreSQL provider's restore procedure. The project's startup sync must be disabled in the process environment when intentionally running an older revision.

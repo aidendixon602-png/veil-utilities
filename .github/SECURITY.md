@@ -1,39 +1,21 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+## Supported code
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+Security reports are most useful against the current default branch or the latest published release. This project does not currently publish a guaranteed support schedule for older releases. See the [release history](https://github.com/aidendixon602-png/veil-utilities/releases) and [changelog](../CHANGELOG.md).
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-This bot runs with high Discord permissions (that's the point of antinuke), so a vulnerability
-here is a vulnerability in every server that hosts it. Please report issues responsibly:
+Do **not** post exploit details, tokens, private logs, database contents or user information in a public issue. Do not test destructive actions against servers you do not control.
 
-1. **Do not open a public issue** for anything exploitable (permission bypasses, antinuke gaps,
-   token/secret leaks, SSRF, remote code execution paths).
-2. Email the maintainer via the address on the
-   [GitHub profile](https://github.com/aidendixon602-png), or open a private vulnerability report
-   through GitHub's *Security → Report a vulnerability* tab.
-3. Include: what you found, how to reproduce it, and the commit you're on.
-   Screenshots or a short clip help a lot.
+1. If the repository's **Security → Report a vulnerability** button is available, use GitHub's private vulnerability reporting to contact the maintainers.
+2. If that button is unavailable, open a public issue **only to request a private reporting channel**, without technical details or secrets. Wait for a maintainer to provide a private channel before sharing the report. Repository administrators can enable private vulnerability reporting in GitHub settings.
+3. Privately provide the affected commit or release, a minimal reproduction in an isolated environment, the impact and any suggested mitigation. Remove secrets and personal information from all attachments.
 
-You can expect an acknowledgement within a week. If the report is accepted, a fix will ship in a
-patch release and you'll be credited in the changelog (unless you'd rather stay anonymous).
+There is no published response-time or release-time commitment. If a credential may have been exposed, revoke or rotate it through the provider promptly; deleting it from the latest revision alone does not remove it from history or caches.
 
-## Scope notes
+## Scope and operational precautions
 
-Things that are **by design**, not bugs:
+Examples of issues worth reporting include permission escalation, unauthorized access to developer commands or the dashboard, antinuke bypasses, secret disclosure, unsafe URL handling and remote code execution. Developers and application owners intentionally have broad privileges; protect those accounts and restrict `OWNER_IDS`.
 
-- Bot developers can do everything, everywhere. They are the owner (or team members) of the bot's Discord application plus any `OWNER_IDS`, so guard that Discord account and team carefully.
-- Servers must be authorized by a developer when `AUTH_REQUIRED=true`.
-- The bot needs Administrator to do its job; it refuses moderation configuration without it.
-
-Things that are absolutely in scope:
-
-- Fake-permission or level-system escalation.
-- Antinuke/antiraid bypasses, including through the bot's own commands.
-- Secrets or tokens exposed in logs, DMs, or this repository.
-- Unsafe handling of user-supplied URLs or files.
+Antinuke responses and restoration are best-effort, not an assurance that damage can always be prevented or reversed. Review the [antinuke guide](../docs/ANTINUKE.md) and [production audit](../docs/PRODUCTION_AUDIT.md), use least privilege appropriate to your setup, and test security settings in a disposable server.
