@@ -138,8 +138,10 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
     """Gather environment and configuration diagnostics for startup."""
     import discord
 
+    from core.db import is_postgres_url
+
     db_url = getattr(settings, "database_url", None)
-    if db_url:
+    if is_postgres_url(db_url):
         try:
             parsed = urlparse(db_url)
             host = parsed.hostname or "localhost"
@@ -148,7 +150,10 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
         except Exception:
             db_engine = "PostgreSQL (configured)"
     else:
+        # unset, or a URL the factory doesn't recognise: say the file that is really used, not a guess
         db_engine = f"SQLite ({settings.db_path}) [WAL Mode]"
+        if db_url:
+            db_engine += " · DATABASE_URL isn't a postgresql:// address, so it is ignored"
 
     dash_port = os.environ.get("DASHBOARD_PORT", os.environ.get("PORT", "8080"))
     music_status = "Lavalink (Public Nodes)" if settings.music_enabled else "Disabled"

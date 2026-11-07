@@ -127,9 +127,9 @@ class Owner(commands.Cog):
         e.add_field(name="Channels", value=f"{sum(len(g.channels) for g in b.guilds):,}")
         shards = ", ".join(f"#{sid}: {lat * 1000:.0f}ms" for sid, lat in b.latencies) or "—"
         e.add_field(name=f"Shards ({b.shard_count or 1})", value=shorten(shards, 1024), inline=False)
-        db_path = b.db.path
-        size = os.path.getsize(db_path) / 1_048_576 if db_path != ":memory:" and os.path.exists(db_path) else 0
-        e.add_field(name="Database", value=f"{size:.2f} MB")
+        db_path = getattr(b.db, "path", None)  # PostgreSQL has no file to measure
+        size = os.path.getsize(db_path) / 1_048_576 if db_path and db_path != ":memory:" and os.path.exists(db_path) else 0
+        e.add_field(name="Database", value=f"{size:.2f} MB" if db_path else "PostgreSQL")
         e.add_field(name="Errors (this run)", value=str(b._error_seq))
         e.add_field(name="Blacklisted", value=str(len(b.blacklist)))
         try:
@@ -313,7 +313,10 @@ class Owner(commands.Cog):
     @commands.max_concurrency(1)
     async def backup(self, ctx: Context):
         """DM yourself a full database backup"""
-        path = self.bot.db.path
+        path = getattr(self.bot.db, "path", None)
+        if not path:
+            raise UserError("This bot stores its data in PostgreSQL, which Discord can't hand you as a file. "
+                            "Use `pg_dump` on the host instead.")
         if path == ":memory:" or not os.path.exists(path):
             raise UserError("There's no database file to back up")
 

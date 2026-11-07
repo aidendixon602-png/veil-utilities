@@ -889,6 +889,24 @@ def shorten(text: str, n: int = 1024) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+_RUNS = re.compile(r"\*+|_+|~+|\|+")
+
+
+def _markers(text: str, char: str) -> list[int]:
+    """Start offsets of the run of `char` that opens/closes emphasis (two or more, e.g. `**` and not the `**`
+    inside a longer `***`). Counting *runs* keeps `` `x `` `` from looking like stray emphasis characters."""
+    return [m.start() for m in _RUNS.finditer(text) if m.group()[0] == char and len(m.group()) >= 2]
+
+
+def _drop_unclosed(cut: str, char: str) -> str:
+    """Cut back past an odd run of `char` emphasis, so a cut can't leave bold or spoilers open."""
+    while True:
+        marks = _markers(cut, char)
+        if len(marks) % 2 == 0:
+            return cut
+        cut = cut[: marks[-1]]
+
+
 def shorten_md(text: str, n: int = 1024) -> str:
     """Like shorten, but never leaves Markdown half-open. Cutting inside `code`, **bold** or a (bracket) would
     make Discord format everything after it on the same message as code or bold."""
@@ -898,9 +916,12 @@ def shorten_md(text: str, n: int = 1024) -> str:
     space = cut.rfind(" ")
     if space > n // 3:  # end on a whole word
         cut = cut[:space]
-    for mark in ("`", "**", "*", "__", "||", "~~"):
+    # longest first: ` ``` ` hides its inner backticks, so a fenced block has to be balanced before a code span
+    for mark in ("```", "`"):
         while cut.count(mark) % 2:
             cut = cut[: cut.rfind(mark)]
+    for char in ("*", "_", "~", "|"):
+        cut = _drop_unclosed(cut, char)
     while cut.count("(") > cut.count(")"):
         cut = cut[: cut.rfind("(")]
     while cut.count("[") > cut.count("]"):

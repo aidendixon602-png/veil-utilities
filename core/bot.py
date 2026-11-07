@@ -17,6 +17,7 @@ from discord.ext import commands, tasks
 from core import redact
 from core.config import settings
 from core.help import Help
+from core.loops import resilient
 from core.net import make_public_session
 from core.utils import Colors, Context, Ignored, UserError, compact_failure, input_error_text, perm_label, uses_compact_replies
 
@@ -221,6 +222,7 @@ class Veil(commands.AutoShardedBot):
         await self.db.close()
 
     @tasks.loop(minutes=5)  # member counts drift; joins and leaves of servers refresh it straight away
+    @resilient
     async def presence_rotator(self):
         await self.update_dynamic_status()
 

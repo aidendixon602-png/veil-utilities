@@ -1,10 +1,20 @@
-"""SQLite storage with an in-memory cache for per-guild JSON config."""
+"""Storage: SQLite by default, PostgreSQL for large deployments.
+
+Both backends answer to the same small set of calls (`get_config`, `set_config`, `execute`, `fetchone`,
+`fetchall`, `guilds_with`, self prefixes), so nothing in the cogs knows which one is in use. The cogs write
+SQLite's placeholder style (`?`) and its row shape; the PostgreSQL backend translates the handful of
+SQLite-only spellings (`INSERT OR REPLACE`, `INSERT OR IGNORE`, `AUTOINCREMENT`) and returns mapping rows.
+"""
 from __future__ import annotations
 
 import json
+import logging
+import re
 from typing import Any
 
 import aiosqlite
+
+log = logging.getLogger("veil.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS config (
@@ -70,6 +80,130 @@ CREATE INDEX IF NOT EXISTS idx_giveaways_open ON giveaways (ended, ends);
 CREATE INDEX IF NOT EXISTS idx_levels_rank ON levels (guild_id, xp DESC);
 CREATE INDEX IF NOT EXISTS idx_msgstats_day ON msgstats (guild_id, day);
 """
+
+# PostgreSQL has no AUTOINCREMENT: a plain IDENTITY column does the same job
+POSTGRES_SCHEMA = SCHEMA.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+
+
+class Row(dict):
+    """A row that reads like a SQLite one: `row["data"]`, and also `row[0]` (by column order)."""
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class WriteResult:
+    """What `execute` returns so callers can ask `if cur.rowcount:` the same way on both backends."""
+
+    def __init__(self, rowcount: int = 0):
+        self.rowcount = rowcount
+
+
+def _split_statements(script: str) -> list[str]:
+    """SCHEMA -> single statements (PostgreSQL's simple query protocol rejects `CREATE INDEX ... (a, b)`)."""
+    return [s.strip() for s in script.split(";") if s.strip() and not s.strip().startswith("--")]
+
+
+def _pg_query(query: str, count: int) -> str:
+    """SQLite's `?` placeholders -> `$1, $2, ...`, skipping any `?` inside a quoted string literal."""
+    out, index, i, quoted = [], 1, 0, None
+    while i < len(query):
+        char = query[i]
+        if quoted:
+            out.append(char)
+            if char == quoted:
+                quoted = None
+        elif char in ("'", '"'):
+            quoted = char
+            out.append(char)
+        elif char == "?":
+            out.append(f"${index}")
+            index += 1
+        else:
+            out.append(char)
+        i += 1
+    if index - 1 != count:  # a placeholder the caller didn't pass (or a bare '?'): leave the SQL alone
+        return query
+    return "".join(out)
+
+
+_INSERT_OR_REPLACE = re.compile(r"^\s*INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*(\([^)]*\))?\s*VALUES", re.I)
+_INSERT_OR_IGNORE = re.compile(r"^\s*INSERT\s+OR\s+IGNORE\s+INTO\s+(\w+)\s*(\([^)]*\))?\s*VALUES", re.I)
+_CREATE_TABLE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.*?)\)\s*;", re.I | re.S)
+
+
+def _split_top_level(body: str) -> list[str]:
+    """Split a CREATE TABLE body on the commas that separate columns, not the ones inside `(a, b)`."""
+    parts, depth, current = [], 0, []
+    for char in body:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    if "".join(current).strip():
+        parts.append("".join(current).strip())
+    return parts
+
+
+def _table_columns() -> dict[str, tuple[list[str], list[str]]]:
+    """{table: (columns in order, primary-key columns)} read straight from SCHEMA.
+
+    The schema is the single place that defines the tables, so `INSERT OR REPLACE INTO t VALUES(...)`
+    can be translated to PostgreSQL's ON CONFLICT form without a second, hand-kept copy of the columns.
+    """
+    tables: dict[str, tuple[list[str], list[str]]] = {}
+    for name, body in _CREATE_TABLE.findall(SCHEMA):
+        columns, keys = [], []
+        for part in _split_top_level(body):
+            upper = part.upper()
+            if upper.startswith("PRIMARY KEY"):
+                keys.extend(c.strip() for c in part[part.index("(") + 1:part.rindex(")")].split(","))
+            else:
+                columns.append(part.split()[0])
+                if "PRIMARY KEY" in upper:
+                    keys.append(part.split()[0])
+        tables[name] = (columns, keys)
+    return tables
+
+
+TABLE_COLUMNS = _table_columns()
+
+
+def _pg_statement(query: str, args: tuple) -> tuple[str, bool]:
+    """(statement, whether it is an INSERT OR IGNORE) for PostgreSQL.
+
+    SQLite spells "upsert" as `INSERT OR REPLACE`, and "do nothing on conflict" as `INSERT OR IGNORE`.
+    PostgreSQL does both with an ON CONFLICT clause, keyed by the table's primary key.
+    """
+    replace = _INSERT_OR_REPLACE.match(query)
+    ignore = _INSERT_OR_IGNORE.match(query)
+    if not replace and not ignore:
+        return query, False
+    match = replace or ignore
+    table = match.group(1)
+    given = match.group(2)
+    columns, keys = TABLE_COLUMNS.get(table, ([], []))
+    if given:  # `INSERT OR REPLACE INTO t (a, b) VALUES` — the caller said which columns
+        names = [c.strip() for c in given.strip("()").split(",")]
+    else:
+        names = columns
+    target = ", ".join(keys)
+    if ignore or not target:
+        suffix = f" ON CONFLICT ({target}) DO NOTHING" if target else ""
+    else:
+        updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in names if c and c not in keys)
+        suffix = (f" ON CONFLICT ({target}) DO UPDATE SET {updates}" if updates
+                  else f" ON CONFLICT ({target}) DO NOTHING")
+    head = f"INSERT INTO {table} ({', '.join(names)}) VALUES" if names else f"INSERT INTO {table} VALUES"
+    return head + query[match.end():] + suffix, ignore is not None
+
 
 
 class Database:
@@ -164,7 +298,12 @@ class Database:
 
 
 class PostgresDatabase:
-    """Production-grade PostgreSQL backend option suitable for large multi-guild deployments."""
+    """The same storage in PostgreSQL, for deployments that outgrow one SQLite file.
+
+    Set DATABASE_URL=postgresql://user:pass@host/db (and `pip install asyncpg`). Tables are created on the
+    first start, exactly like the SQLite ones, so switching is: set DATABASE_URL, start, done.
+    """
+
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.pool = None
@@ -174,50 +313,52 @@ class PostgresDatabase:
     async def connect(self) -> None:
         try:
             import asyncpg
-            self.pool = await asyncpg.create_pool(self.dsn)
-            async with self.pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS config (
-                        guild_id BIGINT NOT NULL,
-                        module TEXT NOT NULL,
-                        data TEXT NOT NULL,
-                        PRIMARY KEY (guild_id, module)
-                    );
-                    CREATE TABLE IF NOT EXISTS selfprefix (
-                        user_id BIGINT PRIMARY KEY,
-                        prefix TEXT NOT NULL
-                    );
-                """)
         except ImportError:
-            raise RuntimeError("asyncpg is required for PostgreSQL backend: pip install asyncpg")
+            raise RuntimeError("DATABASE_URL is set to PostgreSQL but asyncpg isn't installed: "
+                               "run `pip install asyncpg` (or remove DATABASE_URL to use SQLite)") from None
+        try:
+            self.pool = await asyncpg.create_pool(self.dsn)
+        except (OSError, asyncpg.PostgresError) as e:
+            raise RuntimeError(f"Couldn't reach PostgreSQL at this DATABASE_URL: {e}") from None
+        async with self.pool.acquire() as conn:
+            for statement in _split_statements(POSTGRES_SCHEMA):
+                await conn.execute(statement)
+        log.info("Connected to PostgreSQL")
 
     async def close(self) -> None:
         if self.pool:
             await self.pool.close()
             self.pool = None
 
-    async def execute(self, query: str, *args):
-        # Convert ? to $1, $2 for postgres syntax
-        pg_query = query
-        for i in range(len(args)):
-            pg_query = pg_query.replace("?", f"${i+1}", 1)
+    # ---- raw helpers -------------------------------------------------
+    async def execute(self, query: str, *args) -> WriteResult:
+        statement, ignore_conflict = _pg_statement(query, args)
         async with self.pool.acquire() as conn:
-            return await conn.execute(pg_query, *args)
+            status = await conn.execute(_pg_query(statement, len(args)), *args)
+        return WriteResult(self._affected(status) + (0 if ignore_conflict else 0))
+
+    async def executemany(self, query: str, rows) -> None:
+        statement, _ = _pg_statement(query, ())
+        async with self.pool.acquire() as conn:
+            await conn.executemany(_pg_query(statement, len(rows[0]) if rows else 0), rows)
 
     async def fetchone(self, query: str, *args):
-        pg_query = query
-        for i in range(len(args)):
-            pg_query = pg_query.replace("?", f"${i+1}", 1)
         async with self.pool.acquire() as conn:
-            return await conn.fetchrow(pg_query, *args)
+            row = await conn.fetchrow(_pg_query(query, len(args)), *args)
+        return Row(row) if row is not None else None
 
     async def fetchall(self, query: str, *args):
-        pg_query = query
-        for i in range(len(args)):
-            pg_query = pg_query.replace("?", f"${i+1}", 1)
         async with self.pool.acquire() as conn:
-            return await conn.fetch(pg_query, *args)
+            rows = await conn.fetch(_pg_query(query, len(args)), *args)
+        return [Row(r) for r in rows]
 
+    @staticmethod
+    def _affected(status: str) -> int:
+        """asyncpg reports the row count in the command tag ('DELETE 3', 'INSERT 0 1')."""
+        tag = (status or "").rsplit(" ", 1)[-1]
+        return int(tag) if tag.isdigit() else 0
+
+    # ---- JSON config -------------------------------------------------
     async def get_config(self, guild_id: int, module: str, default: Any = None) -> Any:
         key = (guild_id, module)
         if key in self._cache:
@@ -232,12 +373,17 @@ class PostgresDatabase:
 
     async def set_config(self, guild_id: int, module: str, data: Any) -> None:
         self._cache[(guild_id, module)] = data
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO config (guild_id, module, data) VALUES ($1, $2, $3)
-                ON CONFLICT (guild_id, module) DO UPDATE SET data = EXCLUDED.data
-            """, guild_id, module, json.dumps(data))
+        await self.execute(
+            "INSERT INTO config(guild_id, module, data) VALUES(?,?,?) "
+            "ON CONFLICT(guild_id, module) DO UPDATE SET data=excluded.data",
+            guild_id, module, json.dumps(data),
+        )
 
+    async def guilds_with(self, module: str) -> list[tuple[int, Any]]:
+        rows = await self.fetchall("SELECT guild_id, data FROM config WHERE module=?", module)
+        return [(r["guild_id"], json.loads(r["data"])) for r in rows]
+
+    # ---- self prefix -------------------------------------------------
     async def get_selfprefix(self, user_id: int) -> str | None:
         if user_id in self._prefix_cache:
             return self._prefix_cache[user_id]
@@ -250,15 +396,18 @@ class PostgresDatabase:
         if prefix is None:
             await self.execute("DELETE FROM selfprefix WHERE user_id=?", user_id)
         else:
-            async with self.pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO selfprefix (user_id, prefix) VALUES ($1, $2)
-                    ON CONFLICT (user_id) DO UPDATE SET prefix = EXCLUDED.prefix
-                """, user_id, prefix)
+            await self.execute(
+                "INSERT INTO selfprefix VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET prefix=excluded.prefix",
+                user_id, prefix,
+            )
+
+
+def is_postgres_url(value: str | None) -> bool:
+    return bool(value) and value.startswith(("postgres://", "postgresql://"))
 
 
 def create_database(path_or_url: str) -> Database | PostgresDatabase:
     """Factory creating SQLite Database or PostgreSQL PostgresDatabase based on connection URI."""
-    if path_or_url.startswith(("postgres://", "postgresql://")):
+    if is_postgres_url(path_or_url):
         return PostgresDatabase(path_or_url)
     return Database(path_or_url)

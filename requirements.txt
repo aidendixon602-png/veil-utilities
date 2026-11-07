@@ -1,5 +1,6 @@
 discord.py>=2.4
 aiosqlite>=0.20
+asyncpg>=0.29  # only used when DATABASE_URL points at PostgreSQL
 aiohttp>=3.9
 python-dotenv>=1.0
 wavelink>=3.5.2

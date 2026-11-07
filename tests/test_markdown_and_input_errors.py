@@ -32,6 +32,40 @@ def test_short_text_is_left_alone():
     assert shorten_md("Set up a starboard: `starboard #stars 3 ⭐`", 70) == "Set up a starboard: `starboard #stars 3 ⭐`"
 
 
+@pytest.mark.parametrize("text", [
+    "```python\nprint('hi')\n```\n" + "filler " * 40,          # a fenced block: its backticks used to be miscounted
+    "```\ncode\n``` " + "x" * 300,                               # a closed fence long enough to be cut inside
+    "__underlined__ " + "words " * 40,                        # __ counted the `` inside `` `x` `` as bold
+    "**bold** " + "words " * 40,
+    "~~struck~~ " + "words " * 40,
+    "||spoiler|| " + "words " * 40,
+    "run `,ban @user` because " + "reason " * 30,
+])
+def test_a_cut_never_leaves_formatting_open(text):
+    import re
+
+    def balanced(value: str) -> bool:
+        if value.count("`") % 2:
+            return False
+        for char in "*_~|":
+            runs = [m.group() for m in re.finditer(re.escape(char) + r"+", value)]
+            if sum(len(run) >= 2 for run in runs) % 2:
+                return False  # an open bold / underline / strike / spoiler
+        return value.count("(") == value.count(")") and value.count("[") == value.count("]")
+
+    assert balanced(text), "the test itself needs balanced input"
+    for limit in range(20, len(text)):
+        out = shorten_md(text, limit)
+        assert len(out) <= limit, (limit, out)
+        assert balanced(out), (limit, out)
+
+
+def test_the_whole_help_page_line_is_still_cut_on_a_word():
+    out = shorten_md(BUMP, 60)
+    assert out.endswith("…") and len(out) <= 60
+    assert not out[:-1].endswith("("), out
+
+
 def test_the_bump_line_on_the_server_page_is_cut_cleanly():
     cmd = SimpleNamespace(short_doc=BUMP)
     assert h.blurb(cmd) == "Remind the server to /bump on Disboard every 2 hours"

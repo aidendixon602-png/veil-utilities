@@ -216,14 +216,20 @@ def test_permission_levels_cannot_unlock_developer_commands():
 
 
 def test_every_developer_cog_requires_bot_owner():
-    """Static guard: Owner/DevTools/Authorization must gate via is_owner in cog_check forever."""
-    import ast
+    """Static guard: Owner/DevTools/Authorization must gate via is_owner in cog_check forever.
+
+    Read as plain text rather than through `ast.parse`: parsing a 50 KB module right after the suites above
+    intermittently trips a CPython C-stack accounting quirk (`SystemError: AST constructor recursion depth
+    mismatch`) on a file that is perfectly valid, which made this guard flaky in CI.
+    """
+    import re
+
     for name in ("owner", "devtools", "authorization"):
-        tree = ast.parse(open(f"cogs/{name}.py").read())
-        checks = [n for n in ast.walk(tree)
-                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "cog_check"
-                  and "is_owner" in ast.unparse(n)]
-        assert checks, f"cogs/{name}.py lost its is_owner cog_check"
+        with open(f"cogs/{name}.py", encoding="utf-8") as f:
+            source = f.read()
+        gate = re.search(r"async def cog_check\(.*?\n(?=\n    (?:async )?def |\n\nclass )", source, re.S)
+        assert gate, f"cogs/{name}.py lost its cog_check entirely"
+        assert "is_owner" in gate.group(0), f"cogs/{name}.py lost its is_owner cog_check"
 
 
 def test_unhandled_error_never_echoes_the_exception_message():

@@ -9,6 +9,7 @@ import re
 import discord
 from discord.ext import commands, tasks
 
+from core.loops import resilient
 from core.utils import (Colors, Context, UserError, antinuke_guard, build_message, build_vars, check_role,
                         chunk_embeds, has_perms, is_dangerous, now, send_script, shorten)
 
@@ -727,6 +728,7 @@ class Config(commands.Cog):
         }[kind]()
 
     @tasks.loop(minutes=10)
+    @resilient
     async def counter_loop(self):
         for gid, cfg in await self.bot.db.guilds_with("counters"):
             guild = self.bot.get_guild(gid)
@@ -797,6 +799,7 @@ class Config(commands.Cog):
             await send_script(m.channel, cfg["thanks"], build_vars(user or m.guild.me, m.guild, m.channel))
 
     @tasks.loop(minutes=1)
+    @resilient
     async def bump_loop(self):
         for gid, cfg in await self.bot.db.guilds_with("bump"):
             if not cfg.get("on") or not cfg.get("due") or cfg["due"] > now():

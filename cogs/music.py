@@ -15,6 +15,7 @@ from discord.ext import commands, tasks
 
 from core.config import settings
 from core.lavalink_nodes import _own_nodes, resolve_nodes
+from core.loops import resilient
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, missing_perms, shorten, requires_uperm
 
 try:
@@ -95,6 +96,7 @@ class Music(commands.Cog):
             log.warning("Could not connect to Lavalink node %s", self.nodes[index][0], exc_info=True)
 
     @tasks.loop(minutes=5)
+    @resilient
     async def node_watchdog(self):
         """Connect every node in parallel, and re-add nodes that dropped and used up their retries."""
         try:
@@ -611,7 +613,7 @@ class Music(commands.Cog):
         elif preset == "karaoke":
             f.karaoke.set(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
         await player.set_filters(f, seek=True)
-        await ctx.approve(f"turned the **{preset}** filter on" if preset != "off" else "turned the filters off")
+        await ctx.approve(f"turned the **{preset}** filter on" if preset != "clear" else "cleared the filters")
 
     @commands.command()
     @has_perms(manage_guild=True)
