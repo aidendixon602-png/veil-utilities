@@ -19,7 +19,7 @@ def test_health_reports_missing_permissions_and_intents():
     assert "can't guarantee protection" in text
 
 
-def test_health_explains_ghost_vanguard_delegation(monkeypatch):
+def test_health_warns_about_overlapping_protection(monkeypatch):
     from core import perms
     cog, guild = setup()
     monkeypatch.setattr(perms, "ghost_guards", lambda guild: True)
@@ -31,5 +31,6 @@ def test_health_explains_ghost_vanguard_delegation(monkeypatch):
                           clean_prefix=",", send=AsyncMock())
     asyncio.run(Antinuke.an_health.callback(cog, ctx))
     text = ctx.send.await_args.kwargs["embed"].description
-    assert "Ghost Vanguard handles audit-log protection" in text
+    assert "Ghost Vanguard is present" in text and "avoid duplicate actions" in text
+    assert "Rules won't run until" in text  # even when Ghost is present, Veil can still be off
     assert "Core audit and response permissions are present" in text

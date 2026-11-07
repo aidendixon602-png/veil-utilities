@@ -61,6 +61,14 @@ CREATE TABLE IF NOT EXISTS vm_channels (channel_id INTEGER PRIMARY KEY, guild_id
 CREATE TABLE IF NOT EXISTS blacklist (id INTEGER PRIMARY KEY, reason TEXT);
 CREATE TABLE IF NOT EXISTS authorized (guild_id INTEGER PRIMARY KEY, authorized_by INTEGER, at REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS globalbans (user_id INTEGER PRIMARY KEY, mod_id INTEGER, reason TEXT, at REAL);
+-- An incident and its delivery states are written atomically in one row.
+CREATE TABLE IF NOT EXISTS security_incidents (
+    incident_id TEXT PRIMARY KEY, kind TEXT NOT NULL, severity TEXT NOT NULL,
+    guild_id TEXT, actor_id TEXT, summary TEXT NOT NULL, action TEXT NOT NULL,
+    details TEXT NOT NULL, deliveries TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL,
+    next_attempt DOUBLE PRECISION, state TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_security_incidents_due ON security_incidents (next_attempt);
 CREATE TABLE IF NOT EXISTS member_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id INTEGER,
@@ -81,8 +89,10 @@ CREATE INDEX IF NOT EXISTS idx_levels_rank ON levels (guild_id, xp DESC);
 CREATE INDEX IF NOT EXISTS idx_msgstats_day ON msgstats (guild_id, day);
 """
 
-# PostgreSQL has no AUTOINCREMENT: a plain IDENTITY column does the same job
+# SQLite INTEGER stores signed 64-bit values, whereas PostgreSQL INTEGER is only 32-bit.
+# Discord snowflakes exceed that range; use BIGINT for all corresponding columns.
 POSTGRES_SCHEMA = SCHEMA.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+POSTGRES_SCHEMA = re.sub(r"\bINTEGER\b", "BIGINT", POSTGRES_SCHEMA)
 
 
 class Row(dict):
@@ -103,7 +113,8 @@ class WriteResult:
 
 def _split_statements(script: str) -> list[str]:
     """SCHEMA -> single statements (PostgreSQL's simple query protocol rejects `CREATE INDEX ... (a, b)`)."""
-    return [s.strip() for s in script.split(";") if s.strip() and not s.strip().startswith("--")]
+    without_comments = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("--"))
+    return [s.strip() for s in without_comments.split(";") if s.strip()]
 
 
 def _pg_query(query: str, count: int) -> str:
@@ -174,6 +185,18 @@ def _table_columns() -> dict[str, tuple[list[str], list[str]]]:
 
 
 TABLE_COLUMNS = _table_columns()
+
+
+def _integer_columns() -> dict[str, list[str]]:
+    """Columns declared INTEGER in our own schema (never identifiers supplied by a user)."""
+    result = {}
+    for name, body in _CREATE_TABLE.findall(SCHEMA):
+        result[name] = [part.split()[0] for part in _split_top_level(body)
+                        if re.match(r"^\w+\s+INTEGER\b", part, re.I)]
+    return result
+
+
+INTEGER_COLUMNS = _integer_columns()
 
 
 def _pg_statement(query: str, args: tuple) -> tuple[str, bool]:
@@ -320,9 +343,25 @@ class PostgresDatabase:
             self.pool = await asyncpg.create_pool(self.dsn)
         except (OSError, asyncpg.PostgresError) as e:
             raise RuntimeError(f"Couldn't reach PostgreSQL at this DATABASE_URL: {e}") from None
-        async with self.pool.acquire() as conn:
-            for statement in _split_statements(POSTGRES_SCHEMA):
-                await conn.execute(statement)
+        try:
+            async with self.pool.acquire() as conn:
+                for statement in _split_statements(POSTGRES_SCHEMA):
+                    await conn.execute(statement)
+                # Only names derived from our schema are interpolated; all other data is bound.
+                # Widen existing columns in one transaction so a failure leaves no partial migration.
+                async with conn.transaction():
+                    for table, columns in INTEGER_COLUMNS.items():
+                        rows = await conn.fetch(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema=current_schema() AND table_name=$1 AND data_type='integer'", table)
+                        narrow = {row["column_name"] for row in rows}
+                        for column in columns:
+                            if column in narrow:
+                                await conn.execute(f'ALTER TABLE "{table}" ALTER COLUMN "{column}" TYPE BIGINT')
+        except Exception:
+            await self.pool.close()
+            self.pool = None
+            raise
         log.info("Connected to PostgreSQL")
 
     async def close(self) -> None:

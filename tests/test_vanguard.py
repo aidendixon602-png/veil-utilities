@@ -1,4 +1,4 @@
-"""Ghost Vanguard is the guard: `,gv` hands its commands over, and Veil's own watching steps aside where it is."""
+"""The optional Ghost bridge must not suppress Veil's protections."""
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -54,12 +54,13 @@ def _antinuke():
     return an
 
 
-def test_veil_stops_watching_the_audit_log_where_ghost_vanguard_guards():
-    an = _antinuke()
-    an._trusted = AsyncMock(return_value=False)
-    entry = SimpleNamespace(guild=guild(), user_id=99, target=SimpleNamespace(id=5))
-    asyncio.run(an.on_audit_log_entry_create(entry))
-    an._trusted.assert_not_awaited()  # stopped before looking at who did it
+def test_veil_catches_audit_events_even_when_ghost_is_present():
+    from test_antinuke_undo import A, entry, feed, setup
+    an, g, attacker = setup()
+    original = g.get_member
+    g.get_member = lambda uid: SimpleNamespace(id=GV, bot=True) if uid == GV else original(uid)
+    feed(an, *(entry(g, A.ban, SimpleNamespace(id=100 + i, name="victim")) for i in range(3)))
+    attacker.ban.assert_awaited_once()
 
 
 def test_but_still_limits_what_is_done_through_its_own_commands():
@@ -75,18 +76,21 @@ def test_but_still_limits_what_is_done_through_its_own_commands():
     an._trusted.assert_awaited()  # the limit was checked, not skipped
 
 
-def test_anti_raid_and_new_bot_holds_step_aside():
+def test_anti_raid_and_new_bot_checks_run_when_ghost_is_present():
     an = _antinuke()
     an.bot.db = SimpleNamespace(get_config=AsyncMock(return_value={"age": 30}))
-    member = SimpleNamespace(id=7, bot=False, guild=guild())
+    an._raid_punish = AsyncMock()
+    member = SimpleNamespace(id=7, bot=False, guild=guild(), created_at=discord.utils.utcnow(), avatar=None)
     asyncio.run(Antinuke.on_member_join(an, member))
-    an.bot.db.get_config.assert_not_awaited()
+    an.bot.db.get_config.assert_awaited_once()
+    an._raid_punish.assert_awaited_once()
+    an.cfg.return_value = {"enabled": False}
     new_bot = SimpleNamespace(id=8, bot=True, guild=guild())
     asyncio.run(an.quarantine_new_bot(new_bot))
-    an.cfg.assert_not_awaited()
+    an.cfg.assert_awaited_once()  # quarantine respects Veil's actual setting
 
 
-def test_automatic_setup_leaves_protection_to_ghost_vanguard(monkeypatch):
+def test_automatic_setup_enables_veil_for_fresh_servers_even_with_ghost():
     store = {}
 
     class DB:
@@ -98,12 +102,14 @@ def test_automatic_setup_leaves_protection_to_ghost_vanguard(monkeypatch):
 
         async def set_config(self, gid, module, data):
             store[module] = data
-    bot = SimpleNamespace(db=DB(), get_cog=lambda name: MagicMock())
+    from test_auto_and_panels import bot_with
+    bot = bot_with(DB())
     g = guild()
     g.roles, g.me = [], SimpleNamespace(guild_permissions=discord.Permissions.none())
     done = asyncio.run(autosetup.run(bot, g))
-    assert "antiraid" not in store and not any("antinuke" in d or "raid" in d for d in done)
-    assert "filters" in store  # the rest is still set up
+    assert store["antinuke"]["enabled"] and store["antiraid"]["massjoin"] == {"joins": 10, "seconds": 10}
+    assert any("antinuke" in d for d in done) and any("raid" in d for d in done)
+    assert "filters" in store
 
 
 def test_command_logs_hide_gv_developer_arguments():
@@ -112,3 +118,38 @@ def test_command_logs_hide_gv_developer_arguments():
                                prefix=",", message=SimpleNamespace(content=content))
     assert logembeds._command_text(ctx(",gv network genreban 123 spam")) == ",gv network · arguments hidden"
     assert logembeds._command_text(ctx(",gv raid mode on")) == ",gv raid mode on"
+
+
+def test_ghost_presence_does_not_override_disabled_antinuke():
+    an = _antinuke()
+    an.cfg.return_value = {"enabled": False, "modules": {"ban": {"on": True}}}
+    an._trusted = AsyncMock()
+    entry = SimpleNamespace(guild=guild(), user_id=99, target=SimpleNamespace(id=5))
+    asyncio.run(an.on_audit_log_entry_create(entry))
+    an._trusted.assert_not_awaited()
+
+
+def test_saved_security_settings_are_preserved_with_ghost_present():
+    from test_auto_and_panels import FakeDB, bot_with
+    existing = {"enabled": False, "modules": {"ban": {"on": False}}}
+    db = FakeDB({"antinuke": existing, "antiraid": {"massjoin": None}, "filters": {}, "warnpunish": {}})
+    g = guild()
+    g.roles, g.me = [], SimpleNamespace(guild_permissions=discord.Permissions.none())
+    asyncio.run(autosetup.run(bot_with(db), g))
+    assert db.store["antinuke"] == existing and db.store["antiraid"] == {"massjoin": None}
+
+
+def test_webhook_guard_runs_with_ghost_present():
+    from test_antinuke_stronger import _webhook_message
+    from test_antinuke_undo import setup
+    an, g, _ = setup({"webhook": {"on": True, "threshold": 1, "window": 60, "punishment": "kick"}})
+    original = g.get_member
+    g.get_member = lambda uid: SimpleNamespace(id=GV, bot=True) if uid == GV else original(uid)
+    hook = SimpleNamespace(name="leaked", delete=AsyncMock())
+    an.bot.fetch_webhook = AsyncMock(return_value=hook)
+    an._log_channel = AsyncMock(return_value=None)
+    messages = [_webhook_message(g) for _ in range(2)]
+    for msg in messages:
+        asyncio.run(an.webhook_spam(msg))
+    hook.delete.assert_awaited_once()
+    assert all(msg.delete.await_count == 1 for msg in messages)

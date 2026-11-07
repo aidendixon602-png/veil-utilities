@@ -70,9 +70,7 @@ GHOST_VANGUARD_ID = next(bid for bid, name in TRUSTED_BOTS.items() if name == "G
 
 
 def ghost_guards(guild) -> bool:
-    """Whether Ghost Vanguard is in this server. It is the guard there: Veil's own antinuke watching and
-    anti-raid step aside so the two never act on the same thing (Veil still limits what's done through its own
-    commands, which Ghost Vanguard trusts and so doesn't watch)."""
+    """Whether Ghost Vanguard is in this server, for the optional bridge and overlap warnings."""
     get_member = getattr(guild, "get_member", None)
     return get_member is not None and get_member(GHOST_VANGUARD_ID) is not None
 

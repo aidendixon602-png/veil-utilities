@@ -9,6 +9,7 @@ from __future__ import annotations
 import functools
 import os
 import re
+from dataclasses import fields
 
 from core import gitinfo
 
@@ -36,8 +37,9 @@ def _secret_values() -> list[str]:
     values = {v for k, v in os.environ.items() if _SECRET_KEYS.search(k) and len(v.strip()) >= 8}
     try:
         from core.config import settings
-        for name, v in vars(settings).items():
-            if isinstance(v, str) and len(v) >= 8 and _SECRET_KEYS.search(name):
+        for field in fields(settings):
+            v = getattr(settings, field.name)
+            if isinstance(v, str) and len(v) >= 8 and _SECRET_KEYS.search(field.name):
                 values.add(v)
     except Exception:
         pass

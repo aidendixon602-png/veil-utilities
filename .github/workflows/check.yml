@@ -40,3 +40,16 @@ jobs:
           EOF
       - name: Tests
         run: python -m pytest -q
+
+  postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt pgserver
+      - name: Verify PostgreSQL test dependencies
+        run: python -c "import asyncpg, pgserver"
+      - name: Test PostgreSQL against a disposable server
+        run: python -m pytest -q tests/test_loops_and_postgres.py

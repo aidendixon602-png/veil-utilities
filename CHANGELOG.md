@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security increment (in progress)
+
+- Unauthorized joins and real antinuke alerts now create persistent incidents and per-developer DM delivery
+  states, with retry and restart recovery. The outbox is at-least-once, not exactly-once; run only one bot process
+  against a database. Failed persistence falls back to direct alerts. Test simulations keep their existing path.
+- Unauthorized join attribution requires a recent matching bot-add audit entry and join time; otherwise it is
+  unknown. Notification failures no longer prevent a leave attempt, and the actual outcome is recorded.
+- Authorization cache changes follow successful writes, and first-run enrollment has a durable snapshot/marker.
+- PostgreSQL snowflake columns are widened to BIGINT at startup; take a backup before upgrading. A dedicated CI
+  job exercises migration against a disposable PostgreSQL server.
+- Developer-channel tracebacks and slotted settings secrets are redacted before being sent.
+
+See `docs/PRODUCTION_AUDIT.md` for scope, upgrade cautions, known limitations and outstanding work.
+
+### Changed
+
+- Veil no longer defers its antinuke, anti-raid, webhook or bot-quarantine checks when Ghost Vanguard is present.
+  Existing settings are preserved, and status panels warn that overlapping protections can act twice. Newly
+  auto-configured servers receive Veil's usual defaults; previously disabled protections stay disabled.
+  The `,gv` bridge remains optional and Ghost Vanguard remains a built-in trusted bot.
+
 ### Added
 
 - `,an health` checks antinuke state, core permissions, member intent and Ghost Vanguard delegation.

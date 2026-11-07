@@ -116,6 +116,8 @@ class Veil(commands.AutoShardedBot):
         from core.db import create_database
         db_target = getattr(settings, "database_url", None) or settings.db_path
         self.db = create_database(db_target)
+        from core.incidents import IncidentManager
+        self.incident_manager = IncidentManager(self)
         self.session: aiohttp.ClientSession | None = None
         # for URLs supplied by users: refuses private/internal addresses (see core/net.py)
         self.public_session: aiohttp.ClientSession | None = None
@@ -189,6 +191,7 @@ class Veil(commands.AutoShardedBot):
             except Exception:
                 log.exception("Failed to load %s", ext)
         self.add_check(self._global_check)
+        self.incident_manager.start()
         if not self.presence_rotator.is_running():
             self.presence_rotator.start()
         await self.start_dashboard()
@@ -207,6 +210,7 @@ class Veil(commands.AutoShardedBot):
         self.dashboard = dashboard
 
     async def close(self) -> None:
+        await self.incident_manager.close()
         if hasattr(self, "presence_rotator") and self.presence_rotator.is_running():
             self.presence_rotator.cancel()
         if hasattr(self, "dashboard") and self.dashboard:
@@ -680,7 +684,7 @@ class Veil(commands.AutoShardedBot):
             channel = devchannels.channel_for(self, "errors")
             if channel:
                 e = discord.Embed(color=Colors.error, title=f"Error #{record['id']} in {record['command']}",
-                                  description=f"```py\n{tb[-3900:]}```", timestamp=discord.utils.utcnow())
+                                  description=f"```py\n{record['traceback'][-3900:]}```", timestamp=discord.utils.utcnow())
                 e.add_field(name="Message", value=record["content"] or "—", inline=False)
                 e.add_field(name="User", value=f"<@{record['user']}>")
                 e.add_field(name="Server", value=f"`{record['guild']}`")

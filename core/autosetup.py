@@ -82,10 +82,8 @@ async def run(bot, guild) -> list[str]:
     db = bot.db
     done: list[str] = []
 
-    from core.perms import ghost_guards
-    guarded = ghost_guards(guild)  # Ghost Vanguard is this server's guard: Veil doesn't switch on its own
     antinuke = bot.get_cog("Antinuke")
-    if antinuke is not None and not guarded and not await _saved(db, guild.id, "antinuke"):
+    if antinuke is not None and not await _saved(db, guild.id, "antinuke"):
         cfg = await antinuke.cfg(guild.id)
         antinuke.enable_rules(cfg)
         from cogs.antinuke import PRESETS
@@ -93,7 +91,7 @@ async def run(bot, guild) -> list[str]:
         await antinuke.save(guild.id, cfg)
         done.append("antinuke on (Default preset), new bots quarantined until approved · `,an`")
 
-    if not guarded and not await _saved(db, guild.id, "antiraid"):
+    if not await _saved(db, guild.id, "antiraid"):
         await db.set_config(guild.id, "antiraid", dict(RAID_DEFAULTS))
         done.append("raid detection: a wave of 10 joins in 10s · `,antiraid`")
 
@@ -133,6 +131,10 @@ async def announce(bot, guild, done: list[str], *, dm_owner: bool = False) -> No
         "These were off, so I switched them on. Anything you had set up yourself is unchanged.\n\n"
         + "\n".join(f"• {line}" for line in done)
         + "\n\n-# staff levels don't skip the antinuke: `,an whitelist @Role` for a staff role that should"))
+    from core.perms import ghost_guards
+    if ghost_guards(guild) and any("antinuke" in line or "raid detection" in line for line in done):
+        e.description += ("\n\n⚠️ Ghost Vanguard is also present. Disable overlapping protection in one bot "
+                          "to avoid duplicate actions.")
     name = getattr(guild, "name", None)
     if name:  # at the top, so a DM says which server it's about before anything else
         icon = getattr(getattr(guild, "icon", None), "url", None)
