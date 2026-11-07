@@ -2041,7 +2041,7 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="log")
     async def an_log(self, ctx: Context, channel: discord.TextChannel = None):
-        """Set where antinuke alerts go (owner always gets a DM)"""
+        """Set the destination for antinuke alerts"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
         cfg["log"] = channel.id if channel else None

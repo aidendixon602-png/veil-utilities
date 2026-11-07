@@ -1,19 +1,19 @@
 ---
 name: Feature request
-about: Suggest a new command or module.
+about: Suggest an improvement to Veil Utilities.
 title: "[Feature] "
 labels: enhancement
 assignees: ""
 ---
 
-## What should it do?
+## Problem
 
-<!-- Describe the feature. Example: ",afk should also show how long someone has been AFK" -->
+<!-- What are you trying to accomplish? -->
 
-## Why is it useful?
+## Proposed behavior
 
-<!-- What bot today needs five commands for this? What problem does it solve? -->
+## Alternatives considered
 
-## Where does it fit?
+## Additional context
 
-<!-- e.g. Moderation, Music, a brand-new module... -->
+<!-- Do not include credentials or private user information. -->

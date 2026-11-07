@@ -205,3 +205,12 @@ def test_guild_only_cog_names_exist():
             if isinstance(node, ast.ClassDef):
                 names.add(node.name)
     assert GUILD_ONLY_COGS <= names
+
+
+def test_iso_time_preserves_fraction_and_timezone_offset():
+    dt = iso_time("2020-01-01T00:00:00.123456789+05:30")
+    assert dt.microsecond == 123456
+    assert dt.utcoffset().total_seconds() == 19800
+    dt = iso_time("2020-01-01T00:00:00.4-04:00")
+    assert dt.microsecond == 400000
+    assert dt.utcoffset().total_seconds() == -14400

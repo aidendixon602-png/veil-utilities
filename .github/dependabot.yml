@@ -1,4 +1,4 @@
-# Keep the pinned requirements and CI actions up to date automatically.
+# Propose updates for dependency constraints and CI actions.
 version: 2
 updates:
   - package-ecosystem: "pip"

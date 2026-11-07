@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Repository and documentation
+
+- Reworked the README and operator guides around verified setup, comma-prefix commands, authorization, notifications,
+  backups and the existing startup Git sync behavior. The generated command reference now prefixes examples and
+  distinguishes its visible commands from hidden developer commands.
+- Updated contribution, security and issue-reporting guidance; added syntax, dependency consistency, vulnerability
+  and release-version checks to CI. Private vulnerability reporting and GitHub repository settings still require
+  administrator configuration.
+- Scrub known secrets from developer `,botlogs` attachments before sending them; redaction remains best-effort.
+
 ### Security increment (in progress)
 
 - Unauthorized joins and real antinuke alerts now create persistent incidents and per-developer DM delivery

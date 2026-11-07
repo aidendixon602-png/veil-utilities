@@ -47,8 +47,12 @@ def iso_time(value: str) -> datetime:
     value = value.strip().replace("Z", "+00:00")
     if "." in value:  # trim fractional seconds Python 3.10 can't parse when they aren't 3/6 digits
         head, _, tail = value.partition(".")
-        frac = "".join(ch for ch in tail if ch.isdigit())
-        value = head + "." + frac[:6].ljust(6, "0") + tail[len(frac):]
+        # Only consume the leading fractional digits: digits in the timezone are not fractional seconds.
+        end = 0
+        while end < len(tail) and tail[end].isdigit():
+            end += 1
+        if end:
+            value = head + "." + tail[:end][:6].ljust(6, "0") + tail[end:]
     dt = datetime.fromisoformat(value)
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 

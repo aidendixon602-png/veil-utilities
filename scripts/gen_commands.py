@@ -15,8 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 OUT = ROOT / "docs" / "COMMANDS.md"
+DEV_OUT = ROOT / "docs" / "DEVELOPER_COMMANDS.md"
 README = ROOT / "README.md"
-HIDDEN_COGS = {"Owner", "Authorization", "Jishaku"}
+HIDDEN_COGS = {"Owner", "Authorization", "DevTools", "Jishaku"}
 
 
 def signature(cmd) -> str:
@@ -51,12 +52,14 @@ def perms_of(cmd) -> str:
 
 def render(bot) -> str:
     cogs = sorted((c for c in bot.cogs.values() if c.qualified_name not in HIDDEN_COGS), key=lambda c: c.qualified_name)
-    total = len(list(bot.walk_commands()))
+    total = 0
     body = []
     for cog in cogs:
-        cmds = sorted((c for c in cog.walk_commands() if not c.hidden), key=lambda c: c.qualified_name)
+        cmds = sorted((c for c in cog.walk_commands() if not c.hidden and not any(p.hidden for p in c.parents)),
+                      key=lambda c: c.qualified_name)
         if not cmds:
             continue
+        total += len(cmds)
         body.append(f"## {getattr(cog, 'emoji', '')} {cog.qualified_name}".replace("##  ", "## "))
         body.append(f"_{(cog.description or '').strip()}_\n")
         body.append("| Command | Description | Permission |")
@@ -64,14 +67,40 @@ def render(bot) -> str:
         for c in cmds:
             aliases = f" ({', '.join(c.aliases)})" if c.aliases else ""
             desc = (c.help or c.short_doc or "").strip().split("\n")[0].replace("|", "\\|")
-            body.append(f"| `{signature(c)}`{aliases} | {desc} | {perms_of(c)} |")
+            body.append(f"| `,{signature(c)}`{aliases} | {desc} | {perms_of(c)} |")
         body.append("")
-    head = ["# Command reference", "", f"{total} commands. Default prefix `,`. `<required>` `[optional]`.", "", ""]
+    head = ["# Command reference", "", f"{total} commands. Default prefix `,`. `<required>` `[optional]`.",
+            "", "Generated from visible cog commands. Aliases also use the prefix. The permission column is",
+            "not a complete authorization policy: global checks, server authorization, private mode, role",
+            "hierarchy and command-specific checks can also apply. Use `,help <command>` for contextual help.",
+            "Hidden developer commands are intentionally omitted.", "", ""]
     return "\n".join(head + body).rstrip() + "\n"
 
 
+
+def render_developers(bot) -> str:
+    """A separate, explicit reference for privileged commands, generated from their actual signatures."""
+    body = ["# Developer command reference", "",
+            "These commands require developer/owner authorization and some have additional checks. They can",
+            "affect the host, the bot or multiple servers. Restrict developer access, review commands before use,",
+            "and never run destructive tests in production. See [developer operations](DEVELOPERS.md).", "",
+            "The default prefix is `,`. `<required>` and `[optional]`; aliases also use the prefix.", ""]
+    for cog in sorted((c for c in bot.cogs.values() if c.qualified_name in {"Owner", "Authorization", "DevTools"}),
+                      key=lambda c: c.qualified_name):
+        cmds = sorted(cog.walk_commands(), key=lambda c: c.qualified_name)
+        if not cmds:
+            continue
+        body.extend([f"## {cog.qualified_name}", "", "| Command | Description |", "|---|---|"])
+        for cmd in cmds:
+            aliases = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
+            description = (cmd.help or cmd.short_doc or "").strip().split("\n")[0].replace("|", "\\|")
+            body.append(f"| `,{signature(cmd)}`{aliases} | {description} |")
+        body.append("")
+    return "\n".join(body).rstrip() + "\n"
+
+
 def badges(readme: str, commands: int, modules: int) -> str:
-    """The README with its `commands-N` / `modules-N` badges set to the real numbers."""
+    """Update optional legacy count badges if a README uses them."""
     readme = re.sub(r"badge/commands-\d+", f"badge/commands-{commands}", readme)
     return re.sub(r"badge/modules-\d+", f"badge/modules-{modules}", readme)
 
@@ -82,7 +111,7 @@ def counts(text: str) -> tuple[int, int]:
     return total, len(re.findall(r"^## ", text, re.M))
 
 
-async def build() -> str:
+async def build() -> tuple[str, str]:
     tmp = tempfile.mkdtemp()
     os.environ.setdefault("DISCORD_TOKEN", "x")
     os.environ.setdefault("OWNER_IDS", "1")
@@ -95,26 +124,28 @@ async def build() -> str:
     await bot._async_setup_hook()
     await bot.setup_hook()
     try:
-        return render(bot)
+        return render(bot), render_developers(bot)
     finally:
         await bot.close()
 
 
 def main() -> int:
-    text = asyncio.run(build())
+    text, dev_text = asyncio.run(build())
     readme = README.read_text(encoding="utf-8")
     fresh = badges(readme, *counts(text))
     if "--check" in sys.argv:
         stale = [name for name, ok in (("docs/COMMANDS.md", OUT.read_text(encoding="utf-8") == text),
+                                       ("docs/DEVELOPER_COMMANDS.md", DEV_OUT.read_text(encoding="utf-8") == dev_text),
                                        ("the README badges", readme == fresh)) if not ok]
         if stale:
             print(f"{' and '.join(stale)} out of date — run: python scripts/gen_commands.py")
             return 1
-        print("docs/COMMANDS.md and the README badges are up to date")
+        print("Command references and README badges are up to date")
         return 0
     OUT.write_text(text, encoding="utf-8")
+    DEV_OUT.write_text(dev_text, encoding="utf-8")
     README.write_text(fresh, encoding="utf-8")
-    print(f"Wrote {OUT.relative_to(ROOT)} and the README badges")
+    print("Wrote command references and README badges")
     return 0
 
 

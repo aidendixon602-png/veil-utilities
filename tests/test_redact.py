@@ -67,3 +67,23 @@ def test_slotted_settings_secrets_are_scrubbed_even_when_not_in_environment(monk
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
     monkeypatch.setattr(config, "_settings", config.Settings.from_env({"DISCORD_TOKEN": token}))
     assert token not in redact.scrub("failure included " + token)
+
+
+def test_developer_log_attachment_scrubs_known_secrets(tmp_path, monkeypatch):
+    import asyncio
+    from dataclasses import replace
+    from unittest.mock import AsyncMock
+
+    import cogs.owner as owner
+
+    secret = "unusual-secret-value-123"
+    monkeypatch.setenv("CUSTOM_API_KEY", secret)
+    path = tmp_path / "veil.log"
+    path.write_text(f"request failed with {secret}\n", encoding="utf-8")
+    monkeypatch.setattr(owner, "settings", replace(owner.settings, log_file=str(path)))
+    ctx = SimpleNamespace(send=AsyncMock())
+    asyncio.run(owner.Owner.botlogs.callback(owner.Owner(None), ctx))
+    attachment = ctx.send.await_args.kwargs["file"]
+    attachment.fp.seek(0)
+    content = attachment.fp.read().decode()
+    assert secret not in content and "[hidden]" in content

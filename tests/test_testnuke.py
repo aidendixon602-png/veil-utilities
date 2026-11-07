@@ -1,6 +1,7 @@
 """,testnuke / ,testcleanup: only OWNER_IDS developers, only in the designated test server, confirmed by the developer
 who started it; the antinuke catches the fake nuke, alerts and undoes it, and punishes nobody."""
 import asyncio
+import importlib
 import itertools
 import json
 from types import SimpleNamespace
@@ -209,7 +210,7 @@ def run_test(cog, guild, roles, channels, monkeypatch):
     monkeypatch.setattr(tn, "WAIT_FOR_ANTINUKE", 2.0)
 
     async def go():
-        with patch("cogs.authorization.developers", AsyncMock(return_value={DEV})):
+        with patch.object(importlib.import_module("cogs.authorization"), "developers", AsyncMock(return_value={DEV})):
             return await tn.run_test(cog, guild, DEV, roles, channels)
     return asyncio.run(go())
 

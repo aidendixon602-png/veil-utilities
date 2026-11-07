@@ -306,7 +306,9 @@ class Owner(commands.Cog):
             f.seek(0, os.SEEK_END)
             f.seek(max(0, f.tell() - 400_000))
             tail = f.read().decode("utf-8", "replace").splitlines()[-max(1, min(lines, 2000)):]
-        await ctx.send(file=discord.File(io.BytesIO("\n".join(tail).encode()), "veil-log.txt"))
+        # Developer commands can be invoked in a server channel; scrub known secrets before attaching logs.
+        safe_tail = redact.scrub("\n".join(tail))
+        await ctx.send(file=discord.File(io.BytesIO(safe_tail.encode()), "veil-log.txt"))
 
     # ================================================================ backup
     @commands.command(hidden=True)
