@@ -798,3 +798,131 @@ def test_example_only_command_card_has_fallback_description():
         """Example: `,example`"""
 
     assert _help().command_embed(example).description.startswith("No description yet.")
+
+
+def test_helper_help_respects_actual_level_overrides_fakeperms_and_disabled_commands():
+    from core.help import CommandSelect
+    from core.utils import has_perms, requires_uperm
+
+    @commands.group()
+    @has_perms(manage_messages=True)
+    async def tools(ctx):
+        """Message tools"""
+
+    @tools.command()
+    @requires_uperm("moderator")
+    async def restricted(ctx):
+        """Higher level"""
+
+    @commands.command()
+    @has_perms(manage_messages=True)
+    async def clear(ctx):
+        """Clear messages"""
+
+    @commands.command()
+    async def public(ctx):
+        """Public tool"""
+
+    async def go():
+        role = SimpleNamespace(id=88, name="staff", mention="<@&88>")
+        author = SimpleNamespace(id=42, roles=[role], guild_permissions=discord.Permissions.none())
+        cfg = {"users": {"42": "helper"}, "overrides": {"helper": {"perms": []}}}
+        store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
+        h = _help()
+        h.context.author = author
+        h.context.guild = SimpleNamespace(id=1, owner_id=99)
+        h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.all())
+        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store[key]))
+        h.context.bot.walk_commands = lambda: [tools, restricted, clear, public]
+        access = await h.help_access(1)
+        view = HelpView(h, {"Utility": [tools, clear, public]}, start="Utility", author_rank=1, access=access)
+        assert [o.value for o in next(c for c in view.children if isinstance(c, CommandSelect)).options] == ["public"]
+        assert not await h._can_see(clear)
+        assert "clear" not in await h._suggest("clea")
+
+        # An explicit fake permission still works, even when the assigned level lacks it.
+        store["fakeperms"] = {"88": ["manage_messages"]}
+        access = await h.help_access(1)
+        view = HelpView(h, {"Utility": [tools, clear, public]}, start="Utility", author_rank=1, access=access)
+        assert {c.name for c in view.current_items()} == {"clear", "public", "tools"}
+        await view.show_command(_it(), "tools")
+        assert not view.current_subcommands()  # moderator subcommand is still restricted
+        store["settings"] = {"disabled": ["clear", "tools"]}
+        access = await h.help_access(1)
+        view = HelpView(h, {"Utility": [tools, clear, public]}, start="Utility", author_rank=1, access=access)
+        assert [c.name for c in view.current_items()] == ["public"]
+        assert not await h._can_see(restricted)
+
+        # Disabled commands remain visible to Discord administrators, as in the global check.
+        author.guild_permissions = discord.Permissions(administrator=True)
+        store["settings"] = {"disabled": ["clear"]}
+        assert (await h.help_access(1)).permits(clear)
+
+    asyncio.run(go())
+
+
+def test_help_respects_custom_target_rank_server_owner_and_storage_failure():
+    from core.utils import has_perms, requires_uperm
+
+    @commands.command()
+    @requires_uperm("helper")
+    @has_perms(manage_messages=True)
+    async def clear(ctx):
+        """Clear messages"""
+
+    async def go():
+        h = _help()
+        h.context.author = SimpleNamespace(id=42, roles=[], guild_permissions=discord.Permissions.none())
+        h.context.guild = SimpleNamespace(id=1, owner_id=99)
+        h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
+        cfg = {"users": {"42": "helper"}, "overrides": {"helper": {"rank": 2}}}
+        store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
+        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store[key]))
+        assert not (await h.help_access(1)).permits(clear)
+        assert (await h.help_access(2)).permits(clear)
+        h.context.guild.owner_id = 42
+        assert (await h.help_access(1000)).permits(clear)
+        h.context.guild.owner_id = 99
+        h.context.bot.db.get_config = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+        assert not (await h.help_access(1)).permits(clear)
+
+    asyncio.run(go())
+
+
+def test_commands_shown_at_each_level_pass_their_user_permission_checks(loaded_bot):
+    from core.help import category_commands, visible_command
+    from core.utils import UserError
+
+    async def go():
+        h = Help()
+        role = SimpleNamespace(id=900, name="staff", mention="<@&900>")
+        author = SimpleNamespace(id=500, roles=[role], guild_permissions=discord.Permissions.none())
+        guild = SimpleNamespace(id=42, owner_id=7)
+        channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
+        ctx = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=author, guild=guild, channel=channel)
+        h.context = ctx
+        cases = [("helper", 1, {}), ("moderator", 2, {}), ("admin", 3, {}),
+                 ("headadmin", 4, {}), ("overseer", 6, {}), ("supremeleader", 7, {}),
+                 ("helper", 1, {"helper": {"perms": []}})]
+        for level, rank, overrides in cases:
+            cfg = {"users": {"500": level}, "roles": {}, "overrides": overrides}
+            store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
+            get_config = AsyncMock(side_effect=lambda guild_id, key: store.get(key, {}))
+            with patch.object(loaded_bot.db, "get_config", get_config):
+                access = await h.help_access(rank)
+                view = HelpView(h, category_commands(loaded_bot), author_rank=rank, access=access)
+                assert "Moderator" in view.pages
+                for cmd in loaded_bot.walk_commands():
+                    if not visible_command(cmd, loaded_bot, False, rank, access):
+                        continue
+                    ctx.command = cmd
+                    for item in [cmd, *cmd.parents]:
+                        for check in item.checks:
+                            if not check.__qualname__.startswith(("has_perms.<locals>", "requires_uperm.<locals>")):
+                                continue
+                            try:
+                                assert await check(ctx), (level, cmd.qualified_name)
+                            except (UserError, commands.CommandError) as exc:
+                                pytest.fail(f"{level}: {cmd.qualified_name} shown but permission check denied: {exc}")
+
+    asyncio.run(go())
