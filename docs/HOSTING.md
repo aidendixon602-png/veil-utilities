@@ -35,28 +35,21 @@ Open the **Startup** tab and set:
 - **Requirements file**: `requirements.txt` — the panel installs the packages on each start.
 
 If your panel has no requirements setting, put this in **Additional Python packages** instead:
-`discord.py aiosqlite aiohttp python-dotenv wavelink Pillow gTTS feedparser regex PyNaCl davey`
+`discord.py aiosqlite asyncpg aiohttp python-dotenv wavelink Pillow gTTS feedparser regex PyNaCl davey`
 (on Python 3.13 or newer, add `audioop-lts` to that list as well)
 
 ### One-line startup command
-Some panels have a single **Startup Command** box instead of separate settings. Paste one of these
-(`main.py` pulls the latest commit from GitHub on every boot unless `AUTO_SYNC_GIT=0` is set in `.env`, so the
-command only has to install packages when `requirements.txt` changes, then start the bot):
+If the panel runs `python main.py` without installing packages, and its startup command is editable, use a
+virtual environment. For an existing Git checkout of `main` directly in `/home/container`:
 
-Files directly in `/home/container` (recommended):
-```
-cd /home/container && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
+```bash
+cd /home/container && git pull --ff-only origin main && python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && exec .venv/bin/python main.py
 ```
 
-Files in a subfolder (`/home/container/veil-utilities`):
-```
-cd /home/container/veil-utilities && if [ -f requirements.txt ] && ! cmp -s requirements.txt .requirements.hash 2>/dev/null; then pip install --prefix .local -r requirements.txt && cp requirements.txt .requirements.hash; fi; python main.py
-```
-
-Fastest boot, never installs packages (only once everything is installed; new packages won't be picked up):
-```
-cd /home/container && python main.py
-```
+For uploaded files without Git, omit `git pull --ff-only origin main &&`. If the files are in a subfolder,
+change the `cd` path. The first start installs everything; later starts reuse `.venv` and check dependencies.
+A failed pull or install stops startup rather than running an incomplete version. Panel startup fields vary: if the
+command is locked, use its requirements or additional packages setting above. Do not delete `.env` or `veil.db`.
 
 ## 6. Start it
 Press **Start** and watch the **Console**. The first boot installs packages (a minute or two), then you should see:
@@ -108,7 +101,7 @@ A plain `http://` address works, but login cookies then travel unencrypted. Put 
 | `Discord refused a privileged intent` | The bot still starts with fewer features. Turn on the three intents in the developer portal (step 1) and restart |
 | `Discord rejected DISCORD_TOKEN` | Reset the token and paste the new one, with no spaces or quotes |
 | `AI unavailable: … rejected the API key` | `AI_API_KEY` is wrong or revoked. Make a new key, or delete the line to use the free AI |
-| `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
+| `Missing Python packages` / `ModuleNotFoundError` | The requirements didn't install — check the Startup requirements setting and restart |
 | `No module named 'audioop'` | The server runs Python 3.13+, which removed that module — install the packages once more so `audioop-lts` from requirements.txt is picked up, add `audioop-lts` to **Additional Python packages**, or switch the server image to Python 3.11/3.12 |
 | `Installed packages that won't load on this Python` | One package doesn't match the server's Python version — reinstall the requirements and restart |
 | `TypeError: unsupported operand type(s) for \|` | Python is too old — pick 3.10+ in Startup |

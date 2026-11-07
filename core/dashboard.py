@@ -77,13 +77,20 @@ def _is_loopback(host: str) -> bool:
 
 
 def _parse_ids(raw: str) -> list[int]:
-    """Comma-separated Discord IDs -> unique ints (anything that isn't an ID is dropped)."""
+    """Parse a list without silently deleting invalid entries or truncating existing settings."""
     out: list[int] = []
     for part in raw.split(","):
         part = part.strip()
-        if part.isdigit() and len(part) <= 20 and int(part) not in out:
-            out.append(int(part))
-    return out[:MAX_IDS]
+        if not part:
+            continue
+        if not part.isascii() or not part.isdigit() or len(part) > 20 or not 0 < int(part) < 2**64:
+            raise ValueError("IDs must be positive Discord IDs separated by commas")
+        value = int(part)
+        if value not in out:
+            out.append(value)
+            if len(out) > MAX_IDS:
+                raise ValueError(f"Use at most {MAX_IDS} IDs")
+    return out
 
 
 CSS = """
@@ -378,6 +385,12 @@ class DashboardServer:
         order = request.query.get("sort", "name")
         if order not in ("name", "members"):
             order = "name"
+        authorization = request.query.get("authorized", "any")
+        if authorization not in ("any", "yes", "no"):
+            authorization = "any"
+        log_filter = request.query.get("logs", "any")
+        if log_filter not in ("any", "configured", "none"):
+            log_filter = "any"
         from cogs.logging import KINDS
 
         visible = []
@@ -388,14 +401,19 @@ class DashboardServer:
             enabled = bool(an.get("enabled"))
             if status != "any" and enabled != (status == "on"):
                 continue
+            is_authorized = getattr(self.bot, "is_authorized", None)
+            auth = ("yes" if is_authorized(g.id) else "no") if callable(is_authorized) else "unknown"
+            if authorization != "any" and auth != authorization:
+                continue
             logs = await self.bot.db.get_config(g.id, "logs") or {}
+            log_count = sum(isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
+                            for key in KINDS)
+            if log_filter != "any" and bool(log_count) != (log_filter == "configured"):
+                continue
             count = getattr(g, "member_count", None)
             if count is None:
                 count = len(getattr(g, "members", []))
-            visible.append((g, count, enabled, sum(
-                isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
-                for key in KINDS
-            )))
+            visible.append((g, count, enabled, auth, log_count))
         if order == "members":
             visible.sort(key=lambda row: (-row[1], row[0].name.casefold(), row[0].id))
         else:
@@ -405,33 +423,42 @@ class DashboardServer:
             return f'<option value="{value}"{" selected" if selected else ""}>{label}</option>'
 
         rows = []
-        for g, count, enabled, log_count in visible:
+        for g, count, enabled, auth, log_count in visible:
             state = "on" if enabled else "off"
             rows.append(
                 f'<tr><td><a href="/servers/{_esc(g.id)}">{_esc(g.name)}</a></td>'
                 f'<td>{_esc(g.id)}</td><td>{_esc(count)}</td>'
                 f'<td><span class="tag {state}">{state.title()}</span></td>'
-                f'<td>{log_count} configured</td>'
+                f'<td>{auth.title()}</td><td>{log_count} configured</td>'
                 f'<td><a class="btn btn-plain" href="/servers/{_esc(g.id)}">Configure</a></td></tr>'
             )
-        listing = "".join(rows) or '<tr><td colspan="6">No servers match your filters.</td></tr>'
+        listing = "".join(rows) or '<tr><td colspan="7">No servers match your filters.</td></tr>'
         status_options = "".join(option(v, label, status == v) for v, label in
                                  (("any", "Any"), ("on", "On"), ("off", "Off")))
         sort_options = "".join(option(v, label, order == v) for v, label in
                                (("name", "Name"), ("members", "Members")))
+        auth_options = "".join(option(v, label, authorization == v) for v, label in
+                               (("any", "Any"), ("yes", "Authorized"), ("no", "Not authorized")))
+        log_options = "".join(option(v, label, log_filter == v) for v, label in
+                              (("any", "Any"), ("configured", "Configured"), ("none", "None configured")))
         body += (f'<div class="card"><h2>🛡️ Your servers</h2>'
-                 '<p class="muted">Manage role blacklists, logging channels and antinuke settings.</p>'
+                 '<p class="muted">Manage role blacklists, logging channels and antinuke settings. '
+                 'Log counts show explicitly configured channels, not automatic routing.</p>'
                  '<form method="GET" action="/" class="filters">'
                  f'<div class="form-group"><label for="q">Search name or ID</label>'
                  f'<input id="q" name="q" value="{_esc(query)}"></div>'
                  f'<div class="form-group"><label for="antinuke">Antinuke</label>'
                  f'<select id="antinuke" name="antinuke">{status_options}</select></div>'
+                 f'<div class="form-group"><label for="authorized">Authorization</label>'
+                 f'<select id="authorized" name="authorized">{auth_options}</select></div>'
+                 f'<div class="form-group"><label for="logs">Log channels</label>'
+                 f'<select id="logs" name="logs">{log_options}</select></div>'
                  f'<div class="form-group"><label for="sort">Sort by</label>'
                  f'<select id="sort" name="sort">{sort_options}</select></div>'
                  '<button class="btn" type="submit">Apply</button></form>'
                  f'<p class="table-note">{len(visible)} of {len(guilds)} servers shown</p>'
                  '<div class="table-wrap"><table><thead><tr><th>Server</th><th>ID</th><th>Members</th>'
-                 '<th>Antinuke</th><th>Logs</th><th></th></tr></thead>'
+                 '<th>Antinuke</th><th>Authorized</th><th>Logs</th><th></th></tr></thead>'
                  f'<tbody>{listing}</tbody></table></div></div>')
         return self._page("Dashboard", body, user)
 
@@ -592,11 +619,26 @@ class DashboardServer:
             return self._message("Session expired", "Please refresh the page and try again.", 403, user)
         gid = guild.id
 
+        # Validate every submitted list before modifying cached settings or making any writes.
+        lists = {}
+        for field in ("rbl_roles", "rbl_authorized", "an_admins"):
+            if field in data:
+                try:
+                    lists[field] = _parse_ids(str(data[field]))
+                except ValueError as exc:
+                    return self._message("Invalid settings", f"{field}: {exc}. Nothing was saved.", 400, user)
+        for field, _ in LOG_FIELDS:
+            if field in data:
+                value = str(data[field]).strip()
+                if value and value != "-1" and (not value.isascii() or not value.isdigit()
+                                                   or len(value) > 20 or not 0 < int(value) < 2**64):
+                    return self._message("Invalid settings", f"{field}: enter a channel ID or leave it blank. Nothing was saved.", 400, user)
+
         rbl = await self.bot.db.get_config(gid, "roleblacklist") or {}
         if "rbl_roles" in data:
-            rbl["roles"] = _parse_ids(str(data["rbl_roles"]))
+            rbl["roles"] = lists["rbl_roles"]
         if "rbl_authorized" in data:
-            rbl["authorized"] = _parse_ids(str(data["rbl_authorized"]))
+            rbl["authorized"] = lists["rbl_authorized"]
         await self.bot.db.set_config(gid, "roleblacklist", rbl)
 
         logs_cfg = await self.bot.db.get_config(gid, "logs") or {}
@@ -606,7 +648,7 @@ class DashboardServer:
             value = str(data[field]).strip()
             if not value:
                 logs_cfg[key] = None  # same as `log set <type>` with no channel: back to auto
-            elif value.isdigit() and len(value) <= 20:
+            else:
                 logs_cfg[key] = int(value)
         await self.bot.db.set_config(gid, "logs", logs_cfg)
 
@@ -616,7 +658,7 @@ class DashboardServer:
         if punishment in PUNISHMENTS:
             an_cfg["punishment"] = punishment
         if "an_admins" in data:
-            an_cfg["admins"] = _parse_ids(str(data["an_admins"]))
+            an_cfg["admins"] = lists["an_admins"]
         await self.bot.db.set_config(gid, "antinuke", an_cfg)
 
         log.info("Dashboard: %s (%s) updated settings for guild %s", user.get("name"), user.get("uid"), gid)

@@ -15,9 +15,11 @@ undo supported damage. These controls are inspired by [Bleed](https://docs.bleed
 ,an botadd on --do ban
 ,an whitelist @TrustedUser
 ,an status
+,an health
 ```
 
-`,an` opens Veil's status panel. Existing positional commands such as `,an ban 3 ban 60s`, presets and the
+`,an` opens Veil's status panel. `,an health` checks the bot's core permissions and member intent, and warns
+when Ghost Vanguard handles audit-log protection. The check cannot guarantee that the bot can act on every target. Existing positional commands such as `,an ban 3 ban 60s`, presets and the
 panel still work. Changing a rule does **not** turn on the antinuke itself; use `,an toggle on` first.
 Only the server owner or a bot developer can turn the whole antinuke off.
 

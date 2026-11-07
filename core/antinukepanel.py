@@ -30,8 +30,9 @@ def rule_state(cfg: dict, key: str) -> dict:
     mod = (cfg.get("modules") or {}).get(key) or {}
     return {"on": bool(mod.get("on", False)),
             "threshold": 1 if key in an.INSTANT else int(mod.get("threshold", base["threshold"])),
-            "window": int(mod.get("window", base["window"])),
-            "punishment": "strip" if key == "permissions" else mod.get("punishment", base["punishment"])}
+            "window": int(mod.get("window") or cfg.get("window", base["window"])),
+            "punishment": "strip" if key == "permissions" else (mod.get("punishment") or
+                                                                   cfg.get("punishment", base["punishment"]))}
 
 
 def rule_line(cfg: dict, key: str) -> str:
@@ -70,8 +71,10 @@ def rule_embed(cfg: dict, key: str, prefix: str) -> discord.Embed:
              f"limit: **{st['threshold']}** in **{st['window']}s**" + (" (always 1)" if key in an.INSTANT else ""),
              f"punishment: **{PUNISHMENT_WORDS.get(st['punishment'], st['punishment'])}**",
              f"state: **{'on' if st['on'] else 'off'}**"]
-    if (cfg.get("modules") or {}).get(key, {}).get("command") is False:
-        lines.append("Veil command detection: **off**")
+    command_on = (cfg.get("modules") or {}).get(key, {}).get("command", True) is not False
+    lines.append(f"Veil command detection: **{'on' if command_on else 'off'}**")
+    if not command_on:
+        lines.append("-# supported Veil commands won't count toward this rule")
     if key in an.UNDOES:
         lines.append(f"when someone is caught: {an.UNDOES[key]}.")
     if not cfg.get("enabled"):
@@ -142,6 +145,8 @@ class AntinukePanel(OwnedView):
         self.add_item(_Button(f"time: {st['window']}s", "window", row=1))
         self.add_item(_Button(f"punishment: {st['punishment']}", "punishment", row=1,
                               disabled=self.rule == "permissions"))
+        command_on = (self.cfg.get("modules") or {}).get(self.rule, {}).get("command", True) is not False
+        self.add_item(_Button(f"commands: {'on' if command_on else 'off'}", "command", row=2))
         self.add_item(_Button("← Back", "back", row=2))
 
     # -- who may press
@@ -184,6 +189,8 @@ class AntinukePanel(OwnedView):
             mod.update({k: st[k] for k in ("on", "threshold", "window", "punishment")})
             if action == "rule_toggle":
                 mod["on"] = not st["on"]
+                if not mod["on"]:
+                    await self.cog.security_notice(self.guild, it.user, f"turned antinuke rule {self.rule} off")
             elif action == "less":
                 mod["threshold"] = max(1, st["threshold"] - 1)
             elif action == "more":
@@ -191,6 +198,11 @@ class AntinukePanel(OwnedView):
             elif action == "window":
                 later = [w for w in WINDOWS if w > st["window"]]
                 mod["window"] = later[0] if later else WINDOWS[0]
+            elif action == "command":
+                mod["command"] = mod.get("command", True) is False
+                if not mod["command"]:
+                    await self.cog.security_notice(self.guild, it.user,
+                                                   f"set antinuke rule {self.rule} to ignore Veil commands")
             elif action == "punishment":
                 mod["punishment"] = PUNISHMENTS[(PUNISHMENTS.index(st["punishment"]) + 1) % len(PUNISHMENTS)] \
                     if st["punishment"] in PUNISHMENTS else "ban"

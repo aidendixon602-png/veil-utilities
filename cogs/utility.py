@@ -90,6 +90,7 @@ class Utility(commands.Cog):
         self.deleted: dict[int, deque] = defaultdict(lambda: deque(maxlen=50))
         self.edited: dict[int, deque] = defaultdict(lambda: deque(maxlen=50))
         self.reactions: dict[int, deque] = defaultdict(lambda: deque(maxlen=50))
+        self._reminder_retries: dict[int, tuple[int, float]] = {}
 
     async def cog_load(self):
         self.reminder_loop.start()
@@ -250,24 +251,43 @@ class Utility(commands.Cog):
             raise UserError("No reminder with that ID")
         await ctx.approve(f"deleted reminder `{reminder_id}`")
 
+    async def _deliver_reminder(self, r) -> None:
+        """Try the original channel, then DM if the channel is missing or inaccessible."""
+        ch = self.bot.get_channel(r["channel_id"])
+        e = discord.Embed(color=Colors.main, title="⏰ Reminder", description=r["content"])
+        e.set_footer(text=f"Set {fmt_duration(now() - r['created'])} ago")
+        if ch:
+            try:
+                await ch.send(f"<@{r['user_id']}>", embed=e, allowed_mentions=discord.AllowedMentions(users=True))
+                return
+            except (discord.Forbidden, discord.NotFound):
+                pass  # the user may still be reachable by DM
+        user = await self.bot.fetch_user(r["user_id"])
+        await user.send(embed=e)
+
     @tasks.loop(seconds=10)
     @resilient
     async def reminder_loop(self):
-        for r in await self.bot.db.fetchall("SELECT * FROM reminders WHERE due<=?", now()):
-            await self.bot.db.execute("DELETE FROM reminders WHERE id=?", r["id"])
-            ch = self.bot.get_channel(r["channel_id"])
-            e = discord.Embed(color=Colors.main, title="⏰ Reminder", description=r["content"])
-            e.set_footer(text=f"Set {fmt_duration(now() - r['created'])} ago")
+        rows = await self.bot.db.fetchall("SELECT * FROM reminders WHERE due<=?", now())
+        due_ids = {r["id"] for r in rows}
+        for rid in self._reminder_retries.keys() - due_ids:
+            self._reminder_retries.pop(rid, None)  # deleted by the user
+        for r in rows:
+            rid = r["id"]
+            failures, next_try = self._reminder_retries.get(rid, (0, 0))
+            if time.monotonic() < next_try:
+                continue
             try:
-                if ch:
-                    await ch.send(f"<@{r['user_id']}>", embed=e, allowed_mentions=discord.AllowedMentions(users=True))
-                else:
-                    user = await self.bot.fetch_user(r["user_id"])
-                    await user.send(embed=e)
-            except discord.HTTPException:
-                pass
+                await self._deliver_reminder(r)
+                # A crash or failed delete after delivery can produce a duplicate rather than losing it.
+                await self.bot.db.execute("DELETE FROM reminders WHERE id=?", rid)
             except Exception:
-                log.exception("Reminder %s failed", r["id"])
+                # Keep the reminder and retry with a bounded backoff; one bad reminder must not block others.
+                failures += 1
+                self._reminder_retries[rid] = (failures, time.monotonic() + min(3600, 10 * 2 ** min(failures, 9)))
+                log.warning("Reminder %s could not be delivered or removed; will retry", rid, exc_info=True)
+                continue
+            self._reminder_retries.pop(rid, None)
 
     @reminder_loop.before_loop
     async def _wait(self):

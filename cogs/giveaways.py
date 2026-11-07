@@ -25,7 +25,7 @@ class EnterButton(discord.ui.DynamicItem[discord.ui.Button], template=r"gw:(?P<i
     async def callback(self, it: discord.Interaction):
         bot = it.client
         gw = await bot.db.fetchone("SELECT * FROM giveaways WHERE message_id=?", it.message.id)
-        if not gw or gw["ended"]:
+        if not gw or gw["ended"] or gw["ends"] <= now():
             return await it.response.send_message("This giveaway has ended.", ephemeral=True)
         if gw["required_role"] and not it.user.get_role(gw["required_role"]):
             return await it.response.send_message(f"You need <@&{gw['required_role']}> to enter.", ephemeral=True)
