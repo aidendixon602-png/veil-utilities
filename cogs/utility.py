@@ -14,6 +14,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core import autoclean
+from core.loops import resilient
 from core.utils import (Colors, Context, Duration, OwnedView, UserError, build_message, build_vars, chunk_embeds,
                         fmt_duration, has_perms, now, shorten, ts)
 
@@ -250,6 +251,7 @@ class Utility(commands.Cog):
         await ctx.approve(f"deleted reminder `{reminder_id}`")
 
     @tasks.loop(seconds=10)
+    @resilient
     async def reminder_loop(self):
         for r in await self.bot.db.fetchall("SELECT * FROM reminders WHERE due<=?", now()):
             await self.bot.db.execute("DELETE FROM reminders WHERE id=?", r["id"])

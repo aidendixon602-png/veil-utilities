@@ -15,6 +15,7 @@ import feedparser
 from discord.ext import commands, tasks
 
 from core.config import settings
+from core.loops import resilient
 from core.net import TooLarge, read_capped
 from core.utils import Colors, Context, UserError, build_vars, chunk_embeds, has_perms, send_script, shorten
 
@@ -218,6 +219,7 @@ class Feeds(commands.Cog):
             pass
 
     @tasks.loop(minutes=5)
+    @resilient
     async def poll(self):
         rows = await self.bot.db.guilds_with("feeds")
         jobs: dict[str, list[tuple[int, str]]] = {}

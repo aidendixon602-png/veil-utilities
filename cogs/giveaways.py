@@ -7,6 +7,7 @@ import random
 import discord
 from discord.ext import commands, tasks
 
+from core.loops import resilient
 from core.utils import Colors, Context, Duration, UserError, chunk_embeds, has_perms, now, ts
 
 log = logging.getLogger("veil.giveaways")
@@ -136,6 +137,7 @@ class Giveaways(commands.Cog):
         return winners
 
     @tasks.loop(seconds=15)
+    @resilient
     async def checker(self):
         for gw in await self.bot.db.fetchall("SELECT * FROM giveaways WHERE ended=0 AND ends<=?", now()):
             # an unhandled error would stop the task loop for good, and no giveaway would ever end again

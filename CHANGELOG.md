@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Background tasks no longer switch themselves off.** `discord.ext.tasks` stops a loop for good when one
+  iteration raises, so a single bad write silently ended reminders, giveaways, counters, bump reminders, feeds,
+  level voice XP, the Lavalink watchdog and the member-count presence until the next restart — with one traceback
+  in the log as the only clue. Every loop now logs the failure and runs again at its next tick (`core/loops.py`).
+- **PostgreSQL actually works.** `DATABASE_URL` advertised a PostgreSQL backend that could not run: it only
+  created two of the eighteen tables (so warns, cases, levels, reminders, giveaways and tickets were missing),
+  it sent SQLite's `INSERT OR REPLACE` / `INSERT OR IGNORE` to PostgreSQL unchanged (both are syntax errors, so
+  authorizing a server, blacklisting, entering a giveaway and setting `/lastfm` all failed), `guilds_with` was
+  missing (breaking tab reporting, counters, bump reminders and feeds), and `execute` returned a status string
+  instead of something with `.rowcount`, so deleting warnings or a reminder crashed. It now shares one schema with
+  SQLite, translates the SQLite-only spellings, returns rows readable by name and position, and reports a bad
+  `DATABASE_URL` in plain words instead of a traceback. `,backup` and `,botsystem` say so instead of crashing
+  when the data lives in PostgreSQL (there is no file to measure or send), and `asyncpg` is in `requirements.txt`.
+- **Cut text can't reopen formatting.** `shorten_md` counted a fenced block's ``` as three separate backticks and
+  read `__` inside `` `x` `` as bold, so a long message cut in a log or a help line could leave code, bold or
+  underline open and reformat the rest of the message.
+- `,audiofilter clear` says it cleared the filters (it compared the preset to `off`, which isn't one of them).
+- The lockdown guard test no longer fails at random: parsing a large module in-process intermittently raised
+  CPython's `SystemError: AST constructor recursion depth mismatch` on valid files.
+
 ### Added
 
 - **Whitelisted people** (`WHITELISTED_PEOPLE` in `core/perms.py`), starting with thesimisear: no command can target

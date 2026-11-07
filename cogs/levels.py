@@ -8,6 +8,7 @@ import time
 import discord
 from discord.ext import commands, tasks
 
+from core.loops import resilient
 from core.utils import (Colors, Context, UserError, antinuke_guard, build_vars, check_role, chunk_embeds, has_perms,
                         is_dangerous, send_script)
 
@@ -122,6 +123,7 @@ class Levels(commands.Cog):
         await self.add_xp(m.author, random.randint(15, 25), m.channel)
 
     @tasks.loop(minutes=1)
+    @resilient
     async def voice_xp(self):
         for guild in self.bot.guilds:
             vcs = [vc for vc in guild.voice_channels if len([m for m in vc.members if not m.bot]) >= 2]
