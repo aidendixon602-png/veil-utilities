@@ -1406,9 +1406,9 @@ class Antinuke(commands.Cog):
                 raise UserError(f"Unknown action `{action}`")
             rule = {"name": LABELS.get(action, action), "threshold": 3, "window": 60, "punishment": "ban"}
         name = rule["name"]
-        th = mod.get("threshold", rule["threshold"])
-        win = mod.get("window", rule["window"])
-        pun = mod.get("punishment", rule["punishment"])
+        th = 1 if action in INSTANT else mod.get("threshold", rule["threshold"])
+        win = mod.get("window") or cfg.get("window", rule["window"])
+        pun = "strip" if action == "permissions" else (mod.get("punishment") or cfg.get("punishment", rule["punishment"]))
         tag_str = f" · {UNDOES[action]}" if action in UNDOES else ""
         state = "on" if mod.get("on") else "off"
         command_note = " · Veil command detection off" if mod.get("command") is False else ""
@@ -1428,6 +1428,40 @@ class Antinuke(commands.Cog):
     async def an_status(self, ctx: Context):
         """Antinuke status and rules, with buttons to change them"""
         await self.send_panel(ctx)
+
+    @antinuke.command(name="health", aliases=["diagnose"])
+    async def an_health(self, ctx: Context):
+        """Check antinuke readiness and bot permissions"""
+        await antinuke_admin(ctx)
+        cfg = await self.cfg(ctx.guild.id)
+        guild = ctx.guild
+        active = sum(bool(mod.get("on")) for mod in cfg.get("modules", {}).values() if isinstance(mod, dict))
+        delegated = _perms.ghost_guards(guild)
+        lines = [f"Antinuke: **{'on' if cfg.get('enabled') else 'off'}** · **{active}** rules enabled"]
+        if delegated:
+            lines.append("⚠️ Ghost Vanguard handles audit-log protection here; Veil only guards its own commands.")
+        elif not cfg.get("enabled"):
+            lines.append(f"⚠️ Rules won't run until `{ctx.clean_prefix}an toggle on`.")
+        elif not active:
+            lines.append("⚠️ No rules are enabled.")
+        me = getattr(guild, "me", None)
+        perms = getattr(me, "guild_permissions", None)
+        checks = (("view_audit_log", "View Audit Log"), ("manage_roles", "Manage Roles"),
+                  ("manage_channels", "Manage Channels"), ("ban_members", "Ban Members"),
+                  ("kick_members", "Kick Members"), ("moderate_members", "Moderate Members"))
+        missing = [label for key, label in checks if not getattr(perms, key, False)]
+        if perms is None:
+            lines.append("⚠️ Bot permissions couldn't be checked.")
+        elif missing:
+            lines.append("⚠️ Missing permissions: " + ", ".join(missing))
+        else:
+            lines.append("✅ Core audit and response permissions are present.")
+        intents = getattr(self.bot, "intents", None)
+        if intents is not None and not getattr(intents, "members", False):
+            lines.append("⚠️ Server Members intent is off; member-based checks and restoration may be incomplete.")
+        lines.append("-# Permission checks can't guarantee protection: role hierarchy, channel permissions, "
+                     "audit events and Discord availability still matter.")
+        await ctx.send(embed=discord.Embed(title="Antinuke health", description="\n".join(lines), color=Colors.neutral))
 
     @antinuke.command(name="enable", aliases=["on"])
     async def an_enable(self, ctx: Context):

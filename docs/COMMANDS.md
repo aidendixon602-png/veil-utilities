@@ -1,6 +1,6 @@
 # Command reference
 
-504 commands. Default prefix `,`. `<required>` `[optional]`.
+505 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -40,6 +40,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke disable` (off) | Turn antinuke off (server owner only) |  |
 | `antinuke emoji [count] [punishment] [timeframe] [flags]` (emoji_delete) | Configure emoji delete rule |  |
 | `antinuke enable` (on) | Turn antinuke on |  |
+| `antinuke health` (diagnose) | Check antinuke readiness and bot permissions |  |
 | `antinuke kick [count] [punishment] [timeframe] [flags]` | Configure kick rule |  |
 | `antinuke log [channel]` | Set where antinuke alerts go (owner always gets a DM) |  |
 | `antinuke memberroles [count] [punishment] [timeframe] [flags]` (member_roles) | Configure member roles rule |  |

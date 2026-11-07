@@ -111,7 +111,7 @@ def test_a_rule_page_changes_count_time_punishment_and_state():
     press(panel, "Turn on")
     it = press(panel, "Ban")
     assert it.response.edit_message.await_args.kwargs["embed"].title == "Ban"
-    assert labels(panel) == ["Turn off", "−", "count: 3", "+", "time: 60s", "punishment: ban", "← Back"]
+    assert labels(panel) == ["Turn off", "−", "count: 3", "+", "time: 60s", "punishment: ban", "commands: on", "← Back"]
     press(panel, "+")
     press(panel, "+")
     press(panel, "−")
@@ -235,3 +235,24 @@ def test_the_panel_counts_whitelisted_roles():
     cog.bot.db.store["antinuke"] = {"whitelist": [1], "whitelist_roles": [2, 3], "modules": {}}
     _, embed = open_panel(cog, guild)
     assert "whitelisted: 1 + 2 roles" in embed.description
+
+
+def test_rule_panel_can_toggle_command_detection_and_notifies_on_disabling():
+    cog, guild = setup()
+    cog.security_notice = AsyncMock()
+    panel, _ = open_panel(cog, guild)
+    press(panel, "Turn on")
+    press(panel, "Ban")
+    press(panel, "commands: on")
+    assert saved(cog)["modules"]["ban"]["command"] is False
+    assert "Veil command detection: **off**" in panel.embed().description
+    cog.security_notice.assert_awaited_once()
+    press(panel, "commands: off")
+    assert saved(cog)["modules"]["ban"]["command"] is True
+
+
+def test_panel_uses_effective_global_defaults_for_legacy_rules():
+    from core.antinukepanel import rule_state
+    cfg = {"punishment": "kick", "window": 90, "modules": {"ban": {"on": True}}}
+    state = rule_state(cfg, "ban")
+    assert state["punishment"] == "kick" and state["window"] == 90

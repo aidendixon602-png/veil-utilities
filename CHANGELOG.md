@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `,an health` checks antinuke state, core permissions, member intent and Ghost Vanguard delegation.
+- Antinuke rule pages can toggle Veil command detection and show its current state.
+- Dashboard server filtering now includes authorization and explicitly configured log channels.
+
+### Changed
+
+- Reminders retry delivery with backoff on failure and fall back to DM if the channel is inaccessible.
+  They are removed after delivery; an interruption before removal can result in a duplicate.
+- The Wispbyte guide includes a virtual-environment startup command and the complete package list.
+
+### Fixed
+
+- Dashboard saves reject invalid or excessive IDs before changing any settings, instead of silently dropping them.
+- Antinuke panels and rule details show effective global defaults and fixed instant-rule values.
+- Giveaway entries are rejected after the scheduled deadline, even if the checker hasn't marked them ended yet.
+
 ### Fixed
 
 - **Background tasks no longer switch themselves off.** `discord.ext.tasks` stops a loop for good when one

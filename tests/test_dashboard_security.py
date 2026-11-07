@@ -196,7 +196,7 @@ def test_owner_save_writes_the_keys_the_bot_actually_reads():
     async def scenario(client):
         r = await client.post(
             f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
-            data={"csrf": csrf_of(server, token), "rbl_roles": "11, 22, nope", "rbl_authorized": "33",
+            data={"csrf": csrf_of(server, token), "rbl_roles": "11, 22", "rbl_authorized": "33",
                   "log_commands": "44", "log_bans": "", "log_joins": "66",
                   "an_punishment": "kick", "an_admins": "77, 77, 88"},
         )
@@ -380,5 +380,58 @@ def test_configured_developers_can_access_all_servers(monkeypatch):
         r = await client.get("/api/guilds", headers=headers)
         assert {g["id"] for g in await r.json()} == {str(GUILD_ID), str(OTHER_GUILD_ID)}
         assert (await client.get(f"/servers/{OTHER_GUILD_ID}", headers=headers)).status == 200
+
+    run(server, scenario)
+
+
+def test_invalid_ids_never_partially_save_security_settings():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    bot.db.store[(GUILD_ID, "roleblacklist")] = {"roles": [11], "authorized": [22]}
+
+    async def scenario(client):
+        for field, value in (("rbl_roles", "33, invalid"), ("an_admins", "nope"),
+                             ("log_commands", "invalid"), ("rbl_roles", ",".join(map(str, range(1, 102))))):
+            r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
+                                  data={"csrf": csrf_of(server, token), "rbl_roles": "33", field: value})
+            assert r.status == 400 and "Nothing was saved" in await r.text()
+
+    run(server, scenario)
+    assert bot.db.store[(GUILD_ID, "roleblacklist")] == {"roles": [11], "authorized": [22]}
+    assert bot.db.writes == []
+
+
+def test_dashboard_preserves_logging_off_state():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
+                              data={"csrf": csrf_of(server, token), "log_commands": "-1"})
+        assert r.status == 302
+
+    run(server, scenario)
+    assert bot.db.store[(GUILD_ID, "logs")]["commands"] == -1
+
+
+def test_overview_filters_authorization_and_explicit_log_channels():
+    bot = make_bot()
+    bot.is_authorized = lambda gid: gid == GUILD_ID
+    bot.db.store[(GUILD_ID, "logs")] = {"commands": 42, "bans": -1, "ignore": {"users": [1]}}
+    server = login_server(bot)
+    _, headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        r = await client.get("/?authorized=yes&logs=configured", headers=headers)
+        text = await r.text()
+        assert "Test Server</a>" in text and "Other</a>" not in text
+        assert "1 configured" in text
+        r = await client.get("/?authorized=no&logs=none", headers=headers)
+        text = await r.text()
+        assert "Other</a>" in text and "Test Server</a>" not in text
+        r = await client.get("/?authorized=no", headers=cookie(server, GUILD_OWNER)[1])
+        assert "Other</a>" not in await r.text()
 
     run(server, scenario)
