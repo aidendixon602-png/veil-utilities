@@ -1,7 +1,4 @@
-"""Public ,help: a plain home card with one button per category. A category is one page: each command with its
-arguments and what it does, then its aliases, and a Back button. `,help <command>` has the full card. Developers get a
-Developer button that opens the same kind of page for the developer commands.
-"""
+"""Prefix help with a Veil-branded home, category and command navigation, and permission-aware details."""
 from __future__ import annotations
 
 import difflib
@@ -54,8 +51,9 @@ CATEGORY_ALIASES = {"gv": "ghost vanguard", "vanguard": "ghost vanguard", "ghost
                     "admins": "admin", "administration": "admin", "administrator": "admin"}
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
-PER_PAGE = 10  # commands on one page of a category; longer categories get ◀ ▶ buttons
-HELP_COLOR = Colors.neutral  # greed / bleed: quiet grey cards, the content does the talking
+PER_PAGE = 10  # commands per category page
+SUBCOMMANDS_PER_PAGE = 15  # fits both the embed and a Discord select
+HELP_COLOR = 0xB10F2E  # Veil accent
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
     "Utility": 0,       # Public
@@ -106,12 +104,12 @@ CATEGORY_EMOJIS: dict[str, str] = {
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Utility": "Lookups, AFK, snipe and everyday tools",
     "Music": "Lavalink and Spotify playback, queues, filters",
-    "Moderator": "Warns, timeouts, kicks, purge, jail and the ,mod panel",
-    "Admin": "Bans, lockdowns, mass actions, logs and the ,admin panel",
+    "Moderator": "Warns, timeouts, kicks, purge, jail and the moderation panel",
+    "Admin": "Bans, lockdowns, mass actions, logs and the admin panel",
     "Roles": "Role commands, autoroles, reaction roles, role blacklist",
     "Permissions": "Bot ranks (uperm), staff limits and command access",
     "Antinuke": "Real-time server protection and anti-raid",
-    "Ghost Vanguard": "Optional bridge: ,gv <command>, ,gv help lists them",
+    "Ghost Vanguard": "Optional bridge to Ghost Vanguard commands",
     "Automod": "Spam, link and invite filtering",
     "Server": "Server setup, welcome messages and settings",
     "VoiceMaster": "Temporary voice channels and VC controls",
@@ -280,9 +278,18 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
     return out
 
 
+def visible_command(cmd, bot, is_owner: bool, rank: int) -> bool:
+    """Apply visibility to the command and its ancestors; this is not a replacement for runtime checks."""
+    if is_owner:
+        return True
+    chain = [cmd, *getattr(cmd, "parents", [])]
+    return not any(getattr(c, "hidden", False) or getattr(c, "cog_name", None) in HIDDEN_COGS for c in chain) and all(
+        rank >= min_rank_for_command(c, bot) for c in chain)
+
+
 def allowed(cmds: typing.Iterable[commands.Command], bot, is_owner: bool, rank: int) -> list[commands.Command]:
-    """The commands this person is allowed to see in help."""
-    return [c for c in cmds if is_owner or rank >= min_rank_for_command(c, bot)]
+    """The commands this person may see in help, including inherited restrictions."""
+    return [c for c in cmds if visible_command(c, bot, is_owner, rank)]
 
 
 def category_labels(categories: dict[str, list], is_owner: bool, rank: int) -> list[str]:
@@ -397,16 +404,20 @@ def developer_commands(bot) -> list[commands.Command]:
     return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
 
 
+HOME = "__home__"
+
+
 class CategorySelect(discord.ui.Select["HelpView"]):
-    """The category dropdown (greed / bleed style): Home, then one entry per category this person may open."""
+    """Jump to any category available in this menu."""
 
     def __init__(self, labels: list[str], sizes: dict[str, int], current: str | None):
-        options = [discord.SelectOption(label="Home", value=HOME, description="back to the start",
+        options = [discord.SelectOption(label="Home", value=HOME, description="Return to the help overview",
                                         default=current is None)]
         options += [discord.SelectOption(label=label, value=label, default=label == current,
-                                         description=count(sizes.get(label, 0), "command"))
+                                         description=(f"{count(sizes.get(label, 0), 'command')} · "
+                                                      f"{CATEGORY_DESCRIPTIONS.get(label, 'Browse commands')}")[:100])
                     for label in labels]
-        super().__init__(placeholder="Choose a category…", options=options[:25], min_values=1, max_values=1)
+        super().__init__(placeholder="Browse categories", options=options[:25], min_values=1, max_values=1, row=0)
 
     async def callback(self, it: discord.Interaction):
         choice = self.values[0]
@@ -416,37 +427,85 @@ class CategorySelect(discord.ui.Select["HelpView"]):
             await self.view.show_category(it, choice)
 
 
-HOME = "__home__"
+class CommandSelect(discord.ui.Select["HelpView"]):
+    """Open the details for a command on the current category page."""
+
+    def __init__(self, commands_on_page: list[commands.Command], prefix: str, current: str | None):
+        options = [discord.SelectOption(label=f"{prefix}{c.qualified_name}"[:100], value=c.qualified_name,
+                                        description=blurb(c, 100), default=c.qualified_name == current)
+                   for c in commands_on_page]
+        super().__init__(placeholder="Open a command", options=options, min_values=1, max_values=1, row=1)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show_command(it, self.values[0])
+
+
+class SubcommandSelect(discord.ui.Select["HelpView"]):
+    """Browse visible direct subcommands of the open group."""
+
+    def __init__(self, items: list[commands.Command], prefix: str):
+        options = [discord.SelectOption(label=f"{prefix}{c.qualified_name}"[:100], value=c.qualified_name,
+                                        description=blurb(c, 100)) for c in items]
+        super().__init__(placeholder="Open a subcommand", options=options, min_values=1, max_values=1, row=2)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show_subcommand(it, self.values[0])
 
 
 class PageButton(discord.ui.Button["HelpView"]):
-    """◀ / ▶ under a category that has more than one page."""
-
     def __init__(self, label: str, step: int, disabled: bool):
-        super().__init__(label=label, style=discord.ButtonStyle.secondary, disabled=disabled, row=1)
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, disabled=disabled, row=3)
         self.step = step
 
     async def callback(self, it: discord.Interaction):
         await self.view.turn(it, self.step)
 
 
+class SubPageButton(discord.ui.Button["HelpView"]):
+    def __init__(self, label: str, step: int, disabled: bool):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, disabled=disabled, row=3)
+        self.step = step
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.turn_subpage(it, self.step)
+
+
+class HelpHomeButton(discord.ui.Button["HelpView"]):
+    def __init__(self):
+        super().__init__(label="Home", style=discord.ButtonStyle.secondary, row=3)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show_home(it)
+
+
+class CategoryBackButton(discord.ui.Button["HelpView"]):
+    def __init__(self):
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=3)
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show_category_page(it)
+
+
 class HelpView(OwnedView):
-    """Home card and one card per category, switched with a dropdown. Every card is built when the menu opens, so a
-    pick only swaps the embed: one quick edit."""
+    """Browse the caller's visible categories and command details without leaving the menu."""
 
     def __init__(self, help_cmd: Help, categories: dict[str, list[commands.Command]], start: str | None = None,
                  is_owner: bool = False, author_rank: int = 0):
-        super().__init__(help_cmd.context.author.id, timeout=300)  # 5 minutes to read before the menu goes
+        super().__init__(help_cmd.context.author.id, timeout=300)
         self.help_cmd, self.categories = help_cmd, categories
-        self.is_owner = is_owner
-        self.author_rank = author_rank
+        self.is_owner, self.author_rank = is_owner, author_rank
         self.message: discord.Message | None = None
-        self.pages: dict[str, discord.Embed] = {}  # each category's first page
-        self.books: dict[str, list[discord.Embed]] = {}  # every page of each category
+        self.pages: dict[str, discord.Embed] = {}
+        self.books: dict[str, list[discord.Embed]] = {}
+        self.items: dict[str, list[commands.Command]] = {}
         self.sizes: dict[str, int] = {}
         self.page = 0
+        self.selected: commands.Command | None = None
+        self.stack: list[tuple[commands.Command, int]] = []
+        self.subpage = 0
         for label in self.labels():
             cmds = page_order(label, self.commands_in(label))
+            self.items[label] = cmds
             self.sizes[label] = len(cmds)
             self.books[label] = help_cmd.category_pages(label, cmds)
             self.pages[label] = self.books[label][0]
@@ -461,45 +520,124 @@ class HelpView(OwnedView):
 
     def labels(self) -> list[str]:
         names = category_labels(self.categories, self.is_owner, self.author_rank)
-        return (names + (["Developer"] if self.is_owner else []))[:24]  # + Home = Discord's 25 options
+        return (names + (["Developer"] if self.is_owner else []))[:24]
 
     def commands_in(self, label: str | None) -> list[commands.Command]:
         if label == "Developer":
             return developer_commands(self.bot) if self.is_owner else []
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank)
 
+    def current_items(self) -> list[commands.Command]:
+        start = self.page * PER_PAGE
+        return self.items.get(self.current, [])[start:start + PER_PAGE]
+
+    def subcommands(self) -> list[commands.Command]:
+        if not isinstance(self.selected, commands.Group):
+            return []
+        return sorted(allowed(self.selected.commands, self.bot, self.is_owner, self.author_rank), key=lambda c: c.name)
+
+    def subpages(self) -> int:
+        return max(1, (len(self.subcommands()) + SUBCOMMANDS_PER_PAGE - 1) // SUBCOMMANDS_PER_PAGE)
+
+    def current_subcommands(self) -> list[commands.Command]:
+        start = self.subpage * SUBCOMMANDS_PER_PAGE
+        return self.subcommands()[start:start + SUBCOMMANDS_PER_PAGE]
+
     def embed(self) -> discord.Embed:
-        return self.home if self.current is None else self.books[self.current][self.page]
+        if self.current is None:
+            return self.home
+        if self.selected is not None:
+            card = self.help_cmd.command_embed(self.selected, visible_subcommands=self.current_subcommands())
+            if self.subpages() > 1:
+                card.set_footer(text=f"{card.footer.text} · subcommands {self.subpage + 1}/{self.subpages()}")
+            return card
+        return self.books[self.current][self.page]
 
     def _build_items(self):
         self.clear_items()
         self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
-        total = len(self.books.get(self.current, [])) if self.current else 0
-        if total > 1:
-            self.add_item(PageButton("◀", -1, disabled=self.page == 0))
-            self.add_item(discord.ui.Button(label=f"{self.page + 1}/{total}", disabled=True, row=1))
-            self.add_item(PageButton("▶", 1, disabled=self.page >= total - 1))
+        if self.current is None:
+            return
+        items = self.current_items()
+        if items:
+            root = self.stack[0][0] if self.stack else self.selected
+            self.add_item(CommandSelect(items, self.help_cmd.context.clean_prefix,
+                                        root.qualified_name if root else None))
+        subcommands = self.current_subcommands() if self.selected else []
+        if subcommands:
+            self.add_item(SubcommandSelect(subcommands, self.help_cmd.context.clean_prefix))
+        self.add_item(HelpHomeButton())
+        if self.selected:
+            self.add_item(CategoryBackButton())
+            total = self.subpages()
+            if total > 1:
+                self.add_item(SubPageButton("Previous", -1, disabled=self.subpage == 0))
+                self.add_item(discord.ui.Button(label=f"{self.subpage + 1} / {total}", disabled=True, row=3))
+                self.add_item(SubPageButton("Next", 1, disabled=self.subpage >= total - 1))
+        else:
+            total = len(self.books[self.current])
+            if total > 1:
+                self.add_item(PageButton("Previous", -1, disabled=self.page == 0))
+                self.add_item(discord.ui.Button(label=f"{self.page + 1} / {total}", disabled=True, row=3))
+                self.add_item(PageButton("Next", 1, disabled=self.page >= total - 1))
 
     async def turn(self, it: discord.Interaction, step: int):
-        total = len(self.books.get(self.current, [])) if self.current else 0
+        if self.current not in self.books or self.selected is not None:
+            return await it.response.send_message("This page is no longer available.", ephemeral=True)
+        total = len(self.books[self.current])
         self.page = max(0, min(self.page + step, total - 1))
         self._build_items()
         await respond_or_edit(it, self.embed(), self)
 
+    async def show_command(self, it: discord.Interaction, name: str):
+        cmd = next((c for c in self.current_items() if c.qualified_name == name), None)
+        if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank):
+            return await it.response.send_message("This command is not available in this menu.", ephemeral=True)
+        self.selected, self.stack, self.subpage = cmd, [], 0
+        self._build_items()
+        await respond_or_edit(it, self.embed(), self)
+
+    async def show_subcommand(self, it: discord.Interaction, name: str):
+        cmd = next((c for c in self.current_subcommands() if c.qualified_name == name), None)
+        if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank):
+            return await it.response.send_message("This subcommand is not available in this menu.", ephemeral=True)
+        self.stack.append((self.selected, self.subpage))
+        self.selected, self.subpage = cmd, 0
+        self._build_items()
+        await respond_or_edit(it, self.embed(), self)
+
+    async def turn_subpage(self, it: discord.Interaction, step: int):
+        if not isinstance(self.selected, commands.Group):
+            return await it.response.send_message("This page is no longer available.", ephemeral=True)
+        self.subpage = max(0, min(self.subpage + step, self.subpages() - 1))
+        self._build_items()
+        await respond_or_edit(it, self.embed(), self)
+
+    async def show_category_page(self, it: discord.Interaction):
+        if self.current not in self.books:
+            return await self.show_home(it)
+        if self.stack:
+            self.selected, self.subpage = self.stack.pop()
+        else:
+            self.selected, self.subpage = None, 0
+        self._build_items()
+        await respond_or_edit(it, self.embed(), self)
+
     async def show_category(self, it: discord.Interaction, label: str):
-        if label not in self.pages:  # not theirs to open (a stale menu, or a rank that changed)
-            return await it.response.send_message("🔒 You can't open that category.", ephemeral=True)
-        self.current, self.page = label, 0
+        if label not in self.pages:
+            return await it.response.send_message("You can't open that category.", ephemeral=True)
+        self.current, self.page, self.selected = label, 0, None
+        self.stack, self.subpage = [], 0
         self._build_items()
         await respond_or_edit(it, self.embed(), self)
 
     async def show_home(self, it: discord.Interaction):
-        self.current, self.page = None, 0
+        self.current, self.page, self.selected = None, 0, None
+        self.stack, self.subpage = [], 0
         self._build_items()
         await respond_or_edit(it, self.home, self)
 
     async def on_timeout(self):
-        """The menu stays where it is; only the dropdown and buttons go once nobody can use them."""
         if self.message:
             try:
                 await self.message.edit(view=None)
@@ -522,25 +660,24 @@ class Help(commands.HelpCommand):
 
     def home_embed(self, author_rank: int = 0, categories: dict[str, list] | None = None,
                    is_owner: bool = False, *, total: int | None = None, sections: int | None = None) -> discord.Embed:
-        """The start card: what you can use here and how to look things up; the dropdown does the rest."""
+        """Overview of the caller's visible help entries and how to browse them."""
         p = self.context.clean_prefix
-        lines = ["**information**"]
+        lines = ["Find commands, explore categories, and check how to use each one.", ""]
         if total is not None:
-            lines.append(f"> **{total}** commands you can use"
-                         + (f" in **{sections}** categories" if sections else ""))
-        lines += [f"> prefix: `{p}`", f"> `{p}help <command>` for a command's syntax and an example", "",
-                  "choose a category from the menu below."]
-        e = self._brand(discord.Embed(color=HELP_COLOR, description="\n".join(lines)))
+            lines.append(f"**{total}** command entries · **{sections or 0}** categories")
+        lines.extend([f"**Prefix** `{p}`", "", "Choose a category below, then select a command for details.",
+                      f"For a direct lookup, use `{p}help <command>`."])
+        e = self._brand(discord.Embed(title="Veil Utilities · Help", color=HELP_COLOR, description="\n".join(lines)))
+        e.set_footer(text="Command availability depends on your permissions and server settings.")
         bot = getattr(self.context, "bot", None)
         if bot and getattr(bot, "user", None):
             e.set_thumbnail(url=bot.user.display_avatar.url)
         return e
 
     def command_line(self, cmd: commands.Command) -> str:
-        """One command on a category page: its name, what it does, and how many subcommands it has."""
+        """One command on a category page, with a marker for groups."""
         p = self.context.clean_prefix
-        subs = sub_count(cmd)
-        more = f" · *{count(subs, 'subcommand')}*" if subs else ""
+        more = " · *group*" if isinstance(cmd, commands.Group) else ""
         return f"`{p}{cmd.name}` · {blurb(cmd, 60)}{more}"
 
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
@@ -549,10 +686,13 @@ class Help(commands.HelpCommand):
         chunks = [cmds[i:i + PER_PAGE] for i in range(0, len(cmds), PER_PAGE)] or [[]]
         pages = []
         for n, chunk in enumerate(chunks, 1):
-            body = "\n".join(self.command_line(c) for c in chunk) or "no commands in this category"
-            e = self._brand(discord.Embed(color=HELP_COLOR, title=label, description=shorten_md(body, 4000)))
-            where = f"page {n}/{len(chunks)} · " if len(chunks) > 1 else ""
-            e.set_footer(text=f"{where}{count(len(cmds), 'command')} · {p}help <command> for details")
+            entries = "\n".join(self.command_line(c) for c in chunk) or "No commands in this category."
+            intro = CATEGORY_DESCRIPTIONS.get(label, "Browse commands")
+            body = f"{intro}\n\n**Commands**\n{entries}"
+            e = self._brand(discord.Embed(color=HELP_COLOR, title=f"{label} · Commands",
+                                          description=shorten_md(body, 4000)))
+            e.set_footer(text=f"Page {n}/{len(chunks)} · {count(len(cmds), 'command')} · "
+                              f"Select a command or use {p}help <command>")
             pages.append(e)
         return pages
 
@@ -561,7 +701,8 @@ class Help(commands.HelpCommand):
         pages = self.category_pages(label, cmds)
         return pages[max(0, min(page, len(pages) - 1))]
 
-    def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None) -> discord.Embed:
+    def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None, *,
+                      visible_subcommands: list[commands.Command] | None = None) -> discord.Embed:
         """A command's card: what it does, then Usage, Example, Aliases and what it needs, one line each. Nothing
         is shown that doesn't apply (no "n/a"), and default values stay out of the syntax. A group's card lists its
         subcommands."""
@@ -571,7 +712,8 @@ class Help(commands.HelpCommand):
         # an "Example: `...`" line in the description is the command's own example: it goes in the Example slot
         written = [ln for ln in about.splitlines() if ln.startswith("Example:")]
         about = "\n".join(ln for ln in about.splitlines() if not ln.startswith("Example:")).strip()
-        lines = [about[0].upper() + about[1:], ""]
+        about = about or "No description yet."
+        lines = [about[0].upper() + about[1:], "", "**Command guide**"]
         lines.append(f"**Usage** `{p}{cmd.qualified_name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}`")
         example = written[0].split(":", 1)[1].strip() if written else (f"`{example_for(cmd, p)}`" if example_for(cmd, p) else "")
         if example and example != f"`{p}{cmd.qualified_name}`":
@@ -587,12 +729,13 @@ class Help(commands.HelpCommand):
         if needs:
             lines.append("**Requires** " + ", ".join(dict.fromkeys(needs)))
         if isinstance(cmd, commands.Group) and (page is None or page[0] == 1):
-            subs = sorted((c for c in cmd.commands if not c.hidden), key=lambda c: c.name)
+            subs = sorted(visible_subcommands if visible_subcommands is not None else
+                          (c for c in cmd.commands if not c.hidden), key=lambda c: c.name)
             if subs:
                 lines += ["", "**Subcommands**"]
                 lines += [f"`{p}{c.qualified_name}` · {blurb(c, 60)}" for c in subs[:15]]
                 if len(subs) > 15:
-                    lines.append(f"-# and {len(subs) - 15} more")
+                    lines.append(f"-# and {len(subs) - 15} more · use `{p}help {cmd.qualified_name}` to browse")
         e = self._brand(discord.Embed(title=f"{p}{cmd.qualified_name}", color=HELP_COLOR,
                                       description=shorten_md("\n".join(lines), 4000)))
         where = f"page {page[0]}/{page[1]} · " if page and page[1] > 1 else ""
@@ -682,11 +825,8 @@ class Help(commands.HelpCommand):
 
     async def _can_see(self, cmd) -> bool:
         is_owner = await self.is_owner_check()
-        if (cmd.hidden or any(p.hidden for p in cmd.parents)) and not is_owner:
-            return False
-        if is_owner:
-            return True
-        return await self.get_author_rank() >= min_rank_for_command(cmd, getattr(self.context, "bot", None))
+        rank = 0 if is_owner else await self.get_author_rank()
+        return visible_command(cmd, getattr(self.context, "bot", None), is_owner, rank)
 
     async def send_command_help(self, cmd):
         if not await self._can_see(cmd):
@@ -700,10 +840,11 @@ class Help(commands.HelpCommand):
         is_owner = await self.is_owner_check()
         rank = 0 if is_owner else await self.get_author_rank()
         bot = getattr(self.context, "bot", None)
-        subs = sorted((c for c in group.walk_commands() if not c.hidden), key=lambda c: c.qualified_name)
-        subs = allowed(subs, bot, is_owner, rank)
+        subs = sorted(allowed(group.walk_commands(), bot, is_owner, rank), key=lambda c: c.qualified_name)
         cards = [group, *subs]
-        pages = [self.command_embed(c, (i, len(cards))) for i, c in enumerate(cards, 1)]
+        pages = [self.command_embed(c, (i, len(cards)), visible_subcommands=(
+            allowed(c.commands, bot, is_owner, rank) if isinstance(c, commands.Group) else None))
+            for i, c in enumerate(cards, 1)]
         if len(pages) == 1:
             return await self.context.send(embed=pages[0])
         from core.utils import Paginator
@@ -728,9 +869,7 @@ class Help(commands.HelpCommand):
             rank = 0 if is_owner else await self.get_author_rank()
             names: list[str] = []
             for cmd in bot.walk_commands():
-                if cmd.hidden and not is_owner:
-                    continue
-                if not is_owner and rank < min_rank_for_command(cmd, bot):
+                if not visible_command(cmd, bot, is_owner, rank):
                     continue
                 names.append(cmd.qualified_name)
                 if cmd.parent is None:
