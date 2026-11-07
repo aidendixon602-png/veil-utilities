@@ -1,6 +1,7 @@
 """Prefix help with a Veil-branded home, category and command navigation, and permission-aware details."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 import difflib
 import inspect
 import re
@@ -104,7 +105,7 @@ CATEGORY_EMOJIS: dict[str, str] = {
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Utility": "Lookups, AFK, snipe and everyday tools",
     "Music": "Lavalink and Spotify playback, queues, filters",
-    "Moderator": "Warns, timeouts, kicks, purge, jail and the moderation panel",
+    "Moderator": "Moderation tools available to your permission level",
     "Admin": "Bans, lockdowns, mass actions, logs and the admin panel",
     "Roles": "Role commands, autoroles, reaction roles, role blacklist",
     "Permissions": "Bot ranks (uperm), staff limits and command access",
@@ -278,18 +279,64 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
     return out
 
 
-def visible_command(cmd, bot, is_owner: bool, rank: int) -> bool:
+@dataclass
+class HelpAccess:
+    """Permission inputs captured when help opens, without running command callbacks or checks."""
+    levels: dict
+    rank: int
+    granted: set[str]
+    native: discord.Permissions
+    has_levels: bool
+    disabled: set[str]
+    bypass_disabled: bool
+    bypass_permissions: bool
+    guild_available: bool
+    config_available: bool
+
+    def permits(self, cmd: commands.Command) -> bool:
+        from core import perms as _perms
+
+        root = getattr(cmd, "root_parent", None) or cmd
+        if not self.bypass_disabled and (cmd.qualified_name in self.disabled or root.name in self.disabled):
+            return False
+        if self.bypass_permissions:
+            return True
+        metadata = getattr(getattr(cmd, "callback", None), "__veil_perms__", [])
+        required = {p for p in metadata if isinstance(p, str) and not p.startswith("uperm:")}
+        levels = [p.split(":", 1)[1].strip().lower() for p in metadata
+                  if isinstance(p, str) and p.startswith("uperm:")]
+        if (required or levels) and (not self.guild_available or not self.config_available):
+            return False
+        for level in levels:
+            target = _perms.all_levels(self.levels).get(_perms.canonical(level))
+            if self.rank < (target["rank"] if target else 1):
+                return False
+        if required:
+            if "administrator" in self.granted:
+                return True
+            if self.granted:
+                return required <= self.granted
+            if self.has_levels:
+                return False
+            if self.native.administrator:
+                return True
+            return all(getattr(self.native, p, False) for p in required)
+        return True
+
+
+def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | None = None) -> bool:
     """Apply visibility to the command and its ancestors; this is not a replacement for runtime checks."""
     if is_owner:
         return True
     chain = [cmd, *getattr(cmd, "parents", [])]
     return not any(getattr(c, "hidden", False) or getattr(c, "cog_name", None) in HIDDEN_COGS for c in chain) and all(
-        rank >= min_rank_for_command(c, bot) for c in chain)
+        rank >= min_rank_for_command(c, bot) and (access is None or access.permits(c)) for c in chain)
 
 
-def allowed(cmds: typing.Iterable[commands.Command], bot, is_owner: bool, rank: int) -> list[commands.Command]:
+def allowed(cmds: typing.Iterable[commands.Command], bot, is_owner: bool, rank: int,
+            access: HelpAccess | None = None) -> list[commands.Command]:
     """The commands this person may see in help, including inherited restrictions."""
-    return [c for c in cmds if visible_command(c, bot, is_owner, rank)]
+    return [c for c in cmds if visible_command(c, bot, is_owner, rank, access)]
 
 
 def category_labels(categories: dict[str, list], is_owner: bool, rank: int) -> list[str]:
@@ -490,10 +537,10 @@ class HelpView(OwnedView):
     """Browse the caller's visible categories and command details without leaving the menu."""
 
     def __init__(self, help_cmd: Help, categories: dict[str, list[commands.Command]], start: str | None = None,
-                 is_owner: bool = False, author_rank: int = 0):
+                 is_owner: bool = False, author_rank: int = 0, access: HelpAccess | None = None):
         super().__init__(help_cmd.context.author.id, timeout=300)
         self.help_cmd, self.categories = help_cmd, categories
-        self.is_owner, self.author_rank = is_owner, author_rank
+        self.is_owner, self.author_rank, self.access = is_owner, author_rank, access
         self.message: discord.Message | None = None
         self.pages: dict[str, discord.Embed] = {}
         self.books: dict[str, list[discord.Embed]] = {}
@@ -525,7 +572,7 @@ class HelpView(OwnedView):
     def commands_in(self, label: str | None) -> list[commands.Command]:
         if label == "Developer":
             return developer_commands(self.bot) if self.is_owner else []
-        return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank)
+        return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank, self.access)
 
     def current_items(self) -> list[commands.Command]:
         start = self.page * PER_PAGE
@@ -534,7 +581,7 @@ class HelpView(OwnedView):
     def subcommands(self) -> list[commands.Command]:
         if not isinstance(self.selected, commands.Group):
             return []
-        return sorted(allowed(self.selected.commands, self.bot, self.is_owner, self.author_rank), key=lambda c: c.name)
+        return sorted(allowed(self.selected.commands, self.bot, self.is_owner, self.author_rank, self.access), key=lambda c: c.name)
 
     def subpages(self) -> int:
         return max(1, (len(self.subcommands()) + SUBCOMMANDS_PER_PAGE - 1) // SUBCOMMANDS_PER_PAGE)
@@ -591,7 +638,7 @@ class HelpView(OwnedView):
 
     async def show_command(self, it: discord.Interaction, name: str):
         cmd = next((c for c in self.current_items() if c.qualified_name == name), None)
-        if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank):
+        if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank, self.access):
             return await it.response.send_message("This command is not available in this menu.", ephemeral=True)
         self.selected, self.stack, self.subpage = cmd, [], 0
         self._build_items()
@@ -599,7 +646,7 @@ class HelpView(OwnedView):
 
     async def show_subcommand(self, it: discord.Interaction, name: str):
         cmd = next((c for c in self.current_subcommands() if c.qualified_name == name), None)
-        if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank):
+        if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank, self.access):
             return await it.response.send_message("This subcommand is not available in this menu.", ephemeral=True)
         self.stack.append((self.selected, self.subpage))
         self.selected, self.subpage = cmd, 0
@@ -778,6 +825,42 @@ class Help(commands.HelpCommand):
                 return 0
         return 0
 
+    async def help_access(self, rank: int) -> HelpAccess | None:
+        """Mirror stable user permission inputs; runtime checks remain the authority for execution."""
+        from core import perms as _perms
+
+        guild = getattr(self.context, "guild", None)
+        author = getattr(self.context, "author", None)
+        bot = getattr(self.context, "bot", None)
+        db = getattr(bot, "db", None)
+        if not author or not db:
+            return None
+        native = discord.Permissions.none()
+        channel = getattr(self.context, "channel", None)
+        if channel and callable(getattr(channel, "permissions_for", None)):
+            try:
+                native = channel.permissions_for(author)
+            except (AttributeError, TypeError):
+                pass
+        guild_permissions = getattr(author, "guild_permissions", None)
+        bypass_disabled = bool(getattr(guild_permissions, "administrator", False))
+        if not guild:
+            return HelpAccess({}, rank, set(), native, False, set(), bypass_disabled, False, False, True)
+        try:
+            cfg = await db.get_config(guild.id, "permlevels") or {}
+            fake = await db.get_config(guild.id, "fakeperms") or {}
+            settings = await db.get_config(guild.id, "settings") or {}
+            granted = _perms.level_perms(cfg, author)
+            for role in getattr(author, "roles", []):
+                granted.update(fake.get(str(role.id), []))
+            disabled = set(settings.get("disabled", []))
+            return HelpAccess(cfg, rank, granted, native, bool(cfg.get("users") or cfg.get("roles")),
+                              disabled, bypass_disabled, author.id == getattr(guild, "owner_id", None), True, True)
+        except Exception:
+            # An unavailable permission store must not make protected commands appear usable.
+            return HelpAccess({}, rank, set(), native, True, set(), bypass_disabled,
+                              author.id == getattr(guild, "owner_id", None), True, False)
+
     # ------------------------------------------------------------ entry points
     async def open_menu(self, start: str | None = None):
         categories = category_commands(self.context.bot)
@@ -787,7 +870,8 @@ class Help(commands.HelpCommand):
             start = "Developer" if is_owner else None
         if start is not None and not is_owner and rank < CATEGORY_MIN_RANKS.get(start, 0):
             return await self.send_error_message(f'No command or category called "{start}" found.')
-        view = HelpView(self, categories, start, is_owner=is_owner, author_rank=rank)
+        access = None if is_owner else await self.help_access(rank)
+        view = HelpView(self, categories, start, is_owner=is_owner, author_rank=rank, access=access)
         view.message = await self.context.send(embed=view.embed(), view=view)
 
     async def command_callback(self, ctx, /, *, command: str | None = None):
@@ -826,7 +910,8 @@ class Help(commands.HelpCommand):
     async def _can_see(self, cmd) -> bool:
         is_owner = await self.is_owner_check()
         rank = 0 if is_owner else await self.get_author_rank()
-        return visible_command(cmd, getattr(self.context, "bot", None), is_owner, rank)
+        access = None if is_owner else await self.help_access(rank)
+        return visible_command(cmd, getattr(self.context, "bot", None), is_owner, rank, access)
 
     async def send_command_help(self, cmd):
         if not await self._can_see(cmd):
@@ -840,10 +925,11 @@ class Help(commands.HelpCommand):
         is_owner = await self.is_owner_check()
         rank = 0 if is_owner else await self.get_author_rank()
         bot = getattr(self.context, "bot", None)
-        subs = sorted(allowed(group.walk_commands(), bot, is_owner, rank), key=lambda c: c.qualified_name)
+        access = None if is_owner else await self.help_access(rank)
+        subs = sorted(allowed(group.walk_commands(), bot, is_owner, rank, access), key=lambda c: c.qualified_name)
         cards = [group, *subs]
         pages = [self.command_embed(c, (i, len(cards)), visible_subcommands=(
-            allowed(c.commands, bot, is_owner, rank) if isinstance(c, commands.Group) else None))
+            allowed(c.commands, bot, is_owner, rank, access) if isinstance(c, commands.Group) else None))
             for i, c in enumerate(cards, 1)]
         if len(pages) == 1:
             return await self.context.send(embed=pages[0])
@@ -867,9 +953,10 @@ class Help(commands.HelpCommand):
         try:
             is_owner = await self.is_owner_check()
             rank = 0 if is_owner else await self.get_author_rank()
+            access = None if is_owner else await self.help_access(rank)
             names: list[str] = []
             for cmd in bot.walk_commands():
-                if not visible_command(cmd, bot, is_owner, rank):
+                if not visible_command(cmd, bot, is_owner, rank, access):
                     continue
                 names.append(cmd.qualified_name)
                 if cmd.parent is None:
