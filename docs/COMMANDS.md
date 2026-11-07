@@ -1,6 +1,6 @@
 # Command reference
 
-495 commands. Default prefix `,`. `<required>` `[optional]`.
+504 commands. Default prefix `,`. `<required>` `[optional]`.
 
 
 ## 🤖 AI
@@ -30,35 +30,43 @@ _Stop rogue admins and raids before they wreck your server_
 | `antinuke admin <member>` | Add or remove an antinuke admin (server owner only) |  |
 | `antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
 | `antinuke approve <bot>` (approvebot) | Give a quarantined new bot its permissions back (server owner only) |  |
-| `antinuke ban [count] [punishment] [timeframe]` | Configure the ban rule |  |
-| `antinuke botadd [count] [punishment] [timeframe]` (bot, bots) | Configure the bot add rule |  |
+| `antinuke ban [count] [punishment] [timeframe] [flags]` | Configure ban rule |  |
+| `antinuke botadd [count] [punishment] [timeframe] [flags]` (bot, bots, bot_add) | Configure bot add rule |  |
 | `antinuke botquarantine [state]` (botq) | Hold new bots' dangerous permissions until you approve them |  |
-| `antinuke channelcreate [count] [punishment] [timeframe]` | Configure the channel create rule |  |
-| `antinuke channeldelete [count] [punishment] [timeframe]` | Configure the channel delete rule |  |
+| `antinuke channel [state] [punishment] [timeframe] [flags]` | Configure channel create and delete rules (separate counters) |  |
+| `antinuke channelcreate [count] [punishment] [timeframe] [flags]` (channel_create) | Configure channel create rule |  |
+| `antinuke channeldelete [count] [punishment] [timeframe] [flags]` (channel_delete) | Configure channel delete rule |  |
+| `antinuke channelupdate [count] [punishment] [timeframe] [flags]` (channel_update) | Configure channel edit rule |  |
 | `antinuke disable` (off) | Turn antinuke off (server owner only) |  |
+| `antinuke emoji [count] [punishment] [timeframe] [flags]` (emoji_delete) | Configure emoji delete rule |  |
 | `antinuke enable` (on) | Turn antinuke on |  |
-| `antinuke kick [count] [punishment] [timeframe]` | Configure the kick rule |  |
+| `antinuke kick [count] [punishment] [timeframe] [flags]` | Configure kick rule |  |
 | `antinuke log [channel]` | Set where antinuke alerts go (owner always gets a DM) |  |
-| `antinuke module <module> <state> [threshold=3]` | Turn one antinuke rule on or off |  |
+| `antinuke memberroles [count] [punishment] [timeframe] [flags]` (member_roles) | Configure member roles rule |  |
+| `antinuke module <module> <state> [threshold]` | Turn one antinuke rule on or off |  |
 | `antinuke panic [reason]` (emergency) | Lock the whole server down in an emergency |  |
-| `antinuke permissions [count] [punishment] [timeframe]` (permission, perms) | Configure the permission grant rule |  |
+| `antinuke permissions [count] [punishment] [timeframe] [flags]` (permission, perms) | Configure permission grant rule |  |
 | `antinuke preset` | Save, load or list antinuke rule presets |  |
 | `antinuke preset list` | List available antinuke presets |  |
 | `antinuke preset load <name>` | Load an antinuke preset (default, strict, relaxed, or saved custom) |  |
 | `antinuke preset save <name>` | Save current antinuke rules as a named preset |  |
+| `antinuke prune [count] [punishment] [timeframe] [flags]` (member_prune) | Configure member prune rule |  |
 | `antinuke punishment <punishment>` | Set the default punishment: ban, kick or strip |  |
 | `antinuke reset [action]` | Reset an action rule or all rules to defaults |  |
-| `antinuke rolecreate [count] [punishment] [timeframe]` | Configure the role create rule |  |
-| `antinuke roledelete [count] [punishment] [timeframe]` | Configure the role delete rule |  |
-| `antinuke roleinvite [count] [punishment] [timeframe]` (invite) | Configure the invite spam rule |  |
-| `antinuke serverupdate [count] [punishment] [timeframe]` (server) | Configure the server update rule |  |
+| `antinuke role [state] [punishment] [timeframe] [flags]` | Configure role create and delete rules (separate counters) |  |
+| `antinuke rolecreate [count] [punishment] [timeframe] [flags]` (role_create) | Configure role create rule |  |
+| `antinuke roledelete [count] [punishment] [timeframe] [flags]` (role_delete) | Configure role delete rule |  |
+| `antinuke roleinvite [count] [punishment] [timeframe] [flags]` (invite) | Configure invite spam rule |  |
+| `antinuke roleupdate [count] [punishment] [timeframe] [flags]` (role_update) | Configure role edit rule |  |
+| `antinuke serverupdate [count] [punishment] [timeframe] [flags]` (server, guild_update) | Configure server update rule |  |
 | `antinuke set <action> <arg2> [arg3] [arg4]` (rule, configure) | Configure an antinuke rule |  |
 | `antinuke status` (config, settings, panel) | Antinuke status and rules, with buttons to change them |  |
-| `antinuke timeout [count] [punishment] [timeframe]` (mute) | Configure the timeout rule |  |
-| `antinuke toggle` (on/off) | Toggle antinuke on or off |  |
+| `antinuke timeout [count] [punishment] [timeframe] [flags]` (mute) | Configure timeout rule |  |
+| `antinuke toggle [state]` (on/off) | Toggle antinuke, or explicitly set it to on or off |  |
+| `antinuke unban [count] [punishment] [timeframe] [flags]` | Configure unban rule |  |
 | `antinuke unpanic` (calm, endpanic) | End panic mode and put everything back (server owner only) |  |
 | `antinuke unwhitelist <target>` (unwl, untrust) | Stop trusting a user, bot or role |  |
-| `antinuke webhook [count] [punishment] [timeframe]` (webhooks) | Configure the webhook rule |  |
+| `antinuke webhook [count] [punishment] [timeframe] [flags]` (webhooks) | Configure webhook rule |  |
 | `antinuke whitelist [target]` (wl, trust) | Trust a user, bot or role in the antinuke |  |
 | `antinuke window <seconds>` | Set the default time window thresholds are counted over |  |
 | `antiraid` (raid) | Filter suspicious joins: mass joins, new accounts, no avatar | administrator |
@@ -446,6 +454,7 @@ _Assign named permission levels to members_
 | `userperm list` (all) | List members and roles with a permission level | administrator |
 | `userperm remove <target>` (rem, delete, unset, clear) | Remove a member's or role's permission level | administrator, uperm: headadmin |
 | `userperm remove deleted` | Purge permission levels for members who left the server | administrator, uperm: headadmin |
+| `userperm roles` | List roles assigned a Veil permission level | administrator |
 
 ## ⚙️ Settings
 _Configure how the bot behaves in your server_

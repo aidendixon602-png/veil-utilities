@@ -6,7 +6,7 @@ Security model
 * Without Discord login configured it only listens on 127.0.0.1, and the person at that machine is treated as a
   bot owner. Requests must use a localhost address in the Host header, which blocks DNS-rebinding tricks.
 * With ``DISCORD_CLIENT_SECRET`` and ``DASHBOARD_URL`` set (the client ID comes from the bot itself), people sign in with Discord
-  (``identify`` scope only) and each server is shown only to its owner or to a bot owner. This mirrors the
+  (``identify`` scope only) and each server is shown only to its owner or to a bot developer. This mirrors the
   Discord commands: only the server owner can change antinuke admins, which this page edits.
 * Login cookies are HMAC-signed, every form carries a CSRF token, cross-site POSTs are refused, and every value
   written into HTML is escaped.
@@ -24,6 +24,8 @@ import secrets
 import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlsplit
+
+from core.perms import is_bot_developer
 
 import aiohttp
 from aiohttp import web
@@ -122,6 +124,17 @@ input:focus, select:focus { outline:none; border-color:var(--accent); }
 .note.ok { border-color:var(--ok); } .note.bad { border-color:var(--bad); }
 .center { text-align:center; padding:3rem 1rem; }
 form.inline { display:inline; }
+.filters { display:flex; gap:.75rem; align-items:end; flex-wrap:wrap; margin-bottom:1rem; }
+.filters .form-group { flex:1 1 160px; margin:0; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; text-align:left; }
+th { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
+th, td { padding:.85rem .7rem; border-bottom:1px solid var(--border); }
+td { font-size:.9rem; } td:first-child { min-width:180px; }
+.tag { display:inline-block; padding:.2rem .5rem; border-radius:4px; background:var(--border); }
+.tag.on { color:#83d9a0; } .tag.off { color:var(--muted); }
+.table-note { color:var(--muted); font-size:.85rem; margin-bottom:.75rem; }
+
 """
 
 
@@ -267,6 +280,8 @@ class DashboardServer:
         if user.get("local"):
             return True
         try:
+            if is_bot_developer(int(user["uid"]), self.bot):
+                return True
             return bool(await self.bot.is_owner(int(user["uid"])))
         except Exception:
             return False
@@ -354,18 +369,70 @@ class DashboardServer:
                 f'<div class="stat-card"><div class="stat-lbl">Uptime</div><div class="stat-val">{hours}h {rem // 60}m</div></div>'
                 "</div>"
             )
-        cards = []
+        # Search and filters are evaluated on the server, after the access check. No guild
+        # names or settings for other owners are sent to the browser.
+        query = request.query.get("q", "").strip()[:100]
+        status = request.query.get("antinuke", "any")
+        if status not in ("any", "on", "off"):
+            status = "any"
+        order = request.query.get("sort", "name")
+        if order not in ("name", "members"):
+            order = "name"
+        from cogs.logging import KINDS
+
+        visible = []
         for g in guilds:
-            count = getattr(g, "member_count", None) or len(getattr(g, "members", []))
-            cards.append(
-                f'<div class="server-box"><div><div class="server-name">{_esc(g.name)}</div>'
-                f'<div class="server-meta">{_esc(count)} members • ID {_esc(g.id)}</div></div>'
-                f'<a href="/servers/{_esc(g.id)}" class="btn">Configure</a></div>'
+            if query and query.casefold() not in g.name.casefold() and query not in str(g.id):
+                continue
+            an = await self._antinuke_cfg(g.id)
+            enabled = bool(an.get("enabled"))
+            if status != "any" and enabled != (status == "on"):
+                continue
+            logs = await self.bot.db.get_config(g.id, "logs") or {}
+            count = getattr(g, "member_count", None)
+            if count is None:
+                count = len(getattr(g, "members", []))
+            visible.append((g, count, enabled, sum(
+                isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
+                for key in KINDS
+            )))
+        if order == "members":
+            visible.sort(key=lambda row: (-row[1], row[0].name.casefold(), row[0].id))
+        else:
+            visible.sort(key=lambda row: (row[0].name.casefold(), row[0].id))
+
+        def option(value, label, selected):
+            return f'<option value="{value}"{" selected" if selected else ""}>{label}</option>'
+
+        rows = []
+        for g, count, enabled, log_count in visible:
+            state = "on" if enabled else "off"
+            rows.append(
+                f'<tr><td><a href="/servers/{_esc(g.id)}">{_esc(g.name)}</a></td>'
+                f'<td>{_esc(g.id)}</td><td>{_esc(count)}</td>'
+                f'<td><span class="tag {state}">{state.title()}</span></td>'
+                f'<td>{log_count} configured</td>'
+                f'<td><a class="btn btn-plain" href="/servers/{_esc(g.id)}">Configure</a></td></tr>'
             )
-        listing = "\n".join(cards) or '<p class="muted">You don\'t own any servers that Veil is in.</p>'
-        body += ('<div class="card"><h2>🛡️ Your servers</h2>'
+        listing = "".join(rows) or '<tr><td colspan="6">No servers match your filters.</td></tr>'
+        status_options = "".join(option(v, label, status == v) for v, label in
+                                 (("any", "Any"), ("on", "On"), ("off", "Off")))
+        sort_options = "".join(option(v, label, order == v) for v, label in
+                               (("name", "Name"), ("members", "Members")))
+        body += (f'<div class="card"><h2>🛡️ Your servers</h2>'
                  '<p class="muted">Manage role blacklists, logging channels and antinuke settings.</p>'
-                 f'<div class="grid">{listing}</div></div>')
+                 '<form method="GET" action="/" class="filters">'
+                 f'<div class="form-group"><label for="q">Search name or ID</label>'
+                 f'<input id="q" name="q" value="{_esc(query)}"></div>'
+                 f'<div class="form-group"><label for="antinuke">Antinuke</label>'
+                 f'<select id="antinuke" name="antinuke">{status_options}</select></div>'
+                 f'<div class="form-group"><label for="sort">Sort by</label>'
+                 f'<select id="sort" name="sort">{sort_options}</select></div>'
+                 '<button class="btn" type="submit">Apply</button></form>'
+                 f'<p class="table-note">{len(visible)} of {len(guilds)} servers shown</p>'
+                 '<div class="table-wrap"><table><thead><tr><th>Server</th><th>ID</th><th>Members</th>'
+                 '<th>Antinuke</th><th>Logs</th><th></th></tr></thead>'
+                 f'<tbody>{listing}</tbody></table></div></div>')
         return self._page("Dashboard", body, user)
 
     async def handle_server(self, request: web.Request) -> web.Response:

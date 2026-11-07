@@ -41,7 +41,8 @@ def rule_line(cfg: dict, key: str) -> str:
     if not st["on"]:
         return f"`{name}` - off"
     tag = " `[revert]`" if key in an.UNDOES else ""
-    return f"`{name}` - {st['threshold']} in {st['window']}s → {st['punishment']}{tag}"
+    command_note = " · commands off" if (cfg.get("modules") or {}).get(key, {}).get("command") is False else ""
+    return f"`{name}` - {st['threshold']} in {st['window']}s → {st['punishment']}{tag}{command_note}"
 
 
 def home_embed(cfg: dict, prefix: str, guild=None) -> discord.Embed:
@@ -69,6 +70,8 @@ def rule_embed(cfg: dict, key: str, prefix: str) -> discord.Embed:
              f"limit: **{st['threshold']}** in **{st['window']}s**" + (" (always 1)" if key in an.INSTANT else ""),
              f"punishment: **{PUNISHMENT_WORDS.get(st['punishment'], st['punishment'])}**",
              f"state: **{'on' if st['on'] else 'off'}**"]
+    if (cfg.get("modules") or {}).get(key, {}).get("command") is False:
+        lines.append("Veil command detection: **off**")
     if key in an.UNDOES:
         lines.append(f"when someone is caught: {an.UNDOES[key]}.")
     if not cfg.get("enabled"):

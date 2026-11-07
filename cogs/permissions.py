@@ -194,6 +194,19 @@ class Permissions(commands.Cog):
             lines = ["No members or roles have been assigned a permission level."]
         await ctx.paginate(chunk_embeds("Permission levels", lines, numbered=False))
 
+    @userperm.command(name="roles")
+    @has_perms(administrator=True)
+    async def up_roles(self, ctx: Context):
+        """List roles assigned a Veil permission level"""
+        cfg = await self.cfg(ctx.guild.id)
+        levels = perms.all_levels(cfg)
+        role_rows = sorted(cfg.get("roles", {}).items(),
+                           key=lambda kv: levels.get(kv[1], {}).get("rank", 0), reverse=True)
+        lines = [f"<@&{rid}> — **{levels.get(key, {}).get('name', key)}**" for rid, key in role_rows]
+        if not lines:
+            lines = ["No roles have been assigned a permission level."]
+        await ctx.paginate(chunk_embeds("Role permission levels", lines, numbered=False))
+
     @userperm.command(name="check", aliases=["view", "info"])
     @commands.guild_only()
     async def up_check(self, ctx: Context, target: discord.Member | discord.Role = None):
