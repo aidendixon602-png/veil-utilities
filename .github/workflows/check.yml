@@ -48,7 +48,27 @@ jobs:
           print(".env.example is valid")
           EOF
       - name: Tests
-        run: python -m pytest -q
+        run: |
+          set +e
+          python -m pytest -q --junitxml="$RUNNER_TEMP/pytest-results.xml"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            python - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "pytest-results.xml"
+          if path.exists():
+              for case in ET.parse(path).iter("testcase"):
+                  if case.find("failure") is not None or case.find("error") is not None:
+                      # Report only the test identifier, not captured output or parameter values.
+                      name = case.get("name", "unknown").split("[", 1)[0]
+                      group = case.get("classname", "tests")
+                      print(f"::error title=Test failure::{group}.{name}")
+          EOF
+            exit "$status"
+          fi
 
   postgres:
     runs-on: ubuntu-latest
