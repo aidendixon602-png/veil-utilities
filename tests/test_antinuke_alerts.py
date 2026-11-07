@@ -1,5 +1,6 @@
 """Antinuke alert cards: one card per incident, an honest Result field, and notice DMs only to the right people."""
 import asyncio
+import importlib
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -48,7 +49,7 @@ def setup(attacker_top=10):
 
 
 def respond(cog, guild, module, entry):
-    with patch("cogs.authorization.developers", AsyncMock(return_value=set())):
+    with patch.object(importlib.import_module("cogs.authorization"), "developers", AsyncMock(return_value=set())):
         asyncio.run(cog.respond(guild, {"enabled": True, "punishment": "ban"}, ATTACKER, module, entry))
 
 

@@ -1,6 +1,7 @@
 """When the antinuke catches someone it puts the server back: unbans their victims, rebuilds deleted channels and
 roles (with members and overwrites), deletes what they created, and keeps undoing anything still in flight."""
 import asyncio
+import importlib
 import json
 import itertools
 from types import SimpleNamespace
@@ -144,7 +145,7 @@ def entry(guild, action, target, user_id=ATTACKER, before=None, after=None, bot=
 
 def feed(cog, *entries):
     async def go():
-        with patch("cogs.authorization.developers", AsyncMock(return_value=set())):
+        with patch.object(importlib.import_module("cogs.authorization"), "developers", AsyncMock(return_value=set())):
             for e in entries:
                 await cog.on_audit_log_entry_create(e)
     asyncio.run(go())

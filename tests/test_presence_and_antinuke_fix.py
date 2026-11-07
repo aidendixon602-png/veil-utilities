@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -84,7 +85,7 @@ def test_antinuke_permissions_strips_role_and_dms():
         action=discord.AuditLogAction.member_role_update,
     )
 
-    with patch("cogs.authorization.developers", AsyncMock(return_value={999})):
+    with patch.object(importlib.import_module("cogs.authorization"), "developers", AsyncMock(return_value={999})):
         asyncio.run(cog.respond(guild, {"enabled": True}, 555, "permissions", entry, threshold=1))
 
     # Should NOT ban target or actor
