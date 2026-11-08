@@ -66,7 +66,7 @@ def test_mass_role_stripping_is_put_back():
     for v in victims:
         v.add_roles.assert_awaited_once_with(staff, reason="Antinuke: Mass adding or removing members' roles")
     card = guild.sent[0][0]["embed"]
-    assert card.title == "🛡️ Antinuke: Member Roles" and "gave mod0 back Staff" in field(card, "Put back")
+    assert card.title == "Antinuke · Member Roles" and "gave mod0 back Staff" in field(card, "Response actions")
 
 
 def test_two_role_changes_are_not_an_attack():
@@ -136,7 +136,7 @@ def test_a_webhook_spamming_everyone_is_deleted():
     hook.delete.assert_awaited_once()
     assert all(m.delete.await_count == 1 for m in msgs)
     alert = log.send.await_args.kwargs["embed"]
-    assert alert.title == "🛡️ Antinuke: Webhook Spam" and "deleted the webhook leaked" in field(alert, "Put back")
+    assert alert.title == "Antinuke · Webhook Spam" and "deleted the webhook leaked" in field(alert, "Response actions")
 
 
 def test_ordinary_webhook_messages_are_fine():
@@ -174,7 +174,7 @@ def test_a_blacklisted_role_is_not_given_back_to_someone_who_isnt_authorized():
         assert m.add_roles.await_args.args == (staff,)
     assert set(allowed.add_roles.await_args.args) == {vip, staff}  # authorized: gets both back
     assert cog.bot.db.store["roleblacklist"]["authorized"] == [402]  # nobody newly authorized
-    put_back = field(guild.sent[0][0]["embed"], "Put back")
+    put_back = field(guild.sent[0][0]["embed"], "Response actions")
     assert "didn't give m0 back VIP: blacklisted, and they aren't authorized" in put_back
 
 
@@ -219,9 +219,9 @@ def test_conflicting_permission_grant_does_not_restore_the_same_role():
     target.remove_roles.assert_awaited_once_with(boss, reason="Antinuke: Granting dangerous permissions to roles/members")
     target.add_roles.assert_not_awaited()
     card = guild.sent[0][0]["embed"]
-    assert "removed Boss from basedpolicy" in field(card, "Put back")
+    assert "removed Boss from basedpolicy" in field(card, "Response actions")
     assert "didn't restore Boss to basedpolicy" in field(card, "Problems")
-    assert "gave basedpolicy back Boss" not in (field(card, "Put back") or "")
+    assert "gave basedpolicy back Boss" not in (field(card, "Response actions") or "")
 
 
 def test_conflicting_role_removal_in_caught_follow_up_is_not_restored():
@@ -263,7 +263,7 @@ def test_self_granted_fake_permission_role_is_not_removed_twice():
                     after=SimpleNamespace(roles=[boss])))
     assert sum(boss in call.args for call in attacker.remove_roles.await_args_list) == 1
     alert = guild.sent[0][0]["embed"]
-    assert "removed 1 fake-permission role(s)" in field(alert, "Put back")
+    assert "removed 1 fake-permission role(s)" in field(alert, "Response actions")
     assert "Strip incomplete" not in alert.description
 
 
@@ -331,4 +331,4 @@ def test_uncached_attacker_still_has_fake_permission_role_revoked():
                     after=SimpleNamespace(roles=[boss])))
     guild.fetch_member.assert_awaited_once_with(attacker.id)
     assert any(fake in call.args for call in attacker.remove_roles.await_args_list)
-    assert "removed 1 fake-permission role(s)" in field(guild.sent[0][0]["embed"], "Put back")
+    assert "removed 1 fake-permission role(s)" in field(guild.sent[0][0]["embed"], "Response actions")

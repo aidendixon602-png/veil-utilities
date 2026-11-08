@@ -337,10 +337,10 @@ def alert_embed(inc: Incident, footer: str) -> discord.Embed:
     label = LABELS.get(inc.module, inc.module)
     name = getattr(inc.user, "name", None) or "Unknown user"
     if inc.test:
-        title, color = f"🧪 Antinuke test: {label}", Colors.warn
+        title, color = f"Antinuke test · {label}", Colors.warn
         who = "`,testnuke` (a simulated attacker)"
     else:
-        title, color = f"🛡️ Antinuke: {label}", Colors.error
+        title, color = f"Antinuke · {label}", Colors.error
         who = getattr(inc.user, "mention", None) or f"**{discord.utils.escape_markdown(name)}**"
     lines = [f"{who} went over the **{label}** limit ({inc.threshold} in {inc.window}s)"
              + (f" using `{inc.via}`" if inc.via else "") + ".",
@@ -350,7 +350,7 @@ def alert_embed(inc: Incident, footer: str) -> discord.Embed:
     e = discord.Embed(title=title, color=color, description="\n".join(lines), timestamp=discord.utils.utcnow())
     undone = collapse(inc.undone)
     if undone:
-        e.add_field(name="Put back", value=_bullets(undone), inline=False)
+        e.add_field(name="Response actions", value=_bullets(undone), inline=False)
     if inc.problems:
         e.add_field(name="Problems", value=_bullets(inc.problems), inline=False)
     if not inc.test:
@@ -359,9 +359,6 @@ def alert_embed(inc: Incident, footer: str) -> discord.Embed:
         if inc.roles:
             roles = ", ".join(inc.roles)
             e.add_field(name="Their roles", value=(roles[:1020] + "…") if len(roles) > 1024 else roles)
-        avatar = getattr(getattr(inc.user, "display_avatar", None), "url", None)
-        if avatar:
-            e.set_thumbnail(url=avatar)
     if inc.count > 1:
         secs = max(1, int(inc.last - inc.first))
         e.add_field(name="Repeated", value=f"{inc.count} times in {secs}s", inline=False)
@@ -580,11 +577,11 @@ class Antinuke(commands.Cog):
         channel = await self._log_channel(message.guild, cfg)
         if channel is None:
             return
-        e = discord.Embed(title="🛡️ Antinuke: Webhook Spam", color=Colors.error, description=(
+        e = discord.Embed(title="Antinuke · Webhook Spam", color=Colors.error, timestamp=discord.utils.utcnow(), description=(
             f"the webhook **{name}** pinged @everyone {len(messages)} times in {window}s in "
             f"{message.channel.mention}."))
         if done:
-            e.add_field(name="Put back", value="\n".join(f"• {d}" for d in done), inline=False)
+            e.add_field(name="Response actions", value="\n".join(f"• {d}" for d in done), inline=False)
         if problems:
             e.add_field(name="Problems", value="\n".join(f"• {p}" for p in problems), inline=False)
         e.set_footer(text=f"{message.guild.name} · antinuke alert")
@@ -611,7 +608,7 @@ class Antinuke(commands.Cog):
             pass
 
     async def _security_notice(self, guild: discord.Guild, actor, text: str) -> None:
-        e = discord.Embed(title="🔐 Antinuke settings changed", color=Colors.warn, timestamp=discord.utils.utcnow(),
+        e = discord.Embed(title="Antinuke · Settings changed", color=Colors.warn, timestamp=discord.utils.utcnow(),
                           description=f"{getattr(actor, 'mention', actor)} {text}.")
         e.set_footer(text=f"{getattr(guild, 'name', 'this server')} · security notice")
         cfg = await self.cfg(guild.id)
@@ -663,7 +660,7 @@ class Antinuke(commands.Cog):
             done.append("⚠️ couldn't pause invites: I need Manage Server")
         cfg["panic"] = state
         await self.save(guild.id, cfg)
-        e = discord.Embed(title="🚨 Panic mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
+        e = discord.Embed(title="Antinuke · Panic mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
                           description=f"{getattr(by, 'mention', 'Someone')} turned on panic mode"
                                       + (f": {why}" if why else "") + ".")
         e.add_field(name="What I did", value="\n".join(f"• {d}" for d in done), inline=False)
@@ -700,10 +697,10 @@ class Antinuke(commands.Cog):
             except (discord.HTTPException, TypeError):
                 done.append("⚠️ couldn't resume invites, turn them back on in Server Settings")
         await self.save(guild.id, cfg)
-        e = discord.Embed(title="✅ Panic mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
+        e = discord.Embed(title="Antinuke · Panic mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
                           description=f"{getattr(by, 'mention', 'Someone')} lifted panic mode.")
         if done:
-            e.add_field(name="Put back", value="\n".join(f"• {d}" for d in done), inline=False)
+            e.add_field(name="Response actions", value="\n".join(f"• {d}" for d in done), inline=False)
         await self._panic_post(guild, cfg, e)
         return done
 
@@ -769,7 +766,7 @@ class Antinuke(commands.Cog):
             return  # nothing dangerous to hold back
         cfg.setdefault("quarantined_bots", {})[str(member.id)] = record
         await self.save(guild.id, cfg)
-        e = discord.Embed(title="🤖 New bot quarantined", color=Colors.warn, timestamp=discord.utils.utcnow(),
+        e = discord.Embed(title="Antinuke · New bot quarantined", color=Colors.warn, timestamp=discord.utils.utcnow(),
                           description=f"{member.mention} joined"
                                       + (f", added by {adder.mention}" if adder is not None else "")
                                       + ". It keeps working, but without dangerous permissions until the server "
@@ -1386,7 +1383,7 @@ class Antinuke(commands.Cog):
             else:
                 text = (f"Veil removed {roles} from you in **{discord.utils.escape_markdown(guild.name)}**. "
                         f"They were given to you by someone the server's antinuke doesn't trust.")
-            embed = discord.Embed(title="🛡️ Veil Antinuke Security Notice", color=Colors.error,
+            embed = discord.Embed(title="Antinuke · Security notice", color=Colors.error,
                                   description=text + "\n\nIf this was a mistake, ask the server owner to restore them.")
             try:
                 await member.send(embed=embed)
@@ -2482,7 +2479,7 @@ class Antinuke(commands.Cog):
         self.raid_until[guild.id] = max(self.raid_until.get(guild.id, 0), time.monotonic() + RAID_QUIET)
         self._watch_raid(guild)
 
-        e = discord.Embed(title="🚨 Raid mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
+        e = discord.Embed(title="Antiraid · Raid mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
                           description=f"{why} in **{discord.utils.escape_markdown(guild.name)}**."
                                       + (f" Started by {by.mention}." if by is not None else ""))
         e.add_field(name="What I did", value="\n".join(f"• {x}" for x in done) or "• punishing new joiners",
@@ -2513,7 +2510,7 @@ class Antinuke(commands.Cog):
         if state.get("locked"):
             unlocked = await self._unlock_channels(guild, state["locked"])
             done.append(f"unlocked {unlocked} channel(s)")
-        e = discord.Embed(title="✅ Raid mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
+        e = discord.Embed(title="Antiraid · Raid mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
                           description=f"Raid mode in **{discord.utils.escape_markdown(guild.name)}** ended: {why}.")
         if done:
             e.add_field(name="Undone", value="\n".join(f"• {x}" for x in done), inline=False)

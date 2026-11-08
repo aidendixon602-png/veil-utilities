@@ -16,6 +16,7 @@ import discord
 
 from core import perms, redact
 from core.config import settings
+from core.utils import Colors
 
 log = logging.getLogger("veil.incidents")
 
@@ -82,12 +83,12 @@ class IncidentManager:
         self._wake.set()
 
     def _embed(self, row):
-        embed = discord.Embed(title="Security incident", color=discord.Color.red(),
-                              description=row["summary"],
+        description = (f"{row['summary']}\n\n"
+                       f"**Incident:** `{row['incident_id']}` · {row['severity']}\n"
+                       f"**Server ID:** `{row['guild_id'] or 'unknown'}`\n"
+                       f"**User ID:** `{row['actor_id'] or 'unknown'}`")
+        embed = discord.Embed(title="Security · Incident", color=Colors.error, description=description,
                               timestamp=datetime.fromtimestamp(row["created_at"], timezone.utc))
-        embed.add_field(name="Incident", value=f"`{row['incident_id']}` · {row['severity']}", inline=False)
-        embed.add_field(name="Server ID", value=f"`{row['guild_id'] or 'unknown'}`")
-        embed.add_field(name="User ID", value=f"`{row['actor_id'] or 'unknown'}`")
         embed.add_field(name="Action", value=row["action"] or "Unknown", inline=False)
         details = json.loads(row["details"])
         if details:

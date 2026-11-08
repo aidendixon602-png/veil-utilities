@@ -83,7 +83,7 @@ def test_ban_victim_does_not_get_the_roles_removed_notice():
     attacker.send.assert_not_awaited()
     attacker.ban.assert_awaited_once()
     card = sent[0][0]["embed"]
-    assert card.title == "🛡️ Antinuke: Mass Ban"
+    assert card.title == "Antinuke · Mass Ban"
     assert punishment(card) == "Banned"
     assert field(card, "Their roles") == "Admin"
     assert "went over the **Mass Ban** limit" in card.description

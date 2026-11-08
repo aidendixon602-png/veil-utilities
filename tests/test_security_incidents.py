@@ -51,9 +51,9 @@ def test_incident_survives_restart_and_retries_each_recipient(tmp_path, monkeypa
         assert row["next_attempt"] is None
         assert calls == [11, 22, 11]
         embed = manager._embed(row)
-        assert incident_id in embed.fields[0].value
-        assert embed.fields[2].value == "`unknown`"
-        assert embed.fields[3].value == "Left the server."
+        assert incident_id in embed.description
+        assert "**User ID:** `unknown`" in embed.description
+        assert {f.name: f.value for f in embed.fields}["Action"] == "Left the server."
         await db.close()
     asyncio.run(go())
 

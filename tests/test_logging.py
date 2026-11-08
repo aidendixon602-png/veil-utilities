@@ -239,7 +239,7 @@ def test_setup_needs_manage_channels_and_does_nothing_when_all_set():
 # ------------------------------------------------------------------ the cards (A + B) and the feed lines (C)
 
 def body(e: discord.Embed) -> list[str]:
-    return (e.description or "").splitlines()
+    return [line for line in (e.description or "").splitlines() if line]
 
 
 def detail(e: discord.Embed, label: str) -> str | None:
@@ -474,22 +474,23 @@ def _card_text(card) -> str:
 
 def test_a_command_gets_its_own_card():
     card = fmt.command_used(cmd_ctx(), "Admin", "@Staff", rank=3, ms=84.4)
-    assert card.author.name and card.description == "```\n,ban @x spam\n```"
-    fields = {f.name: f.value for f in card.fields}
-    assert fields["Channel"] == "<#5>\n[jump](https://discord.com/channels/10/5/900)"
-    assert fields["Level"] == "Admin\n-# via @Staff" and fields["Result"] == "✅ done in 84 ms"
+    assert card.author.name and detail(card, "Command") == "`,ban @x spam`"
+    assert not card.fields
+    assert detail(card, "Channel") == "<#5> · [jump](https://discord.com/channels/10/5/900)"
+    assert detail(card, "Level") == "Admin · via @Staff" and detail(card, "Result") == "✅ done in 84 ms"
     assert card.footer.text == "User ID: 7" and card.color.value == Colors.approve
     assert "6.2s" in _card_text(fmt.command_used(cmd_ctx(), "None", "-", ms=6175))
-    assert fmt.command_used(cmd_ctx("a\nb"), "None", "-").description == "```\na b\n```"
-    assert {f.name: f.value for f in fmt.command_used(cmd_ctx(), "None", "-").fields}["Level"] == "no level"
+    assert detail(fmt.command_used(cmd_ctx("a\nb"), "None", "-"), "Command") == "`a b`"
+    assert detail(fmt.command_used(cmd_ctx(), "None", "-"), "Level") == "no level"
     direct = fmt.command_used(cmd_ctx(), "Owner", "Permissions attached to user")
-    assert {f.name: f.value for f in direct.fields}["Level"] == "Owner\n-# given directly"
+    assert detail(direct, "Level") == "Owner · given directly"
 
 
 def test_a_failed_command_says_why_in_red():
     card = fmt.command_used(cmd_ctx(), "None", "-", error="You need the Admin permission level")
-    assert {f.name: f.value for f in card.fields}["Result"] == "❌ You need the Admin permission level"
+    assert detail(card, "Result") == "❌ You need the Admin permission level"
     assert card.color.value == Colors.deny
+
 
 
 def test_bulk_delete_transcript_is_oldest_first():
@@ -813,7 +814,7 @@ def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
                               invoked_with="ping")
         await cog.on_command_completion(ctx)
         card = channel.send.await_args.kwargs["embed"]
-        assert card.description == "```\n,ping\n```" and "User ID: 77" in card.footer.text
+        assert detail(card, "Command") == "`,ping`" and "User ID: 77" in card.footer.text
         assert channel.send.await_args.kwargs["allowed_mentions"].users is False  # a log card never pings
         channel.send.reset_mock()
         ctx.author = member(8, "ignored")
@@ -840,7 +841,7 @@ def test_the_command_line_says_how_long_it_took():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_completion(ctx)
-        assert {f.name: f.value for f in channel.send.await_args.kwargs["embed"].fields}["Result"].endswith(" ms")
+        assert detail(channel.send.await_args.kwargs["embed"], "Result").endswith(" ms")
     asyncio.run(go())
 
 
@@ -849,7 +850,7 @@ def test_failed_commands_get_a_line_with_the_reason():
         channel, cog, ctx = _command_setup()
         await cog.on_command(ctx)
         await cog.on_command_error(ctx, UserError("that member is above you"))
-        result = lambda: {f.name: f.value for f in channel.send.await_args.kwargs["embed"].fields}["Result"]  # noqa: E731
+        result = lambda: detail(channel.send.await_args.kwargs["embed"], "Result")  # noqa: E731
         assert result() == "❌ that member is above you"
         await cog.on_command_error(ctx, commands.CommandInvokeError(ValueError("boom")))
         assert result() == "❌ ValueError: boom" and channel.send.await_count == 2  # a card per command
@@ -1432,3 +1433,19 @@ def test_veil_stays_out_of_ghost_vanguards_log_channels():
     assert L._channel_for(make_guild([gv_bans, gv_logs]), {"bans": 1, "server": 2}, "bans") is None
     assert L._channel_for(make_guild([gv_logs]), {"server": 2}, "server") is None
     assert not L._is_log_channel(gv_bans) and not L._is_log_channel(gv_logs)
+
+
+def test_command_log_long_inputs_leave_room_for_the_outcome():
+    ctx = cmd_ctx(",say " + "x" * 8000)
+    card = fmt.command_used(ctx, "L" * 8000, "R" * 8000, error="Unable to complete the action")
+    assert len(card.description) <= 4096
+    assert detail(card, "Result") == "❌ Unable to complete the action"
+    assert detail(card, "Channel").endswith("[jump](https://discord.com/channels/10/5/900)")
+    assert card.timestamp is not None and card.footer.text == "User ID: 7"
+
+
+def test_event_log_separates_summary_quote_and_details():
+    card = fmt.entry_card(Colors.error, "A message was removed", quoted="message text",
+                          details=[("Reason", "spam")], ids=[("Message ID", 123)])
+    assert card.description == "**A message was removed**\n\n> message text\n\n**Reason:** spam"
+    assert card.footer.text == "Message ID: 123" and card.timestamp is not None

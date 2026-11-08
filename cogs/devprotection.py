@@ -14,6 +14,7 @@ import discord
 from discord.ext import commands
 
 from core import perms
+from core.utils import Colors
 
 log = logging.getLogger("veil.devprotection")
 AUDIT_GRACE_SECONDS = 2
@@ -100,12 +101,14 @@ class DeveloperProtection(commands.Cog):
             if fallback and unban_result == "Not banned or already unbanned.":
                 return  # audit listener already handled it; don't send a second notice
 
-            embed = discord.Embed(title="🛡️ Developer protection", color=discord.Color.red(),
-                                  description="A ban targeting a bot developer was " +
-                                  ("detected." if actual_ban else "blocked before it reached Discord."))
-            embed.add_field(name="Server", value=f"{discord.utils.escape_markdown(guild.name)} (`{guild.id}`)", inline=False)
-            embed.add_field(name="Developer", value=f"<@{developer_id}> (`{developer_id}`)", inline=True)
-            embed.add_field(name="Actor", value=f"<@{actor_id}> (`{actor_id}`)" if actor_id else "Unknown", inline=True)
+            actor = f"<@{actor_id}> (`{actor_id}`)" if actor_id else "Unknown"
+            summary = "detected." if actual_ban else "blocked before it reached Discord."
+            description = (f"A ban targeting a bot developer was {summary}\n\n"
+                           f"**Server:** {discord.utils.escape_markdown(guild.name)} (`{guild.id}`)\n"
+                           f"**Developer:** <@{developer_id}> (`{developer_id}`)\n"
+                           f"**Actor:** {actor}")
+            embed = discord.Embed(title="Security · Developer protection", color=Colors.error,
+                                  description=description, timestamp=discord.utils.utcnow())
             embed.add_field(name="Actor ban", value=ban_result, inline=False)
             embed.add_field(name="Developer ban", value=unban_result, inline=False)
             embed.set_footer(text=f"Veil security • {source}")

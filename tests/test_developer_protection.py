@@ -93,8 +93,8 @@ def test_fallback_unbans_without_guessing_a_moderator(monkeypatch):
         asyncio.run(cog.on_member_ban(guild, SimpleNamespace(id=DEV)))
     guild.ban.assert_not_awaited()
     guild.unban.assert_awaited_once()
-    fields = {field.name: field.value for field in dev.send.await_args.kwargs["embed"].fields}
-    assert fields["Actor"] == "Unknown"
+    embed = dev.send.await_args.kwargs["embed"]
+    assert "**Actor:** Unknown" in embed.description
 
 
 def test_fallback_does_not_duplicate_handled_audit_alert(monkeypatch):

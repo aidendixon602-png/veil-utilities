@@ -226,7 +226,7 @@ def test_the_antinuke_catches_the_test_and_removes_everything(monkeypatch):
     guild.ban.assert_not_awaited()  # nobody punished
     guild.owner.send.assert_not_awaited()  # tests don't page the owner
     cards = [c.kwargs["embed"] for c in guild.log.send.await_args_list]
-    assert cards and all(c.title.startswith("🧪 Antinuke test:") for c in cards)
+    assert cards and all(c.title.startswith("Antinuke test ·") for c in cards)
     assert all("nobody was punished" in c.description for c in cards)
     assert all(not any(f.name in ("Attacker", "Their roles") for f in c.fields) for c in cards)
     assert TEST_GUILD not in cog.test_runs  # the test is over: the bot's own actions are trusted again
@@ -342,6 +342,6 @@ def test_the_test_alert_is_also_sent_to_the_developers_in_owner_ids(monkeypatch)
     assert result["incidents"]
     dev.send.assert_awaited()
     card = dev.send.await_args.kwargs["embed"]
-    assert card.title.startswith("🧪 Antinuke test:") and card.footer.text.endswith("test run · sent to developers")
+    assert card.title.startswith("Antinuke test ·") and card.footer.text.endswith("test run · sent to developers")
     assert dev.send.await_args.kwargs["view"].children[0].label == "Open server"
     guild.owner.send.assert_not_awaited()  # the server owner still isn't paged for a test
