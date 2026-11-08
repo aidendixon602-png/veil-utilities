@@ -205,7 +205,7 @@ class Settings(commands.Cog):
     @commands.group(aliases=["disablecmd", "dcmd"], invoke_without_command=True)
     @has_perms(manage_guild=True)
     async def disablecommand(self, ctx: Context, *, command: str):
-        """Turn a command off for non-admins
+        """Disable a command for everyone except the owner and developers
 
         `,dcmd list` shows what's off.
         """

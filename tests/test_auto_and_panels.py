@@ -58,9 +58,9 @@ def test_a_fresh_server_gets_everything():
     assert db.store["antiraid"]["massjoin"] == {"joins": 10, "seconds": 10}
     assert db.store["filters"]["spam"] == [6, 5] and db.store["filters"]["escalate"]["hits"] == 3
     assert db.store["warnpunish"] == {"3": "timeout:3600", "5": "kick"}
-    # role names map to levels, but never above Head Admin (Supreme Leader is left for the owner to give)
-    assert db.store["permlevels"]["roles"] == {"10": "moderator", "11": "admin"}
-    assert len(done) == 5
+    # Names alone must not confer Veil privileges; existing assignments are not modified.
+    assert "permlevels" not in db.store
+    assert len(done) == 4
 
 
 def test_whatever_a_server_set_up_itself_is_left_alone():

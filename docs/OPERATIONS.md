@@ -6,6 +6,23 @@
 
 Veil recognizes the Discord application's owner/team and additional `OWNER_IDS` as bot developers. Developer commands are hidden and independently checked; they include highly privileged operations. Server owners and role/user permission levels govern access to many server commands. Actual Discord permissions and role hierarchy are also required to perform Discord actions. Use `,help <command>` and `,perm roles` to inspect available information; the generated reference cannot represent every check.
 
+### Upgrade: explicit Veil access required
+
+Shared Veil permission checks no longer fall back to a member's native Discord permissions when a server has no
+saved levels. Automatic setup no longer grants levels based on role names, and native Administrator no longer
+bypasses ignored/disabled commands, staff-only mode or the command cooldown. Ticket support now requires an
+explicit support role, a Veil staff level, the server owner or a bot developer. These changes can remove access
+from staff who previously relied on Discord permissions alone. Before upgrading, use the server owner account to
+review `,perm roles`, `,perm list` and `,fakepermissions list`; explicitly configure appropriate access and test it
+in a disposable server. **Previously saved assignments are preserved**, including any created by older automatic
+setup; remove unintended grants deliberately. Native Discord permissions and hierarchy still govern what the bot
+itself can do through Discord.
+
+This is an initial hardening step, not the final authorization system: several commands additionally require a
+Veil rank even when a fake permission is present. Explicit denies, temporary grants, configurable fine-grained
+permissions and the requested Helper preset's limited timeout do not yet exist. Other authorization paths and
+legacy trusted/exempt accounts remain under review. See [the staged audit](MASTER_AUDIT.md).
+
 ### Optional command role restrictions
 
 The server owner or a bot developer can add an additional role requirement with `,restrict add <command>, @role`,

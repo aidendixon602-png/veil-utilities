@@ -462,7 +462,7 @@ _Configure how the bot behaves in your server_
 | `,alias list` | List aliases | manage guild |
 | `,alias remove <shortcut>` (delete, del) | Remove an alias | manage guild |
 | `,botchannels [channel]` (cmdchannels, botchannel) | Limit commands to certain channels | manage guild |
-| `,disablecommand <command>` (disablecmd, dcmd) | Turn a command off for non-admins | manage guild |
+| `,disablecommand <command>` (disablecmd, dcmd) | Disable a command for everyone except the owner and developers | manage guild |
 | `,disablecommand list` | List disabled commands | manage guild |
 | `,enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
 | `,fakepermissions` (fp, fakeperms, fakeperm) | Give roles permissions that only work through the bot |  |

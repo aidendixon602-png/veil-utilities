@@ -191,7 +191,7 @@ def test_command_anti_spam_cooldown():
         with pytest.raises(Ignored):
             await bot._global_check(ctx_regular)
 
-        # Staff user is exempt from rate limiting
+        # Native Discord privileges do not exempt an unassigned user.
         staff_author = SimpleNamespace(
             id=600,
             guild_permissions=SimpleNamespace(
@@ -211,6 +211,12 @@ def test_command_anti_spam_cooldown():
             send=AsyncMock(),
         )
 
+        for _ in range(4):
+            assert await bot._global_check(ctx_staff)
+        with pytest.raises(Ignored):
+            await bot._global_check(ctx_staff)
+        # An explicit Veil staff assignment does exempt them.
+        await db.set_config(100, "permlevels", {"users": {"600": "helper"}})
         for _ in range(10):
             allowed = await bot._global_check(ctx_staff)
             assert allowed is True

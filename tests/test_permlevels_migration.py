@@ -58,3 +58,48 @@ def test_role_permission_view_only_lists_roles_in_rank_order():
         assert text.index("<@&8>") < text.index("<@&7>")
         assert "<@3>" not in text
     asyncio.run(go())
+
+
+def test_failed_permission_write_does_not_change_cached_or_persisted_grants():
+    async def go():
+        db = Database(":memory:")
+        await db.connect()
+        try:
+            original = {"users": {"42": "helper"}, "roles": {}}
+            await db.set_config_committed(10, "permlevels", original)
+            cog = Permissions(SimpleNamespace(db=db))
+            updated = await cog.cfg(10)
+            updated["users"]["42"] = "admin"
+            execute = db.execute
+            db.execute = AsyncMock(side_effect=RuntimeError("storage failed"))
+            try:
+                import pytest
+                with pytest.raises(RuntimeError, match="storage failed"):
+                    await cog.save(10, updated)
+                assert (await db.get_config(10, "permlevels"))["users"]["42"] == "helper"
+            finally:
+                db.execute = execute
+            db._cache.clear()
+            assert (await db.get_config(10, "permlevels"))["users"]["42"] == "helper"
+            await cog.save(10, updated)
+            assert (await db.get_config(10, "permlevels"))["users"]["42"] == "admin"
+        finally:
+            await db.close()
+    asyncio.run(go())
+
+
+def test_failed_migration_does_not_publish_uncommitted_cached_values():
+    async def go():
+        db = Database(":memory:")
+        await db.connect()
+        try:
+            await db.set_config_committed(10, "permlevels", {"users": {"42": "mod"}})
+            cog = Permissions(SimpleNamespace(db=db))
+            db.execute = AsyncMock(side_effect=RuntimeError("storage failed"))
+            import pytest
+            with pytest.raises(RuntimeError, match="storage failed"):
+                await cog.cfg(10)
+            assert (await db.get_config(10, "permlevels"))["users"]["42"] == "mod"
+        finally:
+            await db.close()
+    asyncio.run(go())

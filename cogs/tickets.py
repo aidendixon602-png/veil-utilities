@@ -64,7 +64,7 @@ class Tickets(commands.Cog):
         pl_cfg = await self.bot.db.get_config(member.guild.id, "permlevels")
         if _perms.rank_of(pl_cfg, member) >= 1:
             return True
-        return bool(member.guild_permissions.manage_channels)
+        return False
 
     async def _ticket_staff(self, ctx: Context):
         """Ticket management commands must only work *inside a ticket* — otherwise a support role could

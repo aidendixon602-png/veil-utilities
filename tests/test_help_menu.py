@@ -855,10 +855,10 @@ def test_helper_help_respects_actual_level_overrides_fakeperms_and_disabled_comm
         assert [c.name for c in view.current_items()] == ["public"]
         assert not await h._can_see(restricted)
 
-        # Disabled commands remain visible to Discord administrators, as in the global check.
+        # Native Administrator does not bypass disabled commands.
         author.guild_permissions = discord.Permissions(administrator=True)
         store["settings"] = {"disabled": ["clear"]}
-        assert (await h.help_access(1)).permits(clear)
+        assert not (await h.help_access(1)).permits(clear)
 
     asyncio.run(go())
 

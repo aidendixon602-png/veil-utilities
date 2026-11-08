@@ -1,11 +1,16 @@
 """Per-user permission levels: give trusted members staff powers through the bot without dangerous Discord perms."""
 from __future__ import annotations
 
+import copy
+import logging
+
 import discord
 from discord.ext import commands
 
 from core import perms
 from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, human_join, is_server_owner, requires_uperm
+
+log = logging.getLogger("veil.permissions")
 
 
 class Permissions(commands.Cog):
@@ -23,20 +28,20 @@ class Permissions(commands.Cog):
             return
         try:
             for gid, data in await guilds_with("permlevels"):
-                cached = await db.get_config(gid, "permlevels")
-                if perms.migrate(cached):
-                    await db.set_config(gid, "permlevels", cached)
-        except Exception:  # a migration problem must never stop the bot from starting; reads migrate too
-            pass
+                updated = copy.deepcopy(await db.get_config(gid, "permlevels"))
+                if perms.migrate(updated):
+                    await db.set_config_committed(gid, "permlevels", updated)
+        except Exception:  # keep startup available; reads retry the migration
+            log.exception("Permission level migration failed; it will be retried on access")
 
     async def cfg(self, gid):
-        cfg = await self.bot.db.get_config(gid, "permlevels", {"users": {}, "overrides": {}})
+        cfg = copy.deepcopy(await self.bot.db.get_config(gid, "permlevels", {"users": {}, "overrides": {}}))
         if perms.migrate(cfg):
             await self.save(gid, cfg)
         return cfg
 
     async def save(self, gid, cfg):
-        await self.bot.db.set_config(gid, "permlevels", cfg)
+        await self.bot.db.set_config_committed(gid, "permlevels", cfg)
 
     async def actor_rank(self, ctx: Context) -> int:
         cfg = await self.cfg(ctx.guild.id)
@@ -89,6 +94,10 @@ class Permissions(commands.Cog):
         actor = await self.actor_rank(ctx)
 
         if isinstance(target, discord.Member):
+            if target.id == ctx.author.id:
+                raise UserError("You can't assign a permission level to yourself")
+            if target.id == ctx.guild.owner_id:
+                raise UserError("The server owner's permissions cannot be changed")
             if target.bot:
                 raise UserError("Bots can't have permission levels")
             if perms.is_bot_developer(target, self.bot):
@@ -109,6 +118,8 @@ class Permissions(commands.Cog):
                 raise UserError("You can't assign a permission level to @everyone")
             if target.managed:
                 raise UserError("You can't assign a permission level to an integrated bot role")
+            if any(role.id == target.id for role in getattr(ctx.author, "roles", [])):
+                raise UserError("You can't assign a permission level to a role you hold")
             rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
             if target.id in rbl.get("roles", []):
                 raise UserError(f"{target.mention} is blacklisted and cannot be assigned a permission level")
@@ -117,6 +128,10 @@ class Permissions(commands.Cog):
                     raise UserError("You can't assign a level equal to or above your own")
                 if target >= ctx.author.top_role:
                     raise UserError(f"You can't assign a level to {target.mention}, it ranks at or above your highest role")
+                old_key = perms.role_key(cfg, target.id)
+                old_rank = perms.all_levels(cfg).get(old_key, {}).get("rank", 0)
+                if old_rank >= actor:
+                    raise UserError("You can't change a role with a permission level equal to or above your own")
             cfg.setdefault("roles", {})[str(target.id)] = key
             await self.save(ctx.guild.id, cfg)
             await ctx.approve(f"set {target.mention}'s permission level to **{info['name']}**")
@@ -129,6 +144,8 @@ class Permissions(commands.Cog):
         cfg = await self.cfg(ctx.guild.id)
         actor = await self.actor_rank(ctx)
         if isinstance(target, discord.Member):
+            if target.id == ctx.guild.owner_id:
+                raise UserError("The server owner's permissions cannot be changed")
             users = cfg.get("users", {})
             if str(target.id) not in users:
                 roles_cfg = cfg.get("roles", {})
@@ -149,8 +166,12 @@ class Permissions(commands.Cog):
             roles = cfg.get("roles", {})
             if str(target.id) not in roles:
                 raise UserError(f"{target.mention} has no permission level")
-            if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author) and target >= ctx.author.top_role:
-                raise UserError(f"You can't change {target.mention}, it ranks at or above your highest role")
+            if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author):
+                if target >= ctx.author.top_role:
+                    raise UserError(f"You can't change {target.mention}, it ranks at or above your highest role")
+                old_rank = perms.all_levels(cfg).get(perms.role_key(cfg, target.id), {}).get("rank", 0)
+                if old_rank >= actor:
+                    raise UserError("You can't change a role with a permission level equal to or above your own")
             roles.pop(str(target.id))
             await self.save(ctx.guild.id, cfg)
             await ctx.approve(f"removed {target.mention}'s permission level")
@@ -227,7 +248,7 @@ class Permissions(commands.Cog):
             return await ctx.neutral(f"{target.mention} has the **{rname}** permission level" if rkey and rkey in levels
                                      else f"{target.mention} has no permission level")
 
-        if target != ctx.author and not ctx.author.guild_permissions.manage_messages:
+        if target != ctx.author:
             actor = await self.actor_rank(ctx)
             if actor < 1:
                 raise UserError("You can only check your own permission level")

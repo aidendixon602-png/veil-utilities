@@ -443,12 +443,10 @@ async def send_script(dest: discord.abc.Messageable, script: str, variables: dic
 
 # ---------------------------------------------------------------- checks
 async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
-    """Strict bot permission enforcement:
-    1. Bot developers always bypass all permission checks.
-    2. Server owner always has full guild authority.
-    3. If permlevels are configured, permissions are strictly checked against
-       the member's assigned bot perm rank (uperm) and fakeperms. Discord native permissions
-       do NOT bypass unless the guild has never configured permlevels.
+    """Resolve bot permission checks without granting power from Discord permissions.
+
+    Discord permissions are checked separately for the bot's API operations. Explicit
+    Veil grants remain distinct from native Discord permissions in every server.
     """
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
@@ -468,21 +466,8 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
     if "administrator" in granted:
         return []
 
-    # If the user has assigned bot permissions, check if the required permissions are covered
-    if granted:
-        return [k for k, v in perms.items() if v and k not in granted]
+    return [k for k, v in perms.items() if v and k not in granted]
 
-    # For guilds that use permlevels (custom bot rank setup in database):
-    # Members without an assigned bot rank cannot run protected commands
-    guild_has_uperms = bool(pl_cfg.get("users") or pl_cfg.get("roles"))
-    if guild_has_uperms:
-        return [k for k, v in perms.items() if v]
-
-    # Fallback to Discord permissions ONLY when the guild has not set up any permlevels in db
-    p = ctx.channel.permissions_for(ctx.author)
-    if p.administrator:
-        return []
-    return [k for k, v in perms.items() if getattr(p, k, None) != v]
 
 
 async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
@@ -585,7 +570,7 @@ def is_server_owner():
 
 def requires_uperm(min_level_or_func="helper"):
     """Check that the author has at least the specified user permission (uperm) rank,
-    or is the server owner, a bot developer, or a server administrator.
+    or is the server owner or a bot developer.
 
     Usage:
       @requires_uperm

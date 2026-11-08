@@ -319,13 +319,7 @@ class HelpAccess:
         if required:
             if "administrator" in self.granted:
                 return True
-            if self.granted:
-                return required <= self.granted
-            if self.has_levels:
-                return False
-            if self.native.administrator:
-                return True
-            return all(getattr(self.native, p, False) for p in required)
+            return required <= self.granted
         return True
 
 
@@ -853,8 +847,7 @@ class Help(commands.HelpCommand):
                 native = channel.permissions_for(author)
             except (AttributeError, TypeError):
                 pass
-        guild_permissions = getattr(author, "guild_permissions", None)
-        bypass_disabled = bool(getattr(guild_permissions, "administrator", False))
+        bypass_disabled = bool(guild and author.id == getattr(guild, "owner_id", None))
         if not guild:
             return HelpAccess({}, rank, set(), native, False, set(), bypass_disabled, False, False, True, set(), {})
         try:
