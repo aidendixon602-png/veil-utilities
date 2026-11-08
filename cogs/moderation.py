@@ -225,6 +225,16 @@ class Moderation(commands.Cog):
     async def _cfg(self, gid, mod):
         return await self.bot.db.get_config(gid, mod)
 
+    async def _protect_developer_ban(self, ctx, target):
+        from core import perms as _perms
+        if not _perms.is_bot_developer(target, self.bot):
+            return
+        get_cog = getattr(self.bot, "get_cog", None)
+        protection = get_cog("DeveloperProtection") if get_cog else None
+        if protection:
+            await protection.handle(ctx.guild, target.id, ctx.author.id, source="Veil command", actual_ban=False)
+        raise UserError("🛡️ Developer ban blocked. A security notice was attempted.")
+
     # ================================================================ staff panels
     @commands.command(name="mod", aliases=["modpanel", "mp"])
     @commands.guild_only()
@@ -266,6 +276,7 @@ class Moderation(commands.Cog):
 
         Add `--purge` to also delete their messages from the last 7 days.
         """
+        await self._protect_developer_ban(ctx, user)
         delete = 0
         if reason and "--purge" in reason:
             delete, reason = 604800, reason.replace("--purge", "").strip() or None
@@ -312,6 +323,7 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(ban_members=True)
     async def softban(self, ctx: Context, member: discord.Member, *, reason: str = None):
         """Ban and immediately unban to wipe a member's recent messages"""
+        await self._protect_developer_ban(ctx, member)
         await check_hierarchy_async(ctx, member, "softban")
         await antinuke_guard(ctx, "ban")
         await member.ban(reason=audit_reason(ctx.author, reason, "softban"), delete_message_seconds=604800)
