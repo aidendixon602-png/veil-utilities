@@ -484,6 +484,10 @@ class Antinuke(commands.Cog):
         if not module:
             return
         guild = entry.guild
+        get_cog = getattr(self.bot, "get_cog", None)
+        if (module == "ban" and _perms.is_bot_developer(getattr(getattr(entry, "target", None), "id", None), self.bot)
+                and get_cog and get_cog("DeveloperProtection")):
+            return  # independently handled by DeveloperProtection, regardless of antinuke settings
         cfg = await self.cfg(guild.id)
         if not cfg.get("enabled"):
             return

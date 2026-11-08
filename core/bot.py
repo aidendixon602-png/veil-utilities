@@ -30,7 +30,7 @@ EXTENSIONS = [
     "cogs.voicemaster", "cogs.config", "cogs.levels", "cogs.giveaways", "cogs.tickets",
     "cogs.utility", "cogs.integrations", "cogs.fun", "cogs.music", "cogs.owner", "cogs.authorization",
     "cogs.imaging", "cogs.ai", "cogs.permissions", "cogs.devtools", "cogs.feeds", "cogs.spotify",
-    "cogs.vanguard",
+    "cogs.vanguard", "cogs.devprotection",
 ]
 # modules whose commands only make sense in a server: blocked in DMs up front instead of erroring halfway
 GUILD_ONLY_COGS = {
@@ -403,6 +403,15 @@ class Veil(commands.AutoShardedBot):
     async def on_message(self, message: discord.Message):
         if await self._may_run_commands(message):
             await self.process_commands(message)
+
+    async def process_commands(self, message: discord.Message):
+        if message.author.bot:
+            return
+        ctx = await self.get_context(message)
+        protection = self.get_cog("DeveloperProtection")
+        if protection is not None and message.guild is not None and await protection.blocked_command(ctx):
+            return
+        await self.invoke(ctx)
 
     # ------------------------------------------------------------- buttons that nothing answers
     def _component_is_live(self, it: discord.Interaction) -> bool:

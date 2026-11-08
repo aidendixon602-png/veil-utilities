@@ -54,3 +54,25 @@ both bots are present. **Disable overlapping protection in one bot** to avoid du
 Existing Veil settings are preserved: if antinuke is off, explicitly enable it with `,an toggle on`; check raid
 settings with `,antiraid`. Veil still treats Ghost Vanguard as a built-in trusted bot; `,gv` is an optional bridge,
 not a protection requirement. See `,an status` and `,an health`, and test in a disposable server first.
+
+## Developer ban protection
+
+Veil separately protects the bot's configured and discovered developers, even when the antinuke is disabled.
+Explicit `,ban` and `,softban` commands targeting a developer are blocked before command permission checks; the
+ban-log reban button is protected too. On an actual Discord ban, Veil uses the exact fresh audit entry to identify
+the actor, attempts to ban that actor without deleting messages, then attempts to unban the developer even if
+punishment failed. The server owner, the bot itself, other bot developers and explicitly whitelisted people remain
+protected from retaliation. Discord can also refuse punishment due to missing permissions or role hierarchy.
+
+The affected developer gets a DM describing the actual outcomes, with a link to the antinuke alert if it could be
+posted. After a successful unban, Veil tries to create a **one-use, one-hour** invite in a publicly visible text
+channel and sends it privately in that DM only. An unban does not automatically return someone to the server or
+restore their roles. If a log, invite or DM cannot be sent, check manually. A blocked command does not mean the
+developer was banned and does not produce a rejoin invite unless an existing ban was actually removed.
+
+Discord's member-ban events and the bot's Ban Members permission are required to reverse a direct ban. Fresh
+audit-log events and View Audit Log are required to identify the actor. If attribution is unavailable, Veil tries
+to unban without guessing or punishing anyone. Old/replayed audit entries are ignored. Command attempts are only
+detected when Veil receives and processes the message, and explicit ID/mention or a resolvable server member name
+identifies the developer. Discord permissions, channel access, delivery failures, outages, and other bots can still
+prevent or counteract these protections; test in a disposable server before relying on them.
