@@ -8,7 +8,8 @@ from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = ["README.md", "docs/CONFIGURATION.md", "docs/OPERATIONS.md", "docs/HOSTING.md",
-             "docs/ANTINUKE.md", "docs/DEVELOPER_COMMANDS.md", "docs/DEVELOPERS.md", "docs/REPOSITORY_AUDIT.md", ".github/CONTRIBUTING.md", ".github/SECURITY.md"]
+             "docs/ANTINUKE.md", "docs/PERMISSIONS.md", "docs/MASTER_AUDIT.md", "docs/DEVELOPER_COMMANDS.md",
+             "docs/DEVELOPERS.md", "docs/REPOSITORY_AUDIT.md", ".github/CONTRIBUTING.md", ".github/SECURITY.md"]
 
 
 def _anchors(text):
@@ -66,3 +67,15 @@ def test_developer_reference_is_separate_and_uses_prefix():
     assert "`,authorize <guild_id>" in text
     assert "`,system`" in text
     assert "require developer/owner authorization" in text
+
+
+def test_permission_guide_discloses_builtins_and_unfixed_self_role_risk():
+    from core import perms
+
+    guide = (ROOT / "docs/PERMISSIONS.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Known self-role risk" in guide and "Known self-role risk" in readme
+    assert "not a fix to the code" in guide
+    for uid, name in {**perms.TRUSTED_BOTS, **perms.WHITELISTED_PEOPLE}.items():
+        assert str(uid) in guide and name in guide
+    assert "Helper limited-timeout preset are not yet implemented" in guide

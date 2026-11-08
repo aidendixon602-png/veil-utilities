@@ -45,7 +45,8 @@ Only the server owner or a bot developer can turn the whole antinuke off.
 `,an unwhitelist @user` or `@role`. Only trust accounts you are willing to exempt from protection.
 `,an admin @user` toggles an antinuke administrator (server owner only). **In Veil, antinuke admins are also
 exempt**, and `,an trust` is a legacy alias for the whitelist, not Greed's separate admin command. Role-blacklist
-authorization is a different system and does not grant an antinuke whitelist.
+authorization is a different setting, but users in its `authorized` list are also treated as trusted by the
+current antinuke implementation. Review both settings before relying on enforcement.
 
 Detection and rollback are best-effort, not a guarantee. Audit events must reach Veil; the bot needs the relevant
 Discord permissions and a high enough role to punish or restore changes. Some events cannot be undone. Veil
@@ -53,7 +54,10 @@ intentionally ignores some routine actions by other bots. Veil works independent
 both bots are present. **Disable overlapping protection in one bot** to avoid duplicate punishment or rollback.
 Existing Veil settings are preserved: if antinuke is off, explicitly enable it with `,an toggle on`; check raid
 settings with `,antiraid`. Veil still treats Ghost Vanguard as a built-in trusted bot; `,gv` is an optional bridge,
-not a protection requirement. See `,an status` and `,an health`, and test in a disposable server first.
+not a protection requirement. A separate built-in global person exemption also exists. See
+[built-in exemptions](PERMISSIONS.md#built-in-exemptions), `,an status` and `,an health`, and test in a disposable
+server first. The current server-update rule filters for vanity changes; do not assume all server settings changes
+are detected. See the [staged audit](MASTER_AUDIT.md) for outstanding work.
 
 ## Developer ban protection
 

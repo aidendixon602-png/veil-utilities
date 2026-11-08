@@ -18,4 +18,11 @@ There is no published response-time or release-time commitment. If a credential 
 
 Examples of issues worth reporting include permission escalation, unauthorized access to developer commands or the dashboard, antinuke bypasses, secret disclosure, unsafe URL handling and remote code execution. Developers and application owners intentionally have broad privileges; protect those accounts and restrict `OWNER_IDS`.
 
-Antinuke responses and restoration are best-effort, not an assurance that damage can always be prevented or reversed. Review the [antinuke guide](../docs/ANTINUKE.md) and [production audit](../docs/PRODUCTION_AUDIT.md), use least privilege appropriate to your setup, and test security settings in a disposable server.
+**Known self-role risk:** Button and reaction roles can grant a role that carries Veil levels or fake
+permissions. Until fixed, remove any overlap between self-assignable roles and Veil privileges, and review members
+who already hold those roles. See the [permissions guide](../docs/PERMISSIONS.md#review-role-assignments).
+
+The source also contains [built-in global exemptions](../docs/PERMISSIONS.md#built-in-exemptions), separate from
+per-server configuration. Antinuke responses and restoration are best-effort, not an assurance that damage can
+always be prevented or reversed. Review the [antinuke guide](../docs/ANTINUKE.md) and
+[staged audit](../docs/MASTER_AUDIT.md), use least privilege, and test only in a disposable server.
