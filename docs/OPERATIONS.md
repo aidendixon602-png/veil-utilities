@@ -6,6 +6,20 @@
 
 Veil recognizes the Discord application's owner/team and additional `OWNER_IDS` as bot developers. Developer commands are hidden and independently checked; they include highly privileged operations. Server owners and role/user permission levels govern access to many server commands. Actual Discord permissions and role hierarchy are also required to perform Discord actions. Use `,help <command>` and `,perm roles` to inspect available information; the generated reference cannot represent every check.
 
+### Optional command role restrictions
+
+The server owner or a bot developer can add an additional role requirement with `,restrict add <command>, @role`,
+for example `,restrict add ban, @Staff`. Use `,restrict list` to inspect rules, `,restrict remove <command>, @role`
+to remove one role, or `,restrict clear <command>` to remove a command's rule even if its role was deleted.
+Removing the last role also clears that rule. Restricting a group applies to its subcommands; if both a group and a
+subcommand have rules, the member must satisfy both. A missing/deleted role does not automatically unlock a command.
+
+Restrictions are **additive**: they do not grant bot permissions or bypass ranks, Discord permissions, hierarchy,
+blacklists, disabled commands, or other checks. The server owner and bot developers bypass role restrictions;
+ordinary Discord administrators do not. Existing servers have no role restrictions until one is explicitly added.
+Help uses a snapshot when it opens, so rerun `,help` after changing roles or rules. Commands always check current rules.
+Changes are serialized within one bot process; concurrent multi-process administration is not supported.
+
 With `AUTH_REQUIRED=true`, developer-owned servers are automatically authorized. Other servers need a developer's `,authorize <server-id>` or the authorization button in an alert, then a re-invite. `,authorized` lists approvals and `,unauthorize <server-id>` revokes one. An unauthorized join triggers a leave attempt; attribution is reported as unknown unless a recent matching audit entry can be correlated with the join. A failed or timed-out leave is reported, not automatically retried during that session.
 
 `AUTH_GRANDFATHER=true` can enroll already-joined servers on first initialization. An old database with an intentionally empty list needs special attention before its first upgrade; see [configuration](CONFIGURATION.md#authorization-and-developer-alerts) and the [production audit](PRODUCTION_AUDIT.md). `PRIVATE_MODE=true` restricts who can invoke commands even in an authorized server.

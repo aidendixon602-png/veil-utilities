@@ -1,6 +1,7 @@
 """Server settings: prefix, aliases, ignores, disabled commands, fake permissions, modlog."""
 from __future__ import annotations
 
+import asyncio
 import re
 
 import discord
@@ -74,6 +75,7 @@ class Settings(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._restriction_locks: dict[int, asyncio.Lock] = {}
 
     # ---------------------------------------------------------- prefix
     @commands.group(invoke_without_command=True)
@@ -243,6 +245,122 @@ class Settings(commands.Cog):
         s["disabled"].remove(name)
         await self.bot.db.set_config(ctx.guild.id, "settings", s)
         await ctx.approve(f"enabled `{name}`")
+
+    # ---------------------------------------------------------- command role restrictions
+    async def _save_restrictions(self, guild_id: int, updated: dict):
+        """Publish changes to the cache only after the restriction rule is persisted."""
+        await self.bot.db.set_config_committed(guild_id, "command_restrictions", updated)
+
+    async def _restriction_target(self, ctx: Context, text: str):
+        command, separator, role_text = text.rpartition(",")
+        if not separator or not command.strip() or not role_text.strip():
+            raise UserError(f"Use `{ctx.clean_prefix}restrict add <command>, @role`")
+        cmd = self.bot.get_command(command.strip().lower())
+        if cmd is None or cmd.hidden or any(parent.hidden for parent in cmd.parents):
+            raise UserError("That command was not found")
+        if (cmd.root_parent and cmd.root_parent.name == "restrict") or cmd.name == "restrict":
+            raise UserError("The restriction manager cannot restrict itself")
+        if cmd.cog_name in ("Owner", "DevTools", "Authorization", "Events"):
+            raise UserError("Developer commands cannot be restricted here")
+        try:
+            role = await commands.RoleConverter().convert(ctx, role_text.strip())
+        except commands.BadArgument:
+            raise UserError("That role was not found")
+        if role.is_default():
+            raise UserError("Choose a specific role, not @everyone")
+        return cmd, role
+
+    @commands.group(name="restrict", invoke_without_command=True, case_insensitive=True)
+    @commands.guild_only()
+    @is_server_owner()
+    async def restrict(self, ctx: Context):
+        """Restrict commands to specific roles
+
+        Restrictions add to existing permission checks. The server owner and bot developers bypass them.
+        Example: `,restrict add ban, @Staff`
+        """
+        await ctx.send_help(ctx.command)
+
+    @restrict.command(name="add", usage="<command>, <role>")
+    @is_server_owner()
+    async def restrict_add(self, ctx: Context, *, target: str):
+        """Allow a role to use a restricted command"""
+        cmd, role = await self._restriction_target(ctx, target)
+        lock = self._restriction_locks.setdefault(ctx.guild.id, asyncio.Lock())
+        async with lock:
+            data = await self.bot.db.get_config(ctx.guild.id, "command_restrictions")
+            if not isinstance(data, dict) or (cmd.qualified_name in data and
+                                              (not isinstance(data[cmd.qualified_name], list) or
+                                               not all(str(r).isdigit() for r in data[cmd.qualified_name]))):
+                raise UserError("Command restriction settings are invalid; clear the affected rule first")
+            data = {**data}
+            roles = [str(role_id) for role_id in data.get(cmd.qualified_name, [])]
+            if str(role.id) in roles:
+                raise UserError(f"{role.mention} is already allowed for `{cmd.qualified_name}`")
+            roles.append(str(role.id))
+            data[cmd.qualified_name] = roles
+            await self._save_restrictions(ctx.guild.id, data)
+        await ctx.approve(f"restricted `{cmd.qualified_name}` to the configured roles; added {role.mention}")
+
+    @restrict.command(name="remove", aliases=["delete", "del"], usage="<command>, <role>")
+    @is_server_owner()
+    async def restrict_remove(self, ctx: Context, *, target: str):
+        """Remove a role from a command restriction"""
+        cmd, role = await self._restriction_target(ctx, target)
+        lock = self._restriction_locks.setdefault(ctx.guild.id, asyncio.Lock())
+        async with lock:
+            data = await self.bot.db.get_config(ctx.guild.id, "command_restrictions")
+            if not isinstance(data, dict) or not isinstance(data.get(cmd.qualified_name), list):
+                raise UserError("No valid restriction is set for that command")
+            roles = [str(role_id) for role_id in data[cmd.qualified_name]]
+            if str(role.id) not in roles:
+                raise UserError(f"{role.mention} is not allowed for `{cmd.qualified_name}`")
+            # The last removal clears the rule. Users are told because it broadens access.
+            roles.remove(str(role.id))
+            data = {**data}
+            if roles:
+                data[cmd.qualified_name] = roles
+            else:
+                data.pop(cmd.qualified_name)
+            await self._save_restrictions(ctx.guild.id, data)
+        suffix = "; no role restriction remains" if not roles else ""
+        await ctx.approve(f"removed {role.mention} from `{cmd.qualified_name}`{suffix}")
+
+    @restrict.command(name="clear", usage="<command>")
+    @is_server_owner()
+    async def restrict_clear(self, ctx: Context, *, command: str):
+        """Clear all role restrictions on one command"""
+        cmd = self.bot.get_command(command.strip().lower())
+        if cmd is None:
+            raise UserError("That command was not found")
+        lock = self._restriction_locks.setdefault(ctx.guild.id, asyncio.Lock())
+        async with lock:
+            data = await self.bot.db.get_config(ctx.guild.id, "command_restrictions")
+            if not isinstance(data, dict):
+                raise UserError("Command restriction settings are invalid; ask a developer to inspect them")
+            if cmd.qualified_name not in data:
+                raise UserError("No role restriction is set for that command")
+            data = {**data}
+            data.pop(cmd.qualified_name)
+            await self._save_restrictions(ctx.guild.id, data)
+        await ctx.approve(f"cleared the role restriction for `{cmd.qualified_name}`; existing permission checks still apply")
+
+    @restrict.command(name="list", aliases=["show"])
+    @is_server_owner()
+    async def restrict_list(self, ctx: Context):
+        """List commands with role restrictions"""
+        data = await self.bot.db.get_config(ctx.guild.id, "command_restrictions")
+        if not isinstance(data, dict):
+            raise UserError("Command restriction settings are invalid; ask a developer to inspect them")
+        if not data:
+            return await ctx.warn("no command role restrictions are set")
+        lines = []
+        for name, roles in sorted(data.items()):
+            if not isinstance(roles, list) or not roles or not all(str(role).isdigit() for role in roles):
+                lines.append(f"`{name}` · invalid rule (access denied)")
+            else:
+                lines.append(f"`{name}` · " + ", ".join(f"<@&{role}>" for role in roles))
+        await ctx.paginate(chunk_embeds("Command restrictions", lines))
 
     # ---------------------------------------------------------- staff-only / bot channels
     @commands.command(aliases=["botlock", "lockbot"])

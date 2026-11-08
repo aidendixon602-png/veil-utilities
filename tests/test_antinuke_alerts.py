@@ -157,3 +157,63 @@ def test_failed_incident_write_keeps_existing_owner_and_developer_alerts():
         respond(cog, guild, "ban", entry)
     guild.owner.send.assert_awaited_once()
     assert punishment(sent[0][0]["embed"]) == "Banned"
+
+
+def test_strip_skips_everyone_even_if_it_has_dangerous_permissions():
+    cog, guild, attacker, _, sent = setup()
+    everyone = make_role(guild.id, "@everyone", 0, administrator=True)
+    attacker.roles.insert(0, everyone)
+    respond(cog, guild, "permissions", None)
+    assert all(everyone not in call.args for call in attacker.remove_roles.await_args_list)
+    result = punishment(sent[0][0]["embed"])
+    assert "Strip incomplete" in result and "removed 1 staff role(s)" in result
+    assert "@everyone (not removable by the bot; check manually)" in result
+
+
+def test_strip_continues_after_unknown_role_404_and_reports_partial_result():
+    cog, guild, attacker, _, sent = setup()
+    first = make_role(78, "Deleted role", 3, administrator=True)
+    second = make_role(79, "Staff", 4, ban_members=True)
+    attacker.roles = [attacker.roles[0], first, second]
+    response = MagicMock(status=404, reason="Not Found")
+    attacker.remove_roles.side_effect = [discord.NotFound(response, {"code": 10011, "message": "Unknown Role"}), None]
+    respond(cog, guild, "permissions", None)
+    assert [call.args[0] for call in attacker.remove_roles.await_args_list] == [first, second]
+    result = punishment(sent[0][0]["embed"])
+    assert "Strip incomplete" in result and "removed 1 staff role(s)" in result
+    assert "Deleted role (role not found; Discord 404)" in result
+    assert "Staff" in attacker.send.await_args.kwargs["embed"].description
+    assert "Deleted role" not in attacker.send.await_args.kwargs["embed"].description
+
+
+def test_unknown_member_404_does_not_claim_success_or_try_remaining_roles():
+    cog, guild, attacker, _, sent = setup()
+    attacker.roles.append(make_role(79, "Other staff", 4, ban_members=True))
+    response = MagicMock(status=404, reason="Not Found")
+    attacker.remove_roles.side_effect = discord.NotFound(response, {"code": 10007, "message": "Unknown Member"})
+    respond(cog, guild, "permissions", None)
+    attacker.remove_roles.assert_awaited_once()
+    result = punishment(sent[0][0]["embed"])
+    assert "Strip incomplete" in result and "member not found, remaining roles not attempted" in result
+    attacker.send.assert_not_awaited()
+
+
+def test_uncached_attacker_is_fetched_and_not_assumed_to_have_left():
+    cog, guild, attacker, _, sent = setup()
+    guild.get_member = lambda uid: None
+    cog.bot.get_user = lambda uid: attacker
+    guild.fetch_member = AsyncMock(return_value=attacker)
+    respond(cog, guild, "permissions", None)
+    guild.fetch_member.assert_awaited_once_with(ATTACKER)
+    attacker.remove_roles.assert_awaited_once()
+    assert punishment(sent[0][0]["embed"]) == "Stripped 1 staff role(s)"
+
+
+def test_uncached_attacker_reports_confirmed_unknown_member():
+    cog, guild, attacker, _, sent = setup()
+    guild.get_member = lambda uid: None
+    cog.bot.get_user = lambda uid: attacker
+    response = MagicMock(status=404, reason="Not Found")
+    guild.fetch_member = AsyncMock(side_effect=discord.NotFound(response, {"code": 10007, "message": "Unknown Member"}))
+    respond(cog, guild, "permissions", None)
+    assert punishment(sent[0][0]["embed"]) == "Nothing to strip: Discord reports the attacker is no longer a member"

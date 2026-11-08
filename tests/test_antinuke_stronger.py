@@ -204,3 +204,131 @@ def test_a_rebuilt_role_keeps_its_blacklist_levels_fake_perms_and_whitelist():
     assert db.store["antinuke"]["whitelist_roles"] == [7070]
     assert lines == ["kept the rebuilt roles' antinuke whitelist, fake permissions, permission levels, role blacklist"]
     assert asyncio.run(cog._carry_role_settings(guild, {})) == []
+
+
+def test_conflicting_permission_grant_does_not_restore_the_same_role():
+    cog, guild, _ = setup({"permissions": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"},
+                           "memberroles": {"on": True, "threshold": 3, "window": 60, "punishment": "strip"}})
+    _, _, boss = _roles(guild)
+    target = member(guild, 700, "basedpolicy", [boss])
+    removal = entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[boss]),
+                    after=SimpleNamespace(roles=[]))
+    grant = entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[]),
+                  after=SimpleNamespace(roles=[boss]))
+    feed(cog, removal, grant)
+    target.remove_roles.assert_awaited_once_with(boss, reason="Antinuke: Granting dangerous permissions to roles/members")
+    target.add_roles.assert_not_awaited()
+    card = guild.sent[0][0]["embed"]
+    assert "removed Boss from basedpolicy" in field(card, "Put back")
+    assert "didn't restore Boss to basedpolicy" in field(card, "Problems")
+    assert "gave basedpolicy back Boss" not in (field(card, "Put back") or "")
+
+
+def test_conflicting_role_removal_in_caught_follow_up_is_not_restored():
+    cog, guild, _ = setup({"permissions": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"},
+                           "memberroles": {"on": True, "threshold": 3, "window": 60, "punishment": "strip"}})
+    _, _, boss = _roles(guild)
+    target = member(guild, 701, "target", [boss])
+    grant = entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[]),
+                  after=SimpleNamespace(roles=[boss]))
+    removal = entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[boss]),
+                    after=SimpleNamespace(roles=[]))
+    feed(cog, grant, removal)
+    target.remove_roles.assert_awaited_once()
+    target.add_roles.assert_not_awaited()
+    updated = guild.sent[0][1].edit.await_args.kwargs["embed"]
+    assert "didn't restore Boss to target" in field(updated, "Problems")
+
+
+def test_unmanageable_permission_grant_does_not_strip_unrelated_target_roles():
+    cog, guild, _ = setup({"permissions": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"}})
+    _, _, boss = _roles(guild)
+    boss.position = 99  # beyond the bot's role
+    other = Role(id=65, name="Other", position=2, managed=False,
+                 permissions=discord.Permissions(administrator=True))
+    guild.roles_by_id[other.id] = other
+    target = member(guild, 702, "target", [other, boss])
+    feed(cog, entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[]),
+                    after=SimpleNamespace(roles=[boss])))
+    target.remove_roles.assert_not_awaited()
+    assert "couldn't remove or verify granted role(s): Boss" in field(guild.sent[0][0]["embed"], "Problems")
+
+
+def test_self_granted_fake_permission_role_is_not_removed_twice():
+    cog, guild, attacker = setup({"permissions": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"}})
+    _, _, boss = _roles(guild)
+    attacker.roles.append(boss)
+    cog.bot.db.store["fakeperms"] = {str(boss.id): ["administrator"]}
+    feed(cog, entry(guild, A.member_role_update, attacker, before=SimpleNamespace(roles=[]),
+                    after=SimpleNamespace(roles=[boss])))
+    assert sum(boss in call.args for call in attacker.remove_roles.await_args_list) == 1
+    alert = guild.sent[0][0]["embed"]
+    assert "removed 1 fake-permission role(s)" in field(alert, "Put back")
+    assert "Strip incomplete" not in alert.description
+
+
+def test_follow_up_waits_for_original_alert_before_updating_it():
+    import importlib
+    from unittest.mock import patch
+
+    cog, guild, _ = setup({"permissions": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"},
+                           "memberroles": {"on": True, "threshold": 3, "window": 60, "punishment": "strip"}})
+    _, _, boss = _roles(guild)
+    target = member(guild, 703, "target", [boss])
+    grant = entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[]),
+                  after=SimpleNamespace(roles=[boss]))
+    removal = entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[boss]),
+                    after=SimpleNamespace(roles=[]))
+
+    async def go():
+        ready, release = asyncio.Event(), asyncio.Event()
+        original = cog._send_alert
+
+        async def slow_send(*args, **kwargs):
+            ready.set()
+            await release.wait()
+            return await original(*args, **kwargs)
+
+        with patch.object(cog, "_send_alert", side_effect=slow_send), patch.object(
+            importlib.import_module("cogs.authorization"), "developers", AsyncMock(return_value=set())
+        ):
+            first = asyncio.create_task(cog.on_audit_log_entry_create(grant))
+            await ready.wait()
+            second = asyncio.create_task(cog.on_audit_log_entry_create(removal))
+            await asyncio.sleep(0)
+            assert not second.done()
+            release.set()
+            await asyncio.gather(first, second)
+        target.add_roles.assert_not_awaited()
+        updated = guild.sent[0][1].edit.await_args.kwargs["embed"]
+        assert "didn't restore Boss to target" in field(updated, "Problems")
+
+    asyncio.run(go())
+
+
+def test_member_role_rollback_does_not_restore_any_role_to_attacker():
+    cog, guild, attacker = setup({"memberroles": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"}})
+    harmless = Role(id=888, name="Access", position=2, managed=False, permissions=discord.Permissions.none())
+    guild.roles_by_id[harmless.id] = harmless
+    cog.bot.db.store["fakeperms"] = {str(harmless.id): ["administrator"]}
+    feed(cog, entry(guild, A.member_role_update, attacker, before=SimpleNamespace(roles=[harmless]),
+                    after=SimpleNamespace(roles=[])))
+    attacker.add_roles.assert_not_awaited()
+    assert "didn't restore role Access to the attacker" in field(guild.sent[0][0]["embed"], "Problems")
+
+
+def test_uncached_attacker_still_has_fake_permission_role_revoked():
+    cog, guild, attacker = setup({"permissions": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"}})
+    _, _, boss = _roles(guild)
+    fake = Role(id=888, name="Bot access", position=2, managed=False, permissions=discord.Permissions.none())
+    attacker.roles.append(fake)
+    cog.bot.db.store["fakeperms"] = {str(fake.id): ["administrator"]}
+    get_member = guild.get_member
+    guild.get_member = lambda uid: None if uid == attacker.id else get_member(uid)
+    guild.fetch_member = AsyncMock(return_value=attacker)
+    target = member(guild, 704, "target", [boss])
+    feed(cog, entry(guild, A.member_role_update, target, before=SimpleNamespace(roles=[]),
+                    after=SimpleNamespace(roles=[boss])))
+    guild.fetch_member.assert_awaited_once_with(attacker.id)
+    assert any(fake in call.args for call in attacker.remove_roles.await_args_list)
+    assert "removed 1 fake-permission role(s)" in field(guild.sent[0][0]["embed"], "Put back")
