@@ -49,6 +49,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,eval <code>` (ev, run, py) | Execute arbitrary Python code live inside the bot |
 | `,gitpull` (pull, updatebot, botupdate, syncgit) | Pull the latest update |
 | `,guilds` | List servers the bot is in |
+| `,invite` | Get a private link to install Veil in a server |
 | `,killswitch <command>` (ks, globaldisable) | Turn a command off (or back on) in every server |
 | `,killswitch list` | List kill-switched commands |
 | `,leaveguild <guild_id>` | Make the bot leave a server |
