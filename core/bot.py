@@ -498,9 +498,6 @@ class Veil(commands.AutoShardedBot):
         if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in getattr(ctx.author, "roles", [])):
             return True
 
-        perms = ctx.author.guild_permissions
-        if perms.administrator or perms.manage_guild:
-            return True
         return False
 
     async def is_trusted(self, ctx: Context) -> bool:
@@ -553,8 +550,8 @@ class Veil(commands.AutoShardedBot):
         if not self.is_authorized(ctx.guild.id):
             raise Ignored()
         settings = await self.db.get_config(ctx.guild.id, "settings")
-        admin = ctx.author.guild_permissions.administrator
-        if not admin and (ctx.channel.id in settings.get("ignored_channels", [])
+        owner = ctx.author.id == ctx.guild.owner_id
+        if not owner and (ctx.channel.id in settings.get("ignored_channels", [])
                           or ctx.author.id in settings.get("ignored_users", [])):
             raise Ignored()
 
@@ -591,7 +588,7 @@ class Veil(commands.AutoShardedBot):
         disabled = settings.get("disabled", [])
         root = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in disabled or root in disabled:
-            if not admin:
+            if not owner:
                 raise UserError(f"`{ctx.command.qualified_name}` is disabled in this server")
         # Optional role restrictions add to all existing permission checks. Only the
         # server owner and bot developers bypass them; stale role IDs fail closed.

@@ -261,3 +261,22 @@ def test_postgres_committed_config_is_persisted_before_cache_changes(pg_dsn):
         return await db.get_config(991, "command_restrictions")
 
     assert asyncio.run(with_db(pg_dsn, work)) == {"ban": ["9"]}
+
+
+def test_postgres_permission_cog_failure_does_not_publish_grants(pg_dsn):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from cogs.permissions import Permissions
+
+    async def work(db):
+        await db.set_config_committed(992, "permlevels", {"users": {"42": "helper"}})
+        cog = Permissions(SimpleNamespace(db=db))
+        updated = await cog.cfg(992)
+        updated["users"]["42"] = "admin"
+        with patch.object(db, "execute", AsyncMock(side_effect=RuntimeError("write failed"))):
+            with pytest.raises(RuntimeError, match="write failed"):
+                await cog.save(992, updated)
+        assert (await db.get_config(992, "permlevels"))["users"]["42"] == "helper"
+        db._cache.clear()
+        assert (await db.get_config(992, "permlevels"))["users"]["42"] == "helper"
+    asyncio.run(with_db(pg_dsn, work))
