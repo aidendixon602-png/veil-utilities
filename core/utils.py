@@ -18,15 +18,15 @@ class Colors:
     main = 0xB10F2E
     blurple = 0x5865F2
     mint = 0x57F287
-    success = 0x43B581
-    warn = 0xFAA61A
+    success = 0x57B88A
+    warn = 0xE6B85C
     orange = 0xE67E22
-    error = 0xF04747
+    error = 0xDA6262
     neutral = 0x2B2D31
     # the reply palette (soft, like greed / bleed): ✅ green, ⚠️ yellow, ❌ red
-    approve = 0xA4EB78
-    caution = 0xFFC56E
-    deny = 0xFF6464
+    approve = success
+    caution = warn
+    deny = error
 
 
 class E:  # emojis
@@ -66,11 +66,11 @@ class Context(commands.Context["Veil"]):
             message = await self.channel.send(*args, **kwargs)
         return message
 
-    # ---- replies: one line, greed / bleed style: "✅ @you: banned @x" (no author header, no footer)
+    # ---- replies: one line, greed / bleed style: "✅ @you · banned @x" (no author header, no footer)
     #   green  approve/done  it worked          yellow  warn     careful, empty, or nothing to do
     #   red    deny/fail     it did not work    grey    neutral  plain information (no emoji, no mention)
     def _line(self, emoji: str, text: str) -> str:
-        """`✅ @you: text`. A reply that already opens with its own emoji (`🔒 ...`) keeps that one instead."""
+        """`✅ @you · text`. A reply that already opens with its own emoji (`🔒 ...`) keeps that one instead."""
         text = str(text)
         if text.startswith("failed: "):  # the ❌ already says so
             text = text[len("failed: "):]
@@ -78,7 +78,7 @@ class Context(commands.Context["Veil"]):
         if rest and first and not first[0].isascii() and not first[0].isalnum():
             emoji, text = first, rest
         author = getattr(self, "author", None)
-        who = f"{author.mention}: " if author is not None and hasattr(author, "mention") else ""
+        who = f"{author.mention} · " if author is not None and hasattr(author, "mention") else ""
         return f"{emoji} {who}{text}"
 
     async def compact(self, color: int, text: str, **kw):

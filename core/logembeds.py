@@ -208,9 +208,11 @@ def entry_card(color: int, sentence: str, *, subject=None, icon: str | None = No
                ids: Iterable[tuple] = (), header: str | None = None) -> discord.Embed:
     """`sentence` in bold, the quoted text (a message, a reason) under it, then `**Label:** value` lines."""
     lines = [f"**{sentence}**"]
+    detail_lines = [f"**{label}:** {value}" for label, value in details if value not in (None, "")]
     if quoted:
-        lines.append(quote(quoted))
-    lines += [f"**{label}:** {value}" for label, value in details if value not in (None, "")]
+        lines.extend(("", quote(quoted)))
+    if detail_lines:
+        lines.extend(("", *detail_lines))
     embed = discord.Embed(color=color, description=shorten_md("\n".join(lines), 4000),
                           timestamp=discord.utils.utcnow())
     name = header or (name_of(subject) if subject is not None else None)
@@ -645,28 +647,28 @@ def _command_text(ctx) -> str:
 
 def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = None, ms: float | None = None,
                  error: str | None = None) -> discord.Embed:
-    """One card per command: who (name and avatar on top), what they ran, then Channel · Level · Result side by
-    side. The stripe is green when it worked and red when it didn't, with why."""
+    """Compact command audit card; keep outcomes and permission provenance visible."""
     jump = getattr(ctx, "panel_jump", None) if getattr(ctx, "panel_action", None) else None
     jump = jump or getattr(ctx.message, "jump_url", None)
     failed = error is not None
-    embed = discord.Embed(color=Colors.deny if failed else Colors.approve,
-                          description=f"```\n{shorten(_command_text(ctx), 900)}\n```",
-                          timestamp=discord.utils.utcnow())
-    embed.set_author(name=shorten(name_of(ctx.author), 256), icon_url=avatar_of(ctx.author))
-    embed.add_field(name="Channel", value=ctx.channel.mention + (f"\n[jump]({jump})" if jump else ""))
-    level = permission if permission and permission != "None" else "no level"
+    command = shorten(_command_text(ctx).replace("`", "'"), 900)
+    level = shorten(str(permission).replace("\n", " "), 200) if permission and permission != "None" else "no level"
     if granted_by == "Permissions attached to user":
-        via = "\n-# given directly"
+        via = " · given directly"
     else:
-        via = f"\n-# via {granted_by}" if granted_by and granted_by not in ("-", "Built-in") else ""
-    embed.add_field(name="Level", value=f"{level}{via}")
+        grant = shorten(str(granted_by).replace("\n", " "), 250) if granted_by else ""
+        via = f" · via {grant}" if grant and grant not in ("-", "Built-in") else ""
     if failed:
         result = "❌ " + shorten(redact.scrub(error).replace("\n", " "), 300)
     else:
         took = _took(ms)
         result = "✅ done" + (f" in {took}" if took else "")
-    embed.add_field(name="Result", value=result)
+    channel = shorten(ctx.channel.mention, 100) + (f" · [jump]({shorten(str(jump), 500)})" if jump else "")
+    lines = [f"**Command:** `{command}`", "", f"**Channel:** {channel}",
+             f"**Level:** {level}{via}", f"**Result:** {result}"]
+    embed = discord.Embed(color=Colors.deny if failed else Colors.approve,
+                          description=shorten_md("\n".join(lines), 4000), timestamp=discord.utils.utcnow())
+    embed.set_author(name=shorten(name_of(ctx.author), 256), icon_url=avatar_of(ctx.author))
     embed.set_footer(text=f"User ID: {ctx.author.id}")
     return embed
 

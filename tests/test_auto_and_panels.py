@@ -156,11 +156,11 @@ def test_the_log_line_names_the_button_and_points_at_the_panel():
                           message=SimpleNamespace(content=",admin", jump_url="https://discord.com/x/deleted"))
     ctx.author.id, ctx.author.name, ctx.author.display_avatar = 9, "mod", None
     card = logembeds.command_used(ctx, "Admin", "-", ms=1200)
-    fields = {f.name: f.value for f in card.fields}
-    assert card.description == "```\nLockdown (,admin panel)\n```"
-    assert fields["Channel"] == "<#1>\n[jump](https://discord.com/x/panel)" and fields["Result"] == "✅ done in 1.2s"
+    assert "**Command:** `Lockdown (,admin panel)`" in card.description
+    assert "**Channel:** <#1> · [jump](https://discord.com/x/panel)" in card.description
+    assert "**Result:** ✅ done in 1.2s" in card.description
     failed = logembeds.command_used(ctx, "Admin", "-", error="Lockdown is already on")
-    assert {f.name: f.value for f in failed.fields}["Result"] == "❌ Lockdown is already on"
+    assert "**Result:** ❌ Lockdown is already on" in failed.description
 
 
 def test_a_failed_button_is_logged_with_why():

@@ -71,7 +71,7 @@ def test_raid_mode_pauses_invites_and_dms_and_tells_the_log_channel_and_owner():
     assert kwargs["invites_disabled_until"] > discord.utils.utcnow()
     assert kwargs["dms_disabled_until"] == kwargs["invites_disabled_until"]
     assert done == ["paused invites and DMs between members"]
-    assert titles(log) == ["🚨 Raid mode on"] and titles(guild.owner) == ["🚨 Raid mode on"]
+    assert titles(log) == ["Antiraid · Raid mode on"] and titles(guild.owner) == ["Antiraid · Raid mode on"]
     assert "paused invites" in log.send.await_args.kwargs["embed"].fields[0].value
     assert cog.bot.db.store["antiraid"]["raid_state"]["invites"] is True
 
@@ -97,14 +97,14 @@ def test_ending_raid_mode_resumes_invites_and_clears_the_state():
                                             "reason": "Antiraid: raid over"}
     assert "raid_state" not in cog.bot.db.store["antiraid"]
     assert done == ["resumed invites and DMs"]
-    assert titles(log) == ["🚨 Raid mode on", "✅ Raid mode off"]
+    assert titles(log) == ["Antiraid · Raid mode on", "Antiraid · Raid mode off"]
 
 
 def test_a_second_wave_extends_raid_mode_instead_of_starting_again():
     cog, guild, log, _ = setup()
     run(cog.start_raid(guild, "wave"))
     again = run(cog.start_raid(guild, "wave 2"))
-    assert guild.edit.await_count == 1 and titles(log) == ["🚨 Raid mode on"]
+    assert guild.edit.await_count == 1 and titles(log) == ["Antiraid · Raid mode on"]
     assert "already on" in again[0]
 
 
@@ -117,7 +117,7 @@ def test_raid_mode_ends_by_itself_once_joins_go_quiet(monkeypatch):
         await asyncio.wait_for(cog.raid_tasks[guild.id], timeout=2)
     asyncio.run(go())
     assert "raid_state" not in cog.bot.db.store["antiraid"]
-    assert titles(log)[-1] == "✅ Raid mode off"
+    assert titles(log)[-1] == "Antiraid · Raid mode off"
 
 
 def test_no_permission_to_pause_invites_is_reported():
@@ -153,7 +153,7 @@ def test_mass_join_starts_raid_mode():
         await asyncio.sleep(0)
     run(go())
     assert all(m.kick.await_count == 1 for m in members)  # the whole wave
-    assert "🚨 Raid mode on" in titles(log)
+    assert "Antiraid · Raid mode on" in titles(log)
 
 
 def test_raid_commands_turn_the_lockdown_options_on_and_off():

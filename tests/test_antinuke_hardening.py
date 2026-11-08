@@ -90,7 +90,7 @@ def test_trust_changes_are_reported_to_the_owner():
     with _admin_ok():
         asyncio.run(Antinuke.an_whitelist.callback(cog, _ctx(guild, 77), target))
     notice = guild.owner.send.await_args.kwargs["embed"]
-    assert notice.title == "🔐 Antinuke settings changed"
+    assert notice.title == "Antinuke · Settings changed"
     assert notice.description.startswith("<@77> whitelisted <@55>")
 
 
@@ -164,7 +164,7 @@ def test_a_new_bot_is_quarantined_until_the_owner_approves_it(monkeypatch):
     assert own.permissions == discord.Permissions(send_messages=True)
     bot.remove_roles.assert_awaited_once()
     alert = log.send.await_args.kwargs
-    assert alert["embed"].title == "🤖 New bot quarantined"
+    assert alert["embed"].title == "Antinuke · New bot quarantined"
     assert isinstance(alert["view"].children[0], ApproveBotButton)
 
     text = asyncio.run(cog.approve_bot(guild, 900, SimpleNamespace(id=OWNER, mention="<@1>")))

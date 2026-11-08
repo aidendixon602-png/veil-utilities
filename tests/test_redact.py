@@ -87,3 +87,13 @@ def test_developer_log_attachment_scrubs_known_secrets(tmp_path, monkeypatch):
     attachment.fp.seek(0)
     content = attachment.fp.read().decode()
     assert secret not in content and "[hidden]" in content
+
+
+def test_hidden_command_failure_keeps_arguments_private_and_reason_scrubbed(monkeypatch):
+    monkeypatch.setenv("API_KEY", "secret-value-abc123")
+    ctx = _ctx(",eval private_argument", hidden=True, cog="Owner")
+    card = logembeds.command_used(ctx, "Developer", "Built-in", error="Failed: secret-value-abc123")
+    text = _text(card)
+    assert "private_argument" not in text and "secret-value-abc123" not in text
+    assert "arguments hidden" in text and "**Result:** ❌ Failed:" in text
+    assert not card.fields
