@@ -4,6 +4,10 @@
 
 ## Permissions and server authorization
 
+**Known self-role risk:** Do not put Veil level or fake-permission grants on roles members can obtain from
+button or reaction panels. Review existing role holders as well as panels; removing a panel does not revoke roles.
+See the [permissions guide](PERMISSIONS.md#review-role-assignments) for mitigation and current trust boundaries.
+
 Veil recognizes the Discord application's owner/team and additional `OWNER_IDS` as bot developers. Developer commands are hidden and independently checked; they include highly privileged operations. Server owners and role/user permission levels govern access to many server commands. Actual Discord permissions and role hierarchy are also required to perform Discord actions. Use `,help <command>` and `,perm roles` to inspect available information; the generated reference cannot represent every check.
 
 ### Upgrade: explicit Veil access required

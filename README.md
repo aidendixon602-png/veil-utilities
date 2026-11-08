@@ -1,8 +1,10 @@
+![Veil Utilities banner](assets/banner.svg)
+
 # Veil Utilities
 
 Veil Utilities is a self-hosted Discord bot for server security, moderation, logging and community management. It is written in Python with `discord.py` and uses **prefix commands**: the default prefix is a comma (`,`), as in `,help`.
 
-[Getting started](#getting-started) · [Command reference](docs/COMMANDS.md) · [Configuration](docs/CONFIGURATION.md) · [Operations](docs/OPERATIONS.md) · [Developer guide](docs/DEVELOPERS.md) · [Hosting](docs/HOSTING.md) · [Contributing](.github/CONTRIBUTING.md)
+[Getting started](#getting-started) · [Command reference](docs/COMMANDS.md) · [Configuration](docs/CONFIGURATION.md) · [Permissions](docs/PERMISSIONS.md) · [Operations](docs/OPERATIONS.md) · [Developer guide](docs/DEVELOPERS.md) · [Hosting](docs/HOSTING.md) · [Contributing](.github/CONTRIBUTING.md)
 
 ## What it does
 
@@ -14,7 +16,20 @@ Veil Utilities is a self-hosted Discord bot for server security, moderation, log
 | Community and integrations | Levels, reminders, feeds, music through Lavalink, AI, image tools and external-service lookups. Some integrations need credentials or external services. |
 | Administration | Server authorization, permission levels, developer commands and an optional web dashboard. |
 
-**Security is not a guarantee.** Detection and restoration depend on Discord events, bot permissions and role hierarchy; some actions cannot be undone. Avoid running overlapping protections in Veil and another bot. Read the [antinuke guide](docs/ANTINUKE.md) and [production audit](docs/PRODUCTION_AUDIT.md) before enabling destructive responses.
+## Security status
+
+> **Known self-role risk:** A reaction or button role can be self-assigned even if it grants Veil levels or
+> fake permissions. Until fixed, remove overlapping self-role mappings/panels and review existing role holders.
+> Follow the [permissions review guide](docs/PERMISSIONS.md#review-role-assignments).
+
+Veil currently includes globally trusted or protected accounts in its source, including Ghost Vanguard and
+thesimisear. These are separate from per-server settings; see [built-in exemptions](docs/PERMISSIONS.md#built-in-exemptions).
+Review all grants before enabling protection. Antinuke detection and restoration are **best-effort**, not a
+security guarantee: Discord events, bot permissions, role hierarchy and API availability affect outcomes.
+Some actions cannot be undone. Avoid overlapping protections and test in a disposable server.
+
+The [staged audit](docs/MASTER_AUDIT.md) records unresolved security and reliability work. To report a new
+vulnerability privately, follow the [security policy](.github/SECURITY.md).
 
 ## Requirements
 
@@ -66,7 +81,7 @@ The default prefix is `,`; server and personal prefixes can be configured. The b
 ,perm roles                   List role permission assignments
 ```
 
-Permissions, authorization, private mode, Discord permissions and role hierarchy still apply. The public reference omits hidden developer commands, which are listed separately in the [developer reference](docs/DEVELOPER_COMMANDS.md); its permission column is not a complete authorization policy. See [permissions and logging](docs/OPERATIONS.md) and the [developer guide](docs/DEVELOPERS.md).
+Server authorization, private mode, Veil grants, Discord permissions and role hierarchy still apply. The public reference omits hidden developer commands, which are listed separately in the [developer reference](docs/DEVELOPER_COMMANDS.md); its permission column is not a complete authorization policy. See the [permissions guide](docs/PERMISSIONS.md), [operations](docs/OPERATIONS.md), and the [developer guide](docs/DEVELOPERS.md).
 
 ## Configuration and storage
 
