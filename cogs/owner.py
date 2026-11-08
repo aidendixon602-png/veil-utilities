@@ -32,6 +32,21 @@ RESTART_PATHS = ("core/", "main.py")
 
 RESET_WORDS = ("clear", "reset", "default", "dynamic", "none", "off")  # words that remove a custom status
 
+# Explicit permission profiles: never silently request Administrator. The fuller profile is still powerful;
+# the person installing should review and adjust it for the features they actually use.
+INVITE_BASIC_PERMISSIONS = discord.Permissions(
+    view_channel=True, send_messages=True, embed_links=True, attach_files=True,
+    read_message_history=True, add_reactions=True,
+)
+INVITE_MANAGEMENT_PERMISSIONS = discord.Permissions(
+    view_channel=True, send_messages=True, embed_links=True, attach_files=True, read_message_history=True,
+    add_reactions=True, use_external_emojis=True, create_instant_invite=True, view_audit_log=True,
+    manage_guild=True, manage_channels=True, manage_roles=True, manage_webhooks=True, manage_messages=True,
+    manage_nicknames=True, ban_members=True, kick_members=True, moderate_members=True,
+    connect=True, speak=True, move_members=True, mute_members=True, deafen_members=True,
+    manage_threads=True, create_public_threads=True, create_private_threads=True, send_messages_in_threads=True,
+)
+
 class UpdatePlan:
     def __init__(self, restart: bool, restart_reason: str, reload: list[str], deps_changed: bool):
         self.restart = restart
@@ -142,6 +157,42 @@ class Owner(commands.Cog):
         e.set_footer(text=f"Python {platform.python_version()} • discord.py {discord.__version__} • "
                           f"{len(b.extensions)} modules • {sum(1 for _ in b.walk_commands())} commands")
         await ctx.send(embed=e)
+
+    @commands.command(name="invite", hidden=True)
+    async def invite(self, ctx: Context):
+        """Get a private link to install Veil in a server
+
+        Use in DMs or a server. The link is always delivered by DM. Choose basic messaging or the more
+        powerful management permissions; adjust the role as needed after installing.
+        """
+        app_id = getattr(self.bot, "application_id", None) or getattr(getattr(self.bot, "user", None), "id", None)
+        if not isinstance(app_id, int) or app_id <= 0:
+            raise UserError("I can't create an invite until my application ID is available. Try again when I'm online.")
+        scopes = ("bot", "applications.commands")
+        basic = discord.utils.oauth_url(app_id, permissions=INVITE_BASIC_PERMISSIONS, scopes=scopes)
+        management = discord.utils.oauth_url(app_id, permissions=INVITE_MANAGEMENT_PERMISSIONS, scopes=scopes)
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="Invite with management", url=management))
+        view.add_item(discord.ui.Button(label="Invite with basic access", url=basic))
+        prefix = ctx.clean_prefix
+        embed = discord.Embed(title="🔗 Invite Veil Utilities", color=Colors.main, description=(
+            "Choose an install link and select a server where you have **Manage Server**.\n\n"
+            f"**[Management invite]({management})** · For moderation, antinuke and server management. "
+            "Requests powerful permissions including bans, roles, channels and server management; "
+            "review them carefully. It does not request Administrator.\n\n"
+            f"**[Basic invite]({basic})** · Messaging permissions only. Moderation, antinuke and other features "
+            "will need additional permissions.\n\n"
+            "If **Public Bot** is off, Discord only allows the application owner to add the bot. "
+            f"Veil may also require server approval: `{prefix}authorize <server-id>`."
+        ))
+        embed.set_footer(text="Discord role hierarchy and server permissions still apply")
+        if ctx.guild is None:
+            return await ctx.send(embed=embed, view=view)
+        try:
+            await ctx.author.send(embed=embed, view=view)
+        except discord.HTTPException:
+            raise UserError("I couldn't DM you the invite. Open your DMs and run this command again, or DM me directly.")
+        await ctx.approve("sent the invite links to your DMs")
 
     # ================================================================ maintenance / kill switch
     @commands.command(hidden=True, aliases=["maint"])

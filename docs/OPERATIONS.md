@@ -20,6 +20,18 @@ ordinary Discord administrators do not. Existing servers have no role restrictio
 Help uses a snapshot when it opens, so rerun `,help` after changing roles or rules. Commands always check current rules.
 Changes are serialized within one bot process; concurrent multi-process administration is not supported.
 
+### Inviting the bot
+
+The hidden developer-only `,invite` command sends two Discord OAuth install links **by DM**: a basic messaging
+profile and a management profile for moderation/antinuke. The latter requests powerful permissions such as Manage
+Server, Manage Roles and Ban Members, but not Administrator. Review the permissions before installing and adjust
+them for the features the server uses; the basic profile alone cannot run antinuke or moderation. Both require
+appropriate role hierarchy and channel access. If DMs are closed, DM the bot and run the command there instead.
+
+This does not bypass Discord's installation rules: when Public Bot is off, the Discord application owner must
+use the link, and must have Manage Server in the destination. Veil's server authorization remains separate.
+The command does not enable Public Bot or alter Discord's install-link setting.
+
 With `AUTH_REQUIRED=true`, developer-owned servers are automatically authorized. Other servers need a developer's `,authorize <server-id>` or the authorization button in an alert, then a re-invite. `,authorized` lists approvals and `,unauthorize <server-id>` revokes one. An unauthorized join triggers a leave attempt; attribution is reported as unknown unless a recent matching audit entry can be correlated with the join. A failed or timed-out leave is reported, not automatically retried during that session.
 
 `AUTH_GRANDFATHER=true` can enroll already-joined servers on first initialization. An old database with an intentionally empty list needs special attention before its first upgrade; see [configuration](CONFIGURATION.md#authorization-and-developer-alerts) and the [production audit](PRODUCTION_AUDIT.md). `PRIVATE_MODE=true` restricts who can invoke commands even in an authorized server.
