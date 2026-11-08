@@ -90,14 +90,15 @@ def test_inside_a_category_commands_above_your_level_are_hidden():
     assert (min_rank_for_command(purge), min_rank_for_command(kick), min_rank_for_command(admin_only)) == (1, 2, 7)
 
 
-def test_the_dropdown_starts_with_home_then_every_category_in_order():
+def test_the_home_dropdown_lists_categories_in_order():
     view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": [_cmd("play")]}, is_owner=True)
     select = _select(view)
     assert [type(c) for c in view.children] == [CategorySelect]  # one dropdown, nothing else
-    assert [o.label for o in select.options] == ["Home", "Utility", "Music", "Developer"]
-    assert select.options[1].description.startswith("2 commands · ")
-    assert select.options[2].description.startswith("1 command · ")
-    assert select.options[0].default and select.placeholder == "Browse categories"
+    assert [o.label for o in select.options] == ["Utility", "Music", "Developer"]
+    assert select.options[0].description == "2 commands"
+    assert select.options[1].description == "1 command"
+    assert not any(o.default for o in select.options)
+    assert select.placeholder == "Choose a category"
 
 
 def test_the_home_card():
@@ -107,16 +108,16 @@ def test_the_home_card():
     h.context.bot = bot
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
-    assert card.author.name == "Veil Utilities" and card.thumbnail.url == "https://x/a.png"
-    assert card.title == "Veil Utilities · Help"
-    assert "**3** command entries · **2** categories" in card.description
-    assert "**Prefix** `,`" in card.description and "`,help <command>`" in card.description
-    assert "select a command" in card.description
+    assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
+    assert card.title == "VEIL / COMMANDS"
+    assert card.footer.text == "3 command entries · 2 categories"
+    assert "**Prefix** · `,`" in card.description and "`,help <command>`" in card.description
+    assert "Choose a category" in card.description
 
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title == "Veil Utilities · Help" and card.author.name is None
+    assert card.title == "VEIL / COMMANDS" and card.author.name is None
 
 
 # ------------------------------------------------------------------ picking categories
@@ -124,10 +125,12 @@ def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
 def test_picking_a_category_then_home_swaps_the_card_in_place():
     view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": []})
     page = _pick(view, "Utility").response.edit_message.call_args.kwargs
-    assert page["embed"].title == "Utility · Commands" and page["view"] is view and view.current == "Utility"
-    assert _select(view).options[1].default  # the dropdown shows where you are
-    home = _pick(view, HOME).response.edit_message.call_args.kwargs
-    assert view.current is None and home["embed"].title == "Veil Utilities · Help"
+    assert page["embed"].title == "VEIL / UTILITY" and page["view"] is view and view.current == "Utility"
+    from core.help import HelpHomeButton
+    assert not any(isinstance(c, CategorySelect) for c in view.children)
+    it = _it()
+    asyncio.run(next(c for c in view.children if isinstance(c, HelpHomeButton)).callback(it))
+    assert view.current is None and it.response.edit_message.call_args.kwargs["embed"].title == "VEIL / COMMANDS"
 
 
 def test_cards_are_built_when_the_menu_opens():
@@ -196,11 +199,11 @@ def test_a_category_lists_each_command_with_what_it_does():
         """Add"""
 
     page = _help().category_embed("Roles", [_cmd("autorole", "Give a role to new members"), role, _cmd("vanity")])
-    assert page.title == "Roles · Commands"
+    assert page.title == "VEIL / ROLES"
     assert page.description.splitlines()[3:] == ["`,autorole` · Give a role to new members",
                                                 "`,role` · Role tools · *group*",
                                                 "`,vanity` · Does a thing"]
-    assert page.footer.text == "Page 1/1 · 3 commands · Select a command or use ,help <command>"
+    assert page.footer.text == "Page 1/1 · 3 commands · Select a command below"
 
 
 def test_long_categories_are_split_into_pages_with_buttons():
@@ -297,9 +300,8 @@ def test_command_card_has_aliases_parameters_information_and_usage():
     card = h.command_embed(cog.ban)
     lines = card.description.splitlines()
     assert card.title == ",ban" and not card.fields
-    assert lines[0] == "Ban a member, or anyone by user ID" and lines[1] == ""
-    assert lines[2].startswith("Add `--purge`") and lines[3] == ""
-    assert lines[4] == "**Command guide**"
+    assert lines[0] == "**About**" and lines[1] == "Ban a member, or anyone by user ID"
+    assert lines[2] == "" and lines[3].startswith("Add `--purge`") and lines[4] == ""
     assert lines[5] == "**Usage** `,ban <user> [reason]`"  # no default values in the syntax
     assert lines[6] == "**Example** `,ban @user spamming`"
     assert lines[7].startswith("**Requires** Admin level")
@@ -313,7 +315,7 @@ def test_a_card_only_shows_what_applies():
 
     ping.cog = None
     card = _help().command_embed(ping)
-    assert card.description == "Check latency\n\n**Command guide**\n**Usage** `,ping`\n**Aliases** `pong`"  # no "n/a" anywhere
+    assert card.description == "**About**\nCheck latency\n\n**Usage** `,ping`\n**Aliases** `pong`"  # no "n/a" anywhere
     assert "n/a" not in card.description
 
 
@@ -415,7 +417,7 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, {}, is_owner=True)
     assert "gitpull" in view.pages["Developer"].description
-    assert view.pages["Developer"].title == "Developer · Commands"
+    assert view.pages["Developer"].title == "VEIL / DEVELOPER"
 
 
 def test_dev_and_secret_open_the_developer_category(loaded_bot):
@@ -430,7 +432,7 @@ def test_dev_and_secret_open_the_developer_category(loaded_bot):
         return sent
     for word in ("dev", "secret", "tokens"):
         sent = asyncio.run(go(word, True))
-        assert sent["embed"].title == "Developer · Commands" and sent["view"].current == "Developer"
+        assert sent["embed"].title == "VEIL / DEVELOPER" and sent["view"].current == "Developer"
     stranger = asyncio.run(go("secret", False))
     assert stranger["view"].current is None and "Developer" not in _labels(stranger["view"])  # just the home card
 
@@ -575,7 +577,7 @@ def test_command_dropdown_pagination_back_and_home_callbacks():
         category = _select(view)
         category._values = ["Utility"]
         await category.callback(_pick_result)
-        assert _pick_result.response.edit_message.call_args.kwargs["embed"].title == "Utility · Commands"
+        assert _pick_result.response.edit_message.call_args.kwargs["embed"].title == "VEIL / UTILITY"
         next_button = next(b for b in view.children if isinstance(b, PageButton) and b.step == 1)
         await next_button.callback(_it())
         assert view.page == 1
@@ -585,7 +587,7 @@ def test_command_dropdown_pagination_back_and_home_callbacks():
         it = _it()
         await select.callback(it)
         assert it.response.edit_message.call_args.kwargs["embed"].title == ",c12"
-        assert next(c for c in view.children if isinstance(c, CommandSelect)).options[2].default
+        assert not any(isinstance(c, CommandSelect) for c in view.children)
         await next(b for b in view.children if isinstance(b, CategoryBackButton)).callback(_it())
         assert view.page == 1 and view.selected is None and view.embed() is view.books["Utility"][1]
         await next(b for b in view.children if isinstance(b, HelpHomeButton)).callback(_it())
@@ -622,7 +624,7 @@ def test_nested_subcommands_page_and_back_preserves_position():
         select._values = ["toolbox tool16"]
         await select.callback(_it())
         assert view.embed().title == ",toolbox tool16"
-        assert next(c for c in view.children if isinstance(c, CommandSelect)).options[0].default
+        assert not any(isinstance(c, CommandSelect) for c in view.children)
         await next(b for b in view.children if isinstance(b, CategoryBackButton)).callback(_it())
         assert view.selected is toolbox and view.subpage == 1
         await next(b for b in view.children if isinstance(b, CategoryBackButton)).callback(_it())
@@ -797,7 +799,7 @@ def test_example_only_command_card_has_fallback_description():
     async def example(ctx):
         """Example: `,example`"""
 
-    assert _help().command_embed(example).description.startswith("No description yet.")
+    assert "No description yet." in _help().command_embed(example).description
 
 
 def test_helper_help_respects_actual_level_overrides_fakeperms_and_disabled_commands():
@@ -832,7 +834,7 @@ def test_helper_help_respects_actual_level_overrides_fakeperms_and_disabled_comm
         h.context.author = author
         h.context.guild = SimpleNamespace(id=1, owner_id=99)
         h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.all())
-        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store[key]))
+        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store.get(key, {})))
         h.context.bot.walk_commands = lambda: [tools, restricted, clear, public]
         access = await h.help_access(1)
         view = HelpView(h, {"Utility": [tools, clear, public]}, start="Utility", author_rank=1, access=access)
@@ -877,7 +879,7 @@ def test_help_respects_custom_target_rank_server_owner_and_storage_failure():
         h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
         cfg = {"users": {"42": "helper"}, "overrides": {"helper": {"rank": 2}}}
         store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
-        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store[key]))
+        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store.get(key, {})))
         assert not (await h.help_access(1)).permits(clear)
         assert (await h.help_access(2)).permits(clear)
         h.context.guild.owner_id = 42
@@ -924,5 +926,81 @@ def test_commands_shown_at_each_level_pass_their_user_permission_checks(loaded_b
                                 assert await check(ctx), (level, cmd.qualified_name)
                             except (UserError, commands.CommandError) as exc:
                                 pytest.fail(f"{level}: {cmd.qualified_name} shown but permission check denied: {exc}")
+
+    asyncio.run(go())
+
+
+def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separate(loaded_bot):
+    async def go():
+        h = Help()
+        role = SimpleNamespace(id=900, name="Staff", mention="<@&900>")
+        author = SimpleNamespace(id=500, roles=[role], guild_permissions=discord.Permissions.none())
+        guild = SimpleNamespace(id=42, owner_id=7)
+        channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
+        sent = AsyncMock(return_value=MagicMock())
+        h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=author, guild=guild, channel=channel,
+                                    send=sent)
+        h.is_owner_check = AsyncMock(return_value=False)
+        levels = [("helper", 1), ("moderator", 2), ("admin", 3), ("headadmin", 4),
+                  ("overseer", 6), ("supremeleader", 7)]
+        for key, rank in levels:
+            store = {"permlevels": {"roles": {"900": key}}, "fakeperms": {}, "settings": {}}
+            with patch.object(loaded_bot.db, "get_config", AsyncMock(side_effect=lambda gid, module: store.get(module, {}))):
+                await h.open_menu()
+                view = sent.await_args.kwargs["view"]
+                assert view.author_rank == rank
+                assert "Developer" not in view.pages
+                moderator = {c.name for c in view.items.get("Moderator", [])}
+                admin = {c.name for c in view.items.get("Admin", [])}
+                assert "purge" in moderator
+                assert ("kick" in moderator) == (rank >= 2)
+                assert ("ban" in admin) == (rank >= 3)
+                assert ("Permissions" in view.pages) == (rank >= 6)
+                assert ("Antinuke" in view.pages) == (rank >= 7)
+
+        # The real server owner gets server-owner-only help, not the developer category.
+        guild.owner_id = author.id
+        with patch.object(loaded_bot.db, "get_config", AsyncMock(return_value={})):
+            await h.open_menu()
+            view = sent.await_args.kwargs["view"]
+            assert view.author_rank == 1000 and "Developer" not in view.pages
+        h.is_owner_check = AsyncMock(return_value=True)
+        await h.open_menu()
+        assert "Developer" in sent.await_args.kwargs["view"].pages
+
+    asyncio.run(go())
+
+
+def test_command_cards_show_inherited_and_custom_level_requirements():
+    from core.utils import has_perms, requires_uperm
+
+    @commands.group()
+    @requires_uperm("moderator")
+    @has_perms(manage_messages=True)
+    async def toolbox(ctx):
+        """Moderation tools"""
+
+    @toolbox.command()
+    async def child(ctx):
+        """A subcommand"""
+
+    async def go():
+        h = _help()
+        h.context.author = SimpleNamespace(id=42, roles=[], guild_permissions=discord.Permissions.none())
+        h.context.guild = SimpleNamespace(id=1, owner_id=99)
+        h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
+        cfg = {"users": {"42": "helper"}, "overrides": {
+            "helper": {"rank": 5}, "moderator": {"rank": 5, "name": "Senior Mod"}}}
+        store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
+        h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store.get(key, {})))
+        h.context.send = AsyncMock()
+        await h.send_command_help(child)
+        description = h.context.send.await_args.kwargs["embed"].description
+        assert "**Requires** Senior Mod level, Manage Messages" in description
+        access = await h.help_access(5)
+        view = HelpView(h, {"Community": [toolbox]}, start="Community", author_rank=5, access=access)
+        await view.show_command(_it(), "toolbox")
+        await view.show_subcommand(_it(), "toolbox child")
+        assert "**Requires** Senior Mod level, Manage Messages" in view.embed().description
 
     asyncio.run(go())

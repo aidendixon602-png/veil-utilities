@@ -1,6 +1,6 @@
 # Command reference
 
-453 commands. Default prefix `,`. `<required>` `[optional]`.
+458 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -475,6 +475,11 @@ _Configure how the bot behaves in your server_
 | `,modlog [channel]` | Set (or clear) the channel where moderation cases are posted | manage guild |
 | `,prefix` | View the server prefix |  |
 | `,prefix set <prefix>` | Change the server prefix | manage guild |
+| `,restrict` | Restrict commands to specific roles |  |
+| `,restrict add <target>` | Allow a role to use a restricted command |  |
+| `,restrict clear <command>` | Clear all role restrictions on one command |  |
+| `,restrict list` (show) | List commands with role restrictions |  |
+| `,restrict remove <target>` (delete, del) | Remove a role from a command restriction |  |
 | `,selfprefix [prefix]` | Set your own prefix that works everywhere |  |
 | `,staffonly [state]` (botlock, lockbot) | Toggle staff-only mode so normal members cannot run bot commands |  |
 

@@ -106,13 +106,13 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Utility": "Lookups, AFK, snipe and everyday tools",
     "Music": "Lavalink and Spotify playback, queues, filters",
     "Moderator": "Moderation tools available to your permission level",
-    "Admin": "Bans, lockdowns, mass actions, logs and the admin panel",
-    "Roles": "Role commands, autoroles, reaction roles, role blacklist",
-    "Permissions": "Bot ranks (uperm), staff limits and command access",
-    "Antinuke": "Real-time server protection and anti-raid",
+    "Admin": "Server administration tools for your permission level",
+    "Roles": "Role management tools for your permission level",
+    "Permissions": "Permission and access settings for your level",
+    "Antinuke": "Protection settings available to your permission level",
     "Ghost Vanguard": "Optional bridge to Ghost Vanguard commands",
-    "Automod": "Spam, link and invite filtering",
-    "Server": "Server setup, welcome messages and settings",
+    "Automod": "Message protection settings for your permission level",
+    "Server": "Server configuration tools for your permission level",
     "VoiceMaster": "Temporary voice channels and VC controls",
     "Community": "Levels, tickets, giveaways, feeds and lookups",
     "Fun": "Games, actions, jokes and AI",
@@ -292,6 +292,8 @@ class HelpAccess:
     bypass_permissions: bool
     guild_available: bool
     config_available: bool
+    role_ids: set[str]
+    role_restrictions: dict | None
 
     def permits(self, cmd: commands.Command) -> bool:
         from core import perms as _perms
@@ -301,6 +303,9 @@ class HelpAccess:
             return False
         if self.bypass_permissions:
             return True
+        from core.command_access import roles_allow_command
+        if not roles_allow_command(cmd, self.role_ids, self.role_restrictions):
+            return False
         metadata = getattr(getattr(cmd, "callback", None), "__veil_perms__", [])
         required = {p for p in metadata if isinstance(p, str) and not p.startswith("uperm:")}
         levels = [p.split(":", 1)[1].strip().lower() for p in metadata
@@ -458,13 +463,9 @@ class CategorySelect(discord.ui.Select["HelpView"]):
     """Jump to any category available in this menu."""
 
     def __init__(self, labels: list[str], sizes: dict[str, int], current: str | None):
-        options = [discord.SelectOption(label="Home", value=HOME, description="Return to the help overview",
-                                        default=current is None)]
-        options += [discord.SelectOption(label=label, value=label, default=label == current,
-                                         description=(f"{count(sizes.get(label, 0), 'command')} · "
-                                                      f"{CATEGORY_DESCRIPTIONS.get(label, 'Browse commands')}")[:100])
-                    for label in labels]
-        super().__init__(placeholder="Browse categories", options=options[:25], min_values=1, max_values=1, row=0)
+        options = [discord.SelectOption(label=label, value=label, default=label == current,
+                                        description=count(sizes.get(label, 0), "command")) for label in labels]
+        super().__init__(placeholder="Choose a category", options=options[:25], min_values=1, max_values=1, row=0)
 
     async def callback(self, it: discord.Interaction):
         choice = self.values[0]
@@ -594,7 +595,8 @@ class HelpView(OwnedView):
         if self.current is None:
             return self.home
         if self.selected is not None:
-            card = self.help_cmd.command_embed(self.selected, visible_subcommands=self.current_subcommands())
+            card = self.help_cmd.command_embed(self.selected, visible_subcommands=self.current_subcommands(),
+                                               access=self.access)
             if self.subpages() > 1:
                 card.set_footer(text=f"{card.footer.text} · subcommands {self.subpage + 1}/{self.subpages()}")
             return card
@@ -602,14 +604,13 @@ class HelpView(OwnedView):
 
     def _build_items(self):
         self.clear_items()
-        self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
         if self.current is None:
+            if self.pages:
+                self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
             return
         items = self.current_items()
-        if items:
-            root = self.stack[0][0] if self.stack else self.selected
-            self.add_item(CommandSelect(items, self.help_cmd.context.clean_prefix,
-                                        root.qualified_name if root else None))
+        if items and self.selected is None:
+            self.add_item(CommandSelect(items, self.help_cmd.context.clean_prefix, None))
         subcommands = self.current_subcommands() if self.selected else []
         if subcommands:
             self.add_item(SubcommandSelect(subcommands, self.help_cmd.context.clean_prefix))
@@ -709,16 +710,15 @@ class Help(commands.HelpCommand):
                    is_owner: bool = False, *, total: int | None = None, sections: int | None = None) -> discord.Embed:
         """Overview of the caller's visible help entries and how to browse them."""
         p = self.context.clean_prefix
-        lines = ["Find commands, explore categories, and check how to use each one.", ""]
+        lines = ["Find the commands available to you.", "",
+                 "**Browse** · Choose a category below, then open a command.",
+                 f"**Look up** · Use `{p}help <command>` for a direct guide.",
+                 f"**Prefix** · `{p}`"]
+        e = self._brand(discord.Embed(title="VEIL / COMMANDS", color=HELP_COLOR, description="\n".join(lines)))
         if total is not None:
-            lines.append(f"**{total}** command entries · **{sections or 0}** categories")
-        lines.extend([f"**Prefix** `{p}`", "", "Choose a category below, then select a command for details.",
-                      f"For a direct lookup, use `{p}help <command>`."])
-        e = self._brand(discord.Embed(title="Veil Utilities · Help", color=HELP_COLOR, description="\n".join(lines)))
-        e.set_footer(text="Command availability depends on your permissions and server settings.")
-        bot = getattr(self.context, "bot", None)
-        if bot and getattr(bot, "user", None):
-            e.set_thumbnail(url=bot.user.display_avatar.url)
+            e.set_footer(text=f"{count(total, 'command entry', 'command entries')} · {count(sections or 0, 'category', 'categories')}")
+        else:
+            e.set_footer(text="Command access depends on server settings.")
         return e
 
     def command_line(self, cmd: commands.Command) -> str:
@@ -729,17 +729,15 @@ class Help(commands.HelpCommand):
 
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
         """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
-        p = self.context.clean_prefix
         chunks = [cmds[i:i + PER_PAGE] for i in range(0, len(cmds), PER_PAGE)] or [[]]
         pages = []
         for n, chunk in enumerate(chunks, 1):
             entries = "\n".join(self.command_line(c) for c in chunk) or "No commands in this category."
             intro = CATEGORY_DESCRIPTIONS.get(label, "Browse commands")
             body = f"{intro}\n\n**Commands**\n{entries}"
-            e = self._brand(discord.Embed(color=HELP_COLOR, title=f"{label} · Commands",
+            e = self._brand(discord.Embed(color=HELP_COLOR, title=f"VEIL / {label.upper()}",
                                           description=shorten_md(body, 4000)))
-            e.set_footer(text=f"Page {n}/{len(chunks)} · {count(len(cmds), 'command')} · "
-                              f"Select a command or use {p}help <command>")
+            e.set_footer(text=f"Page {n}/{len(chunks)} · {count(len(cmds), 'command')} · Select a command below")
             pages.append(e)
         return pages
 
@@ -749,7 +747,8 @@ class Help(commands.HelpCommand):
         return pages[max(0, min(page, len(pages) - 1))]
 
     def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None, *,
-                      visible_subcommands: list[commands.Command] | None = None) -> discord.Embed:
+                      visible_subcommands: list[commands.Command] | None = None,
+                      access: HelpAccess | None = None) -> discord.Embed:
         """A command's card: what it does, then Usage, Example, Aliases and what it needs, one line each. Nothing
         is shown that doesn't apply (no "n/a"), and default values stay out of the syntax. A group's card lists its
         subcommands."""
@@ -760,7 +759,7 @@ class Help(commands.HelpCommand):
         written = [ln for ln in about.splitlines() if ln.startswith("Example:")]
         about = "\n".join(ln for ln in about.splitlines() if not ln.startswith("Example:")).strip()
         about = about or "No description yet."
-        lines = [about[0].upper() + about[1:], "", "**Command guide**"]
+        lines = ["**About**", about[0].upper() + about[1:], ""]
         lines.append(f"**Usage** `{p}{cmd.qualified_name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}`")
         example = written[0].split(":", 1)[1].strip() if written else (f"`{example_for(cmd, p)}`" if example_for(cmd, p) else "")
         if example and example != f"`{p}{cmd.qualified_name}`":
@@ -769,10 +768,22 @@ class Help(commands.HelpCommand):
         if aliases:
             lines.append("**Aliases** " + " ".join(f"`{a}`" for a in aliases[:8]))
         needs = []
-        rank = min_rank_for_command(cmd, bot)
-        if rank > 0:
-            needs.append(f"{rank_name(rank)} level")
-        needs += [perm_label(x) for x in perms_of(cmd) if not x.lower().startswith("uperm")]
+        chain = [cmd, *cmd.parents]
+        rank = max(min_rank_for_command(item, bot) for item in chain)
+        display_rank = rank_name(rank) if rank > 0 else None
+        if access is not None:
+            from core import perms as _perms
+            levels = _perms.all_levels(access.levels)
+            for item in chain:
+                for requirement in getattr(item.callback, "__veil_perms__", []):
+                    if isinstance(requirement, str) and requirement.startswith("uperm:"):
+                        key = _perms.canonical(requirement.split(":", 1)[1].strip().lower())
+                        target = levels.get(key)
+                        if target and target["rank"] > rank:
+                            rank, display_rank = target["rank"], target["name"]
+        if display_rank:
+            needs.append(f"{display_rank} level")
+        needs += [perm_label(x) for item in chain for x in perms_of(item) if not x.lower().startswith("uperm")]
         if needs:
             lines.append("**Requires** " + ", ".join(dict.fromkeys(needs)))
         if isinstance(cmd, commands.Group) and (page is None or page[0] == 1):
@@ -845,21 +856,23 @@ class Help(commands.HelpCommand):
         guild_permissions = getattr(author, "guild_permissions", None)
         bypass_disabled = bool(getattr(guild_permissions, "administrator", False))
         if not guild:
-            return HelpAccess({}, rank, set(), native, False, set(), bypass_disabled, False, False, True)
+            return HelpAccess({}, rank, set(), native, False, set(), bypass_disabled, False, False, True, set(), {})
         try:
             cfg = await db.get_config(guild.id, "permlevels") or {}
             fake = await db.get_config(guild.id, "fakeperms") or {}
             settings = await db.get_config(guild.id, "settings") or {}
+            restrictions = await db.get_config(guild.id, "command_restrictions")
             granted = _perms.level_perms(cfg, author)
             for role in getattr(author, "roles", []):
                 granted.update(fake.get(str(role.id), []))
             disabled = set(settings.get("disabled", []))
             return HelpAccess(cfg, rank, granted, native, bool(cfg.get("users") or cfg.get("roles")),
-                              disabled, bypass_disabled, author.id == getattr(guild, "owner_id", None), True, True)
+                              disabled, bypass_disabled, author.id == getattr(guild, "owner_id", None), True, True,
+                              {str(role.id) for role in getattr(author, "roles", [])}, restrictions)
         except Exception:
             # An unavailable permission store must not make protected commands appear usable.
             return HelpAccess({}, rank, set(), native, True, set(), bypass_disabled,
-                              author.id == getattr(guild, "owner_id", None), True, False)
+                              author.id == getattr(guild, "owner_id", None), True, False, set(), None)
 
     # ------------------------------------------------------------ entry points
     async def open_menu(self, start: str | None = None):
@@ -916,7 +929,10 @@ class Help(commands.HelpCommand):
     async def send_command_help(self, cmd):
         if not await self._can_see(cmd):
             return await self.send_error_message(f'No command called "{cmd.name}" found.')
-        await self.context.send(embed=self.command_embed(cmd))
+        is_owner = await self.is_owner_check()
+        rank = 0 if is_owner else await self.get_author_rank()
+        access = None if is_owner else await self.help_access(rank)
+        await self.context.send(embed=self.command_embed(cmd, access=access))
 
     async def send_group_help(self, group: commands.Group):
         """A group's card, then one card per subcommand this person can use, paged with ◀ ▶ (greed / bleed)."""
@@ -929,7 +945,7 @@ class Help(commands.HelpCommand):
         subs = sorted(allowed(group.walk_commands(), bot, is_owner, rank, access), key=lambda c: c.qualified_name)
         cards = [group, *subs]
         pages = [self.command_embed(c, (i, len(cards)), visible_subcommands=(
-            allowed(c.commands, bot, is_owner, rank, access) if isinstance(c, commands.Group) else None))
+            allowed(c.commands, bot, is_owner, rank, access) if isinstance(c, commands.Group) else None), access=access)
             for i, c in enumerate(cards, 1)]
         if len(pages) == 1:
             return await self.context.send(embed=pages[0])

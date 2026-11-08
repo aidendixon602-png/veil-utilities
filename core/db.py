@@ -297,6 +297,15 @@ class Database:
             guild_id, module, json.dumps(data),
         )
 
+    async def set_config_committed(self, guild_id: int, module: str, data: Any) -> None:
+        """Publish a new cached value only after the database write succeeds."""
+        await self.execute(
+            "INSERT INTO config(guild_id, module, data) VALUES(?,?,?) "
+            "ON CONFLICT(guild_id, module) DO UPDATE SET data=excluded.data",
+            guild_id, module, json.dumps(data),
+        )
+        self._cache[(guild_id, module)] = data
+
     async def guilds_with(self, module: str) -> list[tuple[int, Any]]:
         rows = await self.fetchall("SELECT guild_id, data FROM config WHERE module=?", module)
         return [(r["guild_id"], json.loads(r["data"])) for r in rows]
@@ -417,6 +426,15 @@ class PostgresDatabase:
             "ON CONFLICT(guild_id, module) DO UPDATE SET data=excluded.data",
             guild_id, module, json.dumps(data),
         )
+
+    async def set_config_committed(self, guild_id: int, module: str, data: Any) -> None:
+        """Publish a new cached value only after the database write succeeds."""
+        await self.execute(
+            "INSERT INTO config(guild_id, module, data) VALUES(?,?,?) "
+            "ON CONFLICT(guild_id, module) DO UPDATE SET data=excluded.data",
+            guild_id, module, json.dumps(data),
+        )
+        self._cache[(guild_id, module)] = data
 
     async def guilds_with(self, module: str) -> list[tuple[int, Any]]:
         rows = await self.fetchall("SELECT guild_id, data FROM config WHERE module=?", module)

@@ -133,7 +133,7 @@ def test_granting_staff_permissions_is_instant():
         guild.ban.assert_not_awaited()
         dev = next(u for u in cog.bot.dms if u.id == DEV)
         alert = dev.send.await_args.kwargs["embed"]
-        assert "**Punishment:** Nothing to strip" in alert.description
+        assert "**Punishment:** ⚠️ Strip not attempted: attacker is not cached" in alert.description
     run(_run)
 
 

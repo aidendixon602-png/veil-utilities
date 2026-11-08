@@ -247,3 +247,17 @@ def test_postgres_incident_outbox_stores_and_delivers(pg_dsn, monkeypatch):
         assert row["next_attempt"] is None
         manager._send.assert_awaited_once()
     asyncio.run(with_db(pg_dsn, work))
+
+
+def test_postgres_committed_config_is_persisted_before_cache_changes(pg_dsn):
+    async def work(db):
+        from unittest.mock import AsyncMock, patch
+        await db.set_config_committed(991, "command_restrictions", {"ban": ["9"]})
+        with patch.object(db, "execute", AsyncMock(side_effect=RuntimeError("write failed"))):
+            with pytest.raises(RuntimeError, match="write failed"):
+                await db.set_config_committed(991, "command_restrictions", {})
+        assert await db.get_config(991, "command_restrictions") == {"ban": ["9"]}
+        db._cache.clear()
+        return await db.get_config(991, "command_restrictions")
+
+    assert asyncio.run(with_db(pg_dsn, work)) == {"ban": ["9"]}

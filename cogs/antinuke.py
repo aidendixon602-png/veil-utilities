@@ -241,6 +241,16 @@ def _given_roles(entry) -> list:
     return out
 
 
+def role_failure(error: discord.HTTPException) -> str:
+    """Describe a role API error without guessing what a generic 404 means."""
+    if isinstance(error, discord.NotFound):
+        if error.code == 10007:
+            return "member not found; Discord 404"
+        if error.code == 10011:
+            return "role not found; Discord 404"
+    return f"Discord {error.status}"
+
+
 def gained_dangerous(before: discord.Permissions | None, after: discord.Permissions | None) -> bool:
     """True if `after` has a dangerous permission that `before` didn't (bit-wise, not by total value:
     swapping Manage Server for Administrator lowers the number but is a big escalation)."""
@@ -377,6 +387,8 @@ class Antinuke(commands.Cog):
         self.snapshots = Snapshots()  # recently deleted channels/roles, so they can be rebuilt
         self.recent: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, user) -> (time, module, entry)
         self.caught: dict[tuple[int, int], float] = {}  # (guild, user) -> until when follow-ups are undone at once
+        self.intercepted_role_grants: dict[tuple[int, int], set[tuple[int, int]]] = {}
+        self.incident_locks: dict[tuple[int, int], asyncio.Lock] = {}
         self.test_runs: dict[int, TestRun] = {}  # guild -> a developer's ,testnuke in progress
         self.webhook_pings: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, webhook) -> @everyone sends
 
@@ -488,7 +500,8 @@ class Antinuke(commands.Cog):
         who = (guild.id, actor_id)
         t = time.monotonic()
         if self.caught.get(who, 0) > t:  # already caught: undo whatever else lands straight away
-            return await self._follow_up(guild, actor_id, module, entry)
+            async with self.incident_locks.setdefault(who, asyncio.Lock()):
+                return await self._follow_up(guild, actor_id, module, entry)
         if test and getattr(entry.target, "id", None) is not None:
             run.created.add(entry.target.id)
         if module in UNDOES:  # remembered even when its own rule is off, so it can be undone if they trip another
@@ -517,7 +530,8 @@ class Antinuke(commands.Cog):
         if all(e is not entry for _, e in entries):
             entries.append((module, entry))
         self._mark_caught(who, t)
-        await self.respond(guild, cfg, actor_id, module, entry, threshold, entries=entries, test=run if test else None)
+        async with self.incident_locks.setdefault(who, asyncio.Lock()):
+            await self.respond(guild, cfg, actor_id, module, entry, threshold, entries=entries, test=run if test else None)
 
     @commands.Cog.listener("on_message")
     async def webhook_spam(self, message: discord.Message):
@@ -802,6 +816,10 @@ class Antinuke(commands.Cog):
         run = self.test_runs.pop(guild_id, None)
         me = getattr(self.bot.user, "id", None)
         self.caught.pop((guild_id, me), None)
+        self.intercepted_role_grants.pop((guild_id, me), None)
+        lock = self.incident_locks.get((guild_id, me))
+        if lock is not None and not lock.locked():
+            self.incident_locks.pop((guild_id, me), None)
         self.recent.pop((guild_id, me), None)
         for key in [k for k in self.hits if k[0] == guild_id and k[1] == me]:
             del self.hits[key]
@@ -812,13 +830,32 @@ class Antinuke(commands.Cog):
     def _mark_caught(self, who: tuple[int, int], now: float) -> None:
         for key in [k for k, until in self.caught.items() if until <= now]:
             del self.caught[key]
+            self.intercepted_role_grants.pop(key, None)
+            lock = self.incident_locks.get(key)
+            if lock is not None and not lock.locked():
+                self.incident_locks.pop(key, None)
         self.caught[who] = now + CAUGHT_FOR
+
+    def _remember_role_grants(self, who: tuple[int, int], entries: list[tuple[str, object]]) -> set[tuple[int, int]]:
+        """Do not restore a role we intercepted as a dangerous grant in the same caught window."""
+        grants = self.intercepted_role_grants.setdefault(who, set())
+        for module, entry in entries:
+            if module != "permissions" or entry is None or entry.action != A.member_role_update:
+                continue
+            member_id = getattr(getattr(entry, "target", None), "id", None)
+            for role in _given_roles(entry):
+                role_id = getattr(role, "id", None)
+                permissions = getattr(role, "permissions", None)
+                if member_id and role_id and (permissions is None or is_dangerous(permissions)):
+                    grants.add((member_id, role_id))
+        return grants
 
     async def _follow_up(self, guild: discord.Guild, actor_id: int, module: str, entry) -> None:
         """Something else done by a user who was just caught (requests already in flight): undo it and add it to
         their alert."""
         reason = f"Antinuke: {MODULES.get(module, module)}"
-        lines = await self._revert_all(guild, [(module, entry)], reason, {})
+        grants = self._remember_role_grants((guild.id, actor_id), [(module, entry)])
+        lines = await self._revert_all(guild, [(module, entry)], reason, {}, protected_grants=grants, actor_id=actor_id)
         inc = next((i for k, i in self.incidents.items() if k[0] == guild.id and k[1] == actor_id), None)
         if inc is None or not lines:
             return
@@ -890,35 +927,60 @@ class Antinuke(commands.Cog):
             who = (guild.id, ctx.author.id)
             earlier = [(m, e) for _, m, e in self.recent.pop(who, ())]  # what they did directly in Discord
             self._mark_caught(who, t)
-            await self.respond(guild, cfg, ctx.author.id, module, None, threshold, via=ctx.command.qualified_name,
-                               entries=earlier)
+            async with self.incident_locks.setdefault(who, asyncio.Lock()):
+                await self.respond(guild, cfg, ctx.author.id, module, None, threshold, via=ctx.command.qualified_name,
+                                   entries=earlier)
             raise UserError(f"🛡️ Antinuke blocked this: **{LABELS.get(module, module)}** limit reached "
                             f"({threshold} per {window}s). The server owner has been alerted.")
         q.extend([t] * amount)
 
-    async def _revoke_bot_perms(self, guild: discord.Guild, user_id: int) -> list[str]:
+    async def _revoke_bot_perms(self, guild: discord.Guild, user_id: int,
+                                removed_ids: dict[int, set[int]] | None = None, member=None) -> list[str]:
         """Take away powers granted *through the bot*: a permission level and roles carrying fake perms."""
         done = []
         levels = await self.bot.db.get_config(guild.id, "permlevels")
         if (levels.get("users") or {}).pop(str(user_id), None) is not None:
             await self.bot.db.set_config(guild.id, "permlevels", levels)
             done.append("revoked their bot permission level")
-        member = guild.get_member(user_id)
+        member = member or guild.get_member(user_id)
         if member:
             fake = await self.bot.db.get_config(guild.id, "fakeperms")
-            roles = [r for r in member.roles if fake.get(str(r.id)) and not r.managed and r < guild.me.top_role]
-            if roles:
+            fake_roles = [r for r in member.roles if fake.get(str(r.id))]
+            roles = [r for r in fake_roles if self._manageable_role(guild, r)]
+            for role in fake_roles:
+                if role not in roles:
+                    done.append(f"⚠️ couldn't remove fake-permission role {role.name} (not removable by the bot; "
+                                "check manually)")
+            removed = 0
+            for role in roles:
                 try:
-                    await member.remove_roles(*roles, reason="Antinuke: revoke fake permissions")
-                    done.append(f"removed {len(roles)} fake-permission role(s)")
-                except discord.HTTPException:
-                    done.append("⚠️ couldn't remove their fake-permission roles")
+                    await member.remove_roles(role, reason="Antinuke: revoke fake permissions")
+                    if removed_ids is not None:
+                        removed_ids.setdefault(user_id, set()).add(role.id)
+                    removed += 1
+                except discord.HTTPException as e:
+                    done.append(f"⚠️ couldn't remove fake-permission role {role.name} ({role_failure(e)})")
+            if removed:
+                done.append(f"removed {removed} fake-permission role(s)")
         return done
 
     async def respond(self, guild: discord.Guild, cfg: dict, actor_id: int, module: str, entry, threshold: int = 1,
                       via: str | None = None, entries: list[tuple[str, object]] | None = None,
                       test: TestRun | None = None):
+        if entries is None:
+            entries = [(module, entry)] if entry is not None else []
+        grants = self._remember_role_grants((guild.id, actor_id), entries)
+        removed_ids: dict[int, set[int]] = {}
         actor = guild.get_member(actor_id)
+        mod = cfg.get("modules", {}).get(module, {})
+        rule_def = RULE_LOOKUP.get(module)
+        if module == "permissions":
+            punishment = "strip"  # granting dangerous permissions is answered by taking them back, never a ban
+        else:
+            punishment = mod.get("punishment") or cfg.get("punishment", rule_def["punishment"] if rule_def else "ban")
+        resolution_error = None
+        if actor is None and punishment == "strip" and test is None:
+            actor, resolution_error = await self._resolve_strip_actor(guild, actor_id)
         user = actor or self.bot.get_user(actor_id)
         if user is None:
             try:
@@ -927,12 +989,6 @@ class Antinuke(commands.Cog):
                 user = None
         # snapshot before punishment strips anything; highest role first
         roles_held = [r.name for r in reversed(actor.roles[1:])] if actor else []
-        mod = cfg.get("modules", {}).get(module, {})
-        rule_def = RULE_LOOKUP.get(module)
-        if module == "permissions":
-            punishment = "strip"  # granting dangerous permissions is answered by taking them back, never a ban
-        else:
-            punishment = mod.get("punishment") or cfg.get("punishment", rule_def["punishment"] if rule_def else "ban")
         window = mod.get("window") or cfg.get("window", rule_def["window"] if rule_def else 60)
         reason = f"Antinuke: {MODULES.get(module, module)}"
 
@@ -941,18 +997,18 @@ class Antinuke(commands.Cog):
         undone = [f"blocked the `{via}` command"] if via else []
         if test is None:
             # strip bot-granted powers first, so a kick (or a failed punishment) doesn't leave them armed
-            undone += await self._revoke_bot_perms(guild, actor_id)
-        if entries is None:
-            entries = [(module, entry)] if entry is not None else []
+            undone += await self._revoke_bot_perms(guild, actor_id, removed_ids, actor)
         # permission grants are taken back before the punishment (it decides what is left to strip); everything
         # slow (rebuilding channels and roles, unbanning) comes after it, so the attacker is stopped first
-        undone += await self._revert_all(guild, [x for x in entries if x[0] == "permissions"], reason, stripped)
+        undone += await self._revert_all(guild, [x for x in entries if x[0] == "permissions"], reason, stripped,
+                                         protected_grants=grants, removed_ids=removed_ids, actor_id=actor_id)
         if test is not None:  # the attacker is simulated: say what would have happened, punish nobody
             result = f"would have {PUNISH_DONE.get(punishment, punishment)}"
             roles_held = []
         else:
-            result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped)
-        undone += await self._revert_all(guild, [x for x in entries if x[0] != "permissions"], reason, stripped)
+            result = await self._punish(guild, actor, actor_id, module, punishment, reason, stripped, removed_ids, resolution_error)
+        undone += await self._revert_all(guild, [x for x in entries if x[0] != "permissions"], reason, stripped,
+                                         protected_grants=grants, removed_ids=removed_ids, actor_id=actor_id)
         problems = [line.removeprefix("⚠️ ") for line in undone if line.startswith("⚠️")]
         undone = [line for line in undone if not line.startswith("⚠️")]
 
@@ -964,13 +1020,22 @@ class Antinuke(commands.Cog):
             test=test)
 
     @staticmethod
-    def _strippable(guild: discord.Guild, role) -> bool:
-        if not is_dangerous(getattr(role, "permissions", None)) or getattr(role, "managed", False):
+    def _manageable_role(guild: discord.Guild, role) -> bool:
+        is_default = getattr(role, "is_default", None)
+        if (getattr(role, "id", None) == getattr(guild, "id", None) or (callable(is_default) and is_default())
+                or getattr(role, "managed", False)):
+            return False
+        top_role = getattr(getattr(guild, "me", None), "top_role", None)
+        if top_role is None:
             return False
         try:
-            return role < guild.me.top_role
-        except Exception:
-            return getattr(role, "position", 0) < getattr(guild.me.top_role, "position", 999999)
+            return role < top_role
+        except (AttributeError, TypeError):
+            return getattr(role, "position", 0) < getattr(top_role, "position", 0)
+
+    @staticmethod
+    def _strippable(guild: discord.Guild, role) -> bool:
+        return is_dangerous(getattr(role, "permissions", None)) and Antinuke._manageable_role(guild, role)
 
     @staticmethod
     def _below_me(guild: discord.Guild, member) -> bool:
@@ -980,7 +1045,8 @@ class Antinuke(commands.Cog):
             return getattr(member.top_role, "position", 0) < getattr(guild.me.top_role, "position", 0)
 
     async def _revert_all(self, guild: discord.Guild, entries: list[tuple[str, object]], reason: str,
-                          stripped: dict) -> list[str]:
+                          stripped: dict, *, protected_grants: set[tuple[int, int]] | None = None,
+                          removed_ids: dict[int, set[int]] | None = None, actor_id: int | None = None) -> list[str]:
         """Undo everything in `entries`. Deleted roles are rebuilt before deleted channels, so channel overwrites
         that pointed at a deleted role point at its replacement."""
         lines: list[str] = []
@@ -995,7 +1061,7 @@ class Antinuke(commands.Cog):
                 wanted["channel"].append(target_id)
             else:
                 try:
-                    lines += await self._revert(guild, module, entry, reason, stripped)
+                    lines += await self._revert(guild, module, entry, reason, stripped, protected_grants, removed_ids, actor_id)
                 except Exception as e:  # never let one failed undo stop the rest or the alert
                     lines.append(f"⚠️ couldn't undo {LABELS.get(module, module).lower()} ({type(e).__name__})")
         snaps: dict[str, list[dict]] = {"role": [], "channel": []}
@@ -1015,7 +1081,9 @@ class Antinuke(commands.Cog):
             lines += await restore_channels(guild, snaps["channel"], role_map, reason)
         return lines
 
-    async def _revert(self, guild: discord.Guild, module: str, entry, reason: str, stripped: dict) -> list[str]:
+    async def _revert(self, guild: discord.Guild, module: str, entry, reason: str, stripped: dict,
+                      protected_grants: set[tuple[int, int]] | None = None,
+                      removed_ids: dict[int, set[int]] | None = None, actor_id: int | None = None) -> list[str]:
         """Undo one thing the attacker did where that's safe. Returns lines for the alert ("⚠️ …" for failures)."""
         if entry is None:  # the bot-command guard blocked the action before it happened
             return []
@@ -1072,15 +1140,35 @@ class Antinuke(commands.Cog):
             elif module == "permissions" and entry.action in (A.member_role_update, A.member_update) \
                     and (target := guild.get_member(target_id) or target) is not None \
                     and hasattr(target, "remove_roles"):  # by ID: an uncached member arrives as a bare object
-                added = [r for r in _given_roles(entry) if self._strippable(guild, r)]
-                if not added:
-                    added = [r for r in target.roles if self._strippable(guild, r)]
-                if added:
-                    await target.remove_roles(*added, reason=reason)
-                    stripped[target.id] = (target, [r.name for r in added], "target")
-                    return [f"removed {', '.join(r.name for r in added)} from {display(target)}"]
+                given = _given_roles(entry)
+                if not given:
+                    return ["⚠️ couldn't identify the granted roles; review the member manually"]
+                already = (removed_ids or {}).get(target.id, set())
+                added = [r for r in given if self._strippable(guild, r) and r.id not in already]
+                failed = [r for r in given if getattr(r, "permissions", None) is None or
+                          (is_dangerous(getattr(r, "permissions", None)) and not self._strippable(guild, r))]
+                lines = []
+                if failed:
+                    lines.append("⚠️ couldn't remove or verify granted role(s): " +
+                                 ", ".join(getattr(r, "name", str(r.id)) for r in failed))
+                removed = []
+                for role in added:
+                    try:
+                        await target.remove_roles(role, reason=reason)
+                        removed.append(role)
+                        if removed_ids is not None:
+                            removed_ids.setdefault(target.id, set()).add(role.id)
+                    except discord.HTTPException as e:
+                        lines.append(f"⚠️ couldn't remove granted role {role.name} ({role_failure(e)})")
+                if removed:
+                    previous = stripped.get(target.id)
+                    names = list(previous[1]) if previous else []
+                    names.extend(r.name for r in removed)
+                    stripped[target.id] = (target, names, "target")
+                    lines.insert(0, f"removed {', '.join(r.name for r in removed)} from {display(target)}")
+                return lines
             elif module == "memberroles" and (member := guild.get_member(target_id or 0)) is not None:
-                return await self._revert_member_roles(guild, member, entry, reason)
+                return await self._revert_member_roles(guild, member, entry, reason, protected_grants, actor_id)
             elif module == "channelupdate" and isinstance(target, discord.abc.GuildChannel):
                 changes = {f: getattr(entry.before, f) for f in CHANNEL_FIELDS
                            if getattr(entry.before, f, None) is not None
@@ -1167,7 +1255,9 @@ class Antinuke(commands.Cog):
                    or any(getattr(r, "id", 0) in authorized for r in getattr(member, "roles", [])))
         return set(cfg.get("roles", [])), allowed
 
-    async def _revert_member_roles(self, guild: discord.Guild, member: discord.Member, entry, reason: str) -> list[str]:
+    async def _revert_member_roles(self, guild: discord.Guild, member: discord.Member, entry, reason: str,
+                                   protected_grants: set[tuple[int, int]] | None = None,
+                                   actor_id: int | None = None) -> list[str]:
         """Give back the roles that were taken and take back the ones that were given (ones I'm allowed to touch).
         A blacklisted role is only given back to someone the blacklist lets hold it: the bot giving a role counts
         as authorized there, so putting it back on anyone else would quietly authorize them."""
@@ -1182,6 +1272,15 @@ class Antinuke(commands.Cog):
         removed = [guild.get_role(r.id) for r in (getattr(entry.before, "roles", None) or []) if mine(r)]
         added = [guild.get_role(r.id) for r in (getattr(entry.after, "roles", None) or []) if mine(r)]
         lines = []
+        conflicts = [r for r in removed if (member.id, r.id) in (protected_grants or set())]
+        if conflicts:
+            removed = [r for r in removed if r not in conflicts]
+            lines.append(f"⚠️ didn't restore {', '.join(r.name for r in conflicts)} to {display(member)}: "
+                         "a conflicting permission grant was intercepted; review manually")
+        if member.id == actor_id and removed:
+            # Any role may grant bot-only permissions or other access, even if Discord permissions look safe.
+            lines.append(f"⚠️ didn't restore role {', '.join(r.name for r in removed)} to the attacker; check manually")
+            removed = []
         blacklisted, allowed = await self._blacklist_allows(guild, member)
         held_back = [r for r in removed if r.id in blacklisted and not allowed]
         if held_back:
@@ -1196,35 +1295,76 @@ class Antinuke(commands.Cog):
             lines.append(f"took {', '.join(r.name for r in added)} from {display(member)}")
         return lines
 
+    @staticmethod
+    async def _resolve_strip_actor(guild: discord.Guild, actor_id: int):
+        fetch = getattr(guild, "fetch_member", None)
+        if fetch is None:
+            return None, "⚠️ Strip not attempted: attacker is not cached; membership could not be verified"
+        try:
+            actor = await fetch(actor_id)
+        except discord.NotFound as e:
+            if e.code == 10007:
+                return None, "Nothing to strip: Discord reports the attacker is no longer a member"
+            return None, "⚠️ Strip not attempted: Discord could not resolve the attacker (404)"
+        except discord.HTTPException as e:
+            return None, f"⚠️ Strip not attempted: couldn't fetch the attacker (Discord said {e.status})"
+        except (OSError, asyncio.TimeoutError):
+            return None, "⚠️ Strip not attempted: couldn't reach Discord to verify the attacker"
+        if actor is None:
+            return None, "⚠️ Strip not attempted: attacker could not be resolved"
+        return actor, None
+
     async def _punish(self, guild: discord.Guild, actor, actor_id: int, module: str, punishment: str, reason: str,
-                      stripped: dict) -> str:
-        """Punish the attacker and describe what actually happened."""
+                      stripped: dict, removed_ids: dict[int, set[int]] | None = None,
+                      resolution_error: str | None = None) -> str:
+        """Punish the attacker and report individual strip successes and failures."""
         word = {"ban": "Ban", "kick": "Kick", "strip": "Strip"}.get(punishment, punishment.title())
+        removed_ids = removed_ids if removed_ids is not None else {}
         try:
             if actor is None:
-                if module == "permissions":
-                    return "Nothing to strip: they're no longer in the server"
-                await guild.ban(discord.Object(actor_id), reason=reason)
-                return "Banned (they had already left the server)"
+                if module == "permissions" or punishment == "strip":
+                    if resolution_error:
+                        return resolution_error
+                    actor, error = await self._resolve_strip_actor(guild, actor_id)
+                    if error:
+                        return error
+                else:
+                    await guild.ban(discord.Object(actor_id), reason=reason)
+                    return "Banned (they had already left the server)"
             if not self._below_me(guild, actor):
                 return "⚠️ Not punished: their top role is above mine. Move my role higher."
             if punishment == "kick":
                 await actor.kick(reason=reason)
                 return "Kicked"
             if punishment == "strip" or module == "permissions":
-                roles = [r for r in actor.roles if self._strippable(guild, r)]
-                if roles:
-                    await actor.remove_roles(*roles, reason=reason)
-                    prev = stripped.get(actor.id)
-                    names = list(prev[1]) if prev else []
-                    names += [r.name for r in roles if r.name not in names]
+                already = removed_ids.get(actor_id, set())
+                dangerous = [r for r in actor.roles if is_dangerous(getattr(r, "permissions", None))
+                             and r.id not in already]
+                roles = [r for r in dangerous if self._manageable_role(guild, r)]
+                prev = stripped.get(actor.id)
+                names = list(prev[1]) if prev else []
+                failed = [f"{r.name} (not removable by the bot; check manually)"
+                          for r in dangerous if r not in roles]
+                missing_member = False
+                for role in roles:
+                    try:
+                        await actor.remove_roles(role, reason=reason)
+                        removed_ids.setdefault(actor_id, set()).add(role.id)
+                        names.append(role.name)
+                    except discord.HTTPException as e:
+                        failed.append(f"{role.name} ({role_failure(e)})")
+                        if isinstance(e, discord.NotFound) and e.code == 10007:
+                            missing_member = True
+                            break  # Discord confirmed the member no longer exists in this guild
+                if names:
                     stripped[actor.id] = (actor, names, "actor")
-                    return f"Stripped {len(roles)} staff role(s)"
-                if actor.id in stripped:  # gave the roles to themselves: already taken back above
-                    member, names, _ = stripped[actor.id]
-                    stripped[actor.id] = (member, names, "actor")
+                if failed:
+                    prefix = f"removed {len(names)} staff role(s); " if names else ""
+                    note = "; member not found, remaining roles not attempted" if missing_member else ""
+                    return f"⚠️ Strip incomplete: {prefix}couldn't remove {', '.join(failed)}{note}"
+                if names:
                     return f"Stripped {len(names)} staff role(s)"
-                return "Nothing to strip: they have no staff roles"
+                return "Nothing to strip: they have no remaining staff roles"
             await actor.ban(reason=reason)
             return "Banned"
         except discord.HTTPException as e:

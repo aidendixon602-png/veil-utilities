@@ -584,6 +584,14 @@ class Veil(commands.AutoShardedBot):
         if ctx.command.qualified_name in disabled or root in disabled:
             if not admin:
                 raise UserError(f"`{ctx.command.qualified_name}` is disabled in this server")
+        # Optional role restrictions add to all existing permission checks. Only the
+        # server owner and bot developers bypass them; stale role IDs fail closed.
+        if ctx.author.id != ctx.guild.owner_id:
+            from core.command_access import roles_allow_command
+            restrictions = await self.db.get_config(ctx.guild.id, "command_restrictions")
+            role_ids = {str(role.id) for role in getattr(ctx.author, "roles", [])}
+            if not roles_allow_command(ctx.command, role_ids, restrictions):
+                raise UserError(f"`{ctx.command.qualified_name}` is restricted to specific roles")
         return True
 
     # ------------------------------------------------------------- errors
