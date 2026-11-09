@@ -119,6 +119,7 @@ When `DATABASE_URL` points to PostgreSQL, `,backup` cannot export it. Use your P
 | Symptom | Check |
 | --- | --- |
 | Bot exits during startup | Python version, installed requirements, token, `.env` syntax, writable database/log paths and console errors. Do not publish secrets. |
+| Panel console shows zero lines | Confirm the configured process runs the expected `main.py`, the working directory is correct, and the panel captures stdout and stderr. See [blank panel console](HOSTING.md#blank-panel-console); container uptime alone does not prove the bot started. |
 | `,firstmessage` cannot read a channel | Both the caller and the bot need View Channel and Read Message History in that channel. An empty channel has no first message. |
 | `,genreban` shows its help card | The developer-only command requires a user mention or ID and a confirmation; it operates across servers and must not be tested on production users. |
 | `,help` does not respond | Message Content intent in the Developer Portal, bot permissions, actual server/personal prefix, authorization and private mode. The bot can fall back to reduced intents when Discord rejects privileged intents. |
