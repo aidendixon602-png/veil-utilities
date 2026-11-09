@@ -4,7 +4,8 @@
 
 ## Command navigation
 
-Use `,help` to browse categories or `,help <command>` for a direct guide. Paginated lists use the arrow buttons;
+Use `,help` and the category buttons to browse commands, or `,help <command>` for a direct guide. If the
+category catalog outgrows Discord's button layout, the home screen uses a category selector instead. Paginated lists use the arrow buttons;
 the middle indicator shows the current page and the close button dismisses the menu. These controls are limited
 to the person who opened the menu (bot developers can also navigate standard list menus). Permission assignment
 lists show **direct saved grants**, not a complete view of automatic or fake permissions. Presentation and help
