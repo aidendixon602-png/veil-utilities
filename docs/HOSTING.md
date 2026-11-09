@@ -21,6 +21,24 @@ cd /home/container && python -m venv .venv && .venv/bin/python -m pip install -r
 
 Adjust the path and startup syntax to your host. A first installation needs package-index access. Panel storage and restart policies vary; verify that `.env`, the database and backups persist across rebuilds. For uploads, use a current repository archive rather than relying on an assumed prebuilt ZIP name. See [troubleshooting](OPERATIONS.md#troubleshooting) if imports or startup fail.
 
+#### Blank panel console
+
+A running container or panel uptime does not by itself show that Python or the bot is running. Check the
+panel's startup configuration: it must launch the Python application and the actual `main.py` from this
+repository. If the panel accepts a full command and dependencies are already installed, one option is
+`AUTO_SYNC_GIT=0 python -u main.py` from the project directory; other panels require the entry point and
+environment variables in separate fields. Set `AUTO_SYNC_GIT=0` in the process environment, not just
+`.env`. Do not start a second instance alongside a running bot.
+
+After a controlled restart, current Veil code prints `[veil] Starting Veil Utilities` to stdout before
+checking dependencies. Normal application logs go to stdout as well as `LOG_FILE` (default `veil.log`);
+Python tracebacks and some startup errors still go to stderr. `-u` or `PYTHONUNBUFFERED=1` helps with
+buffering, but cannot repair a panel that is not launching the script or capturing its streams. If the
+line is absent, check the command, working directory and panel output capture with the host; check the
+file manager for `veil.log` too. An older deployment may not contain the early startup line. If the line
+appears but startup stops, inspect stderr and the log file, redacting tokens, secrets and database URLs
+before sharing. Do not delete `.env` or databases while troubleshooting.
+
 ## Updating
 
 Back up the database and `.env` before an update and review the [changelog](../CHANGELOG.md), [production audit](PRODUCTION_AUDIT.md) and release notes. Test the update on a non-production copy where practical. A typical clean checkout of `main` can be updated manually:

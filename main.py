@@ -6,6 +6,10 @@ import sys
 import time
 from logging.handlers import RotatingFileHandler
 
+# Emit a flushed line before dependency imports: if an import stalls, a host console can still show
+# that this entry point actually started. Never include environment variables or command arguments here.
+print("[veil] Starting Veil Utilities; checking Python dependencies...", flush=True)
+
 # Run from the bot's own folder no matter how it was started (e.g. `python veil-utilities/main.py` on a host),
 # so .env, veil.db, veil.log and the cogs are always found in the same place.
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +48,7 @@ if missing or broken:
     if audioop_hint:
         lines.append("Hint: 'audioop' was removed in Python 3.13 — add audioop-lts to the packages "
                      "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
+    print("[veil] Dependency check failed; see the error output for details.", flush=True)
     sys.exit("\n".join(lines))
 
 
@@ -83,6 +88,7 @@ def auto_sync_git() -> None:
             print("[git] this folder isn't a git checkout, so nothing is pulled. Set the Git repo in the panel "
                   "or upload the files by hand.", flush=True)
             return
+        print("[git] checking for updates...", flush=True)
         before = gitinfo.snapshot(ROOT)
         if before.slug and before.slug.lower() != gitinfo.EXPECTED_REPO.lower():
             print(f"[git] WARNING: this folder pulls from {before.slug}, not {gitinfo.EXPECTED_REPO}", flush=True)
@@ -120,6 +126,7 @@ def auto_sync_git() -> None:
             del sys.modules[name]
 
 
+print("[veil] Dependencies loaded; checking startup settings...", flush=True)
 auto_sync_git()
 load_env_file(os.path.join(ROOT, ".env"))
 
@@ -129,15 +136,22 @@ try:
     from core.config import settings  # noqa: E402
     settings.require_runtime()
 except ConfigError as error:
+    print("[veil] Invalid configuration; see the error output for details.", flush=True)
     sys.exit(f"{error}\n\nFix these in your .env file (see .env.example) and start again.")
 
 from core.bot import INTENT_HELP, Veil, intent_plans  # noqa: E402
 from core.diagnostics import ConsoleFormatter, format_box, get_system_diagnostics, render_startup_banner  # noqa: E402
 
 PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-console = logging.StreamHandler()
+# Some panel consoles display stdout but do not show stderr. Keep application logs on stdout;
+# Python startup errors still go to stderr and the rotating file remains independent.
+console = logging.StreamHandler(sys.stdout)
 console.setFormatter(ConsoleFormatter(color=os.environ.get("LOG_COLOR", "1") != "0"))
-logfile = RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+try:
+    logfile = RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+except (OSError, ValueError):
+    print("[veil] Cannot open the log file; check LOG_FILE and its directory permissions.", flush=True)
+    raise
 logfile.setFormatter(logging.Formatter(PLAIN_FORMAT))
 logging.basicConfig(level=logging.INFO, handlers=[console, logfile])
 # library noise: retries/gateway chatter add nothing the bot's own logs don't already say better
