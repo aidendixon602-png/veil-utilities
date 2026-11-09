@@ -65,13 +65,13 @@ ALL = {label: [] for label, _, _ in CATEGORIES}
 # ------------------------------------------------------------------ the category buttons
 
 def test_category_buttons_only_list_categories_the_person_may_open():
-    public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images", "Ghost Vanguard"}
+    public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
     # each level up opens one more staff category
     expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
-                4: {"Moderation", "Roles", "Server", "Automod"},
-                6: {"Moderation", "Roles", "Server", "Automod", "Permissions"},
-                7: {"Moderation", "Roles", "Server", "Automod", "Permissions", "Antinuke"}}
+                4: {"Moderation", "Roles", "Server"},
+                6: {"Moderation", "Roles", "Server", "Permissions"},
+                7: {"Moderation", "Roles", "Server", "Permissions", "Antinuke"}}
     for rank, staff in expected.items():
         assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
     assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
@@ -450,7 +450,9 @@ def test_every_group_pages_through_its_subcommands_within_limits(loaded_bot):
     ctx.send = AsyncMock(side_effect=lambda **kw: sent.append(kw) or MagicMock())
     h.context = ctx
     h.is_owner_check = AsyncMock(return_value=True)
-    groups = [c for c in loaded_bot.walk_commands() if isinstance(c, commands.Group)]
+    from core.help import HELP_EXCLUDED_COGS
+    groups = [c for c in loaded_bot.walk_commands()
+              if isinstance(c, commands.Group) and c.cog_name not in HELP_EXCLUDED_COGS]
 
     async def go():
         for g in groups:
@@ -1004,17 +1006,17 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
 def test_home_button_layout_fits_all_current_categories():
     view = HelpView(_help(), ALL, is_owner=True, author_rank=10000)
     assert len(view.pages) == len(CATEGORIES) + 1
-    assert len(view.children) == len(view.pages) == 14
+    assert len(view.children) == len(view.pages) == 12
     assert _labels(view) == list(view.pages)
     for row in range(5):
-        assert sum(component.row == row for component in view.children) == (3 if row < 4 else 2)
+        assert sum(component.row == row for component in view.children) == (3 if row < 4 else 0)
     assert all(button.style == discord.ButtonStyle.secondary for button in view.children)
 
 
 def test_home_falls_back_to_select_if_category_catalog_grows():
     import core.help as help_module
 
-    extra = [("Extra One", [], []), ("Extra Two", [], [])]
+    extra = [("Extra One", [], []), ("Extra Two", [], []), ("Extra Three", [], []), ("Extra Four", [], [])]
     with patch.object(help_module, "CATEGORIES", help_module.CATEGORIES + extra):
         categories = {label: [] for label, _, _ in help_module.CATEGORIES}
         view = HelpView(_help(), categories, is_owner=True)
@@ -1062,3 +1064,19 @@ def test_removed_staff_panels_are_not_registered_but_moderation_commands_remain(
     assert {"warn", "kick", "ban", "purge"} <= commands
     assert command_category_gate(loaded_bot.get_command("ban"), loaded_bot) == 3
     assert command_category_gate(loaded_bot.get_command("warn"), loaded_bot) == 1
+
+
+def test_hidden_categories_and_commands_stay_registered_and_keep_original_rank_gates(loaded_bot):
+    from core.help import category_commands, category_for_command, command_category_gate, visible_command
+    cats = category_commands(loaded_bot)
+    assert "Ghost Vanguard" not in cats and "Automod" not in cats
+    names = {c.qualified_name for entries in cats.values() for c in entries}
+    for cog_name, expected_category, gate in (("Automod", "Automod", 4), ("Vanguard", "Ghost Vanguard", 0)):
+        cog = loaded_bot.get_cog(cog_name)
+        for cmd in cog.get_commands():
+            assert loaded_bot.get_command(cmd.name) is cmd
+            assert cmd.qualified_name not in names
+            assert not visible_command(cmd, loaded_bot, True, 10000)
+            assert category_for_command(cmd, loaded_bot) == expected_category
+            assert command_category_gate(cmd, loaded_bot) == gate
+    assert {"warn", "ban", "kick"} <= {c.name for c in cats["Moderation"]}

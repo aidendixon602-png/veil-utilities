@@ -145,3 +145,13 @@ def test_direct_and_bot_actions_share_one_counter():
         with pytest.raises(UserError):
             await cog.guard(make_ctx(MOD, guild), "ban")             # + 1 through the bot = 3
     run(_run)
+
+
+def test_role_trust_unknown_blocks_bot_action_without_punishment():
+    async def _run():
+        _, cog, guild = await setup({"whitelist_roles": [999]})
+        guild.fetch_member = AsyncMock(side_effect=asyncio.TimeoutError())
+        with pytest.raises(UserError, match="Cannot verify antinuke trust"):
+            await cog.guard(make_ctx(MOD, guild), "ban")
+        guild.ban.assert_not_awaited()
+    run(_run)

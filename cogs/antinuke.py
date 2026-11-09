@@ -19,6 +19,10 @@ from core import perms as _perms
 
 log = logging.getLogger("veil.antinuke")
 
+
+class TrustLookupError(Exception):
+    """Trust could not be verified; do not punish on an uncertain exemption."""
+
 OVERLAP_NOTE = ("⚠️ Ghost Vanguard is present. If both bots protect this server, disable overlapping rules "
                 "in one bot to avoid duplicate actions.")
 
@@ -507,11 +511,22 @@ class Antinuke(commands.Cog):
         actor_id = entry.user_id
         run = self.test_runs.get(guild.id)
         test = run is not None and actor_id == getattr(self.bot.user, "id", None) and run.owns(entry)
-        if not test and (not actor_id or await self._trusted(guild, cfg, actor_id)):
-            return
-        if module == "botadd" and not test:
-            if _perms.is_trusted_bot(getattr(entry.target, "id", None)):
-                return  # adding a built-in trusted bot is never an unauthorized bot add
+        if not test:
+            if not actor_id:
+                return
+            try:
+                if await self._trusted(guild, cfg, actor_id):
+                    return
+                if module == "botadd":
+                    target_id = getattr(entry.target, "id", None)
+                    if target_id is None:
+                        return  # cannot establish whether the bot is explicitly trusted
+                    if (_perms.is_trusted_bot(target_id)
+                            or await self._explicit_whitelist(guild, cfg, target_id)):
+                        return
+            except TrustLookupError:
+                log.warning("Antinuke skipped an event in guild %s because trust could not be verified", guild.id)
+                return
         if not self._matters(module, entry, test=test):
             return
         who = (guild.id, actor_id)
@@ -744,6 +759,13 @@ class Antinuke(commands.Cog):
         if not cfg.get("enabled") or cfg.get("bot_quarantine") is False:
             return
         await asyncio.sleep(2)  # let Discord attach the bot's own role and write the audit entry
+        cfg = await self.cfg(guild.id)
+        if not cfg.get("enabled") or cfg.get("bot_quarantine") is False:
+            return
+        # Use the member's current roles; do not turn a whitelist role into a permanent ID entry.
+        current = guild.get_member(member.id) or member
+        if await self._explicit_whitelist(guild, cfg, member.id, member=current):
+            return
         adder = None
         try:
             async for e in guild.audit_logs(limit=5, action=A.bot_add):
@@ -893,25 +915,42 @@ class Antinuke(commands.Cog):
                 pass
 
     # ================================================================ bot-command guard
+    async def _explicit_whitelist(self, guild, cfg: dict, user_id: int, *, member=None) -> bool:
+        """Explicit user/bot or role exemption; role membership must be verifiable."""
+        if user_id in cfg.get("whitelist", []):
+            return True
+        trusted_roles = set(cfg.get("whitelist_roles", []))
+        if not trusted_roles:
+            return False
+        if member is None:
+            member = guild.get_member(user_id)
+        if member is None:
+            fetch = getattr(guild, "fetch_member", None)
+            if not callable(fetch):
+                raise TrustLookupError("Member role data unavailable")
+            try:
+                member = await fetch(user_id)
+            except (discord.HTTPException, asyncio.TimeoutError, OSError) as exc:
+                raise TrustLookupError("Member role data unavailable") from exc
+        roles = getattr(member, "roles", None)
+        if roles is None:
+            raise TrustLookupError("Member role data unavailable")
+        return any(getattr(role, "id", None) in trusted_roles for role in roles)
+
     async def _trusted(self, guild: discord.Guild, cfg: dict, user_id: int) -> bool:
         from core import perms as _perms
-        if user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("whitelist", []) \
-                or user_id in cfg.get("admins", []) or _perms.is_bot_developer(user_id, self.bot) \
+        if user_id in (guild.owner_id, self.bot.user.id) or user_id in cfg.get("admins", []) \
+                or _perms.is_bot_developer(user_id, self.bot) \
                 or _perms.is_trusted_bot(user_id) or _perms.is_whitelisted_person(user_id):
+            return True
+        if await self._explicit_whitelist(guild, cfg, user_id):
             return True
         try:
             rbl_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
             if user_id in rbl_cfg.get("authorized", []):
                 return True
-        except Exception:
-            pass
-        member = guild.get_member(user_id)
-        trusted_roles = set(cfg.get("whitelist_roles", []))
-        if member and trusted_roles and any(getattr(r, "id", None) in trusted_roles for r in member.roles):
-            return True  # holds a whitelisted role
-        # permission levels (Admin, Owner...) don't make anyone trusted here: a hacked staff account is the
-        # most common way servers get nuked. Trust is only what the owner gave on purpose: the whitelist (users or
-        # roles) and antinuke admins.
+        except Exception as exc:
+            raise TrustLookupError("Role blacklist trust unavailable") from exc
         return False
 
     async def guard(self, ctx: Context, module: str, amount: int = 1) -> None:
@@ -927,7 +966,11 @@ class Antinuke(commands.Cog):
         mod = cfg["modules"].get(module)
         if not cfg.get("enabled") or not mod or not mod.get("on") or mod.get("command", True) is False:
             return
-        if await self._trusted(guild, cfg, ctx.author.id):
+        try:
+            trusted = await self._trusted(guild, cfg, ctx.author.id)
+        except TrustLookupError as exc:
+            raise UserError("Cannot verify antinuke trust right now; the action was not run") from exc
+        if trusted:
             return
         rule_def = RULE_LOOKUP.get(module)
         def_th = rule_def["threshold"] if rule_def else 3
@@ -1952,11 +1995,12 @@ class Antinuke(commands.Cog):
     async def an_whitelist(self, ctx: Context, target: discord.Role | discord.Member | discord.User = None):
         """Trust a user, bot or role in the antinuke
 
-        Trusting a role trusts everyone who has it. With no target, lists who's trusted.
+        Trusting a role trusts its current human and bot holders; no target lists entries.
+        Trusted bots are also exempt from bot-add detection and new-bot quarantine.
         Example: `,an whitelist @Mods`
         """
         await antinuke_admin(ctx)
-        cfg = await self.cfg(ctx.guild.id)
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "antinuke", DEFAULT))
         if target is None:
             return await self._show_whitelist(ctx, cfg)
         key = "whitelist_roles" if isinstance(target, discord.Role) else "whitelist"
@@ -1966,7 +2010,7 @@ class Antinuke(commands.Cog):
         if target.id in listed:
             return await ctx.warn(f"{target.mention} is already whitelisted")
         listed.append(target.id)
-        await self.save(ctx.guild.id, cfg)
+        await self.bot.db.set_config_committed(ctx.guild.id, "antinuke", cfg)
         await self.security_notice(ctx.guild, ctx.author, f"whitelisted {target.mention}: the antinuke now trusts "
                                    + ("everyone with that role" if key == "whitelist_roles" else "them"))
         if key == "whitelist_roles":
@@ -1979,12 +2023,12 @@ class Antinuke(commands.Cog):
     async def an_unwhitelist(self, ctx: Context, target: discord.Role | discord.Member | discord.User):
         """Stop trusting a user, bot or role"""
         await antinuke_admin(ctx)
-        cfg = await self.cfg(ctx.guild.id)
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "antinuke", DEFAULT))
         key = "whitelist_roles" if isinstance(target, discord.Role) else "whitelist"
         listed = cfg.setdefault(key, [])
         if target.id in listed:
             listed.remove(target.id)
-            await self.save(ctx.guild.id, cfg)
+            await self.bot.db.set_config_committed(ctx.guild.id, "antinuke", cfg)
             await self.security_notice(ctx.guild, ctx.author, f"removed {target.mention} from the whitelist")
             await ctx.approve(f"removed {target.mention} from the whitelist")
         else:

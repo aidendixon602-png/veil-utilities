@@ -62,7 +62,7 @@ def _audit():
                         shown.add(cmd.qualified_name)
                     if ok:
                         runs.add(cmd.qualified_name)
-                    if staff and cmd.checks and ok != visible:
+                    if staff and cmd.checks and cmd.cog_name not in H.HELP_EXCLUDED_COGS and ok != visible:
                         mismatches.append((cmd.qualified_name, "runs but hidden" if ok else "shown but blocked"))
                 result[key] = (shown, runs, mismatches)
             return result

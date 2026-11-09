@@ -216,3 +216,49 @@ def test_bot_quarantine_still_operates_with_ghost_present(monkeypatch):
     bot = _new_bot(guild, 77, [own])
     asyncio.run(cog.quarantine_new_bot(bot))
     assert not own.permissions.administrator
+
+
+def test_explicitly_whitelisted_bot_and_whitelisted_role_skip_quarantine(monkeypatch):
+    monkeypatch.setattr("cogs.antinuke.asyncio.sleep", AsyncMock())
+    for by_role in (False, True):
+        cog, guild, _ = setup()
+        own = _role(70, "TrustedBot", 5, discord.Permissions(administrator=True).value, managed=True)
+        _guild(cog, guild, [own])
+        bot = _new_bot(guild, 77, [own])
+        cfg = cog.bot.db.store["antinuke"]
+        cfg["whitelist_roles" if by_role else "whitelist"] = [70 if by_role else bot.id]
+        asyncio.run(cog.quarantine_new_bot(bot))
+        own.edit.assert_not_awaited()
+        bot.remove_roles.assert_not_awaited()
+        assert not cfg.get("quarantined_bots")
+
+
+def test_whitelisted_bot_target_is_not_treated_as_unauthorized_bot_add():
+    for by_role in (False, True):
+        cog, guild, attacker = setup({"botadd": {"on": True, "threshold": 1, "window": 60, "punishment": "ban"}})
+        bot = member(guild, 900, "TrustedBot", roles=[SimpleNamespace(id=70)])
+        cfg = cog.bot.db.store["antinuke"]
+        cfg["whitelist_roles" if by_role else "whitelist"] = [70 if by_role else bot.id]
+        feed(cog, entry(guild, A.bot_add, bot))
+        attacker.ban.assert_not_awaited()
+        guild.ban.assert_not_awaited()
+
+
+def test_role_lookup_failure_never_punishes_on_uncertain_trust():
+    cog, guild, attacker = setup({"ban": {"on": True, "threshold": 1, "window": 60, "punishment": "ban"}})
+    cog.bot.db.store["antinuke"]["whitelist_roles"] = [70]
+    guild.members_by_id.pop(attacker.id)
+    guild.fetch_member = AsyncMock(side_effect=asyncio.TimeoutError())
+    feed(cog, entry(guild, A.ban, SimpleNamespace(id=300)))
+    attacker.ban.assert_not_awaited()
+    guild.ban.assert_not_awaited()
+
+
+def test_whitelist_role_lookup_fetches_uncached_member_and_observes_removal():
+    cog, guild, _ = setup()
+    cfg = {"whitelist_roles": [70]}
+    holder = SimpleNamespace(id=900, roles=[SimpleNamespace(id=70)])
+    guild.fetch_member = AsyncMock(return_value=holder)
+    assert asyncio.run(cog._trusted(guild, cfg, holder.id))
+    holder.roles = []
+    assert not asyncio.run(cog._trusted(guild, cfg, holder.id))

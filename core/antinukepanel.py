@@ -7,13 +7,18 @@ told so privately.
 """
 from __future__ import annotations
 
+from copy import deepcopy
+import logging
 from types import SimpleNamespace
 
 import discord
 
 from core.utils import OwnedView, UserError, antinuke_admin, respond_or_edit
 
+log = logging.getLogger("veil.antinuke.panel")
+
 WINDOWS = [30, 60, 120, 300, 600]  # seconds the time button cycles through
+RULES_PER_PAGE = 6
 PUNISHMENTS = ["ban", "kick", "strip"]
 PUNISHMENT_WORDS = {"ban": "ban", "kick": "kick", "strip": "strip their staff roles"}
 
@@ -95,14 +100,15 @@ class _Button(discord.ui.Button["AntinukePanel"]):
 
 
 class RuleSelect(discord.ui.Select["AntinukePanel"]):
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, page: int = 0):
         an = _an()
         options = []
-        for r in an.MIDTOWN_RULES:
+        start = page * RULES_PER_PAGE
+        for r in an.MIDTOWN_RULES[start:start + RULES_PER_PAGE]:
             st = rule_state(cfg, r["key"])
             desc = f"{st['threshold']} in {st['window']}s → {st['punishment']}" if st["on"] else "off"
             options.append(discord.SelectOption(label=r["name"], value=r["key"], description=desc))
-        super().__init__(placeholder="Change a rule…", options=options, row=1)
+        super().__init__(placeholder="Choose a rule to edit…", options=options, row=1)
 
     async def callback(self, it: discord.Interaction):
         await self.view.handle(it, "open:" + self.values[0])
@@ -115,6 +121,7 @@ class AntinukePanel(OwnedView):
         super().__init__(author_id, timeout=300)
         self.cog, self.guild, self.cfg, self.prefix = cog, guild, cfg, prefix
         self.rule: str | None = None
+        self.rule_page = 0
         self.message: discord.Message | None = None
         self._build()
 
@@ -138,7 +145,13 @@ class AntinukePanel(OwnedView):
                                   style=discord.ButtonStyle.danger if on else discord.ButtonStyle.success))
             for name in an.PRESETS:
                 self.add_item(_Button(name.title(), f"preset:{name}"))
-            self.add_item(RuleSelect(self.cfg))
+            total = max(1, (len(an.MIDTOWN_RULES) + RULES_PER_PAGE - 1) // RULES_PER_PAGE)
+            self.rule_page = max(0, min(self.rule_page, total - 1))
+            self.add_item(RuleSelect(self.cfg, self.rule_page))
+            if total > 1:
+                self.add_item(_Button("Previous", "rules_prev", row=2, disabled=self.rule_page == 0))
+                self.add_item(_Button(f"Rules {self.rule_page + 1}/{total}", "noop", row=2, disabled=True))
+                self.add_item(_Button("Next", "rules_next", row=2, disabled=self.rule_page >= total - 1))
             return
         st = rule_state(self.cfg, self.rule)
         instant = self.rule in an.INSTANT
@@ -160,9 +173,10 @@ class AntinukePanel(OwnedView):
             return False
         ctx = SimpleNamespace(guild=self.guild, author=it.user, bot=self.cog.bot)
         try:
-            await antinuke_admin(ctx)
-        except UserError:
-            await it.response.send_message("🔒 Only the server owner or an antinuke admin can change the antinuke.",
+            if not await antinuke_admin(ctx):
+                raise UserError("Unable to verify antinuke access")
+        except Exception:
+            await it.response.send_message("🔒 Antinuke access could not be verified for this interaction.",
                                            ephemeral=True)
             return False
         return True
@@ -170,32 +184,48 @@ class AntinukePanel(OwnedView):
     # -- what a press does
     async def handle(self, it: discord.Interaction, action: str) -> None:
         an = _an()
-        cfg = await self.cog.cfg(self.guild.id)
+        cfg = deepcopy(await self.cog.bot.db.get_config(self.guild.id, "antinuke", an.DEFAULT))
         changed = True
+        notice = None
         if action == "toggle":
             if cfg.get("enabled"):
                 if not an.is_owner_or_dev(self.cog.bot, self.guild, it.user.id):
                     return await it.response.send_message(
                         "🔒 Only the server owner can turn the antinuke off.", ephemeral=True)
                 cfg["enabled"] = False
-                await self.cog.security_notice(self.guild, it.user, "turned the antinuke **off**")
+                notice = "turned the antinuke **off**"
             else:
                 self.cog.enable_rules(cfg)
         elif action.startswith("preset:"):
+            preset = action.split(":", 1)[1]
+            if preset not in an.PRESETS:
+                return await it.response.send_message("That preset is no longer available.", ephemeral=True)
             self.cog.enable_rules(cfg)
-            self.cog.apply_preset(cfg, an.PRESETS[action.split(":", 1)[1]])
+            self.cog.apply_preset(cfg, an.PRESETS[preset])
+        elif action in ("rules_prev", "rules_next"):
+            total = max(1, (len(an.MIDTOWN_RULES) + RULES_PER_PAGE - 1) // RULES_PER_PAGE)
+            self.rule_page = max(0, min(total - 1, self.rule_page + (1 if action == "rules_next" else -1)))
+            changed = False
         elif action.startswith("open:"):
-            self.rule, changed = action.split(":", 1)[1], False
+            key = action.split(":", 1)[1]
+            if key not in an.RULE_LOOKUP:
+                return await it.response.send_message("That rule is no longer available.", ephemeral=True)
+            self.rule, changed = key, False
         elif action == "back":
             self.rule, changed = None, False
         elif self.rule is not None:
+            if action not in {"rule_toggle", "less", "more", "window", "command", "punishment"}:
+                return await it.response.send_message("That action is unavailable.", ephemeral=True)
+            if (action in {"less", "more"} and self.rule in an.INSTANT) or (
+                    action == "punishment" and self.rule == "permissions"):
+                return await it.response.send_message("This setting is fixed for this rule.", ephemeral=True)
             st = rule_state(cfg, self.rule)
             mod = cfg.setdefault("modules", {}).setdefault(self.rule, {})
             mod.update({k: st[k] for k in ("on", "threshold", "window", "punishment")})
             if action == "rule_toggle":
                 mod["on"] = not st["on"]
                 if not mod["on"]:
-                    await self.cog.security_notice(self.guild, it.user, f"turned antinuke rule {self.rule} off")
+                    notice = f"turned antinuke rule {self.rule} off"
             elif action == "less":
                 mod["threshold"] = max(1, st["threshold"] - 1)
             elif action == "more":
@@ -206,8 +236,7 @@ class AntinukePanel(OwnedView):
             elif action == "command":
                 mod["command"] = mod.get("command", True) is False
                 if not mod["command"]:
-                    await self.cog.security_notice(self.guild, it.user,
-                                                   f"set antinuke rule {self.rule} to ignore Veil commands")
+                    notice = f"set antinuke rule {self.rule} to ignore Veil commands"
             elif action == "punishment":
                 mod["punishment"] = PUNISHMENTS[(PUNISHMENTS.index(st["punishment"]) + 1) % len(PUNISHMENTS)] \
                     if st["punishment"] in PUNISHMENTS else "ban"
@@ -216,7 +245,14 @@ class AntinukePanel(OwnedView):
         else:
             changed = False
         if changed:
-            await self.cog.save(self.guild.id, cfg)
+            try:
+                await self.cog.bot.db.set_config_committed(self.guild.id, "antinuke", cfg)
+            except Exception:
+                log.exception("Failed to save antinuke settings for guild %s", self.guild.id)
+                return await it.response.send_message(
+                    "Could not confirm the settings were saved. Check the current settings before retrying.", ephemeral=True)
+            if notice:
+                await self.cog.security_notice(self.guild, it.user, notice)
         self.cfg = cfg
         self._build()
         await respond_or_edit(it, self.embed(), self)
