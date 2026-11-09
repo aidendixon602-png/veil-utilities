@@ -98,6 +98,7 @@ def bot():
 
     b.db.get_config = AsyncMock(side_effect=get_config)
     b.db.set_config = AsyncMock(side_effect=set_config)
+    b.db.set_config_committed = AsyncMock(side_effect=set_config)
     b.db.fetchone = AsyncMock(return_value={"n": 1})
     b.db.fetchall = AsyncMock(return_value=[])
     b.db.execute = AsyncMock()
@@ -445,22 +446,23 @@ def test_strict_roleblacklist_uperm_gating(bot):
         unranked_author = _mock_member(100)
         unranked_author.guild = guild
         ctx_unranked = _mock_context(bot, guild, unranked_author)
-        with pytest.raises(UserError, match=r"Server Manager.*level"):
+        with pytest.raises(UserError, match=r"server owner.*bot developer"):
             await mod_cog._do_rbl_authorize(ctx_unranked, target)
 
         # 2. Admin rank (rank 3) lacks Head Admin rank (rank 4) -> BLOCKED from authorizing
         admin_author = _mock_member(200)
         admin_author.guild = guild
         ctx_admin = _mock_context(bot, guild, admin_author)
-        with pytest.raises(UserError, match=r"Server Manager.*level"):
+        with pytest.raises(UserError, match=r"server owner.*bot developer"):
             await mod_cog._do_rbl_authorize(ctx_admin, target)
 
-        # 3. Head Admin rank (rank 4) -> SUCCEEDS
+        # 3. Head Admin rank (rank 4) still cannot manage RBL authorizations
         headadmin_author = _mock_member(300)
         headadmin_author.guild = guild
         ctx_headadmin = _mock_context(bot, guild, headadmin_author)
-        await mod_cog._do_rbl_authorize(ctx_headadmin, target)
-        assert 777 in bot._storage[(123, "roleblacklist")]["authorized"]
+        with pytest.raises(UserError, match="server owner.*bot developer"):
+            await mod_cog._do_rbl_authorize(ctx_headadmin, target)
+        assert 777 not in bot._storage[(123, "roleblacklist")]["authorized"]
 
         # 4. Server Owner -> SUCCEEDS
         owner_author = _mock_member(guild.owner_id)
@@ -499,3 +501,21 @@ def test_authorized_author_can_assign_blacklisted_role(bot, monkeypatch):
     asyncio.run(_run())
 
 
+
+
+def test_role_update_never_auto_authorizes_based_on_audit_history(bot):
+    async def run():
+        guild = _mock_guild(123)
+        role = _mock_role(888, "protected", pos=5)
+        before = _mock_member(700, roles=[])
+        after = _mock_member(700, roles=[role])
+        before.nick = after.nick = None
+        before.guild = after.guild = guild
+        guild.me.top_role = _mock_role(999, "bot", pos=100)
+        bot._storage[(123, "roleblacklist")] = {"roles": [888], "authorized": []}
+        await Moderation(bot).on_member_update(before, after)
+        assert bot._storage[(123, "roleblacklist")]["authorized"] == []
+        after.remove_roles.assert_awaited_once()
+        bot.db.set_config.assert_not_awaited()
+        bot.db.set_config_committed.assert_not_awaited()
+    asyncio.run(run())

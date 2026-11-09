@@ -445,7 +445,7 @@ def test_every_group_pages_through_its_subcommands_within_limits(loaded_bot):
     h = Help()
     sent = []
     ctx = MagicMock()
-    ctx.clean_prefix, ctx.bot, ctx.author, ctx.guild = ",", loaded_bot, SimpleNamespace(id=1), None
+    ctx.clean_prefix, ctx.bot, ctx.author, ctx.guild = ",", loaded_bot, SimpleNamespace(id=1), SimpleNamespace(id=1, owner_id=1)
     ctx.send = AsyncMock(side_effect=lambda **kw: sent.append(kw) or MagicMock())
     h.context = ctx
     h.is_owner_check = AsyncMock(return_value=True)

@@ -124,6 +124,13 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
 
 # ---------------------------------------------------------------- command lookup and visibility
 
+RBL_ROOTS = {"roleblacklist", "bypass", "hardbl", "checkbled", "stripbled", "rblauth", "rblunauth"}
+
+
+def is_rbl_command(cmd) -> bool:
+    root = getattr(cmd, "root_parent", None) or cmd
+    return getattr(root, "name", "") in RBL_ROOTS
+
 def category_for_command(cmd: commands.Command, bot: commands.Bot | None = None) -> str:
     """Find which category a command belongs to."""
     root = getattr(cmd, "root_parent", None) or cmd  # `role add` lives where `role` does
@@ -333,13 +340,15 @@ def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | No
         return False
     for c in chain:
         if access is None:
+            if any(getattr(check, "__veil_owner_only__", False) for check in getattr(c, "checks", [])):
+                return False
             if rank < min_rank_for_command(c, bot):
                 return False
         else:
             # The static rank is a guide, not a substitute for explicit grants and custom levels.
             # Owner-only checks still need their own higher gate.
             if any(getattr(check, "__veil_owner_only__", False) for check in getattr(c, "checks", [])):
-                if rank < min_rank_for_command(c, bot):
+                if not access.guild_available or not access.bypass_permissions:
                     return False
             elif rank < CATEGORY_MIN_RANKS.get(category_for_command(c, bot), 0):
                 return False
@@ -584,6 +593,19 @@ class HelpView(OwnedView):
         self.current = start if start in self.pages else None
         self._build_items()
 
+    async def interaction_check(self, it: discord.Interaction) -> bool:
+        if not await super().interaction_check(it):
+            return False
+        from core.utils import owner_or_developer
+        guild = getattr(it, "guild", None)
+        original_guild = getattr(self.help_cmd.context, "guild", None)
+        if self.access and self.access.bypass_permissions and original_guild:
+            if (not guild or guild.id != original_guild.id
+                    or not owner_or_developer(it.user, guild, self.bot)):
+                await it.response.send_message("This menu is no longer available.", ephemeral=True)
+                return False
+        return True
+
     @property
     def bot(self):
         return getattr(getattr(self.help_cmd, "context", None), "bot", None)
@@ -667,6 +689,11 @@ class HelpView(OwnedView):
         cmd = next((c for c in self.current_items() if c.qualified_name == name), None)
         if cmd is None or not visible_command(cmd, self.bot, self.is_owner, self.author_rank, self.access):
             return await it.response.send_message("This command is not available in this menu.", ephemeral=True)
+        if is_rbl_command(cmd):
+            from core.utils import owner_or_developer
+            if not owner_or_developer(it.user, getattr(it, "guild", None), self.bot):
+                return await it.response.send_message("This command is not available in this menu.", ephemeral=True)
+            return await it.response.send_message(embed=self.help_cmd.command_embed(cmd, access=self.access), ephemeral=True)
         self.selected, self.stack, self.subpage = cmd, [], 0
         self._build_items()
         await respond_or_edit(it, self.embed(), self)
@@ -772,6 +799,22 @@ class Help(commands.HelpCommand):
         subcommands."""
         p = self.context.clean_prefix
         bot = getattr(self.context, "bot", None)
+        if cmd.qualified_name == "roleblacklist":
+            e = self._brand(discord.Embed(title=f"{p}rbl · Role blacklist management", color=HELP_COLOR,
+                description=(
+                    f"**Usage** `{p}rbl`\n"
+                    "Only the server owner and bot developers can manage these settings.\n\n"
+                    f"**Ordinary blacklist**\n`{p}rbl add <role>` · `{p}rbl remove <role>` · `{p}rbl list`\n"
+                    f"`{p}rbl check [member]` · `{p}rbl strip`\n"
+                    f"`{p}rbl authorize <member or role>` · `{p}rbl unauthorize <member or role>`\n"
+                    f"`{p}rbl authorized`\n\n"
+                    f"**Soft bypass**\n`{p}bypass add <member or role>` · `{p}bypass remove <member or role>` · `{p}bypass list`\n"
+                    "Soft bypass does not bypass hard blacklist or antinuke.\n\n"
+                    f"**Hard blacklist**\n`{p}hardbl add <role>` · `{p}hardbl remove <role>` · `{p}hardbl list`\n"
+                    "Only bot developers can assign hard-blacklisted roles. Discord-side enforcement is limited."
+                )))
+            e.set_footer(text="Use help with an individual command for details")
+            return e
         about = (cmd.help or cmd.short_doc or "").strip() or "No description yet."
         # an "Example: `...`" line in the description is the command's own example: it goes in the Example slot
         written = [ln for ln in about.splitlines() if ln.startswith("Example:")]
@@ -940,6 +983,10 @@ class Help(commands.HelpCommand):
         await self.open_menu(label)
 
     async def _can_see(self, cmd) -> bool:
+        if is_rbl_command(cmd):
+            from core.utils import owner_or_developer
+            return owner_or_developer(getattr(self.context, "author", None),
+                                      getattr(self.context, "guild", None), getattr(self.context, "bot", None))
         is_owner = await self.is_owner_check()
         rank = 0 if is_owner else await self.get_author_rank()
         access = None if is_owner else await self.help_access(rank)
@@ -951,6 +998,8 @@ class Help(commands.HelpCommand):
         is_owner = await self.is_owner_check()
         rank = 0 if is_owner else await self.get_author_rank()
         access = None if is_owner else await self.help_access(rank)
+        if is_rbl_command(cmd):
+            self.context._private_rbl = True
         await self.context.send(embed=self.command_embed(cmd, access=access))
 
     async def send_group_help(self, group: commands.Group):
@@ -961,6 +1010,10 @@ class Help(commands.HelpCommand):
         rank = 0 if is_owner else await self.get_author_rank()
         bot = getattr(self.context, "bot", None)
         access = None if is_owner else await self.help_access(rank)
+        if is_rbl_command(group):
+            self.context._private_rbl = True
+        if group.qualified_name == "roleblacklist":
+            return await self.context.send(embed=self.command_embed(group, access=access))
         subs = sorted(allowed(group.walk_commands(), bot, is_owner, rank, access), key=lambda c: c.qualified_name)
         cards = [group, *subs]
         pages = [self.command_embed(c, (i, len(cards)), visible_subcommands=(
@@ -969,7 +1022,8 @@ class Help(commands.HelpCommand):
         if len(pages) == 1:
             return await self.context.send(embed=pages[0])
         from core.utils import Paginator
-        view = Paginator(self.context.author.id, pages)
+        guild_id = self.context.guild.id if is_rbl_command(group) else None
+        view = Paginator(self.context.author.id, pages, guild_id=guild_id)
         view.message = await self.context.send(embed=pages[0], view=view)
 
     # ------------------------------------------------------------ errors

@@ -58,6 +58,10 @@ class Context(commands.Context["Veil"]):
         """Everything the bot sends replies to the invoking message (without pinging), so busy
         channels stay readable. Never pings: the bot's allowed_mentions has replied_user off.
         If the original message was deleted, Discord sends a plain message instead."""
+        if getattr(self, "_private_rbl", False):
+            kwargs.pop("reference", None)
+            kwargs.pop("mention_author", None)
+            return await self.author.send(*args, **kwargs)
         kwargs.setdefault("reference", self.message.to_reference(fail_if_not_exists=False))
         try:
             message = await self.channel.send(*args, **kwargs)
@@ -121,7 +125,7 @@ class Context(commands.Context["Veil"]):
             old_footer = e.footer.text
             icon = e.footer.icon_url
             e.set_footer(text=f"{old_footer} · {footer}" if old_footer else footer, icon_url=icon)
-        view = Paginator(self.author.id, pages)
+        view = Paginator(self.author.id, pages, guild_id=self.guild.id if getattr(self, "_private_rbl", False) else None)
         view.message = await self.send(embed=pages[0], view=view)
         return view.message
 
@@ -160,13 +164,24 @@ class OwnedView(discord.ui.View):
 
 
 class Paginator(OwnedView):
-    def __init__(self, author_id: int, embeds: list[discord.Embed]):
+    def __init__(self, author_id: int, embeds: list[discord.Embed], *, guild_id: int | None = None):
         super().__init__(author_id, timeout=180)
+        self.guild_id = guild_id
         if not embeds:
             raise ValueError("Paginator needs at least one page")
         self.embeds, self.index = embeds, 0
         self.page_indicator.label = f"1 / {len(embeds)}"
         self.message: discord.Message | None = None
+
+    async def interaction_check(self, it: discord.Interaction) -> bool:
+        if not await super().interaction_check(it):
+            return False
+        if self.guild_id is not None:
+            guild = it.client.get_guild(self.guild_id)
+            if not owner_or_developer(it.user, guild, it.client):
+                await it.response.send_message("This menu is no longer available.", ephemeral=True)
+                return False
+        return True
 
     async def _go(self, it: discord.Interaction, i: int):
         self.index = i % len(self.embeds)
@@ -586,11 +601,10 @@ def owner_or_developer(user, guild, bot) -> bool:
 
 def is_server_owner():
     async def predicate(ctx: Context):
-        from core import perms as _perms
         bot = getattr(ctx, "bot", None)
-        if _perms.is_bot_developer(ctx.author, bot) or owner_or_developer(ctx.author, ctx.guild, bot):
+        if owner_or_developer(ctx.author, ctx.guild, bot):
             return True
-        raise UserError("Only the **server owner** or a **bot developer** can use this command")
+        raise UserError("Only the **server owner** or a **bot developer** can use this command in a server")
     predicate.__veil_owner_only__ = True  # ,help shows these to the owner only
     return commands.check(predicate)
 

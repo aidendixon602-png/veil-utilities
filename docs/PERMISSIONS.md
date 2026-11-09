@@ -155,3 +155,32 @@ process and avoid simultaneous dashboard/role-blacklist changes. Back up the dat
 deployment. To roll back behavior, remove new entries first or restore the pre-deployment database
 backup; reverting code alone leaves the new fields in the configuration. No live Discord or
 production-database testing has been performed for this increment.
+
+## RBL management access and delivery
+
+Run `,rbl` in a server for a single management card covering ordinary blacklists, soft
+bypasses and hard blacklists. Only the actual server owner or a recognized bot developer
+can use these commands and their aliases; an assigned Owner rank, fake permission or Discord
+Administrator permission is not enough. RBL command output is sent to the invoking user by DM;
+allow DMs from server members. Messages you type in a server, old bot messages, screenshots,
+and information the recipient shares cannot be made private retroactively. If a DM cannot be
+sent, there is no public fallback; changes already made before a failed reply may have completed.
+Interactive RBL action buttons check the current server owner/developer again when clicked.
+The logged-in dashboard remains an additional settings interface with its own server-side checks;
+localhost-only sessions have no verified Discord identity and cannot read or write RBL settings.
+
+Existing legacy authorizations are retained. A role assignment made by legacy authorized staff
+cannot silently authorize a new recipient; only an owner/developer can do that. Discord audit
+entries no longer create new authorizations automatically: explicitly authorize the recipient
+before assigning an ordinary blacklisted role directly in Discord. Existing automatic removal is
+best effort and may still be affected by delayed events, permissions and role hierarchy. This does
+not prevent direct Discord assignments of hard-blacklisted roles. As with other configuration
+writers, RBL operations still share a mutable cache and may lose updates under concurrent writers;
+serialized, transactional configuration updates remain unfinished.
+
+Before deployment, back up the database, review existing blacklist/legacy authorization entries,
+and test DM delivery and denial paths in a disposable server. Deploy the reviewed revision with
+`AUTO_SYNC_GIT=0` in the process environment. Roll back by stopping the bot and deploying the
+previous tested revision without altering the database; older revisions may restore the former
+RBL access, audit-based automatic authorization, and public replies. Review those risks before
+resuming service. This change is not a live Discord or Wispbyte deployment verification.

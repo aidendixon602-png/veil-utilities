@@ -14,6 +14,7 @@ Security model
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 import hashlib
 import hmac
 import html
@@ -293,6 +294,16 @@ class DashboardServer:
         except Exception:
             return False
 
+    async def _can_manage_rbl(self, user: dict, guild) -> bool:
+        # Local mode has no verified Discord identity, even though it may manage other settings.
+        if user.get("local"):
+            return False
+        try:
+            uid = int(user["uid"])
+            return uid == guild.owner_id or is_bot_developer(uid, self.bot) or await self._is_bot_owner(user)
+        except (KeyError, TypeError, ValueError):
+            return False
+
     async def _guilds_for(self, user: dict) -> list:
         if await self._is_bot_owner(user):
             return list(self.bot.guilds)
@@ -470,7 +481,8 @@ class DashboardServer:
         if guild is None:
             return self._message("Server not found", "Veil isn't in that server, or you don't own it.", 404, user)
 
-        rbl = await self.bot.db.get_config(guild.id, "roleblacklist") or {}
+        can_rbl = await self._can_manage_rbl(user, guild)
+        rbl = (await self.bot.db.get_config(guild.id, "roleblacklist") or {}) if can_rbl else {}
         logs_cfg = await self.bot.db.get_config(guild.id, "logs") or {}
         an_cfg = await self._antinuke_cfg(guild.id)
 
@@ -482,15 +494,16 @@ class DashboardServer:
             f'<option value="{p}"{" selected" if p == current else ""}>{p}</option>' for p in PUNISHMENTS)
         saved = ('<div class="note ok">Settings saved.</div>' if request.query.get("saved") else "")
 
-        body = f"""{saved}
-<form method="POST" action="/api/guilds/{_esc(guild.id)}/config">
-  <input type="hidden" name="csrf" value="{_esc(user["csrf"])}">
-  <div class="card"><h2>🚫 Role blacklist (BLED)</h2>
+        rbl_form = f'''  <div class="card"><h2>🚫 Role blacklist (BLED)</h2>
     <div class="form-group"><label for="rbl_roles">Blacklisted role IDs (comma-separated)</label>
       <input id="rbl_roles" type="text" name="rbl_roles" value="{ids(rbl.get("roles"))}"></div>
     <div class="form-group"><label for="rbl_authorized">Authorized user and role IDs (comma-separated)</label>
       <input id="rbl_authorized" type="text" name="rbl_authorized" value="{ids(rbl.get("authorized"))}"></div>
-  </div>
+  </div>''' if can_rbl else ""
+        body = f"""{saved}
+<form method="POST" action="/api/guilds/{_esc(guild.id)}/config">
+  <input type="hidden" name="csrf" value="{_esc(user["csrf"])}">
+{rbl_form}
   <div class="card"><h2>📜 Logging channels</h2>
     <div class="form-group"><label for="log_commands">Command logs channel ID</label>
       <input id="log_commands" type="text" name="log_commands" value="{_esc(logs_cfg.get("commands") or "")}"></div>
@@ -600,12 +613,14 @@ class DashboardServer:
         guild = await self._guild_for(request, user)
         if guild is None:
             return web.json_response({"error": "not found"}, status=404)
-        return web.json_response({
-            "roleblacklist": await self.bot.db.get_config(guild.id, "roleblacklist") or {},
+        result = {
             "logs": await self.bot.db.get_config(guild.id, "logs") or {},
             "antinuke": await self._antinuke_cfg(guild.id),
             "permlevels": await self.bot.db.get_config(guild.id, "permlevels") or {},
-        })
+        }
+        if await self._can_manage_rbl(user, guild):
+            result["roleblacklist"] = await self.bot.db.get_config(guild.id, "roleblacklist") or {}
+        return web.json_response(result)
 
     async def handle_api_post_config(self, request: web.Request) -> web.Response:
         user = self._user(request)
@@ -618,6 +633,9 @@ class DashboardServer:
         if not self._csrf_ok(user, data.get("csrf")):
             return self._message("Session expired", "Please refresh the page and try again.", 403, user)
         gid = guild.id
+        rbl_fields = {"rbl_roles", "rbl_authorized"} & set(data)
+        if rbl_fields and not await self._can_manage_rbl(user, guild):
+            return self._message("Access denied", "Discord owner or developer login is required for role blacklist settings.", 403, user)
 
         # Validate every submitted list before modifying cached settings or making any writes.
         lists = {}
@@ -634,15 +652,15 @@ class DashboardServer:
                                                    or len(value) > 20 or not 0 < int(value) < 2**64):
                     return self._message("Invalid settings", f"{field}: enter a channel ID or leave it blank. Nothing was saved.", 400, user)
 
-        rbl = await self.bot.db.get_config(gid, "roleblacklist") or {}
-        if "rbl_roles" in data and set(lists["rbl_roles"]) & set(rbl.get("hard_roles", [])):
-            return self._message("Invalid settings", "A role cannot be on both the ordinary and hard blacklists. Nothing was saved.", 400, user)
-        if "rbl_roles" in data:
-            rbl["roles"] = lists["rbl_roles"]
-        if "rbl_authorized" in data:
-            rbl["authorized"] = lists["rbl_authorized"]
-        await self.bot.db.set_config(gid, "roleblacklist", rbl)
-
+        if rbl_fields:
+            rbl = deepcopy(await self.bot.db.get_config(gid, "roleblacklist") or {})
+            if "rbl_roles" in data and set(lists["rbl_roles"]) & set(rbl.get("hard_roles", [])):
+                return self._message("Invalid settings", "A role cannot be on both the ordinary and hard blacklists. Nothing was saved.", 400, user)
+            if "rbl_roles" in data:
+                rbl["roles"] = lists["rbl_roles"]
+            if "rbl_authorized" in data:
+                rbl["authorized"] = lists["rbl_authorized"]
+            await self.bot.db.set_config_committed(gid, "roleblacklist", rbl)
         logs_cfg = await self.bot.db.get_config(gid, "logs") or {}
         for field, key in LOG_FIELDS:
             if field not in data:

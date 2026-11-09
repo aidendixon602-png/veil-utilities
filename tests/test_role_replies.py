@@ -28,6 +28,7 @@ def bot():
 
     b.db.get_config = AsyncMock(side_effect=get_config)
     b.db.set_config = AsyncMock(side_effect=set_config)
+    b.db.set_config_committed = AsyncMock(side_effect=set_config)
     return b
 
 
