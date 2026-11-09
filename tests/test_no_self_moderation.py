@@ -83,7 +83,7 @@ def test_network_bans_refuse_protected_people_and_record_nothing(target):
 
 
 class _Answer:
-    """Stands in for the red Confirm / grey Cancel prompt, already answered."""
+    """Stands in for the green Confirm / red Cancel prompt, already answered."""
     answer = True
 
     def __init__(self, *a, **k):
@@ -101,7 +101,7 @@ def test_network_ban_skips_servers_the_target_owns():
     user = SimpleNamespace(id=OTHER, mention=f"<@{OTHER}>", name="raider")
     seen = []  # the prompt's text at each edit (the same embed is edited in place)
     ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
-    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, user))
     owned.ban.assert_not_called()
     other.ban.assert_awaited_once()
@@ -120,7 +120,7 @@ def test_someone_already_genrebanned_is_not_banned_again():
     ctx.bot.db.fetchone = AsyncMock(return_value={"user_id": OTHER, "mod_id": 7, "reason": "raid", "at": 1_700_000_000})
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
     other.ban.assert_not_called()
     ctx.bot.db.execute.assert_not_called()
@@ -159,7 +159,7 @@ def test_servers_where_they_are_already_banned_are_skipped_not_repeated():
     tools.bot = ctx.bot
     seen = []
     ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
-    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
     banned_by_other_bot.ban.assert_not_called()
     fresh.ban.assert_awaited_once()
@@ -187,7 +187,7 @@ def test_cancelling_a_network_ban_does_nothing():
     tools.bot = ctx.bot
     _Answer.answer = False
     try:
-        with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+        with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
             asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     finally:
         _Answer.answer = True
@@ -278,3 +278,35 @@ def test_antinuke_automod_and_anti_raid_leave_the_whitelisted_person_alone():
     author.id, author.bot = simi, False
     asyncio.run(Automod.on_message(am, SimpleNamespace(guild=g, author=author, content="x")))
     am.cfg.assert_not_awaited()  # automod never looked at the message
+
+
+def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
+    from core.utils import Confirm
+
+    class TimedOutConfirm(Confirm):
+        async def wait(self):
+            return True
+
+    async def run():
+        other = server(8, 999)
+        ctx = make_ctx(guilds=[other])
+        tools = DevTools.__new__(DevTools)
+        tools.bot = ctx.bot
+        with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": TimedOutConfirm}):
+            await DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r"))
+        view = ctx.prompt.edit.await_args_list[0].kwargs["view"]
+        assert [(button.label, button.style) for button in view.children] == [
+            ("Confirm", discord.ButtonStyle.success), ("Cancel", discord.ButtonStyle.danger)]
+        stranger = SimpleNamespace(user=SimpleNamespace(id=DEV), response=SimpleNamespace(send_message=AsyncMock()))
+        assert not await view.interaction_check(stranger)
+        stranger.response.send_message.assert_awaited_once()
+        owner = SimpleNamespace(user=SimpleNamespace(id=AUTHOR), response=SimpleNamespace(defer=AsyncMock()))
+        assert await view.interaction_check(owner)
+        other.ban.assert_not_called()
+        ctx.bot.db.execute.assert_not_called()
+        assert ctx.prompt.edit.await_args.kwargs["view"] is None
+        assert ctx.prompt.edit.await_args.kwargs["embed"].description == (
+            "Genreban of **r** (`500`) timed out. Nothing was changed.")
+        view.stop()
+
+    asyncio.run(run())

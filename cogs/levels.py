@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 
 from core.loops import resilient
 from core.utils import (Colors, Context, UserError, antinuke_guard, build_vars, check_role, chunk_embeds, has_perms,
-                        is_dangerous, send_script)
+                        is_dangerous, role_protection_ids, send_script)
 
 
 def xp_for(level: int) -> int:
@@ -88,7 +88,7 @@ class Levels(commands.Cog):
             except discord.HTTPException:
                 pass
         b_cfg = await self.bot.db.get_config(member.guild.id, "roleblacklist")
-        b_roles = set(b_cfg.get("roles", []))
+        b_roles = role_protection_ids(b_cfg)
         rewards = {int(k): v for k, v in cfg.get("roles", {}).items() if v not in b_roles}
         earned = [member.guild.get_role(r) for lvl, r in rewards.items() if lvl <= level]
         earned = [r for r in earned if r and r < member.guild.me.top_role and r.id not in b_roles]
@@ -242,7 +242,7 @@ class Levels(commands.Cog):
         if role:
             check_role(ctx, role)
             b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if role.id in b_cfg.get("roles", []):
+            if role.id in role_protection_ids(b_cfg):
                 raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
             if is_dangerous(role.permissions):  # anyone could earn staff powers by chatting
                 await antinuke_guard(ctx, "permissions")

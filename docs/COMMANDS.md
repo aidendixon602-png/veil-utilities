@@ -1,6 +1,6 @@
 # Command reference
 
-459 commands. Default prefix `,`. `<required>` `[optional]`.
+467 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -338,11 +338,19 @@ _Keep your server in line_
 | `,admin [member]` (adminpanel, ap) | Open the admin panel for a member or the server | uperm: admin |
 | `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
+| `,bypass` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
+| `,bypass add <target>` | Allow a member or role to bypass the ordinary role blacklist | server owner or bot developer |
+| `,bypass list` | List separate soft role-blacklist bypasses | server owner or bot developer |
+| `,bypass remove <target>` (delete) | Remove a member's or role's soft role-blacklist bypass | server owner or bot developer |
 | `,cases [user]` (history, modlogs) | View moderation history (for the server or a user) | veil cases |
 | `,checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check for members holding blacklisted roles | server owner or bot developer |
 | `,clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: moderator |
 | `,delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: moderator |
 | `,forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames, uperm: moderator |
+| `,hardbl` | Manage hard-blacklisted roles in Veil | server owner or bot developer |
+| `,hardbl add <role>` | Restrict a role in Veil's covered assignment paths | server owner or bot developer |
+| `,hardbl list` | List hard-blacklisted roles | server owner or bot developer |
+| `,hardbl remove <role>` (delete) | Remove a role from the hard blacklist | server owner or bot developer |
 | `,hide [channel]` | Hide a channel from @everyone | manage channels, uperm: admin |
 | `,jail <member> [reason]` | Jail a member: strips their roles and confines them to #jail | manage roles, moderate members, uperm: moderator |
 | `,jail list` | List jailed members | moderate members, uperm: moderator |

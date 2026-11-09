@@ -785,9 +785,14 @@ class Antinuke(commands.Cog):
     async def approve_bot(self, guild: discord.Guild, bot_id: int, by) -> str:
         """Give a quarantined bot back what was taken from it."""
         cfg = await self.cfg(guild.id)
-        record = (cfg.get("quarantined_bots") or {}).pop(str(bot_id), None)
+        records = cfg.get("quarantined_bots") or {}
+        record = records.get(str(bot_id))
         if record is None:
             return "That bot isn't quarantined (already approved, or it left)."
+        # Do not consume the quarantine record if protections cannot be read.
+        protected = await self.bot.db.get_config(guild.id, "roleblacklist")
+        hard_roles = set(protected.get("hard_roles", []))
+        records.pop(str(bot_id))
         await self.save(guild.id, cfg)
         member = guild.get_member(bot_id)
         reason = f"Antinuke: bot approved by {by}"
@@ -798,15 +803,17 @@ class Antinuke(commands.Cog):
                     await role.edit(permissions=discord.Permissions(role.permissions.value | int(removed)), reason=reason)
                 except discord.HTTPException:
                     pass
-        give = [r for r in (guild.get_role(rid) for rid in record.get("removed", [])) if r is not None]
+        withheld = [rid for rid in record.get("removed", []) if rid in hard_roles]
+        give = [r for r in (guild.get_role(rid) for rid in record.get("removed", [])) if r is not None and r.id not in hard_roles]
         if member is not None and give:
             try:
                 await member.add_roles(*give, reason=reason)
             except discord.HTTPException:
                 pass
         name = getattr(member, "mention", f"<@{bot_id}>")
-        await self.security_notice(guild, by, f"approved the bot {name}: it has its permissions back")
-        return f"approved {name}: it has its permissions back"
+        note = f" · {len(withheld)} hard-blacklisted role(s) not restored" if withheld else ""
+        await self.security_notice(guild, by, f"approved the bot {name}{note}")
+        return f"approved {name}{note}"
 
     def start_test(self, guild_id: int, user_id: int) -> TestRun:
         run = self.test_runs[guild_id] = TestRun(guild_id, user_id)
@@ -1075,6 +1082,13 @@ class Antinuke(commands.Cog):
                     lines.append(f"⚠️ couldn't rebuild a deleted {kind}: I had no copy of it")
         role_map: dict[int, object] = {}
         if snaps["role"]:
+            protection = await self.bot.db.get_config(guild.id, "roleblacklist")
+            hard_roles = set(protection.get("hard_roles", []))
+            held_back = [snap for snap in snaps["role"] if snap["id"] in hard_roles]
+            snaps["role"] = [snap for snap in snaps["role"] if snap["id"] not in hard_roles]
+            if held_back:
+                lines.append(f"⚠️ didn't automatically rebuild {len(held_back)} hard-blacklisted role(s); review manually")
+        if snaps["role"]:
             role_map, made = await restore_roles(guild, snaps["role"], reason)
             lines += made
             lines += await self._carry_role_settings(guild, role_map)
@@ -1283,7 +1297,9 @@ class Antinuke(commands.Cog):
             lines.append(f"⚠️ didn't restore role {', '.join(r.name for r in removed)} to the attacker; check manually")
             removed = []
         blacklisted, allowed = await self._blacklist_allows(guild, member)
-        held_back = [r for r in removed if r.id in blacklisted and not allowed]
+        protection_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
+        hard_roles = set(protection_cfg.get("hard_roles", []))
+        held_back = [r for r in removed if r.id in hard_roles or (r.id in blacklisted and not allowed)]
         if held_back:
             removed = [r for r in removed if r not in held_back]
             lines.append(f"didn't give {display(member)} back {', '.join(r.name for r in held_back)}: "

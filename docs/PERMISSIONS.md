@@ -107,3 +107,32 @@ code ignores the new action overrides and restores the older Helper defaults, in
 and timeout will again require Moderator. Do not assume the old code enforces the new action overrides. Preserve
 and back up the database; verify schema compatibility and access before resuming service. See
 [hosting and updates](HOSTING.md#updating) for general backup and rollback guidance.
+
+## Soft bypasses and hard role blacklist (initial increment)
+
+The server owner or a bot developer may use `,bypass add @member` / `,bypass add @role`,
+`,bypass remove ...`, and `,bypass list`. These are **separate** soft role-blacklist bypasses,
+not antinuke trust, fake permissions, or general command authority. They do not waive Discord
+permissions, hierarchy or other command checks. A staff member relying only on this bypass can
+assign an ordinary blacklisted role through Veil only to a recipient who already has a soft bypass;
+they cannot mass-assign it. Soft bypasses do not alter existing `,rbl authorize` entries, which
+remain a legacy, broader trust path and still require review. Some self-role and automated role
+systems always block ordinary blacklisted roles even for bypass holders.
+
+The server owner or a bot developer can use `,hardbl add @role`, `,hardbl remove @role`, and
+`,hardbl list`. Hard roles and ordinary role blacklist entries must be distinct. In the checked
+Veil role commands, only a bot developer can assign a hard role; covered automated grants and
+restorations skip hard roles. Adding an entry does not strip existing holders. These safeguards
+are **not a complete server-wide guarantee**: direct Discord changes and other bots are not
+blocked, no direct-assignment hardbl enforcement is implemented, and audit-log attribution can be
+unavailable or ambiguous. Restrict Discord Manage Roles and role hierarchy independently. Discord
+API failures, cache/concurrency races and unreviewed paths can also undermine enforcement. New
+soft bypasses do not bypass hardbl. Hardbl is not a replacement for a complete authorization audit.
+
+Changes use the existing per-guild role-blacklist configuration, preserving legacy entries. A
+failed new-command database write is not published to the local cache. Existing writers still
+mutate shared cached configuration, so concurrent edits can overwrite one another; use one bot
+process and avoid simultaneous dashboard/role-blacklist changes. Back up the database before
+deployment. To roll back behavior, remove new entries first or restore the pre-deployment database
+backup; reverting code alone leaves the new fields in the configuration. No live Discord or
+production-database testing has been performed for this increment.
