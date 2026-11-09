@@ -1048,10 +1048,15 @@ def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loa
     h = _help()
     pages = h.category_pages("Antinuke", page_order("Antinuke", entries))
     text = "\n".join(page.description for page in pages)
-    assert "`,an`" in text and "`,an health`" in text and "`,an diagnose`" in text
-    for page in pages:
-        _fits(page)
-    assert len(pages) > 1
+    assert len(pages) == 1
+    assert "`,an`" in text and "`,an health`" in text and "`,an whitelist`" in text
+    assert "Select a group" in pages[0].footer.text
+    for root in [c for c in entries if c.parent is None]:
+        for child in (c for c in entries if c.root_parent is root):
+            relative = child.qualified_name[len(root.qualified_name) + 1:]
+            root_name = "an" if root.name == "antinuke" else root.qualified_name
+            assert f"`,{root_name} {relative}`" in text, child.qualified_name
+    _fits(pages[0])
 
 
 def test_removed_staff_panels_are_not_registered_but_moderation_commands_remain(loaded_bot):
@@ -1080,3 +1085,68 @@ def test_hidden_categories_and_commands_stay_registered_and_keep_original_rank_g
             assert category_for_command(cmd, loaded_bot) == expected_category
             assert command_category_gate(cmd, loaded_bot) == gate
     assert {"warn", "ban", "kick"} <= {c.name for c in cats["Moderation"]}
+
+
+def test_antinuke_compact_page_navigates_to_details_and_aliases(loaded_bot):
+    from core.help import CommandSelect, SubcommandSelect, category_commands
+
+    async def go():
+        h = _help()
+        h.context.bot = loaded_bot
+        view = HelpView(h, category_commands(loaded_bot), is_owner=True, start="Antinuke")
+        assert len(view.books["Antinuke"]) == 1
+        select = next(c for c in view.children if isinstance(c, CommandSelect))
+        assert {o.value for o in select.options} >= {"antinuke", "antiraid", "antialt"}
+        assert len(select.options) <= 25
+        await view.show_command(_it(), "antinuke")
+        assert view.selected.qualified_name == "antinuke"
+        while not any(c.qualified_name == "antinuke whitelist" for c in view.current_subcommands()):
+            assert view.subpage < view.subpages() - 1
+            await view.turn_subpage(_it(), 1)
+        assert any(isinstance(c, SubcommandSelect) for c in view.children)
+        await view.show_subcommand(_it(), "antinuke whitelist")
+        details = view.embed().description
+        assert "**Aliases**" in details and "`wl`" in details and "`trust`" in details
+        view.stop()
+    asyncio.run(go())
+
+
+def test_antinuke_compact_overview_falls_back_to_pages_when_it_would_overflow():
+    @commands.group(name="antinuke", aliases=["an"])
+    async def antinuke(ctx):
+        """Test security group"""
+
+    for index in range(350):
+        async def callback(ctx):
+            """Test command"""
+        antinuke.add_command(commands.Command(callback, name=f"long_command_name_{index:04d}"))
+    entries = [antinuke, *antinuke.walk_commands()]
+    h = _help()
+    assert h.security_overview(entries) is None
+    pages = h.category_pages("Antinuke", entries)
+    assert len(pages) > 1
+    text = "\n".join(e.description for e in pages)
+    assert all(f"long_command_name_{index:04d}" in text for index in range(350))
+    for page in pages:
+        _fits(page)
+
+
+def test_compact_antinuke_overview_never_shows_owner_only_commands_to_assigned_owner(loaded_bot):
+    from core.help import HelpAccess, category_commands
+
+    async def go():
+        h = _help()
+        h.context.bot = loaded_bot
+        access = HelpAccess({}, 1000, {"administrator"}, discord.Permissions.all(), True, set(),
+                            False, False, True, True, set(), {})
+        view = HelpView(h, category_commands(loaded_bot), is_owner=False, author_rank=1000,
+                        access=access, start="Antinuke")
+        assert "`,an namemonitor`" not in view.embed().description
+        await view.show_command(_it(), "antinuke")
+        assert "antinuke namemonitor" not in {c.qualified_name for c in view.subcommands()}
+        it = _it()
+        await view.show_subcommand(it, "antinuke namemonitor")
+        it.response.send_message.assert_awaited_once()
+        assert it.response.send_message.await_args.kwargs["ephemeral"]
+        view.stop()
+    asyncio.run(go())
