@@ -315,18 +315,18 @@ _Log server events to channels_
 
 | Command | Description | Permission |
 |---|---|---|
-| `,cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | Delete duplicate log channels the bot made | manage guild |
-| `,logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild |
-| `,logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild |
-| `,logs cleanup` (clean, purgeduplicates, cleanupchannels) | Delete duplicate log channels the bot made | manage guild |
-| `,logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild |
-| `,logs ignore add <target>` | Ignore a channel or member | manage guild |
-| `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild |
-| `,logs off <category>` (disable) | Stop logging a category | manage guild |
-| `,logs set <category> [channel]` | Send a log category to a channel | manage guild |
-| `,logs setup [mode]` (init, default, defaults, create) | Give every log category its own private channel | manage guild |
-| `,logs test` | Send a test line to every log channel | manage guild |
-| `,setuplogs` (setupchannels, autologs) | Make a private channel for every log category | manage guild |
+| `,cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | List possible duplicate log channels without deleting anything | manage guild, server owner or bot developer |
+| `,logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild, server owner or bot developer |
+| `,logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild, server owner or bot developer |
+| `,logs cleanup` (clean, purgeduplicates, cleanupchannels) | List possible duplicate log channels without deleting anything | manage guild, server owner or bot developer |
+| `,logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild, server owner or bot developer |
+| `,logs ignore add <target>` | Ignore a channel or member | manage guild, server owner or bot developer |
+| `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild, server owner or bot developer |
+| `,logs off <category>` (disable) | Stop logging a category | manage guild, server owner or bot developer |
+| `,logs set <category> [channel]` | Send a log category to a channel | manage guild, server owner or bot developer |
+| `,logs setup [mode]` (init, default, defaults, create) | Give every log category its own private channel | manage guild, server owner or bot developer |
+| `,logs test` | Send a test line to every log channel | manage guild, server owner or bot developer |
+| `,setuplogs` (setupchannels, autologs) | Make a private channel for every log category | manage guild, server owner or bot developer |
 
 ## 🔨 Moderation
 _Keep your server in line_
@@ -339,7 +339,7 @@ _Keep your server in line_
 | `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `,cases [user]` (history, modlogs) | View moderation history (for the server or a user) | veil cases |
-| `,checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check for members holding blacklisted roles |  |
+| `,checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check for members holding blacklisted roles | server owner or bot developer |
 | `,clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: moderator |
 | `,delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: moderator |
 | `,forcenickname <member> [nickname]` (fn, forcenick) | Lock a member's nickname (omit nickname to unlock) | manage nicknames, uperm: moderator |
@@ -350,11 +350,11 @@ _Keep your server in line_
 | `,kick <member> [reason]` | Kick a member | kick members, uperm: moderator |
 | `,lock [channel] [reason]` | Prevent @everyone from sending messages | manage channels, uperm: admin |
 | `,lockdown [reason=lockdown]` | Lock every text channel in the server | administrator, uperm: headadmin |
-| `,massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last few minutes | administrator, ban members, uperm: admin |
-| `,masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last few minutes | kick members, uperm: admin |
+| `,massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last few minutes | administrator, ban members, server owner or bot developer, uperm: admin |
+| `,masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last few minutes | kick members, server owner or bot developer, uperm: admin |
 | `,mod <member>` (modpanel, mp) | Open the moderator panel for a member | uperm: helper |
 | `,nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: moderator |
-| `,nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, uperm: headadmin |
+| `,nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, server owner or bot developer, uperm: headadmin |
 | `,purge <amount> [member]` (clear, c, prune) | Delete messages (optionally only from one member) | manage messages, uperm: helper |
 | `,purge after <message_id>` | Delete every message after a message ID | manage messages |
 | `,purge bots [amount=100]` | Delete messages from bots | manage messages |
@@ -366,8 +366,8 @@ _Keep your server in line_
 | `,purge links [amount=100]` | Delete messages containing links | manage messages |
 | `,purge mentions [amount=100]` | Delete messages that mention users | manage messages |
 | `,quarantine <member> [reason=Quarantined by staff]` (isolate, freeze) | Isolate a member and take their roles | manage roles, moderate members, uperm: moderator |
-| `,rblauth <target>` (roleblauth, bledauth, rblbypass) | Let a member or role hold blacklisted roles | manage roles, uperm: headadmin |
-| `,rblunauth <target>` (roleblunauth, bledunauth) | Stop a member or role from holding blacklisted roles | manage roles, uperm: headadmin |
+| `,rblauth <target>` (roleblauth, bledauth, rblbypass) | Let a member or role hold blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
+| `,rblunauth <target>` (roleblunauth, bledunauth) | Stop a member or role from holding blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
 | `,reason <case> <reason>` | Change the reason on a case | moderate members |
 | `,removepermall <permission>` (rpa) | Remove a permission from every role below the bot | administrator, manage roles |
 | `,removerole <arg1> <arg2>` (takerole) | Remove a role from a member | manage roles, uperm: admin |
@@ -382,21 +382,21 @@ _Keep your server in line_
 | `,role humans <action> <role>` | Add/remove a role for all humans | administrator, manage roles, uperm: headadmin |
 | `,role remove <arg1> <arg2>` (rem, del) | Remove a role from a member | manage roles, uperm: admin |
 | `,role rename <role> <name>` | Rename a role | manage roles, uperm: admin |
-| `,roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles, uperm: admin |
-| `,roleblacklist add <role>` | Blacklist a role | manage roles, uperm: admin |
-| `,roleblacklist authorize <target>` (auth, whitelist, allow) | Let a member or role hold blacklisted roles | manage roles, uperm: headadmin |
-| `,roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles |
-| `,roleblacklist check [target]` (scan, audit, search) | Check for members holding blacklisted roles |  |
-| `,roleblacklist list` | View blacklisted roles | manage roles |
-| `,roleblacklist remove <role>` (rem, delete) | Take a role off the role blacklist | manage roles, uperm: admin |
-| `,roleblacklist strip` (purge, clean) | Take blacklisted roles off everyone not allowed to have them | manage roles, uperm: headadmin |
-| `,roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles, uperm: headadmin |
+| `,roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles, server owner or bot developer, uperm: admin |
+| `,roleblacklist add <role>` | Blacklist a role | manage roles, server owner or bot developer, uperm: admin |
+| `,roleblacklist authorize <target>` (auth, whitelist, allow) | Let a member or role hold blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
+| `,roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles, server owner or bot developer |
+| `,roleblacklist check [target]` (scan, audit, search) | Check for members holding blacklisted roles | server owner or bot developer |
+| `,roleblacklist list` | View blacklisted roles | manage roles, server owner or bot developer |
+| `,roleblacklist remove <role>` (rem, delete) | Take a role off the role blacklist | manage roles, server owner or bot developer, uperm: admin |
+| `,roleblacklist strip` (purge, clean) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
+| `,roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles, server owner or bot developer, uperm: headadmin |
 | `,roles` (rolelist) | List every role in the server, highest first |  |
-| `,security` (secscan, auditsec, serveraudit) | Run a comprehensive security audit of this Discord server | manage guild |
+| `,security` (secscan, auditsec, serveraudit) | Run a comprehensive security audit of this Discord server | manage guild, server owner or bot developer |
 | `,slowmode [delay=0] [channel]` (sm) | Set this channel's slowmode | manage channels, uperm: admin |
 | `,softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members, uperm: admin |
-| `,stripbled` (purgebled, rblstrip, roleblstrip) | Take blacklisted roles off everyone not allowed to have them | manage roles, uperm: headadmin |
-| `,stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, uperm: headadmin |
+| `,stripbled` (purgebled, rblstrip, roleblstrip) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
+| `,stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, server owner or bot developer, uperm: headadmin |
 | `,timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d; Helper max 1h) | moderate members, uperm: helper, veil timeout |
 | `,unban <user> [reason]` | Unban a user | ban members, uperm: admin |
 | `,unhide [channel]` (reveal) | Reveal a hidden channel | manage channels, uperm: admin |
@@ -441,10 +441,10 @@ _Assign named permission levels to members_
 |---|---|---|
 | `,botperms` (botpermissions, botperm) | View the bot's Discord permissions in this server and channel |  |
 | `,permlevels` (plevels, plvl) | View the permission levels available in this server | manage messages |
-| `,permlevels action <key> <action>` | Toggle a narrow moderation action for a level (server owner) |  |
-| `,permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) |  |
-| `,permlevels rank <key> <rank>` | Change a level's rank (server owner) |  |
-| `,permlevels rename <key> <name>` | Rename a level (server owner) |  |
+| `,permlevels action <key> <action>` | Toggle a narrow moderation action for a level (server owner) | server owner or bot developer |
+| `,permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) | server owner or bot developer |
+| `,permlevels rank <key> <rank>` | Change a level's rank (server owner) | server owner or bot developer |
+| `,permlevels rename <key> <name>` | Rename a level (server owner) | server owner or bot developer |
 | `,userperm [target]` (perm, perms, uperm, ups, permission, permissions) | Manage members' and roles' permission levels |  |
 | `,userperm add <target> <level>` (set, give) | Assign a permission level to a member or a role | administrator, uperm: headadmin |
 | `,userperm check [target]` (view, info) | Check a member's or role's permission level |  |
@@ -466,23 +466,23 @@ _Configure how the bot behaves in your server_
 | `,disablecommand <command>` (disablecmd, dcmd) | Disable a command for everyone except the owner and developers | manage guild |
 | `,disablecommand list` | List disabled commands | manage guild |
 | `,enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
-| `,fakepermissions` (fp, fakeperms, fakeperm) | Give roles permissions that only work through the bot |  |
-| `,fakepermissions add <role> [permissions]` (grant, give) | Give a role permissions in the bot |  |
-| `,fakepermissions list` (show, view) | See which roles have fake permissions |  |
-| `,fakepermissions remove <role> [permissions=all]` (revoke, take, rm) | Take a role's bot permissions back |  |
-| `,fakepermissions reset` (clear) | Remove every fake permission in the server |  |
+| `,fakepermissions` (fp, fakeperms, fakeperm) | Give roles permissions that only work through the bot | server owner or bot developer |
+| `,fakepermissions add <role> [permissions]` (grant, give) | Give a role permissions in the bot | server owner or bot developer |
+| `,fakepermissions list` (show, view) | See which roles have fake permissions | server owner or bot developer |
+| `,fakepermissions remove <role> [permissions=all]` (revoke, take, rm) | Take a role's bot permissions back | server owner or bot developer |
+| `,fakepermissions reset` (clear) | Remove every fake permission in the server | server owner or bot developer |
 | `,ignore <target>` | Toggle whether the bot ignores commands from a channel or member | manage guild |
 | `,ignore list` | List ignored channels and users |  |
 | `,modlog [channel]` | Set (or clear) the channel where moderation cases are posted | manage guild |
 | `,prefix` | View the server prefix |  |
 | `,prefix set <prefix>` | Change the server prefix | manage guild |
-| `,restrict` | Restrict commands to specific roles |  |
-| `,restrict add <target>` | Allow a role to use a restricted command |  |
-| `,restrict clear <command>` | Clear all role restrictions on one command |  |
-| `,restrict list` (show) | List commands with role restrictions |  |
-| `,restrict remove <target>` (delete, del) | Remove a role from a command restriction |  |
+| `,restrict` | Restrict commands to specific roles | server owner or bot developer |
+| `,restrict add <target>` | Allow a role to use a restricted command | server owner or bot developer |
+| `,restrict clear <command>` | Clear all role restrictions on one command | server owner or bot developer |
+| `,restrict list` (show) | List commands with role restrictions | server owner or bot developer |
+| `,restrict remove <target>` (delete, del) | Remove a role from a command restriction | server owner or bot developer |
 | `,selfprefix [prefix]` | Set your own prefix that works everywhere |  |
-| `,staffonly [state]` (botlock, lockbot) | Toggle staff-only mode so normal members cannot run bot commands |  |
+| `,staffonly [state]` (botlock, lockbot) | Toggle staff-only mode so normal members cannot run bot commands | server owner or bot developer |
 
 ## 🟢 Spotify
 _Look up songs, artists, albums and what people are listening to on Spotify_

@@ -21,7 +21,7 @@ from core import perms as perms_mod
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
-                        ts, requires_uperm)
+                        ts, requires_uperm, is_server_owner, owner_or_developer)
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -37,15 +37,11 @@ class SingleMemberBledView(discord.ui.View):
         self.roles_to_strip = roles_to_strip
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
-        from core import perms as _perms
-        is_staff = (
-            getattr(getattr(it.user, "guild_permissions", None), "manage_roles", False)
-            or getattr(getattr(it.user, "guild_permissions", None), "administrator", False)
-            or it.user.id == getattr(it.guild, "owner_id", None)
-            or it.user.id in _perms.BOT_DEVELOPERS
-        )
-        if not is_staff:
-            await it.response.send_message("❌ You need the `Manage Roles` permission to use this button.", ephemeral=True)
+        guild = getattr(it, "guild", None)
+        origin_id = getattr(self.ctx.guild, "id", None)
+        if (guild is None or origin_id is None or getattr(guild, "id", None) != origin_id
+                or not owner_or_developer(it.user, guild, getattr(it, "client", None))):
+            await it.response.send_message("Only the server owner or a bot developer can use this button.", ephemeral=True)
             return False
         return True
 
@@ -135,15 +131,11 @@ class GuildBledView(discord.ui.View):
         self.unauthorized = unauthorized
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
-        from core import perms as _perms
-        is_staff = (
-            getattr(getattr(it.user, "guild_permissions", None), "manage_roles", False)
-            or getattr(getattr(it.user, "guild_permissions", None), "administrator", False)
-            or it.user.id == getattr(it.guild, "owner_id", None)
-            or it.user.id in _perms.BOT_DEVELOPERS
-        )
-        if not is_staff:
-            await it.response.send_message("❌ You need the `Manage Roles` permission to use this button.", ephemeral=True)
+        guild = getattr(it, "guild", None)
+        origin_id = getattr(self.ctx.guild, "id", None)
+        if (guild is None or origin_id is None or getattr(guild, "id", None) != origin_id
+                or not owner_or_developer(it.user, guild, getattr(it, "client", None))):
+            await it.response.send_message("Only the server owner or a bot developer can use this button.", ephemeral=True)
             return False
         return True
 
@@ -344,6 +336,7 @@ class Moderation(commands.Cog):
     @requires_uperm("admin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(ban_members=True)
+    @is_server_owner()
     async def massban(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
         """Ban everyone who joined in the last few minutes
 
@@ -376,6 +369,7 @@ class Moderation(commands.Cog):
     @requires_uperm("admin")
     @has_perms(kick_members=True)
     @commands.bot_has_permissions(kick_members=True)
+    @is_server_owner()
     async def masskick(self, ctx: Context, minutes: int, *, reason: str = "raid cleanup"):
         """Kick everyone who joined in the last few minutes
 
@@ -825,6 +819,7 @@ class Moderation(commands.Cog):
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(manage_channels=True)
+    @is_server_owner()
     async def nuke(self, ctx: Context):
         """Clone this channel and delete the original (wipes all messages)"""
         if not await ctx.confirm(f"nuke {ctx.channel.mention}? every message in it will be deleted"):
@@ -1098,6 +1093,7 @@ class Moderation(commands.Cog):
     @commands.command()
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
+    @is_server_owner()
     async def stripstaff(self, ctx: Context, member: discord.Member):
         """Remove every role with dangerous permissions from a member"""
         await check_hierarchy_async(ctx, member, "strip")
@@ -1136,6 +1132,7 @@ class Moderation(commands.Cog):
     @commands.group(aliases=["rbl", "rolebl"], invoke_without_command=True)
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def roleblacklist(self, ctx: Context):
         """Blacklist roles so the bot refuses to assign them"""
         await ctx.send_help(ctx.command)
@@ -1143,6 +1140,7 @@ class Moderation(commands.Cog):
     @roleblacklist.command(name="add")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def rbl_add(self, ctx: Context, *, role: discord.Role):
         """Blacklist a role"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
@@ -1175,6 +1173,7 @@ class Moderation(commands.Cog):
     @roleblacklist.command(name="remove", aliases=["rem", "delete"])
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def rbl_remove(self, ctx: Context, *, role: str):
         """Take a role off the role blacklist
 
@@ -1206,6 +1205,7 @@ class Moderation(commands.Cog):
 
     @roleblacklist.command(name="list")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def rbl_list(self, ctx: Context):
         """View blacklisted roles"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
@@ -1341,6 +1341,7 @@ class Moderation(commands.Cog):
 
     @roleblacklist.command(name="check", aliases=["scan", "audit", "search"])
     @commands.guild_only()
+    @is_server_owner()
     async def rbl_check(self, ctx: Context, *, target: str = None):
         """Check for members holding blacklisted roles
 
@@ -1350,6 +1351,7 @@ class Moderation(commands.Cog):
 
     @commands.command(name="checkbled", aliases=["checkbl", "scanbl", "bledcheck", "rblcheck", "roleblcheck"])
     @commands.guild_only()
+    @is_server_owner()
     async def cmd_checkbled(self, ctx: Context, *, target: str = None):
         """Check for members holding blacklisted roles
 
@@ -1387,6 +1389,7 @@ class Moderation(commands.Cog):
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
+    @is_server_owner()
     async def rbl_strip(self, ctx: Context):
         """Take blacklisted roles off everyone not allowed to have them"""
         await self._do_rbl_strip(ctx)
@@ -1395,6 +1398,7 @@ class Moderation(commands.Cog):
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
+    @is_server_owner()
     async def cmd_stripbled(self, ctx: Context):
         """Take blacklisted roles off everyone not allowed to have them"""
         await self._do_rbl_strip(ctx)
@@ -1402,6 +1406,7 @@ class Moderation(commands.Cog):
     @roleblacklist.command(name="authorize", aliases=["auth", "whitelist", "allow"])
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def rbl_authorize(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Let a member or role hold blacklisted roles
 
@@ -1412,6 +1417,7 @@ class Moderation(commands.Cog):
     @commands.command(name="rblauth", aliases=["roleblauth", "bledauth", "rblbypass"])
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def cmd_rblauth(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Let a member or role hold blacklisted roles
 
@@ -1445,6 +1451,7 @@ class Moderation(commands.Cog):
     @roleblacklist.command(name="unauthorize", aliases=["unauth", "unwhitelist"])
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def rbl_unauthorize(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Revoke a member's or role's authorization to bypass the role blacklist"""
         await self._do_rbl_unauthorize(ctx, target)
@@ -1452,6 +1459,7 @@ class Moderation(commands.Cog):
     @commands.command(name="rblunauth", aliases=["roleblunauth", "bledunauth"])
     @requires_uperm("headadmin")
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def cmd_rblunauth(self, ctx: Context, *, target: discord.Member | discord.Role):
         """Stop a member or role from holding blacklisted roles
 
@@ -1484,6 +1492,7 @@ class Moderation(commands.Cog):
 
     @roleblacklist.command(name="authorized", aliases=["allowed"])
     @has_perms(manage_roles=True)
+    @is_server_owner()
     async def rbl_authorized_list(self, ctx: Context):
         """View members and roles authorized to bypass the role blacklist"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
@@ -1835,6 +1844,7 @@ class Moderation(commands.Cog):
     # ================================================================ security scan
     @commands.command(aliases=["secscan", "auditsec", "serveraudit"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def security(self, ctx: Context):
         """Run a comprehensive security audit of this Discord server"""
         msg = await ctx.neutral("scanning the server…")
