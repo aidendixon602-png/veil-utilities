@@ -18,8 +18,7 @@ HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Utility", ["Utility"], []),
     ("Music", ["Music", "Spotify"], []),
-    ("Moderator", ["Moderation", "Logging"], []),  # moderation commands that need Admin+ move to "Admin"
-    ("Admin", [], []),
+    ("Moderation", ["Moderation", "Logging"], []),
     ("Roles", [], ["role", "autorole", "reactionrole", "buttonrole", "vanity", "stripstaff", "roles",
                    "roleblacklist", "addpermall", "removepermall"]),
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
@@ -38,18 +37,18 @@ PAGE_SIZE = 10  # subcommand lists on a group's card
 HELP_PAGE_SIZE = 8  # commands per page of a category
 # the commands people reach for most come first; everything else follows alphabetically
 PINNED: dict[str, list[str]] = {
-    "Moderator": ["mod", "warn", "timeout", "untimeout", "kick", "purge", "warnings", "jail", "unjail", "cases"],
-    "Admin": ["admin", "ban", "unban", "softban", "massban", "lock", "unlock", "lockdown", "unlockdown"],
+    "Moderation": ["warn", "timeout", "untimeout", "kick", "purge", "warnings", "jail", "unjail", "cases",
+                   "ban", "unban", "softban", "massban", "lock", "unlock", "lockdown", "unlockdown"],
     "Music": ["play", "skip", "queue", "pause", "resume", "stop", "volume", "loop", "song"],
     "Utility": ["userinfo", "avatar", "serverinfo", "ping", "afk", "snipe", "remind", "poll"],
-    "Antinuke": ["antinuke", "antiraid", "antialt"],
+    "Antinuke": ["antinuke", "antiraid", "antialt", "autosetup"],
     "Developer": ["gitpull", "restart", "version", "reload", "errors", "eval", "system", "blacklist"],
 }
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
-# other words people type for a category (`,help moderation` still opens Moderator)
+# Legacy names still open the unified moderation category.
 CATEGORY_ALIASES = {"gv": "ghost vanguard", "vanguard": "ghost vanguard", "ghost": "ghost vanguard",
-                    "moderation": "moderator", "moderators": "moderator", "mods": "moderator",
-                    "admins": "admin", "administration": "admin", "administrator": "admin"}
+                    "moderator": "moderation", "moderators": "moderation", "mods": "moderation",
+                    "admin": "moderation", "admins": "moderation", "administration": "moderation", "administrator": "moderation"}
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
 PER_PAGE = 10  # commands per category page
@@ -64,8 +63,7 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Fun": 0,           # Public
     "Images": 0,        # Public
     # each level up opens one more staff category (inside each one, commands you can't run stay hidden)
-    "Moderator": 1,     # Helper+; individual checks filter unavailable commands
-    "Admin": 3,         # Admin+: ban, lockdown, the ,admin panel...
+    "Moderation": 1,    # Helper+; individual checks retain their existing access requirements
     "Roles": 3,         # Admin+
     "Server": 4,        # Server Manager+
     "Automod": 4,       # Server Manager+
@@ -87,8 +85,7 @@ PERM_RANKS: dict[str, int] = {
 CATEGORY_EMOJIS: dict[str, str] = {
     "Utility": "🛠️",
     "Music": "🎵",
-    "Moderator": "🛡️",
-    "Admin": "🔨",
+    "Moderation": "🛡️",
     "Roles": "🏷️",
     "Permissions": "🔒",
     "Antinuke": "🚨",
@@ -106,8 +103,7 @@ CATEGORY_EMOJIS: dict[str, str] = {
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Utility": "Lookups, AFK, snipe and everyday tools",
     "Music": "Lavalink and Spotify playback, queues, filters",
-    "Moderator": "Moderation tools available to your permission level",
-    "Admin": "Server administration tools for your permission level",
+    "Moderation": "Moderation and administration tools available to your permission level",
     "Roles": "Role management tools for your permission level",
     "Permissions": "Permission and access settings for your level",
     "Antinuke": "Protection settings available to your permission level",
@@ -146,15 +142,22 @@ def category_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
             cog_name = getattr(bot_cmd, "cog_name", None)
     for label, cogs, _ in CATEGORIES:
         if cog_name and cog_name in cogs:
-            if label == "Moderator" and own_rank(root) >= ADMIN_SPLIT:
-                return "Admin"
             return label
     if getattr(cmd, "cog_name", None) in HIDDEN_COGS:
         return "Developer"
     return "Community"
 
 
-ADMIN_SPLIT = 3  # moderation commands that need this level (Admin) or more are filed under "Admin"
+ADMIN_SPLIT = 3  # retain the former Admin category gate for higher-risk moderation commands
+
+
+def command_category_gate(cmd, bot=None) -> int:
+    """Keep runtime rank gates independent of the visible help grouping."""
+    root = getattr(cmd, "root_parent", None) or cmd
+    category = category_for_command(cmd, bot)
+    if category == "Moderation" and own_rank(root) >= ADMIN_SPLIT:
+        return ADMIN_SPLIT
+    return CATEGORY_MIN_RANKS.get(category, 0)
 
 
 def own_rank(cmd) -> int:
@@ -176,7 +179,7 @@ def min_rank_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
     if any(getattr(check, "__veil_owner_only__", False) for check in getattr(cmd, "checks", [])):
         from core.perms import OWNER_RANK
         return OWNER_RANK  # server owner only: nobody below sees it
-    cat_rank = CATEGORY_MIN_RANKS.get(category_for_command(cmd, bot), 0)
+    cat_rank = command_category_gate(cmd, bot)
     return max(cat_rank, own_rank(cmd))
 
 
@@ -269,11 +272,11 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
             if cog:
                 cmds += [c for c in cog.get_commands() if c.name not in pulled]
         cmds = sorted({c.qualified_name: c for c in cmds if c and not c.hidden}.values(), key=lambda c: c.name)
-        if label == "Moderator":  # the Admin+ ones get their own category
-            out.setdefault("Admin", []).extend(c for c in cmds if own_rank(c) >= ADMIN_SPLIT)
-            cmds = [c for c in cmds if own_rank(c) < ADMIN_SPLIT]
-        if label == "Admin":
-            cmds = out.get("Admin", []) + cmds
+        if label == "Antinuke":
+            # A complete browsable security reference, including nested commands. Visibility
+            # still checks every command and its parents before a page is built.
+            cmds += [sub for root in cmds if isinstance(root, commands.Group)
+                     for sub in root.walk_commands() if not sub.hidden]
         if cmds:
             out[label] = cmds
             placed.update(c.qualified_name for c in cmds)
@@ -350,7 +353,7 @@ def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | No
             if any(getattr(check, "__veil_owner_only__", False) for check in getattr(c, "checks", [])):
                 if not access.guild_available or not access.bypass_permissions:
                     return False
-            elif rank < CATEGORY_MIN_RANKS.get(category_for_command(c, bot), 0):
+            elif rank < command_category_gate(c, bot):
                 return False
             if not access.permits(c):
                 return False
@@ -462,7 +465,8 @@ def example_for(cmd, prefix: str) -> str:
 def page_order(label: str, cmds: list[commands.Command]) -> list[commands.Command]:
     pinned = PINNED.get(label, [])
     rank = {name: i for i, name in enumerate(pinned)}
-    return sorted(cmds, key=lambda c: (rank.get(c.name, len(pinned)), c.name))
+    return sorted(cmds, key=lambda c: (rank.get(c.name, len(pinned)) if not getattr(c, "parent", None)
+                                       else len(pinned), c.qualified_name))
 
 
 def developer_commands(bot) -> list[commands.Command]:
@@ -770,14 +774,31 @@ class Help(commands.HelpCommand):
         """One command on a category page, with a marker for groups."""
         p = self.context.clean_prefix
         more = " · *group*" if isinstance(cmd, commands.Group) else ""
-        return f"`{p}{cmd.name}` — {blurb(cmd, 60)}{more}"
+        name = cmd.qualified_name
+        if name.startswith("antinuke "):
+            name = "an " + name[len("antinuke "):]
+        return f"`{p}{name}` — {blurb(cmd, 60)}{more}"
+
+    def alias_line(self, cmd: commands.Command, limit: int | None = None) -> str:
+        """Fully qualified alias invocations, including parent groups."""
+        parent = getattr(cmd, "parent", None)
+        path = parent.qualified_name if parent else ""
+        if path == "antinuke" or path.startswith("antinuke "):
+            path = "an" + path[len("antinuke"):]
+        prefix = self.context.clean_prefix
+        aliases = cmd.aliases if limit is None else cmd.aliases[:limit]
+        text = ", ".join(f"`{prefix}{path + ' ' if path else ''}{alias}`" for alias in aliases)
+        remaining = len(cmd.aliases) - len(aliases)
+        return text + (f" · +{remaining} more" if remaining else "")
 
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
         """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
         chunks = [cmds[i:i + PER_PAGE] for i in range(0, len(cmds), PER_PAGE)] or [[]]
         pages = []
         for n, chunk in enumerate(chunks, 1):
-            entries = "\n".join(self.command_line(c) for c in chunk) or "No commands in this category."
+            entries = "\n".join(self.command_line(c) + (
+                "\n-# Aliases: " + self.alias_line(c, None if label == "Antinuke" else MAX_ALIASES_SHOWN)
+                if getattr(c, "aliases", None) else "") for c in chunk) or "No commands in this category."
             intro = CATEGORY_DESCRIPTIONS.get(label, "Browse commands")
             body = f"{intro}\n\n**Commands**\n{entries}"
             e = self._brand(discord.Embed(color=HELP_COLOR, title=f"{label} commands",

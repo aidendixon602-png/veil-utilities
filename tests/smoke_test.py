@@ -36,10 +36,13 @@ async def main() -> int:
         if not isinstance(getattr(cog, "emoji", None), str):
             problems.append(f"{cog.qualified_name}.emoji is not a string (shadowed by a command?)")
 
-    placed = sum(len(v) for v in category_commands(bot).values())
-    visible = len([c for c in bot.commands if not c.hidden and c.cog is not None])  # help itself is excluded
-    if placed != visible:
-        problems.append(f"help menu shows {placed} of {visible} commands")
+    # Security categories also list nested commands; count top-level commands separately
+    # and still detect duplicates or missing commands rather than comparing raw page sizes.
+    placed = [c.qualified_name for entries in category_commands(bot).values() for c in entries if c.parent is None]
+    visible = {c.qualified_name for c in bot.commands if not c.hidden and c.cog is not None}
+    if len(placed) != len(set(placed)) or set(placed) != visible:
+        problems.append(f"help top-level command mismatch: missing={sorted(visible - set(placed))}, "
+                        f"extra={sorted(set(placed) - visible)}, duplicates={len(placed) - len(set(placed))}")
 
     msg = build_message("{embed}$v{title: hi {x}}$v{color: #ff0000}", {"x": "there"})
     if msg["embed"].title != "hi there":

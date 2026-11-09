@@ -68,10 +68,10 @@ def test_category_buttons_only_list_categories_the_person_may_open():
     public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images", "Ghost Vanguard"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
     # each level up opens one more staff category
-    expected = {1: {"Moderator"}, 2: {"Moderator"}, 3: {"Moderator", "Admin", "Roles"},
-                4: {"Moderator", "Admin", "Roles", "Server", "Automod"},
-                6: {"Moderator", "Admin", "Roles", "Server", "Automod", "Permissions"},
-                7: {"Moderator", "Admin", "Roles", "Server", "Automod", "Permissions", "Antinuke"}}
+    expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
+                4: {"Moderation", "Roles", "Server", "Automod"},
+                6: {"Moderation", "Roles", "Server", "Automod", "Permissions"},
+                7: {"Moderation", "Roles", "Server", "Automod", "Permissions", "Antinuke"}}
     for rank, staff in expected.items():
         assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
     assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
@@ -134,9 +134,9 @@ def test_cards_are_built_when_the_menu_opens():
 
 def test_the_most_used_commands_come_first():
     from core.help import page_order
-    names = [c.name for c in page_order("Moderator", [_cmd(n) for n in ("addrole", "kick", "warn", "zap")])]
+    names = [c.name for c in page_order("Moderation", [_cmd(n) for n in ("addrole", "kick", "warn", "zap")])]
     assert names == ["warn", "kick", "addrole", "zap"]
-    assert [c.name for c in page_order("Admin", [_cmd(n) for n in ("zap", "lock", "ban")])] == ["ban", "lock", "zap"]
+    assert [c.name for c in page_order("Moderation", [_cmd(n) for n in ("zap", "lock", "ban")])] == ["ban", "lock", "zap"]
 
 
 def test_a_commands_own_usage_text_wins():
@@ -195,6 +195,7 @@ def test_a_category_lists_each_command_with_what_it_does():
     assert page.title == "Roles commands"
     assert page.description.splitlines()[3:] == ["`,autorole` — Give a role to new members",
                                                 "`,role` — Role tools · *group*",
+                                                "-# Aliases: `,r`",
                                                 "`,vanity` — Does a thing"]
     assert page.footer.text == "Page 1/1 · 3 commands · Select a command below"
 
@@ -298,7 +299,7 @@ def test_command_card_has_aliases_parameters_information_and_usage():
     assert lines[5] == "**Usage** `,ban <user> [reason]`"  # no default values in the syntax
     assert lines[6] == "**Example** `,ban @user spamming`"
     assert lines[7].startswith("**Requires** Admin level")
-    assert card.footer.text == "Admin · <required> [optional]"  # ban needs Admin: it's under Admin, not Moderator
+    assert card.footer.text == "Moderation · <required> [optional]"  # the grouping changes, not the required rank
 
 
 def test_a_card_only_shows_what_applies():
@@ -907,7 +908,7 @@ def test_commands_shown_at_each_level_pass_their_user_permission_checks(loaded_b
             with patch.object(loaded_bot.db, "get_config", get_config):
                 access = await h.help_access(rank)
                 view = HelpView(h, category_commands(loaded_bot), author_rank=rank, access=access)
-                assert "Moderator" in view.pages
+                assert "Moderation" in view.pages
                 for cmd in loaded_bot.walk_commands():
                     if not visible_command(cmd, loaded_bot, False, rank, access):
                         continue
@@ -944,12 +945,11 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                 view = sent.await_args.kwargs["view"]
                 assert view.author_rank == rank
                 assert "Developer" not in view.pages
-                moderator = {c.name for c in view.items.get("Moderator", [])}
-                admin = {c.name for c in view.items.get("Admin", [])}
+                moderator = {c.name for c in view.items.get("Moderation", [])}
                 assert ("purge" in moderator) == (rank >= 2)
                 assert {"warn", "timeout", "cases"} <= moderator
                 assert ("kick" in moderator) == (rank >= 2)
-                assert ("ban" in admin) == (rank >= 3)
+                assert ("ban" in moderator) == (rank >= 3)
                 assert ("Permissions" in view.pages) == (rank >= 6)
                 assert ("Antinuke" in view.pages) == (rank >= 7)
 
@@ -1004,10 +1004,10 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
 def test_home_button_layout_fits_all_current_categories():
     view = HelpView(_help(), ALL, is_owner=True, author_rank=10000)
     assert len(view.pages) == len(CATEGORIES) + 1
-    assert len(view.children) == len(view.pages) == 15
+    assert len(view.children) == len(view.pages) == 14
     assert _labels(view) == list(view.pages)
     for row in range(5):
-        assert sum(component.row == row for component in view.children) == 3
+        assert sum(component.row == row for component in view.children) == (3 if row < 4 else 2)
     assert all(button.style == discord.ButtonStyle.secondary for button in view.children)
 
 
@@ -1031,3 +1031,34 @@ def test_home_falls_back_to_select_if_category_catalog_grows():
 def test_home_card_uses_the_configured_prefix():
     card = _help("!").home_embed()
     assert card.description == "Select a category below to view its commands.\n\n**Prefix:** `!`"
+
+
+def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loaded_bot):
+    from core.help import category_commands, page_order
+    from cogs.antinuke import Antinuke
+
+    entries = category_commands(loaded_bot)["Antinuke"]
+    names = {c.qualified_name for c in entries}
+    for root in (Antinuke.antinuke, Antinuke.antiraid, Antinuke.antialt):
+        assert root.qualified_name in names
+        assert {c.qualified_name for c in root.walk_commands() if not c.hidden} <= names
+    assert "antinuke namemonitor" in names
+    h = _help()
+    pages = h.category_pages("Antinuke", page_order("Antinuke", entries))
+    text = "\n".join(page.description for page in pages)
+    assert "`,an`" in text and "`,an health`" in text and "`,an diagnose`" in text
+    for page in pages:
+        _fits(page)
+    assert len(pages) > 1
+
+
+def test_removed_staff_panels_are_not_registered_but_moderation_commands_remain(loaded_bot):
+    from core.help import category_commands, command_category_gate
+    for name in ("mod", "modpanel", "mp", "admin", "adminpanel", "ap"):
+        assert loaded_bot.get_command(name) is None
+    cats = category_commands(loaded_bot)
+    assert "Moderator" not in cats and "Admin" not in cats
+    commands = {c.qualified_name for c in cats["Moderation"]}
+    assert {"warn", "kick", "ban", "purge"} <= commands
+    assert command_category_gate(loaded_bot.get_command("ban"), loaded_bot) == 3
+    assert command_category_gate(loaded_bot.get_command("warn"), loaded_bot) == 1

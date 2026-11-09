@@ -1,6 +1,6 @@
 # Command reference
 
-467 commands. Default prefix `,`. `<required>` `[optional]`.
+466 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -50,6 +50,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `,antinuke log [channel]` | Set the destination for antinuke alerts |  |
 | `,antinuke memberroles [count] [punishment] [timeframe] [flags]` (member_roles) | Configure member roles rule |  |
 | `,antinuke module <module> <state> [threshold]` | Turn one antinuke rule on or off |  |
+| `,antinuke namemonitor [enabled]` | Monitor server name changes without automatic punishment | server owner or bot developer |
 | `,antinuke panic [reason]` (emergency) | Lock the whole server down in an emergency |  |
 | `,antinuke permissions [count] [punishment] [timeframe] [flags]` (permission, perms) | Configure permission grant rule |  |
 | `,antinuke preset` | Save, load or list antinuke rule presets |  |
@@ -335,7 +336,6 @@ _Keep your server in line_
 |---|---|---|
 | `,addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
 | `,addrole <arg1> <arg2>` (giverole) | Add a role to a member | manage roles, uperm: admin |
-| `,admin [member]` (adminpanel, ap) | Open the admin panel for a member or the server | uperm: admin |
 | `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `,bypass` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
@@ -360,7 +360,6 @@ _Keep your server in line_
 | `,lockdown [reason=lockdown]` | Lock every text channel in the server | administrator, uperm: headadmin |
 | `,massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last few minutes | administrator, ban members, server owner or bot developer, uperm: admin |
 | `,masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last few minutes | kick members, server owner or bot developer, uperm: admin |
-| `,mod <member>` (modpanel, mp) | Open the moderator panel for a member | uperm: helper |
 | `,nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: moderator |
 | `,nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, server owner or bot developer, uperm: headadmin |
 | `,purge <amount> [member]` (clear, c, prune) | Delete messages (optionally only from one member) | manage messages, uperm: helper |

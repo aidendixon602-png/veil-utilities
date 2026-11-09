@@ -506,11 +506,11 @@ async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
     run. Developers, the server owner, servers that don't use levels, members without a level, and permissions
     given to a role with fakeperms are left as they were."""
     from core import perms as _perms
-    from core.help import CATEGORY_MIN_RANKS, category_for_command, rank_name
+    from core.help import command_category_gate, rank_name
     bot, guild, command = getattr(ctx, "bot", None), getattr(ctx, "guild", None), getattr(ctx, "command", None)
     if guild is None or command is None or bot is None or getattr(bot, "db", None) is None:
         return
-    gate = CATEGORY_MIN_RANKS.get(category_for_command(command, bot), 0)
+    gate = command_category_gate(command, bot)
     if gate <= 0 or _perms.is_bot_developer(ctx.author, bot) or ctx.author.id == getattr(guild, "owner_id", None):
         return
     pl_cfg = await bot.db.get_config(guild.id, "permlevels")
