@@ -435,8 +435,30 @@ class Utility(commands.Cog):
     async def firstmessage(self, ctx: Context, channel: discord.TextChannel = None):
         """Jump to the first message in a channel"""
         channel = channel or ctx.channel
-        async for m in channel.history(limit=1, oldest_first=True):
-            return await ctx.neutral(f"[first message in {channel.mention}]({m.jump_url}) by {m.author.mention} {ts(m.created_at)}")
+        # The bot may be able to see channels that the invoking member cannot. Do not
+        # disclose even the author or timestamp of a message in an inaccessible channel.
+        guild = getattr(ctx, "guild", None)
+        if (guild is None or getattr(guild, "id", None) is None
+                or getattr(getattr(channel, "guild", None), "id", None) != guild.id):
+            raise UserError("That channel isn't in this server")
+        me = getattr(guild, "me", None)
+        if me is None:
+            raise UserError("I can't verify my channel permissions")
+        try:
+            user_permissions = channel.permissions_for(ctx.author)
+            bot_permissions = channel.permissions_for(me)
+        except (AttributeError, TypeError, discord.ClientException):
+            raise UserError("I can't verify channel permissions")
+        if not (getattr(user_permissions, "view_channel", False) and getattr(user_permissions, "read_message_history", False)):
+            raise UserError("You need View Channel and Read Message History in that channel")
+        if not (getattr(bot_permissions, "view_channel", False) and getattr(bot_permissions, "read_message_history", False)):
+            raise UserError("I need View Channel and Read Message History in that channel")
+        try:
+            async for m in channel.history(limit=1, oldest_first=True):
+                # Discord doesn't reliably render a channel mention inside a masked-link label.
+                return await ctx.neutral(f"[first message]({m.jump_url}) in {channel.mention} by {m.author.mention} {ts(m.created_at)}")
+        except discord.Forbidden:
+            raise UserError("I can't read message history in that channel")
         raise UserError("No messages found")
 
     # ================================================================ emojis

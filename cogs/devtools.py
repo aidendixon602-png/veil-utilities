@@ -236,9 +236,10 @@ class DevTools(commands.Cog):
 
     @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
     async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
-        """Ban someone from every server the bot is in
+        """Attempt to ban a user across every server Veil is in
 
-        They're banned again if they rejoin or get unbanned.
+        Provide a user mention or ID and confirm before any action. Some failures may be reported; API
+        errors can interrupt the operation. Veil attempts to reban on rejoin or unban, but cannot guarantee it.
         """
         # never yourself, the bot, a bot developer, the server owner or a whitelisted person, whoever runs it
         check_target(ctx, user, "genreban")
