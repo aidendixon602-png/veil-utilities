@@ -29,6 +29,9 @@ class FakeDB:
             self.store[key] = json.loads(json.dumps(default)) if default is not None else {}
         return self.store[key]
 
+    async def set_config_committed(self, gid, module, data):
+        await self.set_config(gid, module, data)
+
     async def set_config(self, gid, module, data):
         self.store[(gid, module)] = data
         self.writes.append((gid, module))
@@ -452,3 +455,37 @@ def test_dashboard_rejects_hard_role_in_soft_blacklist_without_writes():
     run(server, scenario)
     assert bot.db.store[(GUILD_ID, "roleblacklist")] == original
     assert bot.db.writes == []
+
+
+def test_local_dashboard_cannot_read_or_write_role_blacklist_even_with_valid_csrf():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, "roleblacklist")] = {"roles": [123456], "authorized": [654321]}
+    server = DashboardServer(bot, port=0)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}")
+        body = await page.text()
+        assert page.status == 200 and "123456" not in body and "rbl_roles" not in body
+        api = await client.get(f"/api/guilds/{GUILD_ID}/config")
+        assert "roleblacklist" not in await api.json()
+        session = server._unsign(client.session.cookie_jar.filter_cookies(client.make_url('/'))[SESSION_COOKIE].value, "session")
+        response = await client.post(f"/api/guilds/{GUILD_ID}/config",
+                                     data={"csrf": session["csrf"], "rbl_roles": "44"})
+        assert response.status == 403
+    run(server, scenario)
+    assert bot.db.store[(GUILD_ID, "roleblacklist")] == {"roles": [123456], "authorized": [654321]}
+    assert bot.db.writes == []
+
+
+def test_local_unrelated_settings_save_does_not_write_role_blacklist():
+    bot = make_bot()
+    server = DashboardServer(bot, port=0)
+
+    async def scenario(client):
+        await client.get("/")
+        token = client.session.cookie_jar.filter_cookies(client.make_url('/'))[SESSION_COOKIE].value
+        csrf = server._unsign(token, "session")["csrf"]
+        response = await client.post(f"/api/guilds/{GUILD_ID}/config", data={"csrf": csrf, "an_admins": "42"}, allow_redirects=False)
+        assert response.status == 302
+    run(server, scenario)
+    assert (GUILD_ID, "roleblacklist") not in bot.db.writes

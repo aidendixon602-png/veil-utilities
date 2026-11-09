@@ -41,6 +41,9 @@ class SingleMemberBledView(discord.ui.View):
     async def interaction_check(self, it: discord.Interaction) -> bool:
         guild = getattr(it, "guild", None)
         origin_id = getattr(self.ctx.guild, "id", None)
+        if guild is None and origin_id is not None:
+            get_guild = getattr(self.cog.bot, "get_guild", None)
+            guild = get_guild(origin_id) if callable(get_guild) else None
         if (guild is None or origin_id is None or getattr(guild, "id", None) != origin_id
                 or not owner_or_developer(it.user, guild, getattr(it, "client", None))):
             await it.response.send_message("Only the server owner or a bot developer can use this button.", ephemeral=True)
@@ -112,11 +115,11 @@ class SingleMemberBledView(discord.ui.View):
     async def auth_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         for child in self.children:
             child.disabled = True
-        cfg = await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist")
+        cfg = deepcopy(await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist"))
         auth = cfg.setdefault("authorized", [])
         if self.target.id not in auth:
             auth.append(self.target.id)
-            await self.cog.bot.db.set_config(self.ctx.guild.id, "roleblacklist", cfg)
+            await self.cog.bot.db.set_config_committed(self.ctx.guild.id, "roleblacklist", cfg)
 
         embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
         embed.color = Colors.mint
@@ -135,6 +138,9 @@ class GuildBledView(discord.ui.View):
     async def interaction_check(self, it: discord.Interaction) -> bool:
         guild = getattr(it, "guild", None)
         origin_id = getattr(self.ctx.guild, "id", None)
+        if guild is None and origin_id is not None:
+            get_guild = getattr(self.cog.bot, "get_guild", None)
+            guild = get_guild(origin_id) if callable(get_guild) else None
         if (guild is None or origin_id is None or getattr(guild, "id", None) != origin_id
                 or not owner_or_developer(it.user, guild, getattr(it, "client", None))):
             await it.response.send_message("Only the server owner or a bot developer can use this button.", ephemeral=True)
@@ -193,14 +199,14 @@ class GuildBledView(discord.ui.View):
     async def auth_all(self, interaction: discord.Interaction, button: discord.ui.Button):
         for child in self.children:
             child.disabled = True
-        cfg = await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist")
+        cfg = deepcopy(await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist"))
         auth = cfg.setdefault("authorized", [])
         count = 0
         for m, _ in self.unauthorized:
             if m.id not in auth:
                 auth.append(m.id)
                 count += 1
-        await self.cog.bot.db.set_config(self.ctx.guild.id, "roleblacklist", cfg)
+        await self.cog.bot.db.set_config_committed(self.ctx.guild.id, "roleblacklist", cfg)
 
         embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
         embed.color = Colors.mint
@@ -215,6 +221,11 @@ class Moderation(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+
+    async def cog_before_invoke(self, ctx: Context):
+        from core.help import is_rbl_command
+        if is_rbl_command(ctx.command):
+            ctx._private_rbl = True
 
     async def _cfg(self, gid, mod):
         return await self.bot.db.get_config(gid, mod)
@@ -869,7 +880,7 @@ class Moderation(commands.Cog):
         Returns True if they were newly authorized."""
         if not await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
             return False
-        rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        rbl_cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
         if role.id in rbl_cfg.get("hard_roles", []):
             raise UserError("This role appears on both blacklists; remove one entry before assigning it")
         # Soft bypasses must never be silently promoted into legacy authorizations,
@@ -882,8 +893,10 @@ class Moderation(commands.Cog):
         auth = rbl_cfg.setdefault("authorized", [])
         if member.id in auth:
             return False
+        if not owner_or_developer(ctx.author, ctx.guild, self.bot):
+            raise UserError("Only the server owner or a bot developer may authorize someone for a blacklisted role")
         auth.append(member.id)
-        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", rbl_cfg)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", rbl_cfg)
         return True
 
     async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
@@ -1260,14 +1273,14 @@ class Moderation(commands.Cog):
     @is_server_owner()
     async def rbl_add(self, ctx: Context, *, role: discord.Role):
         """Blacklist a role"""
-        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
         if role.id in cfg.get("hard_roles", []):
             raise UserError("Remove this role from hardbl before adding it to the ordinary role blacklist")
         roles = cfg.setdefault("roles", [])
         if role.id in roles:
             raise UserError(f"{role.mention} is already blacklisted")
         roles.append(role.id)
-        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
 
         # Strip from current members if any currently hold it (skipping authorized members & devs)
         top_pos = getattr(getattr(ctx.guild.me, "top_role", None), "position", 999999)
@@ -1298,14 +1311,14 @@ class Moderation(commands.Cog):
 
         `deleted` clears out roles that no longer exist.
         """
-        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
         roles = cfg.setdefault("roles", [])
         if role.lower() == "deleted":
             gone = [rid for rid in roles if ctx.guild.get_role(rid) is None]
             if not gone:
                 return await ctx.warn("no deleted roles in the blacklist")
             cfg["roles"] = [rid for rid in roles if rid not in gone]
-            await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+            await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
             return await ctx.approve(f"removed **{len(gone)}** deleted role{'' if len(gone) == 1 else 's'} from the blacklist")
 
         if role.isdigit() and int(role) in roles:
@@ -1319,7 +1332,7 @@ class Moderation(commands.Cog):
         if rid not in roles:
             raise UserError(f"{resolved_mention} isn't blacklisted")
         roles.remove(rid)
-        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
         await ctx.approve(f"unblacklisted {resolved_mention}")
 
     @roleblacklist.command(name="list")
@@ -1546,25 +1559,19 @@ class Moderation(commands.Cog):
 
     async def _do_rbl_authorize(self, ctx: Context, target: discord.Member | discord.Role):
         from core import perms as _perms
-        bot = getattr(ctx, "bot", None)
-        is_dev = _perms.is_bot_developer(ctx.author, bot)
-        is_owner = getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None)
-        cfg_pl = await self.bot.db.get_config(ctx.guild.id, "permlevels")
-        author_rank = _perms.rank_of(cfg_pl, ctx.author, is_owner=is_owner, is_dev=is_dev)
-
-        if author_rank < 4 and not (is_dev or is_owner):
-            raise UserError("🔒 You need the **Server Manager** level or higher (or to own the server) to authorize members for blacklisted roles.")
+        if not owner_or_developer(ctx.author, ctx.guild, self.bot):
+            raise UserError("Only the server owner or a bot developer can authorize role blacklist exemptions")
 
         if _perms.is_bot_developer(target, self.bot):
             return await ctx.neutral(f"{target.mention} is a bot developer and is always authorized")
         if target.id == ctx.guild.owner_id:
             return await ctx.neutral(f"{target.mention} is the server owner and is always authorized")
-        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
         auth = cfg.setdefault("authorized", [])
         if target.id in auth:
             raise UserError(f"{target.mention} is already authorized")
         auth.append(target.id)
-        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
         await ctx.approve(f"authorized {target.mention} to hold blacklisted roles")
 
     @roleblacklist.command(name="unauthorize", aliases=["unauth", "unwhitelist"])
@@ -1588,25 +1595,19 @@ class Moderation(commands.Cog):
 
     async def _do_rbl_unauthorize(self, ctx: Context, target: discord.Member | discord.Role):
         from core import perms as _perms
-        bot = getattr(ctx, "bot", None)
-        is_dev = _perms.is_bot_developer(ctx.author, bot)
-        is_owner = getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None)
-        cfg_pl = await self.bot.db.get_config(ctx.guild.id, "permlevels")
-        author_rank = _perms.rank_of(cfg_pl, ctx.author, is_owner=is_owner, is_dev=is_dev)
-
-        if author_rank < 4 and not (is_dev or is_owner):
-            raise UserError("🔒 You need the **Server Manager** level or higher (or to own the server) to revoke role blacklist authorizations.")
+        if not owner_or_developer(ctx.author, ctx.guild, self.bot):
+            raise UserError("Only the server owner or a bot developer can revoke role blacklist exemptions")
 
         if _perms.is_bot_developer(target, self.bot):
             raise UserError(f"{target.mention} is a bot developer and can't be unauthorized")
         if target.id == ctx.guild.owner_id:
             raise UserError(f"{target.mention} is the server owner and can't be unauthorized")
-        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
         auth = cfg.setdefault("authorized", [])
         if target.id not in auth:
             raise UserError(f"{target.mention} isn't authorized")
         auth.remove(target.id)
-        await self.bot.db.set_config(ctx.guild.id, "roleblacklist", cfg)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
         await ctx.approve(f"removed {target.mention}'s authorization")
 
     @roleblacklist.command(name="authorized", aliases=["allowed"])
@@ -1739,33 +1740,13 @@ class Moderation(commands.Cog):
                 has_bled = any(r.id in b_ids for r in added)
 
                 if has_bled and not self._is_role_authorized(after.guild, after, cfg):
-                    assigned_by_auth = False
-                    try:
-                        me = getattr(after.guild, "me", None)
-                        if me and getattr(me.guild_permissions, "view_audit_log", False):
-                            async for entry in after.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_role_update):
-                                if getattr(entry.target, "id", None) == after.id:
-                                    delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
-                                    if delta < 15:
-                                        actor = entry.user
-                                        if actor.id == self.bot.user.id or self._is_role_authorized(after.guild, actor, cfg, include_soft=False):
-                                            assigned_by_auth = True
-                                            auth = cfg.setdefault("authorized", [])
-                                            if after.id not in auth:
-                                                auth.append(after.id)
-                                                await self.bot.db.set_config(after.guild.id, "roleblacklist", cfg)
-                                            break
-                    except Exception:
-                        pass
-
-                    if not assigned_by_auth:
-                        top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
-                        to_strip = [r for r in added if r.id in b_ids and getattr(r, "position", 0) < top_pos]
-                        if to_strip and after.guild.me.guild_permissions.manage_roles:
-                            try:
-                                await after.remove_roles(*to_strip, reason="Veil: Role is blacklisted")
-                            except discord.HTTPException:
-                                pass
+                    top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
+                    to_strip = [r for r in added if r.id in b_ids and getattr(r, "position", 0) < top_pos]
+                    if to_strip and after.guild.me.guild_permissions.manage_roles:
+                        try:
+                            await after.remove_roles(*to_strip, reason="Veil: Role is blacklisted")
+                        except discord.HTTPException:
+                            pass
 
     # ================================================================ jail
     @commands.group(invoke_without_command=True)

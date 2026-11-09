@@ -23,7 +23,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,antinukepreset list` | List antinuke presets |
 | `,antinukepreset load <name>` (apply) | Apply a saved preset to this server |
 | `,antinukepreset save <name>` | Save this server's antinuke config as a preset |
-| `,genreban <user> [reason=Genre ban across authorized servers]` (reban, hardban, globalban, hb) | Attempt to ban a user across every server Veil is in |
+| `,genreban <user> [reason=Genre ban across authorized servers]` (reban, hardban, globalban, hb) | Attempt a cross-server genreban after a server ban |
 | `,hardbans` (genrebans, genrebanlist, globalbans) | List network genrebans |
 | `,joinleavelogs [channel]` (jllogs) | Log joins, leaves and kicks in their own channel |
 | `,massunrole [role] [flag]` | Remove a role from everyone |

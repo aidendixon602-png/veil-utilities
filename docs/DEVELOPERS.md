@@ -23,3 +23,14 @@ Veil's hidden developer commands are not part of the public [command reference](
 Other developer commands can execute arbitrary code or shell commands, query databases, impersonate command invocations, change multiple servers, or alter roles and bans. Treat them as administrative access to the host and Discord servers. Do not expose output to untrusted channels or share credentials. Check `,dev` and source for current syntax and access checks rather than assuming every developer tool is safe or reversible.
 
 Developer-channel errors and the unauthorized-server/antinuke notification outbox have different delivery and persistence behavior; see [developer notifications](OPERATIONS.md#developer-notifications). Full incident management, complete event coverage and automated recovery are not yet implemented.
+
+### Network genreban prerequisite
+
+`genreban`, `hardban`, `reban`, `globalban`, and `hb` are aliases for the same developer-only
+cross-server operation. Before a new network ban, the target must already have a standard Discord
+ban in the server where the command is invoked. Veil checks the ban via Discord before prompting
+and again after confirmation; missing server context, an unbanned target, insufficient permission,
+or an API failure prevents the operation. A later unban may race the final check. Veil records the
+user, moderator, reason and time in `globalbans`, preserving an existing record. The cross-server
+loop is best effort and may partially fail; enforcement on later unbans/rejoins is not guaranteed.
+This does not change or lift existing network bans.

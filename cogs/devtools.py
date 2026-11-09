@@ -231,13 +231,14 @@ class DevTools(commands.Cog):
             return True
         except discord.NotFound:
             return False
-        except discord.HTTPException:
+        except (discord.HTTPException, asyncio.TimeoutError):
             return None
 
     @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
     async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
-        """Attempt to ban a user across every server Veil is in
+        """Attempt a cross-server genreban after a server ban
 
+        The invoking server ban is checked again after confirmation.
         Provide a user mention or ID and confirm before any action. Some failures may be reported; API
         errors can interrupt the operation. Veil attempts to reban on rejoin or unban, but cannot guarantee it.
         """
@@ -250,6 +251,10 @@ class DevTools(commands.Cog):
             by = f" by <@{existing['mod_id']}>" if existing["mod_id"] else ""
             return await ctx.warn(f"{self._who(user)} is already genrebanned (since {since}{by}). "
                                   "They're banned again automatically if they rejoin or are unbanned.")
+        if ctx.guild is None:
+            raise UserError("Use this command in the server where the user is already banned")
+        if await self._banned_in(ctx.guild, user.id) is not True:
+            raise UserError("A standard ban in this server is required and must be verifiable before a genreban or hardban")
         guilds = list(self.bot.guilds)
         owned = [g for g in guilds if g.owner_id == user.id]  # an owner can't be banned from their own server
         guilds = [g for g in guilds if g.owner_id != user.id]
@@ -273,14 +278,25 @@ class DevTools(commands.Cog):
             embed.description = f"{self._who(user)} was genrebanned by someone else in the meantime. Nothing was repeated."
             return await msg.edit(embed=embed, view=None)
 
-        await self.bot.db.execute(
-            "INSERT OR REPLACE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
+        if await self._banned_in(ctx.guild, user.id) is not True:
+            embed.description = "The required server ban could not be verified after confirmation. Nothing was changed."
+            embed.color = Colors.deny
+            return await msg.edit(embed=embed, view=None)
+        inserted = await self.bot.db.execute(
+            "INSERT OR IGNORE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
+        if inserted.rowcount == 0:
+            embed.description = f"{self._who(user)} was genrebanned by someone else in the meantime. Nothing was repeated."
+            return await msg.edit(embed=embed, view=None)
         banned, already, failed = 0, 0, []
         async with await self._working(ctx, msg, embed, f"Genrebanning {self._who(user)} in "
                                                         f"{plural(len(guilds), 'server')}..."):
             for g in guilds:
-                if await self._banned_in(g, user.id):
+                status = await self._banned_in(g, user.id)
+                if status is True:
                     already += 1  # banned there already (by staff or another bot): no second ban, no second log
+                    continue
+                if status is None:
+                    failed.append(g.name)  # do not repeat a ban when its status is unknown
                     continue
                 try:  # the ban logs read who ran it from this reason, so they credit them instead of the bot
                     await g.ban(discord.Object(user.id), reason=audit_reason(ctx.author, reason, "genreban"))
@@ -358,8 +374,8 @@ class DevTools(commands.Cog):
             return
         if not await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user_id):
             return
-        if await self._banned_in(guild, user_id):
-            return  # another bot (or staff) already banned them again
+        if await self._banned_in(guild, user_id) is not False:
+            return  # already banned or status unavailable; never infer success from an error
         try:
             await guild.ban(discord.Object(user_id), reason=f"Genreban enforced: {why}")
         except discord.HTTPException:

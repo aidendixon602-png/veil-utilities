@@ -233,3 +233,34 @@ def test_soft_bypass_does_not_promote_a_globally_trusted_actor_to_legacy_grant(r
             await cog._mass_role(ctx, "add", protected, lambda m: True, "everyone")
         assert cfg["authorized"] == []
     asyncio.run(run())
+
+
+def test_legacy_authorized_staff_cannot_silently_authorize_a_new_recipient(role_bot):  # noqa: F811
+    bot = role_bot
+    async def run():
+        from test_roleblacklist_enforcement import _mock_context, _mock_guild, _mock_member, _mock_role
+        guild = _mock_guild(123)
+        staff, target = _mock_member(555), _mock_member(556)
+        cfg = {"roles": [888], "authorized": [555]}
+        bot._storage[(123, "roleblacklist")] = cfg
+        ctx = _mock_context(bot, guild, staff)
+        with pytest.raises(UserError, match="server owner.*bot developer"):
+            await Moderation(bot)._authorize_bled_target(ctx, target, _mock_role(888, "protected"))
+        assert cfg["authorized"] == [555]
+    asyncio.run(run())
+
+
+def test_rbl_write_failure_does_not_publish_cached_changes(role_bot):  # noqa: F811
+    async def run():
+        bot = role_bot
+        guild = _mock_guild(123)
+        owner = _mock_member(guild.owner_id)
+        ctx = _mock_context(bot, guild, owner)
+        original = {"roles": [888], "authorized": []}
+        bot._storage[(123, "roleblacklist")] = deepcopy(original)
+        bot.db.set_config_committed = AsyncMock(side_effect=RuntimeError("db unavailable"))
+        with pytest.raises(RuntimeError):
+            await Moderation.rbl_add.callback(Moderation(bot), ctx, role=_mock_role(889, "new"))
+        assert bot._storage[(123, "roleblacklist")] == original
+        ctx.approve.assert_not_awaited()
+    asyncio.run(run())
