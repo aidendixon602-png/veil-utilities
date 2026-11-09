@@ -1,6 +1,6 @@
 # Command reference
 
-458 commands. Default prefix `,`. `<required>` `[optional]`.
+459 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -338,7 +338,7 @@ _Keep your server in line_
 | `,admin [member]` (adminpanel, ap) | Open the admin panel for a member or the server | uperm: admin |
 | `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
-| `,cases [user]` (history, modlogs) | View moderation history (for the server or a user) | moderate members |
+| `,cases [user]` (history, modlogs) | View moderation history (for the server or a user) | veil cases |
 | `,checkbled [target]` (checkbl, scanbl, bledcheck, rblcheck, roleblcheck) | Check for members holding blacklisted roles |  |
 | `,clearwarns <member>` (clearwarnings) | Clear all of a member's warnings | moderate members, uperm: moderator |
 | `,delwarn <warn_id>` (unwarn) | Delete a single warning by ID | moderate members, uperm: moderator |
@@ -397,7 +397,7 @@ _Keep your server in line_
 | `,softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members, uperm: admin |
 | `,stripbled` (purgebled, rblstrip, roleblstrip) | Take blacklisted roles off everyone not allowed to have them | manage roles, uperm: headadmin |
 | `,stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, uperm: headadmin |
-| `,timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d) | moderate members, uperm: moderator |
+| `,timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d; Helper max 1h) | moderate members, uperm: helper, veil timeout |
 | `,unban <user> [reason]` | Unban a user | ban members, uperm: admin |
 | `,unhide [channel]` (reveal) | Reveal a hidden channel | manage channels, uperm: admin |
 | `,unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: moderator |
@@ -406,8 +406,8 @@ _Keep your server in line_
 | `,unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine | manage roles, moderate members, uperm: moderator |
 | `,untimeout <member> [reason]` (unmute, untime, uto) | Remove a member's timeout | moderate members, uperm: moderator |
 | `,untimeout all [reason]` | Remove timeouts from every timed-out member | moderate members, uperm: admin |
-| `,warn <member> [reason=No reason provided]` | Warn a member | moderate members, uperm: moderator |
-| `,warnings <member>` (warns) | List a member's warnings | moderate members |
+| `,warn <member> [reason=No reason provided]` | Warn a member | uperm: helper, veil warn |
+| `,warnings <member>` (warns) | List a member's warnings | veil cases |
 | `,warnpunish <warnings> <action> [duration]` | Set what happens at a number of warnings | administrator, uperm: admin |
 
 ## 🎵 Music
@@ -441,6 +441,7 @@ _Assign named permission levels to members_
 |---|---|---|
 | `,botperms` (botpermissions, botperm) | View the bot's Discord permissions in this server and channel |  |
 | `,permlevels` (plevels, plvl) | View the permission levels available in this server | manage messages |
+| `,permlevels action <key> <action>` | Toggle a narrow moderation action for a level (server owner) |  |
 | `,permlevels grant <key> <permission>` | Toggle a bot-permission a level grants (server owner) |  |
 | `,permlevels rank <key> <rank>` | Change a level's rank (server owner) |  |
 | `,permlevels rename <key> <name>` | Rename a level (server owner) |  |

@@ -269,7 +269,7 @@ def test_staff_panel_checks_command_role_restrictions_too():
         bot.is_authorized = lambda guild: True
         bot.get_command = lambda name: clean if name == "tools clean" else None
         store = {"settings": {}, "command_restrictions": {"tools": ["2"]},
-                 "permlevels": {"users": {"500": "helper"}}, "fakeperms": {}}
+                 "permlevels": {"users": {"500": "moderator"}}, "fakeperms": {}}
         bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda gid, key: store[key]))
         bot.add_check(bot._global_check)
         author = SimpleNamespace(id=500, roles=[], guild_permissions=discord.Permissions.none())
@@ -279,7 +279,7 @@ def test_staff_panel_checks_command_role_restrictions_too():
         assert not await can_use(ctx, "tools clean")
         author.roles.append(SimpleNamespace(id=2))
         assert await can_use(ctx, "tools clean")
-        store["permlevels"]["overrides"] = {"helper": {"perms": []}}
+        store["permlevels"]["overrides"] = {"moderator": {"perms": []}}
         assert not await can_use(ctx, "tools clean")
 
     asyncio.run(go())

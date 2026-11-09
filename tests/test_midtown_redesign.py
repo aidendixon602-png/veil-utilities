@@ -246,7 +246,7 @@ def test_command_category_and_rank_resolution():
     assert min_rank_for_command(kick_cmd, bot) == 2  # Moderator (rank 2)
 
     purge_cmd = mod_cog.purge
-    assert min_rank_for_command(purge_cmd, bot) == 1  # Helper (rank 1)
+    assert min_rank_for_command(purge_cmd, bot) == 2  # Moderator (rank 2)
 
 
 def test_moderation_uperm_predicates():
@@ -364,9 +364,9 @@ def test_all_moderation_actions_have_uperm_checks():
         ("massban", "admin"),
         ("masskick", "admin"),
         ("kick", "moderator"),
-        ("timeout", "moderator"),
+        ("timeout", "helper"),
         ("untimeout", "moderator"),
-        ("warn", "moderator"),
+        ("warn", "helper"),
         ("clearwarns", "moderator"),
         ("delwarn", "moderator"),
         ("purge", "helper"),

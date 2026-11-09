@@ -235,6 +235,15 @@ class Moderation(commands.Cog):
             await protection.handle(ctx.guild, target.id, ctx.author.id, source="Veil command", actual_ban=False)
         raise UserError("🛡️ Developer ban blocked. A security notice was attempted.")
 
+    async def _limited_helper(self, ctx: Context) -> bool:
+        """Apply the Helper safety limits even when a Helper also has fake permissions."""
+        if ctx.author.id == ctx.guild.owner_id or perms_mod.is_bot_developer(ctx.author, self.bot):
+            return False
+        cfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
+        levels = perms_mod.all_levels(cfg)
+        name, _, rank = perms_mod.member_level_info(cfg, ctx.author)
+        return name == levels["helper"]["name"] or rank < levels["moderator"]["rank"]
+
     # ================================================================ staff panels
     @commands.command(name="mod", aliases=["modpanel", "mp"])
     @commands.guild_only()
@@ -415,15 +424,20 @@ class Moderation(commands.Cog):
         await ctx.approve(f"kicked {member.mention} · case #{num}")
 
     @commands.command(aliases=["mute", "to", "tmute"])
-    @requires_uperm("moderator")
-    @has_perms(moderate_members=True)
+    @requires_uperm("helper")
+    @has_perms(veil_timeout=True)
     @commands.bot_has_permissions(moderate_members=True)
     async def timeout(self, ctx: Context, member: discord.Member, duration: Optional[Duration] = None, *, reason: str = None):
-        """Timeout a member (default 5m, max 28d)"""
+        """Timeout a member (default 5m, max 28d; Helper max 1h)"""
         await check_hierarchy_async(ctx, member, "timeout")
-        duration = duration or timedelta(minutes=5)
+        if duration is None:
+            duration = timedelta(minutes=5)
+        if duration <= timedelta(0):
+            raise UserError("timeout duration must be positive")
         if duration > timedelta(days=28):
             raise UserError("timeouts can be at most 28 days")
+        if await self._limited_helper(ctx) and duration > timedelta(hours=1):
+            raise UserError("Helper timeouts can be at most 1 hour")
         await antinuke_guard(ctx, "timeout")
         await member.timeout(duration, reason=audit_reason(ctx.author, reason))
         human = fmt_duration(duration.total_seconds())
@@ -466,8 +480,8 @@ class Moderation(commands.Cog):
 
     # ================================================================ warns
     @commands.command()
-    @requires_uperm("moderator")
-    @has_perms(moderate_members=True)
+    @requires_uperm("helper")
+    @has_perms(veil_warn=True)
     async def warn(self, ctx: Context, member: discord.Member, *, reason: str = "No reason provided"):
         """Warn a member
 
@@ -484,6 +498,10 @@ class Moderation(commands.Cog):
         # escalation
         rules = await self._cfg(ctx.guild.id, "warnpunish")
         action = rules.get(str(count))
+        if action and await self._limited_helper(ctx):
+            # A Helper warning must not indirectly cause a kick, ban, or longer timeout.
+            await ctx.warn("The configured automatic warning punishment was not applied because a Helper issued this warning.")
+            return
         if action:
             if action in ("kick", "ban"):  # the warning stands even if antinuke blocks the escalation
                 await antinuke_guard(ctx, action)
@@ -521,7 +539,7 @@ class Moderation(commands.Cog):
         await ctx.approve(f"at **{warnings}** warnings: **{action}**" if action != "none" else f"removed the auto-punishment at **{warnings}** warnings")
 
     @commands.command(aliases=["warns"])
-    @has_perms(moderate_members=True)
+    @has_perms(veil_cases=True)
     async def warnings(self, ctx: Context, member: discord.Member | discord.User):
         """List a member's warnings"""
         rows = await self.bot.db.fetchall("SELECT * FROM warns WHERE guild_id=? AND user_id=? ORDER BY id DESC",
@@ -567,7 +585,7 @@ class Moderation(commands.Cog):
 
     # ================================================================ cases
     @commands.command(aliases=["history", "modlogs"])
-    @has_perms(moderate_members=True)
+    @has_perms(veil_cases=True)
     async def cases(self, ctx: Context, user: discord.Member | discord.User = None):
         """View moderation history (for the server or a user)"""
         if user:

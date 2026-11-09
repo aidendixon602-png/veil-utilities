@@ -78,4 +78,5 @@ def test_permission_guide_discloses_builtins_and_unfixed_self_role_risk():
     assert "not a fix to the code" in guide
     for uid, name in {**perms.TRUSTED_BOTS, **perms.WHITELISTED_PEOPLE}.items():
         assert str(uid) in guide and name in guide
-    assert "Helper limited-timeout preset are not yet implemented" in guide
+    assert "maximum one hour" in guide
+    assert "not the complete" in (ROOT / "docs/MASTER_AUDIT.md").read_text(encoding="utf-8")

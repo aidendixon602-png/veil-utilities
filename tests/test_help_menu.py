@@ -87,7 +87,7 @@ def test_inside_a_category_commands_above_your_level_are_hidden():
                             qualified_name="purge", name="purge")
     admin_only = SimpleNamespace(callback=SimpleNamespace(__veil_perms__=["administrator"]), cog_name="Moderation",
                                  qualified_name="x", name="x")
-    assert (min_rank_for_command(purge), min_rank_for_command(kick), min_rank_for_command(admin_only)) == (1, 2, 7)
+    assert (min_rank_for_command(purge), min_rank_for_command(kick), min_rank_for_command(admin_only)) == (2, 2, 7)
 
 
 def test_the_home_dropdown_lists_categories_in_order():
@@ -846,6 +846,7 @@ def test_helper_help_respects_actual_level_overrides_fakeperms_and_disabled_comm
         store["fakeperms"] = {"88": ["manage_messages"]}
         access = await h.help_access(1)
         view = HelpView(h, {"Utility": [tools, clear, public]}, start="Utility", author_rank=1, access=access)
+        assert access.permits(clear) and access.permits(tools)
         assert {c.name for c in view.current_items()} == {"clear", "public", "tools"}
         await view.show_command(_it(), "tools")
         assert not view.current_subcommands()  # moderator subcommand is still restricted
@@ -877,7 +878,7 @@ def test_help_respects_custom_target_rank_server_owner_and_storage_failure():
         h.context.author = SimpleNamespace(id=42, roles=[], guild_permissions=discord.Permissions.none())
         h.context.guild = SimpleNamespace(id=1, owner_id=99)
         h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
-        cfg = {"users": {"42": "helper"}, "overrides": {"helper": {"rank": 2}}}
+        cfg = {"users": {"42": "helper"}, "overrides": {"helper": {"rank": 2, "perms": ["manage_messages"]}}}
         store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
         h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store.get(key, {})))
         assert not (await h.help_access(1)).permits(clear)
@@ -952,7 +953,8 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                 assert "Developer" not in view.pages
                 moderator = {c.name for c in view.items.get("Moderator", [])}
                 admin = {c.name for c in view.items.get("Admin", [])}
-                assert "purge" in moderator
+                assert ("purge" in moderator) == (rank >= 2)
+                assert {"warn", "timeout", "cases"} <= moderator
                 assert ("kick" in moderator) == (rank >= 2)
                 assert ("ban" in admin) == (rank >= 3)
                 assert ("Permissions" in view.pages) == (rank >= 6)
@@ -990,7 +992,7 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
         h.context.guild = SimpleNamespace(id=1, owner_id=99)
         h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
         cfg = {"users": {"42": "helper"}, "overrides": {
-            "helper": {"rank": 5}, "moderator": {"rank": 5, "name": "Senior Mod"}}}
+            "helper": {"rank": 5, "perms": ["manage_messages"]}, "moderator": {"rank": 5, "name": "Senior Mod"}}}
         store = {"permlevels": cfg, "fakeperms": {}, "settings": {}}
         h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store.get(key, {})))
         h.context.send = AsyncMock()
