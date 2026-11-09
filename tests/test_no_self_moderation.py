@@ -220,16 +220,9 @@ def test_network_ban_of_someone_who_owns_every_server_is_refused():
     ctx.bot.db.execute.assert_not_called()
 
 
-@pytest.mark.parametrize("target", [AUTHOR, OWNER])
-def test_panels_wont_open_on_yourself_or_the_owner(target):
-    ctx = make_ctx()
-    cog = Moderation.__new__(Moderation)
-    cog.bot = ctx.bot
-    member = SimpleNamespace(id=target, mention="x")
-    for cmd in (Moderation.mod_panel, Moderation.admin_panel):
-        with pytest.raises(UserError):
-            asyncio.run(cmd.callback(cog, ctx, member))
-    ctx.send.assert_not_called()
+def test_removed_panel_commands_are_no_longer_registered():
+    assert not hasattr(Moderation, "mod_panel")
+    assert not hasattr(Moderation, "admin_panel")
 
 
 def test_the_working_step_stays_up_a_moment():

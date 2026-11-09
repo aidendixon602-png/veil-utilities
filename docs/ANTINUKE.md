@@ -39,6 +39,26 @@ Only the server owner or a bot developer can turn the whole antinuke off.
   Underscored aliases such as `role_update` and `bot_add` are available for several rules.
 - `,an <rule> off` turns off that rule without discarding its settings. Omitted flags leave existing values alone.
 
+## Optional server name-change monitoring
+
+`,an namemonitor on` enables an **alert-only** monitor for server-name changes; `off` disables it
+and omitting the argument shows the setting. Only the actual server owner or a bot developer may
+configure it. It is off by default and does not change existing server-update rules or punish or
+restore anyone. It monitors trusted actors too, without assuming a change was malicious. Veil
+must have antinuke enabled, receive a usable Discord audit-log entry, and have an antinuke log
+channel it can write to. Missing or delayed entries and delivery errors can prevent alerts.
+A separate existing rule may still act on a simultaneous vanity change.
+
+The Antinuke category in `,help` now lists security subcommands and aliases across pages. The
+`,mod` and `,admin` panel commands are removed; their individual moderation commands remain in
+the unified Moderation help category with their previous permission gates.
+
+To deploy, back up the database and test opt-in monitoring and moderation access in a disposable
+server. Deploy with `AUTO_SYNC_GIT=0` in the process environment. To roll back, stop the bot and
+restore the previously tested version without modifying the database; the older code ignores the
+monitor setting and restores the panel commands. Review permissions before resuming. No live
+Discord test or deployment is implied by local tests.
+
 ## Trust and safety
 
 `,an whitelist @user` or `@role` exempts that user or everyone with that role from antinuke checks. Remove with

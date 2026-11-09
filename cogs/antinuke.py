@@ -14,7 +14,7 @@ from discord.ext import commands
 from core.antinukepanel import AntinukePanel, home_embed
 from core.config import settings
 from core.nukerestore import Snapshots, collapse, display, restore_channels, restore_roles
-from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous
+from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous, is_server_owner
 from core import perms as _perms
 
 log = logging.getLogger("veil.antinuke")
@@ -488,6 +488,22 @@ class Antinuke(commands.Cog):
         cfg = await self.cfg(guild.id)
         if not cfg.get("enabled"):
             return
+        if module == "serverupdate" and cfg.get("name_change_monitor"):
+            # This monitor only reports observed audit entries, including trusted actors.
+            # It does not infer malicious intent or take punitive/restorative action.
+            before = getattr(entry.before, "name", None)
+            after = getattr(entry.after, "name", None)
+            if before is not None and after is not None and before != after:
+                try:
+                    dest = await self._log_channel(guild, cfg)
+                    if dest is not None:
+                        actor = getattr(entry, "user_id", None)
+                        text = f"Audit actor ID: `{actor}`" if actor else "Audit actor unavailable."
+                        await dest.send(embed=discord.Embed(title="Antinuke · Server name changed",
+                                                           description=text + "\n-# This name-change monitor is alert-only.",
+                                                           color=Colors.warn))
+                except Exception:
+                    log.exception("Failed to send server name monitor alert for guild %s", guild.id)
         actor_id = entry.user_id
         run = self.test_runs.get(guild.id)
         test = run is not None and actor_id == getattr(self.bot.user, "id", None) and run.owns(entry)
@@ -1634,6 +1650,21 @@ class Antinuke(commands.Cog):
         lines.append("-# Permission checks can't guarantee protection: role hierarchy, channel permissions, "
                      "audit events and Discord availability still matter.")
         await ctx.send(embed=discord.Embed(title="Antinuke health", description="\n".join(lines), color=Colors.neutral))
+
+    @antinuke.command(name="namemonitor")
+    @commands.guild_only()
+    @is_server_owner()
+    async def an_namemonitor(self, ctx: Context, enabled: bool = None):
+        """Monitor server name changes without automatic punishment
+
+        Opt in with `,an namemonitor on`; alerts are best effort and require audit logs and an antinuke log channel.
+        """
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "antinuke", DEFAULT))
+        if enabled is None:
+            return await ctx.neutral(f"Server name monitoring is **{'on' if cfg.get('name_change_monitor') else 'off'}**")
+        cfg["name_change_monitor"] = enabled
+        await self.bot.db.set_config_committed(ctx.guild.id, "antinuke", cfg)
+        await ctx.approve(f"turned server name monitoring **{'on' if enabled else 'off'}** · alerts only, no punishment")
 
     @antinuke.command(name="enable", aliases=["on"])
     async def an_enable(self, ctx: Context):

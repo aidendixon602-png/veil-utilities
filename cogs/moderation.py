@@ -249,37 +249,6 @@ class Moderation(commands.Cog):
         name, _, rank = perms_mod.member_level_info(cfg, ctx.author)
         return name == levels["helper"]["name"] or rank < levels["moderator"]["rank"]
 
-    # ================================================================ staff panels
-    @commands.command(name="mod", aliases=["modpanel", "mp"])
-    @commands.guild_only()
-    @requires_uperm("helper")
-    async def mod_panel(self, ctx: Context, member: discord.Member):
-        """Open the moderator panel for a member
-
-        Buttons to warn, time out, kick or jail them, and see their warnings.
-        """
-        from core.staffpanel import MOD_ACTIONS, StaffPanel, member_card
-        check_target(ctx, member, "open a panel on")
-        view = await StaffPanel.build(ctx, member, "Moderator panel", MOD_ACTIONS)
-        view.message = await ctx.send(embed=await member_card(ctx, member, "Moderator panel"), view=view)
-
-    @commands.command(name="admin", aliases=["adminpanel", "ap"])
-    @commands.guild_only()
-    @requires_uperm("admin")
-    async def admin_panel(self, ctx: Context, member: discord.Member = None):
-        """Open the admin panel for a member or the server
-
-        For a member: ban, softban, strip staff and quarantine. For the server: lockdown, raid mode and panic.
-        """
-        from core.staffpanel import ADMIN_MEMBER_ACTIONS, ADMIN_SERVER_ACTIONS, StaffPanel, member_card, server_card
-        if member is None:
-            view = await StaffPanel.build(ctx, None, "Admin panel", ADMIN_SERVER_ACTIONS)
-            view.message = await ctx.send(embed=server_card(ctx), view=view)
-            return
-        check_target(ctx, member, "open a panel on")
-        view = await StaffPanel.build(ctx, member, "Admin panel", ADMIN_MEMBER_ACTIONS)
-        view.message = await ctx.send(embed=await member_card(ctx, member, "Admin panel"), view=view)
-
     # ================================================================ bans
     @commands.command()
     @requires_uperm("admin")
