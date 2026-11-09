@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 
 from core import perms
-from core.utils import Colors, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, shorten, ts
+from core.utils import Colors, Confirm, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, role_protection_ids, shorten, ts
 
 A = discord.AuditLogAction
 
@@ -92,7 +92,7 @@ class DevTools(commands.Cog):
         if not saved:
             raise UserError(f"{member.mention} wasn't stripped")
         b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-        b_roles = set(b_cfg.get("roles", []))
+        b_roles = role_protection_ids(b_cfg)
         roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and not r.managed and r.id not in b_roles]
         if roles:
             await member.add_roles(*roles, reason=f"unstrip by {ctx.author}")
@@ -261,11 +261,12 @@ class DevTools(commands.Cog):
         if owned:
             lines.append(f"-# They own {plural(len(owned), 'server')}, which will be skipped.")
         embed = self._prompt("\n".join(lines))
-        view = DangerConfirm(ctx.author.id, timeout=30)
+        view = Confirm(ctx.author.id, timeout=30)
         await msg.edit(content=None, embed=embed, view=view)
         await view.wait()
-        if not view.value:
-            embed.description = f"Genreban of {self._who(user)} cancelled. Nothing was changed."
+        if view.value is not True:
+            outcome = "timed out" if view.value is None else "cancelled"
+            embed.description = f"Genreban of {self._who(user)} {outcome}. Nothing was changed."
             embed.color = Colors.neutral
             return await msg.edit(embed=embed, view=None)
         if await self._already(user):  # someone else did it while this was waiting for Confirm

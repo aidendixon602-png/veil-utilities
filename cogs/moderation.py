@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from datetime import timedelta
 from typing import Optional
 
@@ -21,7 +22,8 @@ from core import perms as perms_mod
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
                         check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
-                        ts, requires_uperm, is_server_owner, owner_or_developer)
+                        ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
+                        has_soft_role_bypass, role_protection_ids)
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -868,6 +870,15 @@ class Moderation(commands.Cog):
         if not await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
             return False
         rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        if role.id in rbl_cfg.get("hard_roles", []):
+            raise UserError("This role appears on both blacklists; remove one entry before assigning it")
+        # Soft bypasses must never be silently promoted into legacy authorizations,
+        # which are also used by antinuke as a trust exemption.
+        if has_soft_role_bypass(member, rbl_cfg):
+            return False
+        if (has_soft_role_bypass(ctx.author, rbl_cfg)
+                and not has_legacy_role_assignment_auth(ctx.author, ctx.guild, self.bot, rbl_cfg)):
+            raise UserError("A soft bypass only permits assigning a blacklisted role to someone who already has a bypass")
         auth = rbl_cfg.setdefault("authorized", [])
         if member.id in auth:
             return False
@@ -1035,6 +1046,10 @@ class Moderation(commands.Cog):
         self._role_target(ctx, f"{action} {role.mention} {'to' if add else 'from'} {who}", role)
         if add:
             await check_role_assignable(ctx, role)
+            cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+            if (role.id in cfg.get("roles", []) and has_soft_role_bypass(ctx.author, cfg)
+                    and not has_legacy_role_assignment_auth(ctx.author, ctx.guild, self.bot, cfg)):
+                raise UserError("A soft bypass cannot mass-assign blacklisted roles")
         else:
             check_role(ctx, role)
         targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))
@@ -1113,7 +1128,7 @@ class Moderation(commands.Cog):
         await ctx.paginate(chunk_embeds(f"Server Roles ({len(rs)})", lines))
 
     # ================================================================ role blacklist
-    def _is_role_authorized(self, guild: discord.Guild, member: discord.Member, cfg: dict) -> bool:
+    def _is_role_authorized(self, guild: discord.Guild, member: discord.Member, cfg: dict, *, include_soft=True) -> bool:
         from core import perms as _perms
         mid = getattr(member, "id", 0)
         if _perms.is_bot_developer(mid, self.bot) or mid == getattr(guild, "owner_id", None):
@@ -1127,7 +1142,109 @@ class Moderation(commands.Cog):
             return True
         if any(getattr(r, "id", 0) in auth_list for r in getattr(member, "roles", [])):
             return True
-        return False
+        return include_soft and has_soft_role_bypass(member, cfg)
+
+    @commands.group(invoke_without_command=True)
+    @commands.guild_only()
+    @is_server_owner()
+    async def bypass(self, ctx: Context):
+        """Manage separate soft role-blacklist bypasses (not antinuke trust)"""
+        await ctx.send_help(ctx.command)
+
+    @bypass.command(name="add")
+    @commands.guild_only()
+    @is_server_owner()
+    async def bypass_add(self, ctx: Context, *, target: discord.Member | discord.Role):
+        """Allow a member or role to bypass the ordinary role blacklist"""
+        is_role = isinstance(target, discord.Role)
+        if is_role and (target.is_default() or target.managed):
+            raise UserError("The everyone role and managed roles cannot receive a bypass")
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
+        bypass = cfg.setdefault("soft_bypass", {})
+        entries = bypass.setdefault("roles" if is_role else "users", [])
+        if target.id in entries:
+            raise UserError(f"{target.mention} already has a soft role-blacklist bypass")
+        entries.append(target.id)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
+        await ctx.approve(f"added a soft role-blacklist bypass for {target.mention} · this does not bypass antinuke")
+
+    @bypass.command(name="remove", aliases=["delete"])
+    @commands.guild_only()
+    @is_server_owner()
+    async def bypass_remove(self, ctx: Context, *, target: discord.Member | discord.Role):
+        """Remove a member's or role's soft role-blacklist bypass"""
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
+        bypass = cfg.setdefault("soft_bypass", {})
+        entries = bypass.setdefault("roles" if isinstance(target, discord.Role) else "users", [])
+        if target.id not in entries:
+            raise UserError(f"{target.mention} has no soft role-blacklist bypass")
+        entries.remove(target.id)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
+        await ctx.approve(f"removed the soft role-blacklist bypass for {target.mention}")
+
+    @bypass.command(name="list")
+    @commands.guild_only()
+    @is_server_owner()
+    async def bypass_list(self, ctx: Context):
+        """List separate soft role-blacklist bypasses"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        bypass = cfg.get("soft_bypass", {})
+        lines = ([f"User <@{uid}> (`{uid}`)" for uid in bypass.get("users", [])]
+                 + [f"Role <@&{rid}> (`{rid}`)" for rid in bypass.get("roles", [])])
+        if not lines:
+            return await ctx.neutral("No separate soft role-blacklist bypasses are configured.")
+        await ctx.paginate(chunk_embeds("Soft role-blacklist bypasses", lines, numbered=False))
+
+    @commands.group(invoke_without_command=True)
+    @commands.guild_only()
+    @is_server_owner()
+    async def hardbl(self, ctx: Context):
+        """Manage hard-blacklisted roles in Veil
+
+        Direct Discord role changes cannot be prevented by Veil; audit attribution and coverage are limited.
+        """
+        await ctx.send_help(ctx.command)
+
+    @hardbl.command(name="add")
+    @commands.guild_only()
+    @is_server_owner()
+    async def hardbl_add(self, ctx: Context, *, role: discord.Role):
+        """Restrict a role in Veil's covered assignment paths"""
+        if role.is_default() or role.managed:
+            raise UserError("The everyone role and managed roles cannot be hard-blacklisted")
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
+        if role.id in cfg.get("roles", []):
+            raise UserError("Remove this role from the ordinary role blacklist before adding it to hardbl")
+        roles = cfg.setdefault("hard_roles", [])
+        if role.id in roles:
+            raise UserError(f"{role.mention} is already hard-blacklisted")
+        roles.append(role.id)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
+        await ctx.approve(f"hard-blacklisted {role.mention} for covered Veil assignments · direct Discord changes are not blocked")
+
+    @hardbl.command(name="remove", aliases=["delete"])
+    @commands.guild_only()
+    @is_server_owner()
+    async def hardbl_remove(self, ctx: Context, *, role: discord.Role):
+        """Remove a role from the hard blacklist"""
+        cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
+        roles = cfg.setdefault("hard_roles", [])
+        if role.id not in roles:
+            raise UserError(f"{role.mention} is not hard-blacklisted")
+        roles.remove(role.id)
+        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
+        await ctx.approve(f"removed {role.mention} from the hard blacklist")
+
+    @hardbl.command(name="list")
+    @commands.guild_only()
+    @is_server_owner()
+    async def hardbl_list(self, ctx: Context):
+        """List hard-blacklisted roles"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        roles = cfg.get("hard_roles", [])
+        if not roles:
+            return await ctx.neutral("No roles are hard-blacklisted.")
+        await ctx.paginate(chunk_embeds("Hard-blacklisted roles", [f"<@&{rid}> (`{rid}`)" for rid in roles], numbered=False))
 
     @commands.group(aliases=["rbl", "rolebl"], invoke_without_command=True)
     @requires_uperm("admin")
@@ -1144,6 +1261,8 @@ class Moderation(commands.Cog):
     async def rbl_add(self, ctx: Context, *, role: discord.Role):
         """Blacklist a role"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        if role.id in cfg.get("hard_roles", []):
+            raise UserError("Remove this role from hardbl before adding it to the ordinary role blacklist")
         roles = cfg.setdefault("roles", [])
         if role.id in roles:
             raise UserError(f"{role.mention} is already blacklisted")
@@ -1629,7 +1748,7 @@ class Moderation(commands.Cog):
                                     delta = (discord.utils.utcnow() - entry.created_at).total_seconds()
                                     if delta < 15:
                                         actor = entry.user
-                                        if actor.id == self.bot.user.id or self._is_role_authorized(after.guild, actor, cfg):
+                                        if actor.id == self.bot.user.id or self._is_role_authorized(after.guild, actor, cfg, include_soft=False):
                                             assigned_by_auth = True
                                             auth = cfg.setdefault("authorized", [])
                                             if after.id not in auth:
@@ -1662,6 +1781,9 @@ class Moderation(commands.Cog):
         role = ctx.guild.get_role(cfg.get("role", 0))
         if not role:
             raise UserError(f"jail isn't set up, run `{ctx.clean_prefix}jail setup`")
+        protected = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        if role.id in protected.get("hard_roles", []) and role not in member.roles:
+            raise UserError("The jail role is hard-blacklisted; change the jail role before using jail")
         await check_hierarchy_async(ctx, member, "jail")
         if str(member.id) in cfg.get("jailed", {}):
             raise UserError(f"{member.mention} is already jailed")
@@ -1720,7 +1842,7 @@ class Moderation(commands.Cog):
         if saved is None:
             raise UserError(f"{member.mention} isn't jailed")
         rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-        b_roles = set(rbl.get("roles", []))
+        b_roles = role_protection_ids(rbl)
         roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and r.id not in b_roles]
         jail_role = ctx.guild.get_role(cfg.get("role", 0))
         new = [r for r in member.roles if r != jail_role] + roles
@@ -1733,9 +1855,10 @@ class Moderation(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         # re-apply jail if someone rejoins to dodge it
         cfg = await self._cfg(member.guild.id, "jail")
+        rbl = await self._cfg(member.guild.id, "roleblacklist")
         if str(member.id) in cfg.get("jailed", {}):
             role = member.guild.get_role(cfg.get("role", 0))
-            if role:
+            if role and role.id not in rbl.get("hard_roles", []):
                 try:
                     await member.add_roles(role, reason="rejoined while jailed")
                 except discord.HTTPException:
@@ -1758,7 +1881,7 @@ class Moderation(commands.Cog):
         q_cfg = await self._cfg(member.guild.id, "quarantine")
         if str(member.id) in q_cfg.get("quarantined", {}):
             q_role = member.guild.get_role(q_cfg.get("role", 0))
-            if q_role and member.guild.me.guild_permissions.manage_roles:
+            if q_role and q_role.id not in rbl.get("hard_roles", []) and member.guild.me.guild_permissions.manage_roles:
                 try:
                     await member.add_roles(q_role, reason="rejoined while quarantined")
                 except discord.HTTPException:
@@ -1803,6 +1926,9 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     q_role = None
 
+        rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        if q_role and q_role.id in rbl.get("hard_roles", []) and q_role not in member.roles:
+            raise UserError("The quarantine role is hard-blacklisted; change the quarantine role first")
         new_roles = keep + ([q_role] if q_role else [])
         await member.edit(roles=new_roles, reason=audit_reason(ctx.author, reason, "Quarantined"))
         cfg.setdefault("quarantined", {})[str(member.id)] = removed
@@ -1829,10 +1955,11 @@ class Moderation(commands.Cog):
 
         b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = set(b_cfg.get("roles", []))
+        protected = role_protection_ids(b_cfg)
 
         restore_roles = [
             r for r in (ctx.guild.get_role(i) for i in saved)
-            if r and r < ctx.guild.me.top_role and r.id not in b_roles
+            if r and r < ctx.guild.me.top_role and r.id not in protected
         ]
         q_role = ctx.guild.get_role(cfg.get("role", 0))
         cleaned = [r for r in member.roles if r != q_role and r.id not in b_roles] + restore_roles

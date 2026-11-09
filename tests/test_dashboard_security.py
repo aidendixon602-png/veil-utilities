@@ -435,3 +435,20 @@ def test_overview_filters_authorization_and_explicit_log_channels():
         assert "Other</a>" not in await r.text()
 
     run(server, scenario)
+
+
+def test_dashboard_rejects_hard_role_in_soft_blacklist_without_writes():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    original = {"roles": [11], "hard_roles": [22], "soft_bypass": {"users": [33]}}
+    bot.db.store[(GUILD_ID, "roleblacklist")] = original.copy()
+
+    async def scenario(client):
+        response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
+                                     data={"csrf": csrf_of(server, token), "rbl_roles": "11,22"})
+        assert response.status == 400 and "Nothing was saved" in await response.text()
+
+    run(server, scenario)
+    assert bot.db.store[(GUILD_ID, "roleblacklist")] == original
+    assert bot.db.writes == []

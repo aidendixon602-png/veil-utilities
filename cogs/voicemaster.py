@@ -4,7 +4,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, has_perms, check_role, is_dangerous, antinuke_guard
+from core.utils import Colors, Context, UserError, has_perms, check_role, is_dangerous, antinuke_guard, role_protection_ids
 
 
 def vm_embed(desc: str, color=Colors.main):
@@ -193,7 +193,7 @@ class VoiceMaster(commands.Cog):
             return
         if role:
             b_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
-            if role.id not in b_cfg.get("roles", []):
+            if role.id not in role_protection_ids(b_cfg):
                 try:
                     await member.add_roles(role, reason="VoiceMaster role")
                 except discord.HTTPException:
@@ -273,7 +273,7 @@ class VoiceMaster(commands.Cog):
         if role:
             check_role(ctx, role)
             b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if role.id in b_cfg.get("roles", []):
+            if role.id in role_protection_ids(b_cfg):
                 raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
             if is_dangerous(role.permissions):
                 await antinuke_guard(ctx, "permissions")

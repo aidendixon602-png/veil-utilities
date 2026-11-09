@@ -831,6 +831,34 @@ async def is_role_blacklisted(guild_id: int, role_id: int, db) -> bool:
     return role_id in cfg.get("roles", [])
 
 
+def role_protection_ids(cfg: dict) -> set[int]:
+    """Role IDs that automated role grants must not hand out."""
+    return set(cfg.get("roles", [])) | set(cfg.get("hard_roles", []))
+
+
+def has_soft_role_bypass(member, cfg: dict) -> bool:
+    """Separate role-blacklist bypass; never an antinuke or general trust grant."""
+    bypass = cfg.get("soft_bypass", {})
+    member_id = getattr(member, "id", None)
+    if not isinstance(bypass, dict) or member_id is None:
+        return False
+    return (member_id in bypass.get("users", [])
+            or any(getattr(role, "id", None) is not None and role.id in bypass.get("roles", [])
+                   for role in getattr(member, "roles", [])))
+
+
+def has_legacy_role_assignment_auth(member, guild, bot, cfg: dict) -> bool:
+    """Legacy command assignment grants (not broader event/antinuke trust)."""
+    from core import perms as _perms
+    authorized = cfg.get("authorized", [])
+    member_id = getattr(member, "id", None)
+    if member_id is None:
+        return False
+    return (_perms.is_bot_developer(member, bot) or member_id == getattr(guild, "owner_id", None)
+            or member_id in authorized
+            or any(getattr(role, "id", None) in authorized for role in getattr(member, "roles", [])))
+
+
 async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
     """Validate that a role can be assigned: checks roleblacklist (BLED), hierarchy, and manageability.
 
@@ -841,13 +869,9 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
     is_dev = _perms.is_bot_developer(ctx.author, bot)
     is_owner = ctx.guild and ctx.author.id == ctx.guild.owner_id
     cfg = await ctx.bot.db.get_config(ctx.guild.id, "roleblacklist") if (ctx.guild and ctx.bot) else {}
-    auth_list = cfg.get("authorized", [])
-    is_auth = (
-        is_dev
-        or is_owner
-        or ctx.author.id in auth_list
-        or any(r.id in auth_list for r in getattr(ctx.author, "roles", []))
-    )
+    if role.id in cfg.get("hard_roles", []) and not is_dev:
+        raise UserError(f"{role.mention} is hard-blacklisted; only a bot developer can assign it.")
+    is_auth = has_legacy_role_assignment_auth(ctx.author, ctx.guild, bot, cfg) or has_soft_role_bypass(ctx.author, cfg)
     if not is_auth:
         if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")

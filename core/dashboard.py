@@ -635,6 +635,8 @@ class DashboardServer:
                     return self._message("Invalid settings", f"{field}: enter a channel ID or leave it blank. Nothing was saved.", 400, user)
 
         rbl = await self.bot.db.get_config(gid, "roleblacklist") or {}
+        if "rbl_roles" in data and set(lists["rbl_roles"]) & set(rbl.get("hard_roles", [])):
+            return self._message("Invalid settings", "A role cannot be on both the ordinary and hard blacklists. Nothing was saved.", 400, user)
         if "rbl_roles" in data:
             rbl["roles"] = lists["rbl_roles"]
         if "rbl_authorized" in data:

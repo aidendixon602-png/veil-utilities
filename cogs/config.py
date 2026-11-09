@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 
 from core.loops import resilient
 from core.utils import (Colors, Context, UserError, antinuke_guard, build_message, build_vars, check_role,
-                        chunk_embeds, has_perms, is_dangerous, now, send_script, shorten)
+                        chunk_embeds, has_perms, is_dangerous, now, role_protection_ids, send_script, shorten)
 
 log = logging.getLogger("veil.config")
 
@@ -42,12 +42,14 @@ class RoleButton(discord.ui.DynamicItem[discord.ui.Button], template=r"rb:(?P<ro
         role = it.guild.get_role(self.role_id)
         if not role:
             return await it.response.send_message("That role no longer exists.", ephemeral=True)
-        if hasattr(it.client, "db") and it.client.db:
-            b_cfg = await it.client.db.get_config(it.guild.id, "roleblacklist")
-            if self.role_id in b_cfg.get("roles", []):
-                return await it.response.send_message(
-                    f"❌ {role.mention} is blacklisted (bled) and cannot be assigned.", ephemeral=True
-                )
+        db = getattr(it.client, "db", None)
+        if not db:
+            return await it.response.send_message("I can't verify role protections right now.", ephemeral=True)
+        b_cfg = await db.get_config(it.guild.id, "roleblacklist")
+        if self.role_id in role_protection_ids(b_cfg):
+            return await it.response.send_message(
+                f"❌ {role.mention} is blacklisted (bled) and cannot be assigned.", ephemeral=True
+            )
         if not self_assignable(role) and role not in it.user.roles:
             return await it.response.send_message(
                 f"{role.mention} has staff permissions now, so I won't hand it out. Ask a server admin.", ephemeral=True)
@@ -212,7 +214,7 @@ class Config(commands.Cog):
         if role:
             check_role(ctx, role)
             b_cfg = await self.get(ctx.guild.id, "roleblacklist")
-            if role.id in b_cfg.get("roles", []):
+            if role.id in role_protection_ids(b_cfg):
                 raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
             if is_dangerous(role.permissions):
                 await antinuke_guard(ctx, "permissions")
@@ -232,11 +234,16 @@ class Config(commands.Cog):
         ar = await self.get(member.guild.id, "autorole")
         ids = ar.get("bots" if member.bot else "humans", []) + ar.get("all", [])
         rbl = await self.get(member.guild.id, "roleblacklist")
-        b_roles = set(rbl.get("roles", []))
+        b_roles = role_protection_ids(rbl)
         roles = [r for r in (member.guild.get_role(i) for i in ids)
                  if r and r < member.guild.me.top_role and r.id not in b_roles]
         if roles:
             await asyncio.sleep(ar.get("delay", 0))
+            # Protection may have changed during a configured delay.
+            protected = role_protection_ids(await self.get(member.guild.id, "roleblacklist"))
+            roles = [r for r in roles if r.id not in protected]
+            if not roles:
+                return
             try:
                 await member.add_roles(*roles, reason="autorole")
             except discord.HTTPException:
@@ -256,7 +263,7 @@ class Config(commands.Cog):
             await self._greet_send(after, "boost")
             if role:
                 b_cfg = await self.get(after.guild.id, "roleblacklist")
-                if role.id not in b_cfg.get("roles", []):
+                if role.id not in role_protection_ids(b_cfg):
                     try:
                         await after.add_roles(role, reason="booster reward")
                     except discord.HTTPException:
@@ -281,7 +288,7 @@ class Config(commands.Cog):
     async def _ar(self, ctx, bucket, role: discord.Role):
         check_role(ctx, role)
         rbl = await self.get(ctx.guild.id, "roleblacklist")
-        if role.id in rbl.get("roles", []):
+        if role.id in role_protection_ids(rbl):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
         ar = await self.get(ctx.guild.id, "autorole")
         lst = ar.setdefault(bucket, [])
@@ -350,7 +357,7 @@ class Config(commands.Cog):
         """
         check_role(ctx, role)
         rbl = await self.get(ctx.guild.id, "roleblacklist")
-        if role.id in rbl.get("roles", []):
+        if role.id in role_protection_ids(rbl):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
         if is_dangerous(role.permissions):
             raise UserError(f"{role.mention} has staff permissions — it can't be a self-role")
@@ -391,7 +398,7 @@ class Config(commands.Cog):
         if not role_id:
             return
         rbl = await self.get(payload.guild_id, "roleblacklist")
-        if role_id in rbl.get("roles", []):
+        if role_id in role_protection_ids(rbl):
             return
         guild = self.bot.get_guild(payload.guild_id)
         member = guild.get_member(payload.user_id)
@@ -423,7 +430,7 @@ class Config(commands.Cog):
         if not roles or len(roles) > 25:
             raise UserError("Give 1–25 roles")
         b_cfg = await self.get(ctx.guild.id, "roleblacklist")
-        b_roles = set(b_cfg.get("roles", []))
+        b_roles = role_protection_ids(b_cfg)
         for r in roles:
             check_role(ctx, r)
             if r.id in b_roles:
@@ -834,7 +841,7 @@ class Config(commands.Cog):
             return await ctx.send_help(ctx.command)
         check_role(ctx, role)
         b_cfg = await self.get(ctx.guild.id, "roleblacklist")
-        if role.id in b_cfg.get("roles", []):
+        if role.id in role_protection_ids(b_cfg):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
         if is_dangerous(role.permissions):  # anyone could claim it by editing their status
             await antinuke_guard(ctx, "permissions")
@@ -854,7 +861,7 @@ class Config(commands.Cog):
         if not cfg.get("role"):
             return
         b_cfg = await self.get(after.guild.id, "roleblacklist")
-        if cfg["role"] in b_cfg.get("roles", []):
+        if cfg["role"] in role_protection_ids(b_cfg):
             return
 
         def has(m):
