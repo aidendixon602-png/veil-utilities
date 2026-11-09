@@ -6,10 +6,10 @@ This guide describes the current implementation, not the proposed permission-sys
 incomplete; see [the staged audit](MASTER_AUDIT.md) for open work. Permission settings and exceptions must be
 reviewed for each deployment.
 
-> **Known self-role risk:** Button and reaction self-roles check dangerous native Discord permissions, but do
-> not check whether a role grants Veil levels or fake permissions. A member who can acquire such a role may
-> gain its Veil powers. Until fixed, do not use the same roles for self-assignment and Veil privileges. Remove
-> unsafe reaction mappings and delete unsafe button-panel messages; also review roles already granted to members.
+> **Self-role safety:** Button, reaction and selected automatic role grants check for Veil levels, fake
+> permissions, security bypasses and Discord staff permissions. Existing role holders are not removed, other
+> assignment paths remain under review, and concurrent policy changes can race a grant. Review existing
+> assignments and the deployment impact below.
 > See [Review role assignments](#review-role-assignments).
 
 ## Permission sources
@@ -45,7 +45,7 @@ previous moderation access. Helper's one-hour limit still applies when it has ad
 automatic punishments are **skipped** for Helper-issued warnings, even when configured; the warning is recorded
 and the operator notified. Review warning rules accordingly. The limit is currently fixed, not a per-server
 setting. Moderator and higher levels retain their existing warning escalation behavior, which requires its own
-security review. This narrow change does not complete the requested preset overhaul or remove the self-role risk.
+security review. This narrow change does not complete the requested preset overhaul.
 
 ## Review role assignments
 
@@ -63,9 +63,28 @@ In a server you control, as the server owner or another appropriately authorized
    disposable server. Saved configuration, server roles and application ownership cannot be inferred from the
    repository alone.
 
-These steps are a mitigation, not a fix to the code. Preserve legitimate staff access deliberately; take a
-verified backup before changing stored configuration. Use `,help <command>` for contextual syntax and check
-[the command reference](COMMANDS.md); visibility in help does not itself enforce authorization.
+### Automatic and self-service role safety
+
+Veil now checks role levels, fake permissions, ordinary/hard blacklists, role-blacklist bypasses, antinuke
+role whitelists, Discord staff permissions and role hierarchy for reaction/button roles, autoroles, boost and
+vanity rewards, level rewards, and VoiceMaster default roles. Checks run when configuring a new grant and
+again when granting it, including after an autorole delay. Policy read failures or malformed policy prevent
+new grants. Removing an existing self-role is still possible during a policy outage. These checks do not
+turn native Discord permissions into Veil authorization.
+
+**Deployment impact:** Existing panels and automated rewards that use a newly disallowed role will stop
+assigning it; their saved configuration and existing role holders are not removed. Any Veil level on a role,
+even a custom or unknown level, makes it ineligible for these automatic/self-service paths. Separate staff
+roles from self-service and reward roles and review current holders. `,autorole` removal remains possible for
+blocked roles, subject to its normal hierarchy check. Other role assignment paths, third-party bots and direct
+Discord actions are not covered by this check. The underlying configuration cache and concurrent policy edits
+can still race a role grant; this is not a transactional or cross-process security guarantee.
+
+Preserve legitimate staff access deliberately; take a verified backup before changing stored configuration.
+Use `,help <command>` for contextual syntax and check [the command reference](COMMANDS.md); visibility in help
+does not itself enforce authorization. To roll back the code, deploy the previously tested revision with
+auto-sync disabled. The previous version does not enforce these checks, so first disable unsafe self-service
+and automatic roles; no data migration or automatic removal of existing roles is performed.
 
 ## Built-in exemptions
 

@@ -9,8 +9,9 @@ import discord
 from discord.ext import commands, tasks
 
 from core.loops import resilient
-from core.utils import (Colors, Context, UserError, antinuke_guard, build_vars, check_role, chunk_embeds, has_perms,
-                        is_dangerous, role_protection_ids, send_script)
+from core.role_safety import require_safe_automatic_roles, unsafe_automatic_roles
+from core.utils import (Colors, Context, UserError, build_vars, check_role, chunk_embeds, has_perms,
+                        role_protection_ids, send_script)
 
 
 def xp_for(level: int) -> int:
@@ -87,19 +88,23 @@ class Levels(commands.Cog):
                 await send_script(dest, cfg["message"], build_vars(member, member.guild, dest, {"level": str(level)}))
             except discord.HTTPException:
                 pass
-        b_cfg = await self.bot.db.get_config(member.guild.id, "roleblacklist")
-        b_roles = role_protection_ids(b_cfg)
-        rewards = {int(k): v for k, v in cfg.get("roles", {}).items() if v not in b_roles}
-        earned = [member.guild.get_role(r) for lvl, r in rewards.items() if lvl <= level]
-        earned = [r for r in earned if r and r < member.guild.me.top_role and r.id not in b_roles]
+        candidates = {int(k): member.guild.get_role(v) for k, v in cfg.get("roles", {}).items()
+                      if int(k) <= level}
+        candidates = {lvl: role for lvl, role in candidates.items() if role is not None}
+        if not candidates:
+            return
+        denied = await unsafe_automatic_roles(self.bot.db, member.guild, list(candidates.values()))
+        rewards = {lvl: role for lvl, role in candidates.items() if role.id not in denied}
+        earned = list(rewards.values())
         if not earned:
             return
         try:
             if cfg.get("stack", True):
-                await member.add_roles(*[r for r in earned if r not in member.roles], reason=f"level {level}")
+                to_add = [r for r in earned if r not in member.roles]
+                if to_add:
+                    await member.add_roles(*to_add, reason=f"level {level}")
             else:
-                top_lvl = max(l for l in rewards if l <= level)
-                keep = member.guild.get_role(rewards[top_lvl])
+                keep = rewards[max(rewards)]
                 drop = [r for r in earned if r != keep and r in member.roles]
                 if drop:
                     await member.remove_roles(*drop, reason="level role replace")
@@ -244,8 +249,7 @@ class Levels(commands.Cog):
             b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
             if role.id in role_protection_ids(b_cfg):
                 raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
-            if is_dangerous(role.permissions):  # anyone could earn staff powers by chatting
-                await antinuke_guard(ctx, "permissions")
+            await require_safe_automatic_roles(self.bot.db, ctx.guild, [role])
             cfg["roles"][str(level)] = role.id
         else:
             cfg["roles"].pop(str(level), None)

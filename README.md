@@ -18,9 +18,9 @@ Veil Utilities is a self-hosted Discord bot for server security, moderation, log
 
 ## Security status
 
-> **Known self-role risk:** A reaction or button role can be self-assigned even if it grants Veil levels or
-> fake permissions. Until fixed, remove overlapping self-role mappings/panels and review existing role holders.
-> Follow the [permissions review guide](docs/PERMISSIONS.md#review-role-assignments).
+> **Self-role safety:** Veil checks self-service and selected automatic roles for Veil grants and security
+> bypasses before assignment. Existing holders are not removed, and policy changes can race a grant; review
+> existing roles and deployment effects in the [permissions guide](docs/PERMISSIONS.md#review-role-assignments).
 
 Veil currently includes globally trusted or protected accounts in its source, including Ghost Vanguard and
 thesimisear. These are separate from per-server settings; see [built-in exemptions](docs/PERMISSIONS.md#built-in-exemptions).

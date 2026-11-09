@@ -4,7 +4,8 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
-from core.utils import Colors, Context, UserError, has_perms, check_role, is_dangerous, antinuke_guard, role_protection_ids
+from core.role_safety import require_safe_automatic_roles, unsafe_automatic_roles
+from core.utils import Colors, Context, UserError, has_perms, check_role, role_protection_ids
 
 
 def vm_embed(desc: str, color=Colors.main):
@@ -192,8 +193,8 @@ class VoiceMaster(commands.Cog):
             await self.bot.db.execute("DELETE FROM vm_channels WHERE channel_id=?", vc.id)
             return
         if role:
-            b_cfg = await self.bot.db.get_config(guild.id, "roleblacklist")
-            if role.id not in role_protection_ids(b_cfg):
+            denied = await unsafe_automatic_roles(self.bot.db, guild, [role])
+            if role.id not in denied:
                 try:
                     await member.add_roles(role, reason="VoiceMaster role")
                 except discord.HTTPException:
@@ -275,8 +276,7 @@ class VoiceMaster(commands.Cog):
             b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
             if role.id in role_protection_ids(b_cfg):
                 raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
-            if is_dangerous(role.permissions):
-                await antinuke_guard(ctx, "permissions")
+            await require_safe_automatic_roles(self.bot.db, ctx.guild, [role])
         cfg["role"] = role.id if role else None
         await self.bot.db.set_config(ctx.guild.id, "voicemaster", cfg)
         await ctx.approve(f"set the default role to {role.mention}" if role else "removed the default role")
