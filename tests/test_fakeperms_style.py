@@ -38,7 +38,8 @@ def test_add_remove_list_and_reset():
     assert store["fakeperms"] == {"9": ["ban_members"]}
     asyncio.run(Settings.fp_list.callback(cog, ctx))
     page = ctx.paginate.await_args.args[0][0]
-    assert "<@&9>: `ban members`" in page.description
+    assert "**<@&9>**\n`ban members`" in page.description
+    assert "Bot-only permissions" in page.description and page.footer.text == "1 role"
     asyncio.run(Settings.fp_reset.callback(cog, ctx))
     assert store["fakeperms"] == {}
     asyncio.run(Settings.fp_list.callback(cog, ctx))

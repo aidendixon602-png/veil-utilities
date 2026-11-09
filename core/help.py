@@ -474,6 +474,7 @@ class CategorySelect(discord.ui.Select["HelpView"]):
 
     def __init__(self, labels: list[str], sizes: dict[str, int], current: str | None):
         options = [discord.SelectOption(label=label, value=label, default=label == current,
+                                        emoji=CATEGORY_EMOJIS.get(label),
                                         description=count(sizes.get(label, 0), "command")) for label in labels]
         super().__init__(placeholder="Choose a category", options=options[:25], min_values=1, max_values=1, row=0)
 
@@ -720,11 +721,11 @@ class Help(commands.HelpCommand):
                    is_owner: bool = False, *, total: int | None = None, sections: int | None = None) -> discord.Embed:
         """Overview of the caller's visible help entries and how to browse them."""
         p = self.context.clean_prefix
-        lines = ["Find the commands available to you.", "",
-                 "**Browse** · Choose a category below, then open a command.",
-                 f"**Look up** · Use `{p}help <command>` for a direct guide.",
-                 f"**Prefix** · `{p}`"]
-        e = self._brand(discord.Embed(title="VEIL / COMMANDS", color=HELP_COLOR, description="\n".join(lines)))
+        lines = ["Browse the commands available to you.", "",
+                 f"**Prefix** · `{p}`",
+                 f"**Command guide** · `{p}help <command>`", "",
+                 "Choose a category below to get started."]
+        e = self._brand(discord.Embed(title="Command guide", color=HELP_COLOR, description="\n".join(lines)))
         if total is not None:
             e.set_footer(text=f"{count(total, 'command entry', 'command entries')} · {count(sections or 0, 'category', 'categories')}")
         else:
@@ -735,7 +736,7 @@ class Help(commands.HelpCommand):
         """One command on a category page, with a marker for groups."""
         p = self.context.clean_prefix
         more = " · *group*" if isinstance(cmd, commands.Group) else ""
-        return f"`{p}{cmd.name}` · {blurb(cmd, 60)}{more}"
+        return f"`{p}{cmd.name}` — {blurb(cmd, 60)}{more}"
 
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
         """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
@@ -745,7 +746,7 @@ class Help(commands.HelpCommand):
             entries = "\n".join(self.command_line(c) for c in chunk) or "No commands in this category."
             intro = CATEGORY_DESCRIPTIONS.get(label, "Browse commands")
             body = f"{intro}\n\n**Commands**\n{entries}"
-            e = self._brand(discord.Embed(color=HELP_COLOR, title=f"VEIL / {label.upper()}",
+            e = self._brand(discord.Embed(color=HELP_COLOR, title=f"{label} commands",
                                           description=shorten_md(body, 4000)))
             e.set_footer(text=f"Page {n}/{len(chunks)} · {count(len(cmds), 'command')} · Select a command below")
             pages.append(e)

@@ -2,6 +2,14 @@
 
 [README](../README.md) · [Configuration](CONFIGURATION.md) · [Antinuke](ANTINUKE.md) · [Hosting](HOSTING.md) · [Command reference](COMMANDS.md)
 
+## Command navigation
+
+Use `,help` to browse categories or `,help <command>` for a direct guide. Paginated lists use the arrow buttons;
+the middle indicator shows the current page and the close button dismisses the menu. These controls are limited
+to the person who opened the menu (bot developers can also navigate standard list menus). Permission assignment
+lists show **direct saved grants**, not a complete view of automatic or fake permissions. Presentation and help
+visibility do not replace the checks that run when a command is used.
+
 ## Permissions and server authorization
 
 **Known self-role risk:** Do not put Veil level or fake-permission grants on roles members can obtain from

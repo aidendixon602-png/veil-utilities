@@ -487,10 +487,14 @@ class Settings(commands.Cog):
     async def fp_list(self, ctx: Context):
         """See which roles have fake permissions"""
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
-        lines = [f"<@&{r}>: {', '.join(f'`{perm_label(p)}`' for p in ps)}" for r, ps in fp.items() if ps]
+        lines = [f"**<@&{r}>**\n{', '.join(f'`{perm_label(p)}`' for p in ps)}" for r, ps in fp.items() if ps]
         if not lines:
             return await ctx.warn(f"no roles have fake permissions yet, give some with `{ctx.clean_prefix}fp add`")
-        await ctx.paginate(chunk_embeds("Fake permissions", lines, numbered=False))
+        pages = chunk_embeds("Fake permissions", lines, per_page=5, numbered=False)
+        for page in pages:
+            page.description = f"Bot-only permissions assigned to roles.\n\n{page.description}"
+            page.set_footer(text=f"{len(lines)} {'role' if len(lines) == 1 else 'roles'}")
+        await ctx.paginate(pages)
 
     @fakepermissions.command(name="reset", aliases=["clear"])
     @is_server_owner()
