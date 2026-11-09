@@ -460,8 +460,11 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
 
     granted: set[str] = set()
     granted.update(_perms.level_perms(pl_cfg, ctx.author))
-    for role in getattr(ctx.author, "roles", []):
-        granted.update(fake.get(str(role.id), []))
+    fake_grants = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
+    granted.update(fake_grants)
+    # Preserve existing fake moderate_members grants for the narrowly scoped actions.
+    if "moderate_members" in fake_grants:
+        granted.update(_perms.MODERATION_ACTIONS)
 
     if "administrator" in granted:
         return []
@@ -491,6 +494,8 @@ async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
     if needed:
         fake = await bot.db.get_config(guild.id, "fakeperms")
         given = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
+        if "moderate_members" in given:
+            given.update(_perms.MODERATION_ACTIONS)
         if "administrator" in given or needed <= given:
             return
     raise MissingRank(rank_name(gate))
@@ -515,6 +520,8 @@ def has_perms(**perms: bool):
                 elif p in ("kick_members", "moderate_members", "manage_nicknames"):
                     needed_ranks.append(("Moderator", 2))
                 elif p in ("manage_messages",):
+                    needed_ranks.append(("Moderator", 2))
+                elif p in ("veil_warn", "veil_timeout", "veil_cases"):
                     needed_ranks.append(("Helper", 1))
 
             if needed_ranks:

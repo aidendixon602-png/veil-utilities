@@ -294,7 +294,11 @@ class Permissions(commands.Cog):
             if set(info["perms"]) >= {p for p in perms.ALL_BOT_PERMS if p != "administrator"}:
                 return "everything except Administrator"
             shown = {"manage_guild": "manage server", "moderate_members": "timeout members"}
-            return ", ".join(shown.get(p, p.replace("_", " ")) for p in info["perms"]) or "no permissions"
+            labels = {"veil_warn": "warn", "veil_timeout": "timeout (Helper: max 1 hour)",
+                      "veil_cases": "view cases and warnings"}
+            items = [shown.get(p, p.replace("_", " ")) for p in info["perms"]]
+            items.extend(labels.get(a, a) for a in info.get("actions", []))
+            return ", ".join(items) or "no permissions"
 
         def holders(key: str) -> str:
             ucnt, rcnt = user_counts.get(key, 0), role_counts.get(key, 0)
@@ -408,6 +412,32 @@ class Permissions(commands.Cog):
         cfg.setdefault("overrides", {}).setdefault(key, {})["perms"] = current
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(msg)
+
+    @permlevels.command(name="action")
+    @is_server_owner()
+    async def pl_action(self, ctx: Context, key: str, action: str):
+        """Toggle a narrow moderation action for a level (server owner)
+
+        Actions: veil_warn, veil_timeout, veil_cases. Helper timeouts are capped at one hour.
+        """
+        cfg = await self.cfg(ctx.guild.id)
+        key = self._level(cfg, key)
+        action = action.lower()
+        if action not in perms.MODERATION_ACTIONS:
+            raise UserError("action must be `veil_warn`, `veil_timeout` or `veil_cases`")
+        level = perms.all_levels(cfg)[key]
+        if "administrator" in level["perms"]:
+            raise UserError("this level has Administrator and bypasses action checks; change that grant first")
+        current = list(level["actions"])
+        if action in current:
+            current.remove(action)
+            enabled = False
+        else:
+            current.append(action)
+            enabled = True
+        cfg.setdefault("overrides", {}).setdefault(key, {})["actions"] = current
+        await self.save(ctx.guild.id, cfg)
+        await ctx.approve(f"`{key}` {'now grants' if enabled else 'no longer grants'} `{action}`")
 
 
 async def setup(bot):

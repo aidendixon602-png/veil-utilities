@@ -97,7 +97,8 @@ def test_every_level_up_sees_and_can_run_strictly_more(audit):
 def test_each_level_has_every_permission_its_rank_needs():
     for key, (name, rank, perms) in P.PRESETS.items():
         needed = {p for p, r in H.PERM_RANKS.items() if r <= rank}
-        assert needed <= set(perms) or "administrator" in perms, (key, needed - set(perms))
+        effective = set(perms) | set(P.all_levels({})[key]["actions"])
+        assert needed <= effective or "administrator" in effective, (key, needed - effective)
 
 
 def _gate_ctx(level, category_cog, fake=None):

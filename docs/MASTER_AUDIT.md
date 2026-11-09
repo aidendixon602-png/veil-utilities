@@ -61,12 +61,16 @@ threat-model review remains open. Do not use this document as proof that product
 
 ### Current preset vs requested target
 
-The current lowest preset is already named **Helper**, but it grants `manage_messages`; the current timeout
-command requires the Moderator rank. Therefore the requested Helper powers (warn, limited timeout, view cases)
-are **not implemented**. The intended target is Helper; Moderator; Administrator; Server Manager; Owner, with
-the permissions specified in the request. Existing installations also have Co-Owner and assignable Owner levels,
-legacy aliases, overrides and role assignments. A safe migration and an explicit timeout limit need to be designed
-and reviewed before changing these grants. Do not silently reinterpret or delete existing assignments.
+Helper now has narrow actions for warnings, timeouts capped at one hour, and viewing cases/warnings. Default
+Helper no longer grants message management. Saved per-level permission overrides remain in place, so a custom
+Helper can retain message management. Action toggles are per level; the one-hour cap is not configurable.
+Helper-issued warnings do not trigger configured auto-punishments. Existing Helper assignments automatically
+receive the default changes; see [permissions](PERMISSIONS.md#helper-preset-update) for deployment implications.
+
+This is not the complete requested permission overhaul. Moderator, Administrator, Server Manager, and Owner
+presets have not been rebuilt to the requested per-action policy; old Co-Owner/Owner levels, overrides and
+assignments remain. Warning escalation for higher levels, overlapping role grants, and self-role escalation
+remain open. Do not assume these changes establish a complete hierarchy or eliminate indirect privileges.
 
 ## Reference-project review and reuse boundary
 

@@ -28,8 +28,24 @@ reviewed for each deployment.
 
 Automatic setup no longer creates level assignments from role names. Existing saved assignments are unchanged,
 including any created by an older version. Direct user and role assignments follow the current precedence rules
-in [`core/perms.py`](../core/perms.py); this is not an explicit-deny system. The requested temporary grants,
-per-action permission model, and Helper limited-timeout preset are not yet implemented.
+in [`core/perms.py`](../core/perms.py); this is not an explicit-deny system. The requested temporary grants and full per-action permission model are not yet implemented.
+
+### Helper preset update
+
+The default Helper preset grants **warn, timeout (maximum one hour), and view cases and warnings**. It no
+longer grants `manage_messages`, so Helpers with the unmodified preset lose purge and other message-management
+commands. Existing Helper user/role assignments automatically receive this change when this version is deployed;
+review holders first. A previously saved custom `perms` override is preserved and may still grant message
+management. Fake permissions and other grants can also add access. Review them separately.
+
+These three narrow actions are separately configurable per level by the server owner with
+`,permlevels action <level> <veil_warn|veil_timeout|veil_cases>` (toggles the action). Saved action overrides
+are preserved. Broad `administrator` grants bypass action checks; fake `moderate_members` grants retain their
+previous moderation access. Helper's one-hour limit still applies when it has additional fake grants. Warning
+automatic punishments are **skipped** for Helper-issued warnings, even when configured; the warning is recorded
+and the operator notified. Review warning rules accordingly. The limit is currently fixed, not a per-server
+setting. Moderator and higher levels retain their existing warning escalation behavior, which requires its own
+security review. This narrow change does not complete the requested preset overhaul or remove the self-role risk.
 
 ## Review role assignments
 
@@ -78,3 +94,16 @@ application owner and team, and review antinuke admins and per-server trusted us
 can still be compromised. Antinuke detection and recovery depend on Discord events, permissions and hierarchy;
 no bot can guarantee prevention or full restoration. Refer to the [antinuke guide](ANTINUKE.md) and
 [security policy](../.github/SECURITY.md). Do not share tokens, private logs, database files or credentials.
+
+## Deploying and rolling back the Helper update
+
+Before deploying, back up the database and review saved levels, overrides, fake permissions, role holders, and
+warning-punishment rules. Test with non-production accounts in a disposable server. Deploy the reviewed revision
+through your normal process, with `AUTO_SYNC_GIT=0` in the process environment, and verify the Helper commands,
+timeout limit, purge denial, and higher-level access. Do not use production members to test punishments.
+
+If a rollback is needed, stop the bot and deploy the previously tested revision with startup sync disabled. Older
+code ignores the new action overrides and restores the older Helper defaults, including `manage_messages`; warn
+and timeout will again require Moderator. Do not assume the old code enforces the new action overrides. Preserve
+and back up the database; verify schema compatibility and access before resuming service. See
+[hosting and updates](HOSTING.md#updating) for general backup and rollback guidance.

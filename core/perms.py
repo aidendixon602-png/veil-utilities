@@ -179,7 +179,7 @@ CODE_ROLES: dict[int | str, str] = {}
 # key -> (display name, rank, granted bot-permissions). Assignable with `perm add` / `uperm add`.
 # Ranks only order the levels (higher = more power); servers can change them with `permlevels rank`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
-    "helper":        ("Helper", 1, ["manage_messages"]),
+    "helper":        ("Helper", 1, []),
     "moderator":     ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
     "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                     "manage_nicknames", "manage_roles", "manage_channels"]),
@@ -274,6 +274,10 @@ def migrate(cfg: dict) -> bool:
     return changed
 
 
+# Narrow bot-only moderation actions. They do not imply Discord's moderate_members permission.
+MODERATION_ACTIONS = ("veil_warn", "veil_timeout", "veil_cases")
+
+
 def all_levels(cfg: dict) -> dict[str, dict]:
     """Assignable levels merged with any per-guild overrides."""
     merged = {k: {"name": n, "rank": r, "perms": list(p)} for k, (n, r, p) in PRESETS.items()}
@@ -284,7 +288,15 @@ def all_levels(cfg: dict) -> dict[str, dict]:
             "name": data.get("name", base["name"]),
             "rank": data.get("rank", base["rank"]),
             "perms": data.get("perms", base["perms"]),
+            **({"actions": data["actions"]} if "actions" in data else {}),
         }
+    for key, info in merged.items():
+        if "actions" not in info:
+            # Keep existing custom moderation-permission overrides effective. Helper gets
+            # the new narrow default even though it has no broad moderation permission.
+            info["actions"] = list(MODERATION_ACTIONS) if (
+                key == "helper" or "moderate_members" in info["perms"] or "administrator" in info["perms"]
+            ) else []
     return merged
 
 
@@ -394,7 +406,7 @@ def level_perms(cfg: dict, member_or_id: discord.Member | int) -> set[str]:
     if isinstance(member_or_id, int):
         key = canonical(CODE_USERS.get(member_or_id) or CODE_USERS.get(str(member_or_id))) or user_key(cfg, member_or_id)
         lv = levels.get(key) if key else None
-        return set(lv["perms"]) if lv else set()
+        return set(lv["perms"]) | set(lv["actions"]) if lv else set()
 
     # discord.Member: check both user and role assignments
     name, source, rank = member_level_info(cfg, member_or_id)
@@ -402,7 +414,7 @@ def level_perms(cfg: dict, member_or_id: discord.Member | int) -> set[str]:
         return set()
     for lv in levels.values():
         if lv["name"] == name:
-            return set(lv["perms"])
+            return set(lv["perms"]) | set(lv["actions"])
     return set()
 
 

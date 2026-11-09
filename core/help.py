@@ -64,7 +64,7 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Fun": 0,           # Public
     "Images": 0,        # Public
     # each level up opens one more staff category (inside each one, commands you can't run stay hidden)
-    "Moderator": 1,     # Helper+ (Moderator+ also sees kick, timeout, warn...)
+    "Moderator": 1,     # Helper+; individual checks filter unavailable commands
     "Admin": 3,         # Admin+: ban, lockdown, the ,admin panel...
     "Roles": 3,         # Admin+
     "Server": 4,        # Server Manager+
@@ -80,7 +80,8 @@ PERM_RANKS: dict[str, int] = {
     "manage_guild": 4, "manage_webhooks": 4, "manage_expressions": 4, "mention_everyone": 4,
     "manage_roles": 3, "ban_members": 3, "manage_channels": 3,
     "kick_members": 2, "moderate_members": 2, "manage_nicknames": 2,
-    "manage_messages": 1,
+    "manage_messages": 2,
+    "veil_warn": 1, "veil_timeout": 1, "veil_cases": 1,
 }
 
 CATEGORY_EMOJIS: dict[str, str] = {
@@ -328,8 +329,23 @@ def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | No
     if is_owner:
         return True
     chain = [cmd, *getattr(cmd, "parents", [])]
-    return not any(getattr(c, "hidden", False) or getattr(c, "cog_name", None) in HIDDEN_COGS for c in chain) and all(
-        rank >= min_rank_for_command(c, bot) and (access is None or access.permits(c)) for c in chain)
+    if any(getattr(c, "hidden", False) or getattr(c, "cog_name", None) in HIDDEN_COGS for c in chain):
+        return False
+    for c in chain:
+        if access is None:
+            if rank < min_rank_for_command(c, bot):
+                return False
+        else:
+            # The static rank is a guide, not a substitute for explicit grants and custom levels.
+            # Owner-only checks still need their own higher gate.
+            if any(getattr(check, "__veil_owner_only__", False) for check in getattr(c, "checks", [])):
+                if rank < min_rank_for_command(c, bot):
+                    return False
+            elif rank < CATEGORY_MIN_RANKS.get(category_for_command(c, bot), 0):
+                return False
+            if not access.permits(c):
+                return False
+    return True
 
 
 def allowed(cmds: typing.Iterable[commands.Command], bot, is_owner: bool, rank: int,
@@ -856,8 +872,10 @@ class Help(commands.HelpCommand):
             settings = await db.get_config(guild.id, "settings") or {}
             restrictions = await db.get_config(guild.id, "command_restrictions")
             granted = _perms.level_perms(cfg, author)
-            for role in getattr(author, "roles", []):
-                granted.update(fake.get(str(role.id), []))
+            fake_grants = {p for role in getattr(author, "roles", []) for p in fake.get(str(role.id), [])}
+            granted.update(fake_grants)
+            if "moderate_members" in fake_grants:
+                granted.update(_perms.MODERATION_ACTIONS)
             disabled = set(settings.get("disabled", []))
             return HelpAccess(cfg, rank, granted, native, bool(cfg.get("users") or cfg.get("roles")),
                               disabled, bypass_disabled, author.id == getattr(guild, "owner_id", None), True, True,
