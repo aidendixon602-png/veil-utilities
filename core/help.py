@@ -486,6 +486,17 @@ class CategorySelect(discord.ui.Select["HelpView"]):
             await self.view.show_category(it, choice)
 
 
+class CategoryButton(discord.ui.Button["HelpView"]):
+    """Open a visible category from the help home screen."""
+
+    def __init__(self, category: str, row: int):
+        super().__init__(label=category[:80], style=discord.ButtonStyle.secondary, row=row)
+        self.category = category
+
+    async def callback(self, it: discord.Interaction):
+        await self.view.show_category(it, self.category)
+
+
 class CommandSelect(discord.ui.Select["HelpView"]):
     """Open the details for a command on the current category page."""
 
@@ -616,8 +627,12 @@ class HelpView(OwnedView):
     def _build_items(self):
         self.clear_items()
         if self.current is None:
-            if self.pages:
+            if len(self.pages) > 15:
+                # Discord allows five button rows; use the existing select for a larger catalog.
                 self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
+            else:
+                for index, label in enumerate(self.pages):
+                    self.add_item(CategoryButton(label, row=index // 3))
             return
         items = self.current_items()
         if items and self.selected is None:
@@ -721,16 +736,8 @@ class Help(commands.HelpCommand):
                    is_owner: bool = False, *, total: int | None = None, sections: int | None = None) -> discord.Embed:
         """Overview of the caller's visible help entries and how to browse them."""
         p = self.context.clean_prefix
-        lines = ["Browse the commands available to you.", "",
-                 f"**Prefix** · `{p}`",
-                 f"**Command guide** · `{p}help <command>`", "",
-                 "Choose a category below to get started."]
-        e = self._brand(discord.Embed(title="Command guide", color=HELP_COLOR, description="\n".join(lines)))
-        if total is not None:
-            e.set_footer(text=f"{count(total, 'command entry', 'command entries')} · {count(sections or 0, 'category', 'categories')}")
-        else:
-            e.set_footer(text="Command access depends on server settings.")
-        return e
+        lines = ["Select a category below to view its commands.", "", f"**Prefix:** `{p}`"]
+        return self._brand(discord.Embed(color=Colors.neutral, description="\n".join(lines)))
 
     def command_line(self, cmd: commands.Command) -> str:
         """One command on a category page, with a marker for groups."""

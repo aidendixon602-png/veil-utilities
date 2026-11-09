@@ -14,7 +14,7 @@ from discord.ext import commands, tasks
 from core.bot import EXTENSIONS, Veil
 from core.help import (
     CATEGORIES,
-    HOME,
+    CategoryButton,
     CategorySelect,
     Help,
     HelpView,
@@ -40,19 +40,17 @@ def _cmd(name: str, doc: str = "Does a thing", aliases=(), sig: str = ""):
                            clean_params={})
 
 
-def _select(view: HelpView) -> CategorySelect:
-    return next(c for c in view.children if isinstance(c, CategorySelect))
-
-
 def _labels(view: HelpView) -> list[str]:
-    return [o.label for o in _select(view).options if o.value != HOME]
+    select = next((c for c in view.children if isinstance(c, CategorySelect)), None)
+    if select:
+        return [o.label for o in select.options]
+    return [c.category for c in view.children if isinstance(c, CategoryButton)]
 
 
 def _pick(view: HelpView, value: str):
     it = _it()
-    select = _select(view)
-    select._values = [value]  # what Discord fills in when someone picks an option
-    asyncio.run(select.callback(it))
+    button = next(c for c in view.children if isinstance(c, CategoryButton) and c.category == value)
+    asyncio.run(button.callback(it))
     return it
 
 
@@ -64,9 +62,9 @@ def _it():
 ALL = {label: [] for label, _, _ in CATEGORIES}
 
 
-# ------------------------------------------------------------------ the dropdown
+# ------------------------------------------------------------------ the category buttons
 
-def test_the_dropdown_only_lists_categories_the_person_may_open():
+def test_category_buttons_only_list_categories_the_person_may_open():
     public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images", "Ghost Vanguard"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
     # each level up opens one more staff category
@@ -90,15 +88,11 @@ def test_inside_a_category_commands_above_your_level_are_hidden():
     assert (min_rank_for_command(purge), min_rank_for_command(kick), min_rank_for_command(admin_only)) == (2, 2, 7)
 
 
-def test_the_home_dropdown_lists_categories_in_order():
+def test_the_home_buttons_list_categories_in_order():
     view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": [_cmd("play")]}, is_owner=True)
-    select = _select(view)
-    assert [type(c) for c in view.children] == [CategorySelect]  # one dropdown, nothing else
-    assert [o.label for o in select.options] == ["Utility", "Music", "Developer"]
-    assert select.options[0].description == "2 commands"
-    assert select.options[1].description == "1 command"
-    assert not any(o.default for o in select.options)
-    assert select.placeholder == "Choose a category"
+    assert _labels(view) == ["Utility", "Music", "Developer"]
+    assert all(isinstance(c, CategoryButton) and c.style == discord.ButtonStyle.secondary for c in view.children)
+    assert [c.row for c in view.children] == [0, 0, 0]
 
 
 def test_the_home_card():
@@ -109,15 +103,14 @@ def test_the_home_card():
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
-    assert card.title == "Command guide"
-    assert card.footer.text == "3 command entries · 2 categories"
-    assert "**Prefix** · `,`" in card.description and "`,help <command>`" in card.description
-    assert "Choose a category" in card.description
+    assert card.title is None and card.footer.text is None
+    assert "**Prefix:** `,`" in card.description
+    assert "Select a category" in card.description
 
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title == "Command guide" and card.author.name is None
+    assert card.title is None and card.author.name is None
 
 
 # ------------------------------------------------------------------ picking categories
@@ -127,10 +120,10 @@ def test_picking_a_category_then_home_swaps_the_card_in_place():
     page = _pick(view, "Utility").response.edit_message.call_args.kwargs
     assert page["embed"].title == "Utility commands" and page["view"] is view and view.current == "Utility"
     from core.help import HelpHomeButton
-    assert not any(isinstance(c, CategorySelect) for c in view.children)
+    assert not any(isinstance(c, (CategorySelect, CategoryButton)) for c in view.children)
     it = _it()
     asyncio.run(next(c for c in view.children if isinstance(c, HelpHomeButton)).callback(it))
-    assert view.current is None and it.response.edit_message.call_args.kwargs["embed"].title == "Command guide"
+    assert view.current is None and it.response.edit_message.call_args.kwargs["embed"] is view.home
 
 
 def test_cards_are_built_when_the_menu_opens():
@@ -179,7 +172,7 @@ def test_non_developers_cannot_open_the_developer_category():
     it.response.edit_message.assert_not_awaited()
 
 
-def test_an_expired_menu_stays_and_only_loses_its_dropdown():
+def test_an_expired_menu_stays_and_only_loses_its_controls():
     view = HelpView(_help(), {"Utility": []})
     view.message = SimpleNamespace(delete=AsyncMock(), edit=AsyncMock())
     asyncio.run(view.on_timeout())
@@ -401,7 +394,8 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     categories = category_commands(loaded_bot)
     view = HelpView(h, categories, is_owner=True)
     _fits(view.home)
-    assert len(_select(view).options) <= 25
+    assert len(view.children) <= 25
+    assert set(_labels(view)) == set(view.pages)
     for label, page in view.pages.items():
         _fits(page)
         assert "```" not in page.description and "**Commands**" in page.description, label
@@ -539,7 +533,7 @@ def test_long_categories_get_page_buttons(loaded_bot):
     back, forward = [b for b in view.children if isinstance(b, PageButton)]
     assert back.disabled and not forward.disabled
     assert view.embed() is view.books[long][0]
-    view.current, view.page = None, 0  # home: just the dropdown
+    view.current, view.page = None, 0  # home: category buttons
     view._build_items()
     assert not any(isinstance(b, PageButton) for b in view.children)
 
@@ -574,8 +568,7 @@ def test_command_dropdown_pagination_back_and_home_callbacks():
         cmds = [commands.Command(callback, name=f"c{i:02}") for i in range(21)]
         view = HelpView(_help(), {"Utility": cmds})
         _pick_result = _it()
-        category = _select(view)
-        category._values = ["Utility"]
+        category = next(c for c in view.children if isinstance(c, CategoryButton) and c.category == "Utility")
         await category.callback(_pick_result)
         assert _pick_result.response.edit_message.call_args.kwargs["embed"].title == "Utility commands"
         next_button = next(b for b in view.children if isinstance(b, PageButton) and b.step == 1)
@@ -1006,3 +999,35 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
         assert "**Requires** Senior Mod level, Manage Messages" in view.embed().description
 
     asyncio.run(go())
+
+
+def test_home_button_layout_fits_all_current_categories():
+    view = HelpView(_help(), ALL, is_owner=True, author_rank=10000)
+    assert len(view.pages) == len(CATEGORIES) + 1
+    assert len(view.children) == len(view.pages) == 15
+    assert _labels(view) == list(view.pages)
+    for row in range(5):
+        assert sum(component.row == row for component in view.children) == 3
+    assert all(button.style == discord.ButtonStyle.secondary for button in view.children)
+
+
+def test_home_falls_back_to_select_if_category_catalog_grows():
+    import core.help as help_module
+
+    extra = [("Extra One", [], []), ("Extra Two", [], [])]
+    with patch.object(help_module, "CATEGORIES", help_module.CATEGORIES + extra):
+        categories = {label: [] for label, _, _ in help_module.CATEGORIES}
+        view = HelpView(_help(), categories, is_owner=True)
+        assert len(view.children) == 1 and isinstance(view.children[0], CategorySelect)
+        assert _labels(view) == list(view.pages)
+        select = view.children[0]
+        select._values = ["Extra Two"]
+        it = _it()
+        asyncio.run(select.callback(it))
+        assert view.current == "Extra Two"
+        it.response.edit_message.assert_awaited_once()
+
+
+def test_home_card_uses_the_configured_prefix():
+    card = _help("!").home_embed()
+    assert card.description == "Select a category below to view its commands.\n\n**Prefix:** `!`"
