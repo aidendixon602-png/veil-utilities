@@ -11,7 +11,7 @@ os.environ.setdefault("DB_PATH", ":memory:")
 logging.disable(logging.CRITICAL)
 
 from core.bot import EXTENSIONS, Veil  # noqa: E402
-from core.help import category_commands  # noqa: E402
+from core.help import HELP_EXCLUDED_COGS, category_commands  # noqa: E402
 from core.utils import build_message, parse_duration  # noqa: E402
 
 
@@ -39,7 +39,7 @@ async def main() -> int:
     # Security categories also list nested commands; count top-level commands separately
     # and still detect duplicates or missing commands rather than comparing raw page sizes.
     placed = [c.qualified_name for entries in category_commands(bot).values() for c in entries if c.parent is None]
-    visible = {c.qualified_name for c in bot.commands if not c.hidden and c.cog is not None}
+    visible = {c.qualified_name for c in bot.commands if not c.hidden and c.cog is not None and c.cog_name not in HELP_EXCLUDED_COGS}
     if len(placed) != len(set(placed)) or set(placed) != visible:
         problems.append(f"help top-level command mismatch: missing={sorted(visible - set(placed))}, "
                         f"extra={sorted(set(placed) - visible)}, duplicates={len(placed) - len(set(placed))}")

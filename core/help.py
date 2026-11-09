@@ -13,6 +13,8 @@ from discord.ext import commands
 from core.utils import Colors, OwnedView, perm_label, respond_or_edit, shorten_md
 
 HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
+# Hide these from help only; command registration and runtime permission gates are unchanged.
+HELP_EXCLUDED_COGS = {"Vanguard", "Automod"}
 
 # (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
@@ -24,8 +26,6 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
     ("Antinuke", ["Antinuke"], []),
-    ("Ghost Vanguard", ["Vanguard"], []),
-    ("Automod", ["Automod"], []),
     ("Server", ["Config", "Settings"], []),
     ("VoiceMaster", ["VoiceMaster"], []),
     ("Community", ["Levels", "Giveaways", "Tickets", "Feeds", "Integrations"], []),
@@ -140,6 +140,12 @@ def category_for_command(cmd: commands.Command, bot: commands.Bot | None = None)
         bot_cmd = bot.get_command(name) or bot.get_command(qname)
         if bot_cmd:
             cog_name = getattr(bot_cmd, "cog_name", None)
+    # Help visibility and runtime authorization are separate: retain the old
+    # Automod gate even though its help category is hidden.
+    if cog_name == "Automod":
+        return "Automod"
+    if cog_name == "Vanguard":
+        return "Ghost Vanguard"
     for label, cogs, _ in CATEGORIES:
         if cog_name and cog_name in cogs:
             return label
@@ -284,7 +290,7 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
             del out[label]
     # anything new that isn't mapped still shows up in Community
     leftovers = [c for c in bot.commands if not c.hidden and c.qualified_name not in placed
-                 and c.cog is not None and c.cog_name not in HIDDEN_COGS]
+                 and c.cog is not None and c.cog_name not in HIDDEN_COGS | HELP_EXCLUDED_COGS]
     if leftovers:
         out.setdefault("Community", []).extend(sorted(leftovers, key=lambda c: c.name))
     return out
@@ -336,9 +342,11 @@ class HelpAccess:
 
 def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | None = None) -> bool:
     """Apply visibility to the command and its ancestors; this is not a replacement for runtime checks."""
+    chain = [cmd, *getattr(cmd, "parents", [])]
+    if any(getattr(c, "cog_name", None) in HELP_EXCLUDED_COGS for c in chain):
+        return False
     if is_owner:
         return True
-    chain = [cmd, *getattr(cmd, "parents", [])]
     if any(getattr(c, "hidden", False) or getattr(c, "cog_name", None) in HIDDEN_COGS for c in chain):
         return False
     for c in chain:

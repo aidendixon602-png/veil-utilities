@@ -18,7 +18,9 @@ undo supported damage. These controls are inspired by [Bleed](https://docs.bleed
 ,an health
 ```
 
-`,an` opens Veil's status panel. `,an health` checks the bot's core permissions and member intent, and warns
+`,an` opens Veil's status panel. The rule selector shows six rules per page; use **Previous** and **Next**
+to find a rule, then select it to edit. The rule page retains its on/off, count, time, punishment and command
+detection controls, with fixed settings disabled. `,an health` checks the bot's core permissions and member intent, and warns
 about overlapping protection if Ghost Vanguard is present. The check cannot guarantee that the bot can act on every
 target. Existing positional commands such as `,an ban 3 ban 60s`, presets and the panel still work. Changing a rule does **not** turn on the antinuke itself; use `,an toggle on` first.
 Only the server owner or a bot developer can turn the whole antinuke off.
@@ -61,8 +63,22 @@ Discord test or deployment is implied by local tests.
 
 ## Trust and safety
 
-`,an whitelist @user` or `@role` exempts that user or everyone with that role from antinuke checks. Remove with
-`,an unwhitelist @user` or `@role`. Only trust accounts you are willing to exempt from protection.
+`,an whitelist @user`, `,an whitelist @bot`, or `,an whitelist @role` adds an explicit per-server exemption.
+A role applies to **all current human and bot holders** and changes as their roles change; it is not a one-time
+snapshot. `@everyone` is refused. Use `,an whitelist` to list entries and `,an unwhitelist @user`, `@bot`, or
+`@role` to remove one. Existing whitelist entries remain in place. Do not whitelist every bot or an easily
+self-assigned role: a compromised holder can evade antinuke checks. The configured antinuke administrators and
+other users allowed by the existing antinuke administration check can manage this list; server owners should
+review who has that access.
+
+Explicitly whitelisted bots, including holders of a whitelisted role, are also exempt from the bot-add rule and
+new-bot quarantine. Other protection systems, including hard role blacklist and developer protection, are not
+whitelisted by this command. When role-based trust is needed and the member is not cached, Veil tries to fetch
+that member. If it cannot verify role membership, it skips the audit-log response instead of punishing on an
+unknown exemption, and blocks guarded bot commands; this can reduce protection during API or cache failures.
+Role cache and Discord events can still be stale or unavailable, and configuration writes are not serialized
+across all writers. Review trust entries and test changes in a disposable server. Only trust accounts you are
+willing to exempt from protection.
 `,an admin @user` toggles an antinuke administrator (server owner only). **In Veil, antinuke admins are also
 exempt**, and `,an trust` is a legacy alias for the whitelist, not Greed's separate admin command. Role-blacklist
 authorization is a different setting, but users in its `authorized` list are also treated as trusted by the
@@ -100,3 +116,13 @@ to unban without guessing or punishing anyone. Old/replayed audit entries are ig
 detected when Veil receives and processes the message, and explicit ID/mention or a resolvable server member name
 identifies the developer. Discord permissions, channel access, delivery failures, outages, and other bots can still
 prevent or counteract these protections; test in a disposable server before relying on them.
+
+## Help visibility and deployment
+
+Ghost Vanguard and Automod are hidden from `,help`; the commands remain registered and their existing
+runtime permissions still apply. Moderation and administration commands remain under Moderation. Before
+deploying, back up configuration and review existing users, bots and roles on the whitelist. Test rule
+pages, bot additions, removal and database failures in a disposable server. Deploy with `AUTO_SYNC_GIT=0`
+in the process environment. To roll back, stop the bot and deploy the previous tested revision without
+deleting saved entries; previous versions may quarantine individually whitelisted bots and handle uncached
+role members differently. There has been no live Discord or production deployment verification.
