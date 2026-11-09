@@ -109,7 +109,7 @@ def test_the_home_card():
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
-    assert card.title == "VEIL / COMMANDS"
+    assert card.title == "Command guide"
     assert card.footer.text == "3 command entries · 2 categories"
     assert "**Prefix** · `,`" in card.description and "`,help <command>`" in card.description
     assert "Choose a category" in card.description
@@ -117,7 +117,7 @@ def test_the_home_card():
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title == "VEIL / COMMANDS" and card.author.name is None
+    assert card.title == "Command guide" and card.author.name is None
 
 
 # ------------------------------------------------------------------ picking categories
@@ -125,12 +125,12 @@ def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
 def test_picking_a_category_then_home_swaps_the_card_in_place():
     view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": []})
     page = _pick(view, "Utility").response.edit_message.call_args.kwargs
-    assert page["embed"].title == "VEIL / UTILITY" and page["view"] is view and view.current == "Utility"
+    assert page["embed"].title == "Utility commands" and page["view"] is view and view.current == "Utility"
     from core.help import HelpHomeButton
     assert not any(isinstance(c, CategorySelect) for c in view.children)
     it = _it()
     asyncio.run(next(c for c in view.children if isinstance(c, HelpHomeButton)).callback(it))
-    assert view.current is None and it.response.edit_message.call_args.kwargs["embed"].title == "VEIL / COMMANDS"
+    assert view.current is None and it.response.edit_message.call_args.kwargs["embed"].title == "Command guide"
 
 
 def test_cards_are_built_when_the_menu_opens():
@@ -199,10 +199,10 @@ def test_a_category_lists_each_command_with_what_it_does():
         """Add"""
 
     page = _help().category_embed("Roles", [_cmd("autorole", "Give a role to new members"), role, _cmd("vanity")])
-    assert page.title == "VEIL / ROLES"
-    assert page.description.splitlines()[3:] == ["`,autorole` · Give a role to new members",
-                                                "`,role` · Role tools · *group*",
-                                                "`,vanity` · Does a thing"]
+    assert page.title == "Roles commands"
+    assert page.description.splitlines()[3:] == ["`,autorole` — Give a role to new members",
+                                                "`,role` — Role tools · *group*",
+                                                "`,vanity` — Does a thing"]
     assert page.footer.text == "Page 1/1 · 3 commands · Select a command below"
 
 
@@ -417,7 +417,7 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, {}, is_owner=True)
     assert "gitpull" in view.pages["Developer"].description
-    assert view.pages["Developer"].title == "VEIL / DEVELOPER"
+    assert view.pages["Developer"].title == "Developer commands"
 
 
 def test_dev_and_secret_open_the_developer_category(loaded_bot):
@@ -432,7 +432,7 @@ def test_dev_and_secret_open_the_developer_category(loaded_bot):
         return sent
     for word in ("dev", "secret", "tokens"):
         sent = asyncio.run(go(word, True))
-        assert sent["embed"].title == "VEIL / DEVELOPER" and sent["view"].current == "Developer"
+        assert sent["embed"].title == "Developer commands" and sent["view"].current == "Developer"
     stranger = asyncio.run(go("secret", False))
     assert stranger["view"].current is None and "Developer" not in _labels(stranger["view"])  # just the home card
 
@@ -504,7 +504,7 @@ def test_a_group_pages_through_its_subcommands(loaded_bot):
     pages = sent[0]["view"].embeds
     assert pages[0].title == ",role" and any(p.title == ",role add" for p in pages)
     assert "`,role add` · " in pages[0].description  # the group's card lists its subcommands
-    assert [c.emoji.name for c in sent[0]["view"].children] == ["◀", "▶", "✖"]
+    assert [(str(c.emoji) if c.emoji else c.label) for c in sent[0]["view"].children] == ["◀", f"1 / {len(pages)}", "▶", "✖"]
 
 
 @pytest.mark.parametrize("doc,expected", [
@@ -577,7 +577,7 @@ def test_command_dropdown_pagination_back_and_home_callbacks():
         category = _select(view)
         category._values = ["Utility"]
         await category.callback(_pick_result)
-        assert _pick_result.response.edit_message.call_args.kwargs["embed"].title == "VEIL / UTILITY"
+        assert _pick_result.response.edit_message.call_args.kwargs["embed"].title == "Utility commands"
         next_button = next(b for b in view.children if isinstance(b, PageButton) and b.step == 1)
         await next_button.callback(_it())
         assert view.page == 1

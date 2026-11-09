@@ -114,11 +114,15 @@ class Context(commands.Context["Veil"]):
             return await self.warn("Nothing to show")
         if len(embeds) == 1:
             return await self.send(embed=embeds[0])
-        for i, e in enumerate(embeds, 1):
-            footer = f"Page {i}/{len(embeds)}"
-            e.set_footer(text=f"{e.footer.text} • {footer}" if e.footer and e.footer.text else footer)
-        view = Paginator(self.author.id, embeds)
-        view.message = await self.send(embed=embeds[0], view=view)
+        # Do not modify the caller's embeds: a reused page should not accumulate footers.
+        pages = [embed.copy() for embed in embeds]
+        for i, e in enumerate(pages, 1):
+            footer = f"Page {i}/{len(pages)}"
+            old_footer = e.footer.text
+            icon = e.footer.icon_url
+            e.set_footer(text=f"{old_footer} · {footer}" if old_footer else footer, icon_url=icon)
+        view = Paginator(self.author.id, pages)
+        view.message = await self.send(embed=pages[0], view=view)
         return view.message
 
     async def confirm(self, text: str, timeout: float = 30) -> bool:
@@ -158,17 +162,25 @@ class OwnedView(discord.ui.View):
 class Paginator(OwnedView):
     def __init__(self, author_id: int, embeds: list[discord.Embed]):
         super().__init__(author_id, timeout=180)
+        if not embeds:
+            raise ValueError("Paginator needs at least one page")
         self.embeds, self.index = embeds, 0
+        self.page_indicator.label = f"1 / {len(embeds)}"
         self.message: discord.Message | None = None
 
     async def _go(self, it: discord.Interaction, i: int):
         self.index = i % len(self.embeds)
+        self.page_indicator.label = f"{self.index + 1} / {len(self.embeds)}"
         await it.response.edit_message(embed=self.embeds[self.index], view=self)
 
     # grey ◀ ▶ ✖, like greed / bleed. ◀ on the first page goes to the last, ▶ on the last to the first.
     @discord.ui.button(emoji="◀", style=discord.ButtonStyle.secondary)
     async def prev(self, it, _):
         await self._go(it, self.index - 1)
+
+    @discord.ui.button(label="1 / 1", style=discord.ButtonStyle.secondary, disabled=True)
+    async def page_indicator(self, it, _):
+        pass
 
     @discord.ui.button(emoji="▶", style=discord.ButtonStyle.secondary)
     async def next(self, it, _):
@@ -236,7 +248,7 @@ def chunk_embeds(title: str, lines: list[str], per_page: int = 10, color: int = 
     pages = []
     for start in range(0, len(lines), per_page):
         chunk = lines[start:start + per_page]
-        body = "\n".join(f"`{start + i + 1}` {l}" if numbered else l for i, l in enumerate(chunk))
+        body = "\n".join(f"`{start + i + 1:02}` · {l}" if numbered else l for i, l in enumerate(chunk))
         pages.append(discord.Embed(title=title, description=body, color=color))
     return pages
 

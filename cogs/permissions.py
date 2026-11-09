@@ -13,6 +13,26 @@ from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, huma
 log = logging.getLogger("veil.permissions")
 
 
+def assignment_pages(title: str, members: list[tuple[str, str]], roles: list[tuple[str, str]], levels: dict) -> list[discord.Embed]:
+    """Compact, paginated direct assignments; no claims about effective access."""
+    entries = [("Role", f"<@&{rid}>", key) for rid, key in roles]
+    entries += [("Member", f"<@{uid}>", key) for uid, key in members]
+    summary = f"{len(members)} {'member' if len(members) == 1 else 'members'} · {len(roles)} {'role' if len(roles) == 1 else 'roles'}"
+    note = "Direct Veil assignments only. Automatic access and fake permissions are not shown."
+    if not entries:
+        page = discord.Embed(title=title, color=Colors.main, description=f"{note}\n\nNo direct assignments yet.")
+        page.set_footer(text=summary)
+        return [page]
+    pages = []
+    for start in range(0, len(entries), 8):
+        lines = [f"`{i:02}` {mention} — **{levels.get(key, {}).get('name', key)}** · {kind.lower()}"
+                 for i, (kind, mention, key) in enumerate(entries[start:start + 8], start + 1)]
+        page = discord.Embed(title=title, color=Colors.main, description=f"{note}\n\n" + "\n".join(lines))
+        page.set_footer(text=summary)
+        pages.append(page)
+    return pages
+
+
 class Permissions(commands.Cog):
     """Assign named permission levels to members"""
     emoji = "🔑"
@@ -201,19 +221,7 @@ class Permissions(commands.Cog):
                            key=lambda kv: levels.get(kv[1], {}).get("rank", 0), reverse=True)
         role_rows = sorted(cfg.get("roles", {}).items(),
                            key=lambda kv: levels.get(kv[1], {}).get("rank", 0), reverse=True)
-        lines = []
-        if role_rows:
-            lines.append("**Roles**")
-            for rid, key in role_rows:
-                lines.append(f"<@&{rid}> — **{levels.get(key, {}).get('name', key)}**")
-            lines.append("")
-        if user_rows:
-            lines.append("**Members**")
-            for uid, key in user_rows:
-                lines.append(f"<@{uid}> — **{levels.get(key, {}).get('name', key)}**")
-        if not lines:
-            lines = ["No members or roles have been assigned a permission level."]
-        await ctx.paginate(chunk_embeds("Permission levels", lines, numbered=False))
+        await ctx.paginate(assignment_pages("Permission assignments", user_rows, role_rows, levels))
 
     @userperm.command(name="roles")
     @has_perms(administrator=True)
@@ -223,10 +231,7 @@ class Permissions(commands.Cog):
         levels = perms.all_levels(cfg)
         role_rows = sorted(cfg.get("roles", {}).items(),
                            key=lambda kv: levels.get(kv[1], {}).get("rank", 0), reverse=True)
-        lines = [f"<@&{rid}> — **{levels.get(key, {}).get('name', key)}**" for rid, key in role_rows]
-        if not lines:
-            lines = ["No roles have been assigned a permission level."]
-        await ctx.paginate(chunk_embeds("Role permission levels", lines, numbered=False))
+        await ctx.paginate(assignment_pages("Role permissions", [], role_rows, levels))
 
     @userperm.command(name="check", aliases=["view", "info"])
     @commands.guild_only()
@@ -310,15 +315,13 @@ class Permissions(commands.Cog):
         rows = [(perms.DEV_NAME, "automatic: the bot's developers"),
                 (perms.OWNER_NAME, "automatic: whoever owns the server")]
         rows += [(f"{info['name']} (`{key}`)", grants(key, info) + holders(key)) for key, info in levels]
-        lines = [f"Highest to lowest. Give one with `{ctx.clean_prefix}perm add <member|role> <level>`.", ""]
-        lines += [f"**{i}. {name}** — {text}" for i, (name, text) in enumerate(rows, 1)]
-
-        e = discord.Embed(
-            title="Permission levels",
-            color=Colors.blurple,
-            description="\n".join(lines)
-        )
-        await ctx.send(embed=e)
+        intro = f"Highest to lowest · assign with `{ctx.clean_prefix}perm add <member|role> <level>`"
+        lines = [f"`{i:02}` **{name}**\n{text}" for i, (name, text) in enumerate(rows, 1)]
+        pages = chunk_embeds("Permission levels", lines, per_page=6, numbered=False)
+        for page in pages:
+            page.description = f"{intro}\n\n{page.description}"
+            page.set_footer(text="Automatic access and saved assignments are separate")
+        await ctx.paginate(pages)
 
     @commands.command(name="botperms", aliases=["botpermissions", "botperm"])
     @commands.guild_only()
