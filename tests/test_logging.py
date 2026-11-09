@@ -959,7 +959,7 @@ def test_test_command_reports_working_broken_and_unset_categories():
     asyncio.run(go())
 
 
-def test_cleanup_deletes_only_duplicate_log_channels():
+def test_cleanup_only_reports_all_possibly_duplicate_channels():
     async def go():
         a, dup, other = text_channel(1, "message-logs"), text_channel(2, "message-logs"), text_channel(3, "general")
         for c in (a, dup, other):
@@ -969,12 +969,13 @@ def test_cleanup_deletes_only_duplicate_log_channels():
         guild.categories = [empty]
         cog, _ = make_cog()
         ctx = command_ctx(guild, cog)
+        ctx.paginate = AsyncMock()
         await cog.logs_cleanup.callback(cog, ctx)
-        dup.delete.assert_awaited_once()
-        a.delete.assert_not_awaited()
-        other.delete.assert_not_awaited()
-        empty.delete.assert_awaited_once()
-        assert "1" in ctx.approve.await_args.args[0]
+        for channel in (a, dup, other, empty):
+            channel.delete.assert_not_awaited()
+        description = ctx.paginate.await_args.args[0][0].description
+        assert "<#1>" in description and "<#2>" in description
+        assert "<#3>" not in description and "Nothing was deleted" in description
     asyncio.run(go())
 
 
@@ -1065,11 +1066,19 @@ def test_only_the_person_who_opened_the_panel_can_use_it():
     async def go():
         view, *_ = panel(author=42)
         stranger = interaction()
+        stranger.guild = view.guild
+        stranger.guild.owner_id = 42
         stranger.user = SimpleNamespace(id=99)
         stranger.client = SimpleNamespace(is_owner=AsyncMock(return_value=False))
         assert await view.interaction_check(stranger) is False
         owner = interaction()
+        owner.guild = view.guild
+        owner.user = SimpleNamespace(id=42)
+        owner.client = SimpleNamespace(is_owner=AsyncMock(return_value=False))
         assert await view.interaction_check(owner) is True
+        # An old panel no longer works after server ownership changes.
+        owner.guild.owner_id = 100
+        assert await view.interaction_check(owner) is False
     asyncio.run(go())
 
 
@@ -1276,14 +1285,14 @@ def test_setup_splits_the_old_catch_all_channel_and_files_log_channels_under_vei
         assert {c.name for c in report.created} == {"message-logs", "member-logs", "role-logs", "channel-logs",
                                                     "voice-logs", "server-logs", "mod-logs"}  # #bans is Ghost Vanguard's
         assert all(kwargs["category"].id == 50 for _, kwargs in created)       # made inside the existing category
-        assert {c.name for c in report.moved} == {"join-logs", "command-logs", "veil-utilities-logging"}
+        assert not report.moved  # matching names alone do not establish that Veil owns a channel
         for ch in (joins, cmds, veil):
-            assert ch.edit.await_args.kwargs["category"].id == 50
+            ch.edit.assert_not_awaited()
         bans.edit.assert_not_awaited()                                         # another bot's channel: left alone
         anti.edit.assert_not_awaited()                                         # already there
         general.edit.assert_not_awaited()                                      # never touch non-log channels
         roles.edit.assert_not_awaited()
-        assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # filed and listed, not deleted
+        assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # listed, not moved or deleted
         veil.delete.assert_not_awaited()
         assert store["logs"]["bans"] != 3 and store["logs"]["commands"] == 4  # #bans swapped for Veil's own
         assert store["logs"]["messages"] != 1
@@ -1449,3 +1458,21 @@ def test_event_log_separates_summary_quote_and_details():
                           details=[("Reason", "spam")], ids=[("Message ID", 123)])
     assert card.description == "**A message was removed**\n\n> message text\n\n**Reason:** spam"
     assert card.footer.text == "Message ID: 123" and card.timestamp is not None
+
+
+def test_ghost_vanguard_category_is_neither_reused_nor_moved():
+    async def go():
+        other = text_channel(18, "mod-logs")
+        other.category = SimpleNamespace(id=12, name="Ghost Vanguard Logs")
+        other.category_id = 12
+        guild, created = creating_guild([other])
+        cog, store = make_cog()
+        assert L.other_bots_channel(other)
+        assert L._channel_for(guild, {}, "bans") is None
+        report = await cog.organize(guild)
+        other.edit.assert_not_awaited()
+        other.delete.assert_not_awaited()
+        assert store["logs"]["bans"] != other.id
+        assert any(ch.name == "mod-logs" for ch in report.created)
+        assert created
+    asyncio.run(go())

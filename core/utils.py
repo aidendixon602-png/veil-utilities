@@ -574,15 +574,23 @@ def is_developer():
     return commands.check(predicate)
 
 
+def owner_or_developer(user, guild, bot) -> bool:
+    """Only the actual server owner or a configured/discovered bot developer."""
+    from core import perms as _perms
+    if guild is None or user is None:
+        return False
+    uid = getattr(user, "id", None)
+    owner_id = getattr(guild, "owner_id", None)
+    return _perms.is_bot_developer(user, bot) or (uid is not None and owner_id is not None and uid == owner_id)
+
+
 def is_server_owner():
     async def predicate(ctx: Context):
         from core import perms as _perms
         bot = getattr(ctx, "bot", None)
-        if _perms.is_bot_developer(ctx.author, bot):
+        if _perms.is_bot_developer(ctx.author, bot) or owner_or_developer(ctx.author, ctx.guild, bot):
             return True
-        if ctx.guild and ctx.author.id == ctx.guild.owner_id:
-            return True
-        raise UserError("Only the **server owner** can use this command")
+        raise UserError("Only the **server owner** or a **bot developer** can use this command")
     predicate.__veil_owner_only__ = True  # ,help shows these to the owner only
     return commands.check(predicate)
 

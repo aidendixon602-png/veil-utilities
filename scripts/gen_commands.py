@@ -41,6 +41,8 @@ def signature(cmd) -> str:
 
 def perms_of(cmd) -> str:
     perms = set(getattr(cmd.callback, "__veil_perms__", []))
+    if any(getattr(check, "__veil_owner_only__", False) for item in (cmd, *cmd.parents) for check in item.checks):
+        perms.add("server owner or bot developer")
     # discord.py's own has_permissions / bot_has_permissions checks keep their perms dict in a closure
     for check in cmd.checks:
         if check.__qualname__.split(".")[0] in ("has_permissions", "bot_has_permissions", "has_guild_permissions"):

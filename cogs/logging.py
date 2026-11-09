@@ -18,8 +18,8 @@ from discord.ext import commands
 from core import autoclean
 from core import devchannels
 from core import logembeds as fmt
-from core.utils import (Colors, Context, Ignored, OwnedView, UserError, has_perms, input_error_text, respond_or_edit,
-                        shorten)
+from core.utils import (Colors, Context, Ignored, OwnedView, UserError, chunk_embeds, has_perms, input_error_text,
+                        is_server_owner, owner_or_developer, respond_or_edit, shorten)
 
 OFF = -1  # stored instead of a channel id when a category is switched off on purpose
 CATEGORY_NAME = devchannels.LOGS_CATEGORY
@@ -135,7 +135,7 @@ def _is_log_channel(channel) -> bool:
     """Safe to file under VEIL LOGS: made by the bot or named like a log channel (never e.g. #roles or #general)."""
     name = channel.name.lower()
     topic = getattr(channel, "topic", None)
-    if name in OTHER_BOT_CHANNELS:
+    if other_bots_channel(channel):
         return False  # another bot's log channel: never filed under VEIL LOGS
     return "log" in name or name in LOG_LIKE_NAMES or (isinstance(topic, str) and topic.startswith("Veil Utilities ·"))
 
@@ -169,7 +169,14 @@ OTHER_BOT_CHANNELS = {"bans", "ghost-vanguard-logging", "midtown-vanguard-loggin
 
 
 def other_bots_channel(channel) -> bool:
-    return getattr(channel, "name", "").lower() in OTHER_BOT_CHANNELS
+    if getattr(channel, "name", "").lower() in OTHER_BOT_CHANNELS:
+        return True
+    category = getattr(channel, "category", None)
+    category_name = getattr(category, "name", "")
+    if not isinstance(category_name, str):
+        return False
+    normalized = re.sub(r"[^a-z0-9]+", " ", category_name.lower()).strip()
+    return "ghost vanguard" in normalized or "midtown vanguard" in normalized
 
 
 def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
@@ -336,6 +343,15 @@ class LogPanel(OwnedView):
         self.selected: str | None = None
         self.message: discord.Message | None = None
         self.rebuild()
+
+    async def interaction_check(self, it: discord.Interaction) -> bool:
+        guild = getattr(it, "guild", None)
+        origin_id = getattr(self.guild, "id", None)
+        if (guild is None or origin_id is None or getattr(guild, "id", None) != origin_id
+                or not owner_or_developer(it.user, guild, getattr(it, "client", None))):
+            await it.response.send_message("Only the server owner or a bot developer can use this panel.", ephemeral=True)
+            return False
+        return await super().interaction_check(it)
 
     def embed(self) -> discord.Embed:
         lines = []
@@ -586,8 +602,8 @@ class Logging(commands.Cog):
         * A category with no channel, or one sharing a catch-all channel with others (the old single
           `#veil-utilities-logging` setup), gets its own channel: an existing one with the right name, else a new one.
         * A category pointed at a channel of its own is left where it is (e.g. Moderation → `#bans`).
-        * Every channel the logs end up in that is clearly a log channel is moved into VEIL LOGS. Its permissions are
-          kept as they are. Channels that no longer receive logs are listed so you can delete them, never deleted.
+        * Existing channels are moved only when their topic has Veil's marker. Unmarked channels stay in place;
+          matching a name alone is not enough. Channels no longer receiving logs are listed, never deleted.
         """
         report = SetupReport()
         me = getattr(guild, "me", None)
@@ -602,7 +618,7 @@ class Logging(commands.Cog):
                 categories = [c for c in fetched if isinstance(c, discord.CategoryChannel)]
             except (discord.HTTPException, AttributeError):
                 pass
-        existing = {c.name.lower(): c for c in text_channels}
+        existing = {c.name.lower(): c for c in text_channels if not other_bots_channel(c)}
         cfg = await self.config(guild)
         before = {k: _channel_for(guild, cfg, k) for k in KINDS}
         uses: dict[int, int] = {}
@@ -657,9 +673,12 @@ class Logging(commands.Cog):
         still_used = {c.id for c in destinations}
         report.unused = [c for c in {c.id: c for c in before.values() if c is not None}.values()
                          if c.id not in still_used]
-        # every log channel goes in, including a catch-all that no longer gets logs (it is filed, not deleted)
+        # Never move an existing channel solely because its name looks like a log. Its topic is
+        # only an indicator, not proof of ownership; unmarked channels are left where they are.
         for channel in destinations + report.unused:
-            if channel in report.created or not _is_log_channel(channel):
+            topic = getattr(channel, "topic", None)
+            if (channel in report.created or not _is_log_channel(channel)
+                    or not isinstance(topic, str) or not topic.startswith("Veil Utilities ·")):
                 continue
             if category is not None and getattr(channel, "category_id", None) == category.id:
                 continue
@@ -741,6 +760,7 @@ class Logging(commands.Cog):
     @commands.group(aliases=["log"], invoke_without_command=True)
     @commands.guild_only()
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs(self, ctx: Context):
         """Open the logging panel: see and change where each kind of log goes"""
         panel = LogPanel(self, ctx.guild, ctx.author.id, await self.config(ctx.guild))
@@ -757,6 +777,7 @@ class Logging(commands.Cog):
 
     @logs.command(name="set")
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_set(self, ctx: Context, category: str, channel: str = None):
         """Send a log category to a channel
 
@@ -783,6 +804,7 @@ class Logging(commands.Cog):
 
     @logs.command(name="off", aliases=["disable"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_off(self, ctx: Context, category: str):
         """Stop logging a category
 
@@ -792,12 +814,14 @@ class Logging(commands.Cog):
 
     @logs.command(name="auto", aliases=["reset"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_auto(self, ctx: Context, category: str):
         """Go back to finding a category's channel by name"""
         await self.logs_set(ctx, category, "auto")
 
     @logs.command(name="setup", aliases=["init", "default", "defaults", "create"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_setup(self, ctx: Context, mode: str = None):
         """Give every log category its own private channel
 
@@ -854,6 +878,7 @@ class Logging(commands.Cog):
 
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def cmd_setuplogs(self, ctx: Context):
         """Make a private channel for every log category
 
@@ -863,6 +888,7 @@ class Logging(commands.Cog):
 
     @logs.command(name="test")
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_test(self, ctx: Context):
         """Send a test line to every log channel
 
@@ -890,6 +916,7 @@ class Logging(commands.Cog):
 
     @logs.group(name="ignore", invoke_without_command=True)
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_ignore(self, ctx: Context):
         """Skip logging messages, voice and commands from a channel or member"""
         ignore = (await self.config(ctx.guild)).get("ignore") or {}
@@ -915,54 +942,44 @@ class Logging(commands.Cog):
 
     @logs_ignore.command(name="add")
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_ignore_add(self, ctx: Context, target: discord.TextChannel | discord.VoiceChannel | discord.Member):
         """Ignore a channel or member"""
         await self._toggle_ignore(ctx, target, True)
 
     @logs_ignore.command(name="remove", aliases=["del", "delete"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_ignore_remove(self, ctx: Context, target: discord.TextChannel | discord.VoiceChannel | discord.Member):
         """Stop ignoring a channel or member"""
         await self._toggle_ignore(ctx, target, False)
 
     @logs.command(name="cleanup", aliases=["clean", "purgeduplicates", "cleanupchannels"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def logs_cleanup(self, ctx: Context):
-        """Delete duplicate log channels the bot made
-
-        Also removes an empty log category.
-        """
-        if not ctx.guild.me.guild_permissions.manage_channels:
-            raise UserError("I need the `Manage Channels` permission to delete duplicate channels.")
-        seen: set[str] = set()
-        deleted = 0
-        for channel in list(ctx.guild.text_channels):
+        """List possible duplicate log channels without deleting anything"""
+        groups: dict[str, list] = {}
+        for channel in getattr(ctx.guild, "text_channels", []):
             name = channel.name.lower()
-            if name not in SETUP_NAMES:
-                continue
-            if name in seen:
-                try:
-                    await channel.delete(reason="Veil Utilities: cleanup duplicate log channels")
-                    deleted += 1
-                except discord.HTTPException:
-                    pass
-            else:
-                seen.add(name)
-        empty = 0
-        for category in list(ctx.guild.categories):
-            if category.name.upper() == CATEGORY_NAME and not category.channels:
-                try:
-                    await category.delete(reason="Veil Utilities: cleanup empty VEIL LOGS category")
-                    empty += 1
-                except discord.HTTPException:
-                    pass
-        text = f"Deleted **{deleted}** duplicate log channel(s)" + (f" and **{empty}** empty categor{'y' if empty == 1 else 'ies'}" if empty else "")
-        await ctx.approve(text + ".")
+            if name in SETUP_NAMES:
+                groups.setdefault(name, []).append(channel)
+        duplicates = [channel for name in sorted(groups) if len(groups[name]) > 1 for channel in groups[name]]
+        if not duplicates:
+            return await ctx.neutral("no possible duplicate log channel names were found; nothing was deleted")
+        lines = [f"<#{channel.id}> · `{channel.id}`" for channel in duplicates]
+        pages = chunk_embeds("Possible duplicate log channels", lines, per_page=10, numbered=False)
+        for page in pages:
+            page.description = ("Matching names do not prove ownership or redundancy. "
+                                "Nothing was deleted; review each channel and its messages before acting.\n\n"
+                                + page.description)
+        await ctx.paginate(pages)
 
     @commands.command(name="cleanuplogs", aliases=["cleanuplogchannels", "purgeduplicatelogs"])
     @has_perms(manage_guild=True)
+    @is_server_owner()
     async def cmd_cleanuplogs(self, ctx: Context):
-        """Delete duplicate log channels the bot made
+        """List possible duplicate log channels without deleting anything
 
         Same as `logs cleanup`.
         """

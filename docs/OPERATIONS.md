@@ -13,6 +13,22 @@ visibility do not replace the checks that run when a command is used.
 
 ## Permissions and server authorization
 
+The actual Discord server owner or a recognized bot developer is required for `,security`, `,logs` and its
+subcommands, `,setuplogs`, `,cleanuplogs`, `,masskick`, `,massban`, `,nuke`, `,stripstaff`, and role-blacklist
+commands including their standalone aliases and action buttons. A Veil level named Owner, Discord Administrator,
+fake permissions or a command restriction cannot substitute for the actual server owner. The hidden `,strip`
+command remains **developer-only**. Existing Discord bot permissions, hierarchy, and other checks still apply.
+Owners should review application team access and `OWNER_IDS` before upgrading. Existing assignments are unchanged.
+
+`,cleanuplogs` / `,logs cleanup` now **only reports channels with matching log names**; it does not delete or
+move them. Names alone cannot establish ownership or whether logs are redundant. Inspect channels and back up
+anything needed before manually changing them. Automatic log setup and name-based routing remain separate: they can create channels, select similarly named
+channels outside the recognized Ghost/Midtown Vanguard categories, and move existing channels with a Veil topic
+marker. A topic is not proof of ownership. Review the [logging configuration](#logging)
+and other bots before using them; `,logs setup off` changes automatic setup globally and is developer-only.
+To roll back, deploy the previous tested revision with `AUTO_SYNC_GIT=0`, knowing that older code restores the
+broader command access and destructive name-based cleanup. Do not use production for security tests.
+
 **Known self-role risk:** Do not put Veil level or fake-permission grants on roles members can obtain from
 button or reaction panels. Review existing role holders as well as panels; removing a panel does not revoke roles.
 See the [permissions guide](PERMISSIONS.md#review-role-assignments) for mitigation and current trust boundaries.
