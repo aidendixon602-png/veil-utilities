@@ -69,13 +69,14 @@ def test_developer_reference_is_separate_and_uses_prefix():
     assert "require developer/owner authorization" in text
 
 
-def test_permission_guide_discloses_builtins_and_unfixed_self_role_risk():
+def test_permission_guide_discloses_builtins_and_self_role_limitations():
     from core import perms
 
     guide = (ROOT / "docs/PERMISSIONS.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Known self-role risk" in guide and "Known self-role risk" in readme
-    assert "not a fix to the code" in guide
+    assert "Self-role safety" in guide and "Self-role safety" in readme
+    assert "Existing role holders are not removed" in guide
+    assert "concurrent policy changes can race a grant" in guide
     for uid, name in {**perms.TRUSTED_BOTS, **perms.WHITELISTED_PEOPLE}.items():
         assert str(uid) in guide and name in guide
     assert "maximum one hour" in guide

@@ -10,17 +10,12 @@ import discord
 from discord.ext import commands, tasks
 
 from core.loops import resilient
-from core.utils import (Colors, Context, UserError, antinuke_guard, build_message, build_vars, check_role,
+from core.role_safety import require_safe_automatic_roles, unsafe_automatic_roles
+from core.utils import (Colors, Context, UserError, build_message, build_vars, check_role,
                         chunk_embeds, has_perms, is_dangerous, now, role_protection_ids, send_script, shorten)
 
 log = logging.getLogger("veil.config")
 
-
-def self_assignable(role: discord.Role) -> bool:
-    """Checked when a self-role is *claimed*, not just when the panel was made: if staff later give the role
-    admin/ban/etc., a months-old button or reaction must not hand those permissions to anyone who clicks."""
-    me = role.guild.me
-    return not role.managed and not role.is_default() and role < me.top_role and not is_dangerous(role.permissions)
 
 DISBOARD_ID = 302050872383242240
 MSG_LINK = re.compile(r"discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)")
@@ -42,17 +37,15 @@ class RoleButton(discord.ui.DynamicItem[discord.ui.Button], template=r"rb:(?P<ro
         role = it.guild.get_role(self.role_id)
         if not role:
             return await it.response.send_message("That role no longer exists.", ephemeral=True)
-        db = getattr(it.client, "db", None)
-        if not db:
-            return await it.response.send_message("I can't verify role protections right now.", ephemeral=True)
-        b_cfg = await db.get_config(it.guild.id, "roleblacklist")
-        if self.role_id in role_protection_ids(b_cfg):
-            return await it.response.send_message(
-                f"❌ {role.mention} is blacklisted (bled) and cannot be assigned.", ephemeral=True
-            )
-        if not self_assignable(role) and role not in it.user.roles:
-            return await it.response.send_message(
-                f"{role.mention} has staff permissions now, so I won't hand it out. Ask a server admin.", ephemeral=True)
+        # Removing a role does not grant access and remains possible during a policy outage.
+        if role not in it.user.roles:
+            try:
+                denied = await unsafe_automatic_roles(getattr(it.client, "db", None), it.guild, [role])
+            except Exception as exc:
+                log.warning("Could not verify self-role policy in guild %s (%s)", it.guild.id, type(exc).__name__)
+                return await it.response.send_message("I can't verify role protections right now.", ephemeral=True)
+            if self.role_id in denied:
+                return await it.response.send_message(f"❌ {role.mention} {denied[self.role_id]}.", ephemeral=True)
         try:
             if role in it.user.roles:
                 await it.user.remove_roles(role, reason="button role")
@@ -216,8 +209,7 @@ class Config(commands.Cog):
             b_cfg = await self.get(ctx.guild.id, "roleblacklist")
             if role.id in role_protection_ids(b_cfg):
                 raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
-            if is_dangerous(role.permissions):
-                await antinuke_guard(ctx, "permissions")
+            await require_safe_automatic_roles(self.bot.db, ctx.guild, [role])
         cfg["role"] = role.id if role else None
         await self.put(ctx.guild.id, "boost", cfg)
         await ctx.approve(f"set the booster reward role to {role.mention}" if role else "removed the booster reward role")
@@ -239,9 +231,9 @@ class Config(commands.Cog):
                  if r and r < member.guild.me.top_role and r.id not in b_roles]
         if roles:
             await asyncio.sleep(ar.get("delay", 0))
-            # Protection may have changed during a configured delay.
-            protected = role_protection_ids(await self.get(member.guild.id, "roleblacklist"))
-            roles = [r for r in roles if r.id not in protected]
+            # Policy or native role permissions may have changed during the delay.
+            denied = await unsafe_automatic_roles(self.bot.db, member.guild, roles)
+            roles = [r for r in roles if r.id not in denied]
             if not roles:
                 return
             try:
@@ -262,8 +254,8 @@ class Config(commands.Cog):
         if after.premium_since and not before.premium_since:
             await self._greet_send(after, "boost")
             if role:
-                b_cfg = await self.get(after.guild.id, "roleblacklist")
-                if role.id not in role_protection_ids(b_cfg):
+                denied = await unsafe_automatic_roles(self.bot.db, after.guild, [role])
+                if role.id not in denied:
                     try:
                         await after.add_roles(role, reason="booster reward")
                     except discord.HTTPException:
@@ -287,16 +279,12 @@ class Config(commands.Cog):
 
     async def _ar(self, ctx, bucket, role: discord.Role):
         check_role(ctx, role)
-        rbl = await self.get(ctx.guild.id, "roleblacklist")
-        if role.id in role_protection_ids(rbl):
-            raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
         ar = await self.get(ctx.guild.id, "autorole")
         lst = ar.setdefault(bucket, [])
         if role.id in lst:
             lst.remove(role.id); msg = f"removed {role.mention} from the **{bucket}** autoroles"
         else:
-            if is_dangerous(role.permissions):  # every new member would get staff powers
-                await antinuke_guard(ctx, "permissions")
+            await require_safe_automatic_roles(self.bot.db, ctx.guild, [role])
             lst.append(role.id); msg = f"added {role.mention} to the **{bucket}** autoroles"
         await self.put(ctx.guild.id, "autorole", ar)
         await ctx.approve(msg)
@@ -361,6 +349,7 @@ class Config(commands.Cog):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
         if is_dangerous(role.permissions):
             raise UserError(f"{role.mention} has staff permissions — it can't be a self-role")
+        await require_safe_automatic_roles(self.bot.db, ctx.guild, [role])
         msg = await self._resolve_message(ctx, message)
         try:
             await msg.add_reaction(emoji)
@@ -397,13 +386,16 @@ class Config(commands.Cog):
         role_id = rr.get(str(payload.message_id), {}).get(str(payload.emoji))
         if not role_id:
             return
-        rbl = await self.get(payload.guild_id, "roleblacklist")
-        if role_id in role_protection_ids(rbl):
-            return
         guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
+            return
         member = guild.get_member(payload.user_id)
         role = guild.get_role(role_id)
-        if member and role and not member.bot and (not add or self_assignable(role)):
+        if member and role and not member.bot:
+            if add:
+                denied = await unsafe_automatic_roles(self.bot.db, guild, [role])
+                if role.id in denied:
+                    return
             try:
                 await (member.add_roles if add else member.remove_roles)(role, reason="reaction role")
             except discord.HTTPException:
@@ -437,9 +429,7 @@ class Config(commands.Cog):
                 raise UserError(f"{r.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
             if is_dangerous(r.permissions):
                 raise UserError(f"{r.mention} has staff permissions — it can't be a self-role")
-            check_role(ctx, r)
-            if is_dangerous(r.permissions):
-                raise UserError(f"{r.mention} has staff permissions — it can't be a self-role")
+        await require_safe_automatic_roles(self.bot.db, ctx.guild, roles)
         view = discord.ui.View(timeout=None)
         for r in roles:
             view.add_item(RoleButton(r.id, label=r.name[:80]))
@@ -843,8 +833,7 @@ class Config(commands.Cog):
         b_cfg = await self.get(ctx.guild.id, "roleblacklist")
         if role.id in role_protection_ids(b_cfg):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned by anyone via any command")
-        if is_dangerous(role.permissions):  # anyone could claim it by editing their status
-            await antinuke_guard(ctx, "permissions")
+        await require_safe_automatic_roles(self.bot.db, ctx.guild, [role])
         await self.put(ctx.guild.id, "vanity", {"role": role.id, "text": text.lower()})
         await ctx.approve(f"members with `{text}` in their status now get {role.mention}")
 
@@ -860,10 +849,6 @@ class Config(commands.Cog):
         cfg = await self.get(after.guild.id, "vanity")
         if not cfg.get("role"):
             return
-        b_cfg = await self.get(after.guild.id, "roleblacklist")
-        if cfg["role"] in role_protection_ids(b_cfg):
-            return
-
         def has(m):
             return any(isinstance(a, discord.CustomActivity) and a.name and cfg["text"] in a.name.lower()
                        for a in m.activities)
@@ -876,6 +861,9 @@ class Config(commands.Cog):
             return
         try:
             if a and role not in after.roles:
+                denied = await unsafe_automatic_roles(self.bot.db, after.guild, [role])
+                if role.id in denied:
+                    return
                 await after.add_roles(role, reason="vanity reward")
             elif not a and role in after.roles and after.status != discord.Status.offline:
                 await after.remove_roles(role, reason="vanity removed")
