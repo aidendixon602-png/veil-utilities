@@ -51,8 +51,11 @@ must have antinuke enabled, receive a usable Discord audit-log entry, and have a
 channel it can write to. Missing or delayed entries and delivery errors can prevent alerts.
 A separate existing rule may still act on a simultaneous vanity change.
 
-The Antinuke category in `,help` now lists security subcommands and aliases across pages. The
-`,mod` and `,admin` panel commands are removed; their individual moderation commands remain in
+The Antinuke category in `,help` lists available security commands on one compact overview. Select
+a command group to browse its subcommands, descriptions and aliases; long groups can have multiple
+detail pages. If the command catalog outgrows Discord's message limits, the overview falls back to
+multiple pages rather than omitting commands. The `,mod` and `,admin` panel commands are removed;
+their individual moderation commands remain in
 the unified Moderation help category with their previous permission gates.
 
 To deploy, back up the database and test opt-in monitoring and moderation access in a disposable

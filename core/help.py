@@ -596,8 +596,9 @@ class HelpView(OwnedView):
         self.subpage = 0
         for label in self.labels():
             cmds = page_order(label, self.commands_in(label))
-            self.items[label] = cmds
             self.sizes[label] = len(cmds)
+            compact_security = label == "Antinuke" and help_cmd.security_overview(cmds) is not None
+            self.items[label] = [c for c in cmds if getattr(c, "parent", None) is None] if compact_security else cmds
             self.books[label] = help_cmd.category_pages(label, cmds)
             self.pages[label] = self.books[label][0]
         self.home = help_cmd.home_embed(author_rank, categories, is_owner, total=sum(self.sizes.values()),
@@ -799,8 +800,43 @@ class Help(commands.HelpCommand):
         remaining = len(cmd.aliases) - len(aliases)
         return text + (f" · +{remaining} more" if remaining else "")
 
+    def security_overview(self, cmds: list[commands.Command]) -> discord.Embed | None:
+        """Compact security command names; details and aliases stay in the group selector.
+
+        Return None if the catalog no longer fits Discord's limits so the ordinary
+        paginated reference can render it without truncating commands.
+        """
+        roots = [cmd for cmd in cmds if getattr(cmd, "parent", None) is None]
+        if len(roots) > PER_PAGE or any(
+                getattr(cmd, "parent", None) is not None and getattr(cmd, "root_parent", None) not in roots
+                for cmd in cmds):
+            return None  # use regular pages if roots cannot all be shown or a parent is missing
+        prefix = self.context.clean_prefix
+        lines = ["Protection settings available to your permission level", "", "**Commands**"]
+        for root in roots:
+            name = root.qualified_name
+            display = "an" if name == "antinuke" and "an" in getattr(root, "aliases", []) else name
+            children = sorted((cmd.qualified_name[len(name) + 1:] for cmd in cmds
+                               if getattr(cmd, "root_parent", None) is root), key=str.casefold)
+            lines.append(f"**`{prefix}{display}`**")
+            if children:
+                lines.append(" · ".join(f"`{prefix}{display} {child}`" for child in children))
+        if not roots:
+            lines.append("No commands in this category.")
+        lines += ["", "Select a command group below for details and aliases."]
+        body = "\n".join(lines)
+        if len(body) > 4000:
+            return None
+        embed = self._brand(discord.Embed(color=HELP_COLOR, title="Antinuke commands", description=body))
+        embed.set_footer(text=f"{count(len(cmds), 'command')} · Select a group below")
+        return embed
+
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
         """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
+        if label == "Antinuke":
+            overview = self.security_overview(cmds)
+            if overview is not None:
+                return [overview]
         chunks = [cmds[i:i + PER_PAGE] for i in range(0, len(cmds), PER_PAGE)] or [[]]
         pages = []
         for n, chunk in enumerate(chunks, 1):
