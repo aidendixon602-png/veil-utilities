@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import sys
+from types import SimpleNamespace
 
 
 from core.bot import Veil
@@ -64,7 +65,7 @@ def test_system_diagnostics_sqlite():
     assert "! (Default)" == mapping["Command Prefix:"]
     assert "1 authorized developer(s)" == mapping["Bot Developers:"]
     assert "SQLite (my_test.db) [WAL Mode]" == mapping["Database Engine:"]
-    assert "Port 8080 (Active)" in mapping["Web Dashboard:"]
+    assert mapping["Web Dashboard:"] == "Disabled"
 
 
 def test_system_diagnostics_postgres():
@@ -89,6 +90,10 @@ def test_ready_diagnostics():
         assert "Veil Utilities" in mapping["Bot Account:"]
         assert "servers" in mapping["Guilds Served:"]
         assert "commands across" in mapping["Loaded Commands:"]
+        assert mapping["Web Dashboard:"] == "Not running"
+        bot.dashboard = SimpleNamespace(public_url="https://dash.example.com", host="127.0.0.1", port=8080)
+        assert dict(get_ready_diagnostics(bot))["Web Dashboard:"] == "https://dash.example.com"
+        del bot.dashboard
         assert "Role Blacklist & Antinuke Active" == mapping["Security Status:"]
         await bot.db.close()
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.config import Settings
-from core.dashboard_tunnel import DashboardTunnel
+from core.dashboard_tunnel import DashboardTunnel, TunnelFailure
 
 
 class SDK:
@@ -73,7 +73,7 @@ def test_mismatched_domain_and_connection_failure_cleanup(monkeypatch):
         sdk.listener.close.assert_awaited_once()
         sdk.session.close.assert_awaited_once()
         sdk.endpoint.listen_and_forward.side_effect = RuntimeError("failure")
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TunnelFailure, match="endpoint creation"):
             await DashboardTunnel.open(token="private", public_url="https://dash.ngrok-free.dev",
                                        host="127.0.0.1", port=8080)
         assert sdk.session.close.await_count == 2
@@ -143,3 +143,47 @@ def test_cancellation_during_endpoint_setup_closes_session(monkeypatch):
         sdk.session.close.assert_awaited_once()
 
     asyncio.run(go())
+
+
+def test_sdk_error_codes_and_connection_stage_are_safe_and_actionable(monkeypatch):
+    sdk = SDK()
+    sdk.builder.connect.side_effect = ValueError("ERR_NGROK_105: authtoken is super-private-token; URL secret.example")
+    monkeypatch.setitem(sys.modules, "ngrok", sdk)
+
+    async def go():
+        with pytest.raises(TunnelFailure) as caught:
+            await DashboardTunnel.open(token="super-private-token", public_url="https://dash.ngrok-free.dev",
+                                       host="127.0.0.1", port=8080)
+        assert str(caught.value) == "session connection: ERR_NGROK_105"
+        assert caught.value.__cause__ is None
+        assert "super-private-token" not in str(caught.value)
+        assert "secret.example" not in str(caught.value)
+        sdk.builder.connect.side_effect = ValueError("super-private-token TLS handshake error")
+        with pytest.raises(TunnelFailure, match="session connection: TLS handshake failed"):
+            await DashboardTunnel.open(token="super-private-token", public_url="https://dash.ngrok-free.dev",
+                                       host="127.0.0.1", port=8080)
+        sdk.builder.connect.side_effect = ValueError("ERR_NGROK_105")
+        # Do not disclose any token even if its content happens to look like an ngrok error code.
+        with pytest.raises(TunnelFailure, match="no ngrok error code returned"):
+            await DashboardTunnel.open(token="ERR_NGROK_105", public_url="https://dash.ngrok-free.dev",
+                                       host="127.0.0.1", port=8080)
+
+    asyncio.run(go())
+
+
+def test_bot_logs_safe_tunnel_failure_category(monkeypatch):
+    import core.bot as bot_module
+    import core.dashboard as dashboard_module
+
+    monkeypatch.setattr(bot_module, "settings", SimpleNamespace(
+        dashboard_enabled=True, dashboard_ngrok_enabled=True, ngrok_authtoken="private-secret",
+        dashboard_url="https://dash.ngrok-free.dev"))
+    dashboard = SimpleNamespace(host="127.0.0.1", port=8080, start=AsyncMock(), stop=AsyncMock())
+    monkeypatch.setattr(dashboard_module.DashboardServer, "from_settings", lambda bot, settings: dashboard)
+    monkeypatch.setattr(DashboardTunnel, "open", AsyncMock(side_effect=TunnelFailure("session connection: ERR_NGROK_105")))
+    warning = MagicMock()
+    monkeypatch.setattr(bot_module.log, "warning", warning)
+    asyncio.run(bot_module.Veil.start_dashboard(SimpleNamespace()))
+    assert "session connection: ERR_NGROK_105" in str(warning.call_args)
+    assert "private-secret" not in str(warning.call_args)
+    dashboard.stop.assert_awaited_once()
