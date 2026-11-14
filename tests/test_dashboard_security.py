@@ -846,3 +846,27 @@ def test_dashboard_layout_preserves_accessibility_and_server_form_controls():
         assert "form-action 'self'" in response.headers["Content-Security-Policy"]
 
     run(server, scenario)
+
+
+def test_server_icons_only_use_the_correct_discord_cdn_path():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        bot.guilds[0].icon = f"https://cdn.discordapp.com/icons/{GUILD_ID}/a_123abc.png?size=1024"
+        response = await client.get("/", headers=headers)
+        html = await response.text()
+        assert f'<img class="server-icon" src="https://cdn.discordapp.com/icons/{GUILD_ID}/a_123abc.png?size=1024"' in html
+        assert 'referrerpolicy="no-referrer"' in html
+        for unsafe in (f"https://evil.example/icons/{GUILD_ID}/abc.png",
+                       f"https://cdn.discordapp.com.evil.example/icons/{GUILD_ID}/abc.png",
+                       f"https://cdn.discordapp.com/icons/{OTHER_GUILD_ID}/abc.png",
+                       f'https://cdn.discordapp.com/icons/{GUILD_ID}/abc.png\" onerror=\"alert(1)'):
+            bot.guilds[0].icon = unsafe
+            response = await client.get("/", headers=headers)
+            html = await response.text()
+            assert unsafe not in html
+            assert '<span class="server-initial" aria-hidden="true">T</span>' in html
+
+    run(server, scenario)
