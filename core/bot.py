@@ -30,12 +30,12 @@ EXTENSIONS = [
     "cogs.voicemaster", "cogs.config", "cogs.levels", "cogs.giveaways", "cogs.tickets",
     "cogs.utility", "cogs.integrations", "cogs.fun", "cogs.music", "cogs.owner", "cogs.authorization",
     "cogs.imaging", "cogs.ai", "cogs.permissions", "cogs.devtools", "cogs.feeds", "cogs.spotify",
-    "cogs.vanguard", "cogs.devprotection",
+    "cogs.vanguard", "cogs.devprotection", "cogs.honeypot",
 ]
 # modules whose commands only make sense in a server: blocked in DMs up front instead of erroring halfway
 GUILD_ONLY_COGS = {
     "Settings", "Moderation", "Antinuke", "Automod", "Logging", "VoiceMaster", "Config", "Levels", "Giveaways",
-    "Tickets", "Music", "Permissions", "Feeds", "Vanguard",
+    "Tickets", "Music", "Permissions", "Feeds", "Vanguard", "Honeypot",
 }
 
 
