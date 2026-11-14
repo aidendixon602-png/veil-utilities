@@ -1,6 +1,6 @@
 # Command reference
 
-473 commands. Default prefix `,`. `<required>` `[optional]`.
+474 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -426,6 +426,7 @@ _Keep your server in line_
 | `,unquarantine <member> [reason=Released by staff]` (unfreeze, release) | Release a member from quarantine | manage roles, moderate members, uperm: moderator |
 | `,untimeout <member> [reason]` (unmute, untime, uto) | Remove a member's timeout | moderate members, uperm: moderator |
 | `,untimeout all [reason]` | Remove timeouts from every timed-out member | moderate members, uperm: admin |
+| `,viewadmins` | List roles grouped by their sensitive Discord permissions | manage guild |
 | `,warn <member> [reason=No reason provided]` | Warn a member | uperm: helper, veil warn |
 | `,warnings <member>` (warns) | List a member's warnings | veil cases |
 | `,warnpunish <warnings> <action> [duration]` | Set what happens at a number of warnings | administrator, uperm: admin |

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Role permission overview (`,viewadmins`).** Lists roles by their explicitly granted Discord permissions,
+  including Administrator, Manage Roles and Timeout Members, with pagination for large servers. Administrator
+  implies all permissions; channel overwrites and Veil permission levels are not included. Requires Manage Server.
 - **Honeypot channels (`,honeypot`).** A decoy channel catches the accounts a keyword filter never sees: a
   compromised account or spam bot posts in every channel it can find, so one message in a channel nobody real uses is
   enough to act on. `,honeypot setup` makes the channel, `,honeypot add #channel` uses one you already have, and
