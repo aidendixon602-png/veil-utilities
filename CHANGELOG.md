@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dashboard server prefix.** Owners and developers can change a server’s command prefix in its workspace;
+  the form validates input and rejects stale settings while preserving unrelated configuration.
+
 - **More dashboard feature controls.** Server owners and developers can configure selected automod filters,
   leveling, tickets and individual antinuke rules. Each feature saves separately and rejects stale snapshots;
   turning antinuke off requires confirmation. Existing XP, tickets, channels and unrelated settings are preserved.
@@ -32,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   either.
 
 ### Changed
+
+- **Dashboard landing page.** Replaced the server table with searchable server cards and a role-aware workspace.
+  Developers have direct access to authorization and bot-wide statistics; server owners only see their authorized
+  servers. Server workspaces link directly to logging, exclusions, trusted identities and role-blacklist settings.
 
 - **Server workspace navigation.** Added a server overview with feature cards, grouped navigation and focused
   automod, leveling, ticket and antinuke pages. Logging and security retain their combined settings form.

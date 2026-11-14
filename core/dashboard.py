@@ -288,6 +288,53 @@ tbody tr:hover { background:#ffffff06; } tbody tr:last-child td { border-bottom:
  .mobile-nav .nav-label,.mobile-nav .nav-text { display:block; } .mobile-nav .nav-link { justify-content:flex-start; } .mobile-nav .server-switch { display:none; }
  .server-hero { padding:25px; } .hero-emblem { font-size:55px; } }
 @media (max-width:480px) { .feature-grid { grid-template-columns:1fr; } .feature-tile { min-height:160px; } .hero-emblem { display:none; } }
+/* Landing workspace */
+:root { --bg:#090b16; --surface:#121625; --border:#30354b; --accent:#b9a4ff; }
+body { background:radial-gradient(ellipse at 85% 0%,#211b3f 0%,transparent 36%),#090b16; }
+.sidebar { background:#0e1120; border-color:#252a40; }
+header { background:#0e1120; border-color:#252a40; }
+.container { max-width:1500px; }
+.welcome-panel { position:relative; overflow:hidden; display:flex; justify-content:space-between; min-height:248px; border:1px solid #64578d; border-radius:20px; padding:32px 38px; background:radial-gradient(circle at 80% 15%,#7554cc80,transparent 40%),linear-gradient(115deg,#292448,#17182e 74%); box-shadow:0 18px 55px #0003; }
+.welcome-copy { position:relative; z-index:1; } .welcome-kicker { display:inline-flex; align-items:center; gap:8px; padding:5px 10px; border:1px solid #9a85d74d; border-radius:100px; color:#ded5ff; background:#ffffff0d; font-size:11px; font-weight:700; letter-spacing:.03em; }
+.kicker-dot { width:6px; height:6px; background:#bca7ff; border-radius:50%; box-shadow:0 0 10px #cdbfff; }
+.welcome-panel h1 { margin-top:17px; font-size:clamp(30px,3.4vw,45px); line-height:1.08; letter-spacing:-.045em; } .welcome-panel h1 span { color:#cdbdff; }
+.welcome-panel p { color:#cbc7e1; margin-top:12px; max-width:520px; }
+.welcome-actions { display:flex; flex-wrap:wrap; align-items:center; gap:20px; margin-top:23px; }
+.welcome-actions .btn { background:#d0c3ff; border-color:#d0c3ff; color:#21183d; padding:11px 17px; } .welcome-actions .btn:hover { background:white; }
+.hero-action { color:#e5dcff; font-size:12px; font-weight:700; } .hero-action:hover { text-decoration:underline; }
+.welcome-art { position:relative; align-self:center; width:210px; height:210px; flex:none; display:grid; place-items:center; }
+.art-orbit { position:absolute; border:1px solid #d1c0ff33; border-radius:50%; inset:0; } .orbit-two { inset:23px; border-style:dashed; }
+.art-shield { display:grid; place-items:center; width:112px; height:112px; border-radius:32px; background:linear-gradient(145deg,#896be1,#3f3174); border:1px solid #e1d6ff55; box-shadow:0 16px 45px #07041166,0 0 55px #aa8bff44; transform:rotate(-8deg); color:#e4daff; }
+.art-shield svg { width:60px; transform:rotate(8deg); } .art-spark { position:absolute; color:#c8b7ff; font-size:24px; } .spark-one { top:12px; right:25px; } .spark-two { bottom:14px; left:17px; }
+.activity-bar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid #2d3248; border-radius:14px; background:#141827; margin-top:16px; }
+.activity-bar > div { padding:15px 22px; min-width:0; } .activity-bar > div + div { border-left:1px solid #30354a; }
+.activity-bar span,.guild-facts span { display:block; color:#929bb2; font-size:10px; font-weight:700; letter-spacing:.07em; }
+.activity-bar strong { display:block; color:#f4f1ff; font-size:18px; margin-top:2px; }
+.servers-section { margin-top:40px; } .servers-heading { display:flex; align-items:end; justify-content:space-between; gap:20px; }
+.servers-heading h2 { font-size:25px; } .servers-heading p:last-child { color:var(--muted); margin-top:5px; }
+.server-count { flex:none; border:1px solid #363d54; background:#171c2c; padding:6px 11px; border-radius:100px; color:#bec5d5; font-size:11px; }
+.server-search { margin:20px 0; } .search-row { display:flex; gap:10px; align-items:end; }
+.search-field { flex:1; min-width:0; } .search-field label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+.search-field input { min-height:44px; padding-left:15px; background:#141827; } .search-row .btn { min-height:44px; }
+.advanced-filters { margin-top:12px; color:#c3b7f1; font-size:12px; } .advanced-filters summary { cursor:pointer; font-weight:700; padding:4px 0; }
+.filter-row { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding:14px; margin-top:8px; background:#141827; border:1px solid var(--border); border-radius:12px; }
+.filter-row .form-group { flex:1 1 140px; margin:0; } .filter-row .btn { min-height:42px; }
+.guild-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; }
+.guild-card { min-width:0; display:flex; flex-direction:column; padding:20px; border:1px solid #30364d; border-radius:16px; background:linear-gradient(150deg,#1b2034,#131727 80%); box-shadow:0 10px 30px #0002; }
+.guild-card:hover { border-color:#7565a9; } .guild-card-top { display:flex; align-items:start; justify-content:space-between; gap:10px; }
+.guild-card .server-initial,.guild-card .server-icon { width:52px; height:52px; border-radius:16px; margin:0; font-size:19px; }
+.guild-access { color:#c8bdf1; background:#373050; border:1px solid #524969; border-radius:99px; padding:5px 9px; font-size:10px; font-weight:700; }
+.guild-identity { margin-top:17px; min-width:0; } .guild-identity a { display:block; font-size:16px; font-weight:750; overflow-wrap:anywhere; } .guild-identity a:hover { color:#c7b5ff; }
+.guild-identity span { display:block; color:#969fb5; font-size:11px; margin-top:3px; overflow-wrap:anywhere; }
+.guild-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; border-top:1px solid #33384d; margin:19px 0 16px; padding-top:15px; }
+.guild-facts strong { display:block; font-size:12px; margin-top:5px; overflow-wrap:anywhere; } .guild-facts .fact-on { color:#a6e8c7; } .guild-facts .fact-off { color:#ffb6b7; }
+.guild-open { display:flex; justify-content:space-between; gap:8px; margin-top:auto; border:1px solid #4d466b; border-radius:9px; padding:10px 12px; background:#292542; color:#e8e0ff; font-size:12px; font-weight:700; }
+.guild-open:hover { background:#3a315f; border-color:#8c79cb; } .empty-servers { border:1px dashed #424961; border-radius:16px; padding:35px; color:var(--muted); background:#141827; } .empty-servers strong { color:var(--text); font-size:15px; } .empty-servers p { margin:7px 0; } .empty-servers a { color:#c5b5ff; font-weight:700; }
+@media (max-width:1100px) { .guild-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:760px) { .welcome-panel { padding:26px; min-height:0; } .welcome-art { width:150px; height:150px; } .art-shield { width:88px; height:88px; } .art-shield svg { width:48px; }
+ .activity-bar { grid-template-columns:repeat(2,minmax(0,1fr)); } .activity-bar > div:nth-child(3) { border-left:0; } .activity-bar > div:nth-child(n+3) { border-top:1px solid #30354a; }
+ .servers-section { margin-top:30px; } }
+@media (max-width:540px) { .welcome-art { display:none; } .welcome-panel h1 { font-size:32px; } .guild-grid { grid-template-columns:1fr; } .servers-heading { align-items:start; flex-direction:column; gap:12px; } .search-row { flex-wrap:wrap; } .search-field { flex-basis:100%; } .search-row .btn { flex:1; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .feature-tile { transition:none; } .feature-tile:hover { transform:none; } }
 """
 
@@ -510,7 +557,8 @@ class DashboardServer:
     def _server_navigation(self, guild, active: str) -> str:
         base = f"/servers/{guild.id}"
         groups = (
-            ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),)),
+            ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),
+                           ("general", "Server settings", f"{base}/features?section=general", "⚙"))),
             ("SECURITY", (("rules", "Antinuke", f"{base}/features?section=rules", "◇"),
                           ("automod", "Automod", f"{base}/features?section=automod", "✦"),
                           ("logging", "Logging & security", base, "≡"))),
@@ -527,7 +575,7 @@ class DashboardServer:
         return nav
 
     def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "", *,
-              guild=None, active: str = "") -> web.Response:
+              guild=None, active: str = "", developer: bool = False) -> web.Response:
         who = ""
         if user and not user.get("local"):
             who = (f'<div class="who"><span class="account-dot" aria-hidden="true">'
@@ -542,6 +590,9 @@ class DashboardServer:
         nav = (self._server_navigation(guild, active) if guild else
                '<span class="nav-label">WORKSPACE</span><a class="nav-link active" href="/" aria-current="page">'
                '<span class="nav-icon" aria-hidden="true">◈</span><span class="nav-text">Server overview</span></a>')
+        if not guild and developer:
+            nav += ('<span class="nav-label">DEVELOPER</span><a class="nav-link" href="/authorization" title="Server authorization">'
+                    '<span class="nav-icon" aria-hidden="true">◇</span><span class="nav-text">Authorization</span></a>')
         mobile_nav = (f'<details class="mobile-nav"><summary>Navigate server workspace</summary><nav aria-label="Mobile server navigation">{nav}</nav></details>'
                       if guild else '')
         doc = (
@@ -586,11 +637,17 @@ class DashboardServer:
 
         guilds = await self._guilds_for(user)
         is_developer = await self._is_bot_owner(user)
-        authorization_link = ('<a class="btn btn-plain" href="/authorization">Server authorization →</a>'
+        role = "Developer workspace" if is_developer else "Server owner workspace"
+        access_description = ("Manage every server Veil has joined and review server authorizations."
+                              if is_developer else "Manage the authorized servers you own, all in one place.")
+        authorization_link = ('<a class="hero-action" href="/authorization">Manage authorization <span aria-hidden="true">↗</span></a>'
                               if is_developer and not user.get("local") else "")
-        body = ('<div class="page-heading"><div><p class="eyebrow">Dashboard / Overview</p>'
-                '<h1>Server overview</h1><p>View and manage the servers available to your account.</p>'
-                f'</div>{authorization_link}</div>')
+        body = (f'<section class="welcome-panel"><div class="welcome-copy"><div class="welcome-kicker"><span class="kicker-dot"></span>{role}</div>'
+                f'<h1>Make your server<br><span>feel unstoppable.</span></h1><p>{access_description}</p>'
+                f'<div class="welcome-actions"><a href="#servers" class="btn">Explore your servers <span aria-hidden="true">↓</span></a>{authorization_link}</div>'
+                '</div><div class="welcome-art" aria-hidden="true"><div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div>'
+                '<div class="art-shield"><svg viewBox="0 0 80 90" fill="none"><path d="M40 5 72 19v23c0 19-13 32-32 42C21 74 8 61 8 42V19L40 5Z" stroke="currentColor" stroke-width="3"/><path d="m26 44 9 9 20-22" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
+                '<span class="art-spark spark-one">✦</span><span class="art-spark spark-two">✧</span></div></section>')
         if is_developer:
             all_guilds = list(self.bot.guilds)
             members = sum(getattr(g, "member_count", None) or len(getattr(g, "members", [])) for g in all_guilds)
@@ -599,18 +656,10 @@ class DashboardServer:
                             and latency == latency and 0 < latency < float("inf") else "Unavailable")
             uptime = int(time.time() - getattr(self.bot, "started_at", time.time()))
             hours, rem = divmod(max(uptime, 0), 3600)
-            body += (
-                '<div class="stats">'
-                f'<div class="stat-card"><div class="stat-lbl">Servers</div><div class="stat-val">{len(all_guilds):,}</div>'
-                '<div class="stat-foot">Joined by Veil</div></div>'
-                f'<div class="stat-card"><div class="stat-lbl">Members</div><div class="stat-val">{members:,}</div>'
-                '<div class="stat-foot">Across joined servers</div></div>'
-                f'<div class="stat-card"><div class="stat-lbl">Gateway latency</div><div class="stat-val">{latency_text}</div>'
-                '<div class="stat-foot">Discord connection</div></div>'
-                f'<div class="stat-card"><div class="stat-lbl">Uptime</div><div class="stat-val">{hours}h {rem // 60}m</div>'
-                '<div class="stat-foot">Since last start</div></div>'
-                "</div>"
-            )
+            body += (f'<section class="activity-bar" aria-label="Bot statistics"><div><span>JOINED SERVERS</span><strong>{len(all_guilds):,}</strong></div>'
+                     f'<div><span>MEMBERS</span><strong>{members:,}</strong></div>'
+                     f'<div><span>GATEWAY LATENCY</span><strong>{latency_text}</strong></div>'
+                     f'<div><span>UPTIME</span><strong>{hours}h {rem // 60}m</strong></div></section>')
         # Search and filters are evaluated on the server, after the access check. No guild
         # names or settings for other owners are sent to the browser.
         query = request.query.get("q", "").strip()[:100]
@@ -657,19 +706,29 @@ class DashboardServer:
         def option(value, label, selected):
             return f'<option value="{value}"{" selected" if selected else ""}>{label}</option>'
 
-        rows = []
+        cards = []
         for g, count, enabled, auth, log_count in visible:
             state = "on" if enabled else "off"
-            rows.append(
-                f'<tr><td data-label="Server">{_server_avatar(g)}'
-                f'<a href="/servers/{_esc(g.id)}/overview">{_esc(g.name)}</a></td>'
-                f'<td data-label="Server ID">{_esc(g.id)}</td><td data-label="Members">{_esc(count)}</td>'
-                f'<td data-label="Antinuke"><span class="tag {state}">{state.title()}</span></td>'
-                f'<td data-label="Authorized">{auth.title()}</td><td data-label="Logs">{log_count} configured</td>'
-                f'<td data-label=""><a class="btn btn-plain" href="/servers/{_esc(g.id)}/overview" '
-                f'aria-label="Configure {_esc(g.name)}">Configure</a></td></tr>'
+            access = {"yes": "Authorized", "no": "Not authorized", "unknown": "Authorization unknown"}[auth]
+            cards.append(
+                f'<article class="guild-card"><div class="guild-card-top">{_server_avatar(g)}'
+                f'<span class="guild-access">{_esc(access)}</span></div>'
+                f'<div class="guild-identity"><a href="/servers/{_esc(g.id)}/overview">{_esc(g.name)}</a>'
+                f'<span>Server ID · {_esc(g.id)}</span></div>'
+                f'<div class="guild-facts"><div><span>MEMBERS</span><strong>{_esc(count)}</strong></div>'
+                f'<div><span>ANTINUKE</span><strong class="fact-{state}">{state.title()}</strong></div>'
+                f'<div><span>LOG ROUTES</span><strong>{log_count} configured</strong></div></div>'
+                f'<a class="guild-open" href="/servers/{_esc(g.id)}/overview" '
+                f'aria-label="Configure {_esc(g.name)}">Manage server <span aria-hidden="true">↗</span></a></article>'
             )
-        listing = "".join(rows) or '<tr><td colspan="7">No servers match your filters.</td></tr>'
+        if cards:
+            listing = '<div class="guild-grid">' + "".join(cards) + '</div>'
+        elif guilds:
+            listing = '<div class="empty-servers"><strong>No servers match your filters.</strong><p>Try a different search or clear the filters.</p><a href="/">Clear filters →</a></div>'
+        else:
+            listing = ('<div class="empty-servers"><strong>No servers available yet.</strong>'
+                       '<p>Veil must be in a server you own and the server must be authorized. '
+                       'Bot developers can access every joined server.</p></div>')
         status_options = "".join(option(v, label, status == v) for v, label in
                                  (("any", "Any"), ("on", "On"), ("off", "Off")))
         sort_options = "".join(option(v, label, order == v) for v, label in
@@ -678,27 +737,23 @@ class DashboardServer:
                                (("any", "Any"), ("yes", "Authorized"), ("no", "Not authorized")))
         log_options = "".join(option(v, label, log_filter == v) for v, label in
                               (("any", "Any"), ("configured", "Configured"), ("none", "None configured")))
-        body += (f'<div class="card"><h2>Servers</h2>'
-                 '<p class="muted">Manage logging, security, automod, leveling and tickets for each server. '
-                 'Log counts show explicitly configured channels, not automatic routing.</p>'
-                 '<form method="GET" action="/" class="filters">'
-                 f'<div class="form-group"><label for="q">Search name or ID</label>'
-                 f'<input id="q" name="q" value="{_esc(query)}"></div>'
-                 f'<div class="form-group"><label for="antinuke">Antinuke</label>'
-                 f'<select id="antinuke" name="antinuke">{status_options}</select></div>'
-                 f'<div class="form-group"><label for="authorized">Authorization</label>'
-                 f'<select id="authorized" name="authorized">{auth_options}</select></div>'
-                 f'<div class="form-group"><label for="logs">Log channels</label>'
-                 f'<select id="logs" name="logs">{log_options}</select></div>'
-                 f'<div class="form-group"><label for="sort">Sort by</label>'
-                 f'<select id="sort" name="sort">{sort_options}</select></div>'
-                 '<button class="btn" type="submit">Apply filters</button>'
-                 '<a class="btn btn-plain" href="/">Clear</a></form>'
-                 f'<p class="table-note">{len(visible)} of {len(guilds)} servers shown</p>'
-                 '<div class="table-wrap"><table class="server-table"><thead><tr><th>Server</th><th>ID</th><th>Members</th>'
-                 '<th>Antinuke</th><th>Authorized</th><th>Logs</th><th></th></tr></thead>'
-                 f'<tbody>{listing}</tbody></table></div></div>')
-        return self._page("Dashboard", body, user)
+        filters_open = ' open' if any((status != "any", authorization != "any", log_filter != "any", order != "name")) else ''
+        body += (f'<section class="servers-section" id="servers"><div class="servers-heading"><div>'
+                 '<p class="eyebrow">YOUR WORKSPACE</p><h2>Your servers</h2>'
+                 '<p>Select a server to manage its protection and features.</p></div>'
+                 f'<span class="server-count">{len(visible)} of {len(guilds)} servers shown</span></div>'
+                 '<form method="GET" action="/" class="server-search">'
+                 '<div class="search-row"><div class="search-field"><label for="q">Search servers</label>'
+                 f'<input id="q" name="q" value="{_esc(query)}" placeholder="Search by name or server ID"></div>'
+                 '<button class="btn" type="submit">Search</button><a class="btn btn-plain" href="/">Clear</a></div>'
+                 f'<details class="advanced-filters"{filters_open}><summary>Filter &amp; sort servers</summary><div class="filter-row">'
+                 f'<div class="form-group"><label for="antinuke">Antinuke</label><select id="antinuke" name="antinuke">{status_options}</select></div>'
+                 f'<div class="form-group"><label for="authorized">Authorization</label><select id="authorized" name="authorized">{auth_options}</select></div>'
+                 f'<div class="form-group"><label for="logs">Log channels</label><select id="logs" name="logs">{log_options}</select></div>'
+                 f'<div class="form-group"><label for="sort">Sort by</label><select id="sort" name="sort">{sort_options}</select></div>'
+                 '<button class="btn btn-plain" type="submit">Apply filters</button></div></details></form>'
+                 f'{listing}<p class="overview-note">Log routes count explicitly selected channels; automatic routing is not included.</p></section>')
+        return self._page("Dashboard", body, user, developer=is_developer)
 
     async def _authorization_user(self, request: web.Request) -> dict | None:
         user = self._user(request)
@@ -820,13 +875,18 @@ class DashboardServer:
         state = "on" if an.get("enabled") else "off"
         level_state = "on" if levels.get("enabled") else "off"
         base = f"/servers/{guild.id}"
-        cards = (
+        cards = [
+            ("00", "Server settings", "Set the command prefix used in this server.", f"{base}/features?section=general", "Manage prefix"),
             ("01", "Antinuke", "Protection rules, thresholds and responses.", f"{base}/features?section=rules", f"Protection {state}"),
             ("02", "Automod", "Message filters and moderation actions.", f"{base}/features?section=automod", "Configure filters"),
-            ("03", "Logging & security", "Log channels, exclusions and trusted identities.", base, f"{count} explicit log {'channel' if count == 1 else 'channels'}"),
-            ("04", "Leveling", "XP settings and level-up announcements.", f"{base}/features?section=leveling", f"Leveling {level_state}"),
-            ("05", "Tickets", "Support roles, ticket settings and transcripts.", f"{base}/features?section=tickets", "Configure tickets"),
-        )
+            ("03", "Logging channels", "Choose where each category of activity is sent.", f"{base}#logging", f"{count} explicit log {'route' if count == 1 else 'routes'}"),
+            ("04", "Log exclusions", "Choose which users or channels are excluded from supported events.", f"{base}#exclusions", "Review exclusions"),
+            ("05", "Trusted identities", "Review users and roles exempt from antinuke enforcement.", f"{base}#trusted", "Review trust"),
+            ("06", "Leveling", "XP settings and level-up announcements.", f"{base}/features?section=leveling", f"Leveling {level_state}"),
+            ("07", "Tickets", "Support roles, ticket settings and transcripts.", f"{base}/features?section=tickets", "Configure tickets"),
+        ]
+        if await self._can_manage_rbl(user, guild):
+            cards.append(("08", "Role blacklist", "Manage restricted roles and blacklist bypasses.", f"{base}#blacklist", "Review blacklist"))
         tiles = "".join(
             f'<a class="feature-tile" href="{_esc(href)}"><div class="tile-top"><span class="tile-icon">{icon}</span><span aria-hidden="true">↗</span></div>'
             f'<h3>{_esc(name)}</h3><p>{_esc(desc)}</p><span class="tile-status">{_esc(status)}</span></a>'
@@ -837,9 +897,9 @@ class DashboardServer:
                 '<p class="hero-copy">Your tools for a safer, better organized community. Choose a feature below to get started.</p></div>'
                 '<span class="hero-emblem" aria-hidden="true">✦</span></div>'
                 '<div class="overview-heading"><div><p class="eyebrow">YOUR TOOLKIT</p><h2>Manage your server</h2>'
-                '<p>Everything you need, organized by feature.</p></div></div>'
+                '<p>Everything you need, organized by feature. Logging, trust, and blacklist links open a shared settings form.</p></div></div>'
                 f'<div class="feature-grid">{tiles}</div>'
-                '<p class="overview-note">Log channel counts show explicit selections only; automatic routing is not included.</p>')
+                '<p class="overview-note">Log route counts show explicitly selected categories, not automatic routing.</p>')
         return self._page("Server overview", body, user, guild=guild, active="overview")
 
     async def handle_server(self, request: web.Request) -> web.Response:

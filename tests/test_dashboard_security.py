@@ -1135,7 +1135,7 @@ def test_server_workspace_navigation_access_and_real_status():
         html = await response.text()
         assert response.status == 200 and 'aria-label="Mobile server navigation"' in html
         assert "<script>" not in html and "&lt;script&gt;" in html
-        assert "Protection on" in html and "Leveling off" in html and "1 explicit log channel" in html
+        assert "Protection on" in html and "Leveling off" in html and "1 explicit log route" in html
         for section in ("automod", "leveling", "tickets", "rules"):
             assert f"?section={section}" in html
         assert bot.db.writes == []
@@ -1176,5 +1176,91 @@ def test_feature_pages_are_focused_and_keep_safe_save_redirects():
         data["return_section"] = "//evil.example"
         response = await client.post(f"{url}/levels", headers=headers, data=data, allow_redirects=False)
         assert response.headers["Location"] == f"{url}?saved=1#leveling"
+
+    run(server, scenario)
+
+
+def test_landing_workspace_owner_developer_and_revoked_server_access():
+    bot = make_bot()
+    bot.guilds[1].owner_id = GUILD_OWNER
+    bot.is_authorized = lambda gid: gid == GUILD_ID
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True}
+    bot.db.store[(GUILD_ID, "logs")] = {"commands": 123}
+    server = login_server(bot)
+    _, owner_headers = cookie(server, GUILD_OWNER)
+    _, developer_headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        owner = await (await client.get("/", headers=owner_headers)).text()
+        assert "Server owner workspace" in owner and "Test Server</a>" in owner
+        assert "Other</a>" not in owner and "Developer workspace" not in owner
+        assert 'href="/authorization"' not in owner and "JOINED SERVERS" not in owner
+        assert 'class="guild-card"' in owner and "1 configured" in owner
+        developer = await (await client.get("/", headers=developer_headers)).text()
+        assert "Developer workspace" in developer and "Other</a>" in developer
+        assert "Not authorized" in developer and 'href="/authorization"' in developer
+        filtered = await (await client.get("/?authorized=no", headers=developer_headers)).text()
+        assert "Other</a>" in filtered and "Test Server</a>" not in filtered
+        assert '<details class="advanced-filters" open>' in filtered
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/overview", headers=owner_headers)).status == 404
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/overview", headers=developer_headers)).status == 200
+        # Access is checked again even after an owner opened the dashboard.
+        bot.is_authorized = lambda gid: gid == OTHER_GUILD_ID
+        assert (await client.get(f"/servers/{GUILD_ID}/overview", headers=owner_headers)).status == 404
+        assert (await client.get(f"/servers/{GUILD_ID}/features?section=automod", headers=owner_headers)).status == 404
+        assert (await client.get(f"/servers/{GUILD_ID}/overview", headers=developer_headers)).status == 200
+        assert bot.db.writes == []
+
+    run(server, scenario)
+
+
+def test_workspace_links_to_existing_security_and_community_controls():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}/overview", headers=headers)
+        html = await page.text()
+        for anchor in ("logging", "exclusions", "trusted", "blacklist"):
+            assert f'href="/servers/{GUILD_ID}#{anchor}"' in html
+        assert "shared settings form" in html
+        for section in ("rules", "automod", "leveling", "tickets"):
+            assert f'features?section={section}' in html
+        assert bot.db.writes == []
+
+    run(server, scenario)
+
+
+def test_general_prefix_form_preserves_other_settings_and_enforces_safety():
+    bot = make_bot()
+    bot.default_prefix = ","
+    bot.db.store[(GUILD_ID, "settings")] = {"prefix": "!", "other_setting": {"retained": True}}
+    server = login_server(bot)
+    owner_token, owner_headers = cookie(server, GUILD_OWNER)
+    dev_token, dev_headers = cookie(server, BOT_OWNER)
+    url = f"/servers/{GUILD_ID}/features"
+
+    async def scenario(client):
+        page = await client.get(f"{url}?section=general", headers=owner_headers)
+        html = await page.text()
+        assert 'name="prefix" value="!"' in html
+        revision = _feature_revision(html, GUILD_ID, "general")
+        data = {"csrf": csrf_of(server, owner_token), "revision": revision, "prefix": "?", "return_section": "general"}
+        for invalid in ("", "x" * 11, "a b", "a\nb"):
+            assert (await client.post(f"{url}/general", headers=owner_headers, data={**data, "prefix": invalid})).status == 400
+        assert (await client.post(f"{url}/general", headers=owner_headers, data={**data, "csrf": "bad"})).status == 403
+        assert (await client.post(f"{url}/general", headers={**owner_headers, "Origin": "https://evil.example"}, data=data)).status == 403
+        assert (await client.post(f"/servers/{OTHER_GUILD_ID}/features/general", headers=owner_headers, data=data)).status == 404
+        assert not bot.db.writes
+        result = await client.post(f"{url}/general", headers=owner_headers, data=data, allow_redirects=False)
+        assert result.status == 302 and result.headers["Location"] == f"{url}?saved=1&section=general#general"
+        assert bot.db.store[(GUILD_ID, "settings")] == {"prefix": "?", "other_setting": {"retained": True}}
+        assert (await client.post(f"{url}/general", headers=owner_headers, data=data)).status == 409
+        page = await client.get(f"{url}?section=general", headers=dev_headers)
+        revision = _feature_revision(await page.text(), GUILD_ID, "general")
+        result = await client.post(f"{url}/general", headers=dev_headers,
+                                   data={**data, "csrf": csrf_of(server, dev_token), "revision": revision, "prefix": ";"})
+        assert result.status == 200 and bot.db.store[(GUILD_ID, "settings")]["prefix"] == ";"
 
     run(server, scenario)
