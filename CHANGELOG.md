@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Honeypot channels (`,honeypot`).** A decoy channel catches the accounts a keyword filter never sees: a
+  compromised account or spam bot posts in every channel it can find, so one message in a channel nobody real uses is
+  enough to act on. `,honeypot setup` makes the channel, `,honeypot add #channel` uses one you already have, and
+  `,honeypot action` picks `softban` (the default), `ban`, `kick`, `timeout`, `quarantine` or `log`. Staff are never
+  caught: a Veil permission level, Discord's Administrator, the server owner, bot developers and all bots pass
+  through. Every catch is a moderation case in the mod log, and a punishment that fails is reported with Discord's
+  reason instead of disappearing. The idea and its vocabulary come from Bleed and Greed; no code is taken from
+  either.
+
 ### Changed
 
 - `,logs cleanup` now finds channels an older setup left behind (the retired `#veil-utilities-logging`, or a

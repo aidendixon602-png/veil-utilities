@@ -1,6 +1,6 @@
 # Command reference
 
-467 commands. Default prefix `,`. `<required>` `[optional]`.
+473 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -222,6 +222,18 @@ _Host giveaways_
 | `,giveaway list` | Active giveaways |  |
 | `,giveaway reroll <message_id> [winners=1]` | Pick new winners for a giveaway | manage guild |
 | `,giveaway start <duration> <winners> <prize>` (create) | Start a giveaway | manage guild |
+
+## 🍯 Honeypot
+_Bait channels that punish whoever posts in them_
+
+| Command | Description | Permission |
+|---|---|---|
+| `,honeypot` (hp, honey) | Set up bait channels that punish accounts posting in them | server owner or bot developer |
+| `,honeypot action <channel> <action>` (punish, punishment) | Pick what a honeypot does: softban, ban, kick, timeout, jail or log | manage guild, server owner or bot developer |
+| `,honeypot add <channel> [action=softban]` | Use an existing channel as a honeypot | manage guild, server owner or bot developer |
+| `,honeypot list` (show) | Show every honeypot channel and what it does | manage guild, server owner or bot developer |
+| `,honeypot remove [channel]` (delete, del) | Stop treating a channel as a honeypot (the channel is not deleted) | manage guild, server owner or bot developer |
+| `,honeypot setup [channel] [action=softban]` (create, make) | Make a honeypot channel, hidden from everyone but staff | manage guild, server owner or bot developer |
 
 ## 🖼️ Imaging
 _Edit images, GIFs, avatars and emojis_

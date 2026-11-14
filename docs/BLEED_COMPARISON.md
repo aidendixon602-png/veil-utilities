@@ -11,7 +11,7 @@ restriction or edge case. No Bleed code is incorporated.
 | [Antinuke](https://github.com/notiku/bleed-docs/blob/main/security/antinuke.mdx) | Thresholds, punishment, admin and whitelist configuration. | Veil has threshold rules, presets, exemptions, a panel, health checks and best-effort rollback. Review overlapping security bots and test failure reporting before adding more rules. |
 | [Fake permissions](https://github.com/notiku/bleed-docs/blob/main/security/fake-permissions.mdx) | Grant moderation permissions through the bot instead of directly through Discord. | Veil supports role-based fake permissions in addition to its own rank checks and command restrictions. These are additive, not an exact copy of Bleed's policy. |
 | [Antiraid](https://github.com/notiku/bleed-docs/blob/main/security/antiraid.mdx) | Mass joins, avatar and account-age filters, with configurable actions and exemptions. | Veil has corresponding join filters and raid mode, with different commands and options. |
-| [Honeypots](https://github.com/notiku/bleed-docs/blob/main/security/honeypot.mdx) | Decoy channels that punish accounts that post there. | No `honeypot` command is documented in Veil's current command reference. Adding one would need careful owner-controlled setup, exemptions and false-positive safeguards. |
+| [Honeypots](https://github.com/notiku/bleed-docs/blob/main/security/honeypot.mdx) | Decoy channels that punish accounts that post there (`ban`, `softban`, `jail`). | Veil has `,honeypot` with `setup` / `add` / `remove` / `list` / `action`. Punishments are `softban` (default), `ban`, `kick`, `timeout`, `quarantine` and `log`; staff, the server owner and bot developers are never caught, every catch is a moderation case, and a failed punishment is still logged. |
 | [Moderation](https://github.com/notiku/bleed-docs/blob/main/security/moderation.mdx) | Staff roles and customizable command/DM invoke messages. | Veil has staff panels, roles, ranks and moderation commands. More configurable invoke messages could be considered separately. |
 
 ## Broader features
@@ -26,5 +26,5 @@ restriction or edge case. No Bleed code is incorporated.
   dependencies differ (for example presence intent, Lavalink, or external feed services).
 
 Suggested priorities: first validate security interactions and authorization in a disposable server, then choose
-whether ticket forms/access controls, starboard controls or an opt-in honeypot are worth implementing. These
-suggestions do not change existing settings or imply a complete comparison of every Bleed feature.
+whether ticket forms/access controls or starboard controls are worth implementing. Honeypots are done (see above).
+These suggestions do not change existing settings or imply a complete comparison of every Bleed feature.
