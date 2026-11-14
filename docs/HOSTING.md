@@ -72,7 +72,7 @@ If the host cannot provide HTTPS, the optional ngrok SDK can connect a public HT
 
 The ngrok HTTPS endpoint is public; the random-looking address is not access control. Veil's Discord login still enforces access. HTTPS terminates at ngrok, which can process dashboard traffic; review your ngrok traffic inspection, retention, and account access settings, and avoid exposing OAuth codes or cookies. The free plan can have quotas and interstitials. Keep your ngrok token private and do not put it in a startup command, Git or screenshots.
 
-The dashboard covers server overview, explicit server authorization for developers, logging routing, and selected role-blacklist and antinuke settings; it is not a replacement for every bot command. Existing settings forms save multiple modules separately, so a database failure can leave a partial save. See [dashboard settings](CONFIGURATION.md#optional-dashboard) and [`core/dashboard.py`](../core/dashboard.py) before exposing it.
+The dashboard covers server overview, explicit server authorization for developers, logging routing and exclusions, role-blacklist reply location, and selected role-blacklist and antinuke settings; it is not a replacement for every bot command. Trusted users and roles are exempt from antinuke enforcement, and trusted bots are also exempt from bot-add detection and quarantine: only add identities you trust. Logging exclusions apply to events that supply a user or source channel. Existing settings forms save multiple modules separately, so a database failure can leave a partial save. See [dashboard settings](CONFIGURATION.md#optional-dashboard) and [`core/dashboard.py`](../core/dashboard.py) before exposing it.
 
 ## Rollback
 
