@@ -226,7 +226,18 @@ class Moderation(commands.Cog):
     async def cog_before_invoke(self, ctx: Context):
         from core.help import is_rbl_command
         if is_rbl_command(ctx.command):
-            ctx._private_rbl = True
+            # Which way a role-blacklist command answers is the server's choice (`,logs` → "Replies: DM"), not a
+            # surprise: most owners want it where they ran it, so the channel is the default.
+            ctx._private_rbl = await self._rbl_dm_only(ctx)
+
+    async def _rbl_dm_only(self, ctx: Context) -> bool:
+        logging_cog = self.bot.get_cog("Logging") if hasattr(self.bot, "get_cog") else None
+        if logging_cog is None or getattr(ctx, "guild", None) is None:
+            return False
+        try:
+            return await logging_cog.rbl_private(ctx.guild)
+        except Exception:  # a config read must never stop a command from running
+            return False
 
     async def _cfg(self, gid, mod):
         return await self.bot.db.get_config(gid, mod)
