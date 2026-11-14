@@ -67,6 +67,8 @@ The dashboard remains disabled until you configure a public HTTPS origin and Dis
 | `DISCORD_CLIENT_ID` | detected from bot | Optional OAuth client ID override. |
 | `DISCORD_CLIENT_SECRET` | unset | Discord OAuth client secret; required with `DASHBOARD_URL` for login. |
 | `DASHBOARD_SECRET` | random per startup | Optional session-signing secret, at least 32 characters. Without it, sessions do not survive restart. |
+| `DASHBOARD_NGROK_ENABLED` | `false` | Start an ngrok tunnel with the dashboard. Requires the backend to bind to `127.0.0.1`. |
+| `NGROK_AUTHTOKEN` | unset | Private ngrok agent authtoken. Used only when the dashboard and ngrok are enabled. |
 
 See [hosting](HOSTING.md#dashboard) and the implementation in [`core/dashboard.py`](../core/dashboard.py) before exposing the dashboard.
 

@@ -2,6 +2,7 @@ discord.py>=2.4
 aiosqlite>=0.20
 asyncpg>=0.29  # only used when DATABASE_URL points at PostgreSQL
 aiohttp>=3.9
+ngrok>=1.4,<2  # optional dashboard tunnel; only connects when enabled
 python-dotenv>=1.0
 wavelink>=3.5.2
 Pillow>=10.1

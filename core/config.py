@@ -10,7 +10,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from urllib.parse import urlsplit
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -173,6 +173,8 @@ class Settings:
     discord_client_id: int | None = None
     discord_client_secret: str | None = None
     dashboard_secret: str | None = None   # signs login cookies; random per start if unset
+    dashboard_ngrok_enabled: bool = False
+    ngrok_authtoken: str | None = field(default=None, repr=False)
 
     @property
     def dashboard_login_configured(self) -> bool:
@@ -234,6 +236,8 @@ class Settings:
             discord_client_id=r.snowflake("DISCORD_CLIENT_ID"),
             discord_client_secret=r.str("DISCORD_CLIENT_SECRET"),
             dashboard_secret=r.str("DASHBOARD_SECRET"),
+            dashboard_ngrok_enabled=r.bool("DASHBOARD_NGROK_ENABLED", False),
+            ngrok_authtoken=r.str("NGROK_AUTHTOKEN"),
         )
         if len(settings.prefix) > 10:
             r.problems.append("PREFIX can be at most 10 characters")
@@ -268,7 +272,7 @@ class Settings:
         """Safe one-line-per-setting view for logs (secrets are masked)."""
         secret = {"discord_token", "ai_api_key", "lastfm_api_key", "ocr_space_api_key", "lavalink_password",
                   "spotify_client_secret", "twitch_client_secret", "database_url",
-                  "discord_client_secret", "dashboard_secret"}
+                  "discord_client_secret", "dashboard_secret", "ngrok_authtoken"}
         lines = []
         for f in fields(self):
             value = getattr(self, f.name)

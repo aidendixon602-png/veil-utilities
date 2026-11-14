@@ -41,7 +41,7 @@ def test_documentation_local_links_and_headings_exist():
 def test_example_secrets_are_empty():
     values = dotenv_values(ROOT / ".env.example")
     secrets = ("DISCORD_TOKEN", "AI_API_KEY", "OCR_SPACE_API_KEY", "LASTFM_API_KEY", "SPOTIFY_CLIENT_SECRET",
-               "TWITCH_CLIENT_SECRET", "LAVALINK_PASSWORD", "DISCORD_CLIENT_SECRET", "DASHBOARD_SECRET")
+               "TWITCH_CLIENT_SECRET", "LAVALINK_PASSWORD", "DISCORD_CLIENT_SECRET", "DASHBOARD_SECRET", "NGROK_AUTHTOKEN")
     assert all(not values.get(name) for name in secrets)
 
 
