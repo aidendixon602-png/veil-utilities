@@ -1,4 +1,4 @@
-discord.py>=2.4
+discord.py>=2.7.1
 aiosqlite>=0.20
 asyncpg>=0.29  # only used when DATABASE_URL points at PostgreSQL
 aiohttp>=3.9
