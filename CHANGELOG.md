@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dashboard server authorization.** Bot developers can review explicit server approvals, authorize IDs before
+  the bot joins, and confirm revocations in the dashboard. Revoking can make the bot leave; automatic
+  authorization and leave failures are reported separately. All logging categories can now be routed from the
+  server settings page, with same-server text channel validation.
 - **Role permission overview (`,viewadmins`).** Lists roles by their explicitly granted Discord permissions,
   including Administrator, Manage Roles and Timeout Members, with pagination for large servers. Administrator
   implies all permissions; channel overwrites and Veil permission levels are not included. Requires Manage Server.
@@ -23,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dashboard login is now required.** The web listener refuses to start without Discord OAuth and HTTPS, and
+  defaults to a loopback bind behind a TLS proxy. Access is restricted to bot developers and owners of joined
+  servers and is checked on each request. Operators previously using localhost-only mode must configure Discord
+  login and a public HTTPS origin before re-enabling the dashboard.
 - `,logs cleanup` now finds channels an older setup left behind (the retired `#veil-utilities-logging`, or a
   general log named after the bot) as well as duplicates, and `,logs cleanup delete` removes them once you say so -
   a bare `,logs cleanup` still only lists. `,logs setup` lists every category, including the ones that share a

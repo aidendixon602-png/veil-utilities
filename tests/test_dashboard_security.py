@@ -1,9 +1,12 @@
 """Security tests for the web dashboard: login, per-server access, CSRF, escaping and bind address."""
 import asyncio
 import json
+import re
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import discord
+import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from core.config import Settings
@@ -42,10 +45,14 @@ def make_bot(guild_name="Test Server"):
         SimpleNamespace(id=GUILD_ID, name=guild_name, owner_id=GUILD_OWNER, member_count=10, members=[]),
         SimpleNamespace(id=OTHER_GUILD_ID, name="Other", owner_id=999, member_count=5, members=[]),
     ]
+    channels = {cid: MagicMock(spec=discord.TextChannel) for cid in (44, 66)}
+    guilds[0].get_channel = lambda cid: channels.get(cid)
+    guilds[0].text_channels = []
     return SimpleNamespace(
         guilds=guilds,
         get_guild=lambda gid: next((g for g in guilds if g.id == gid), None),
         is_owner=AsyncMock(side_effect=lambda uid: uid == BOT_OWNER),
+        is_authorized=lambda gid: True,
         db=FakeDB(),
         latency=0.05,
         started_at=0.0,
@@ -90,7 +97,9 @@ def test_without_login_it_only_binds_localhost():
     bot = make_bot()
     assert DashboardServer(bot).host == "127.0.0.1"
     assert DashboardServer(bot, host="0.0.0.0").host == "127.0.0.1"
-    assert login_server(bot).host == "0.0.0.0"
+    assert login_server(bot).host == "127.0.0.1"
+    assert DashboardServer(bot, host="0.0.0.0", public_url="https://veil.example.com",
+                           client_id=1, client_secret="s").host == "0.0.0.0"
 
 
 # ------------------------------------------------------------------ login required
@@ -140,14 +149,14 @@ def test_non_owner_cannot_see_or_edit_a_server():
 
     async def scenario(client):
         r = await client.get("/api/guilds", headers=headers)
-        assert await r.json() == []
+        assert r.status == 403
         r = await client.get(f"/servers/{GUILD_ID}", headers=headers)
-        assert r.status == 404
+        assert r.status == 403
         r = await client.get(f"/api/guilds/{GUILD_ID}/config", headers=headers)
-        assert r.status == 404
+        assert r.status == 403
         r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
                               data={"csrf": csrf_of(server, token), "an_admins": str(STRANGER)})
-        assert r.status == 404
+        assert r.status == 403
 
     run(server, scenario)
     assert bot.db.writes == []
@@ -489,3 +498,225 @@ def test_local_unrelated_settings_save_does_not_write_role_blacklist():
         assert response.status == 302
     run(server, scenario)
     assert (GUILD_ID, "roleblacklist") not in bot.db.writes
+
+
+# ------------------------------------------------------------------ authenticated-only dashboard & authorization
+
+def test_listener_refuses_unauthenticated_and_insecure_modes():
+    async def go():
+        bot = make_bot()
+        for server in (DashboardServer(bot),
+                       DashboardServer(bot, public_url="http://example.com", client_id=1, client_secret="s")):
+            with pytest.raises(RuntimeError, match="requires Discord login"):
+                await server.start()
+            assert server.runner is None
+    asyncio.run(go())
+
+
+def test_stranger_is_denied_login_and_owner_loses_access_when_ownership_changes():
+    bot = make_bot()
+    server = login_server(bot)
+    server._fetch_discord_user = AsyncMock(return_value={"id": str(STRANGER), "username": "stranger"})
+    _, owner_headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        r = await client.get("/login", allow_redirects=False)
+        state_cookie = r.cookies[STATE_COOKIE].value
+        state = server._unsign(state_cookie, "state")["s"]
+        r = await client.get(f"/callback?code=abc&state={state}",
+                             headers={"Cookie": f"{STATE_COOKIE}={state_cookie}"})
+        assert r.status == 403 and SESSION_COOKIE not in r.cookies
+        assert (await client.get("/api/guilds", headers=owner_headers)).status == 200
+        bot.guilds[0].owner_id = 10000
+        assert (await client.get("/api/guilds", headers=owner_headers)).status == 403
+
+    run(server, scenario)
+
+
+def test_authorization_is_developer_only_csrf_protected_and_requires_confirmation():
+    bot = make_bot('<script>server</script>')
+    bot.authorized = {GUILD_ID, 9999}
+    bot.is_authorized = lambda gid: gid in bot.authorized
+    bot.guilds[0].leave = AsyncMock()
+    calls = []
+
+    class Auth:
+        def __init__(self):
+            self._auth_lock = asyncio.Lock()
+
+        async def authorize(self, gid, by, note):
+            calls.append(("add", gid, by, note))
+            added = gid not in bot.authorized
+            bot.authorized.add(gid)
+            return added
+
+        async def unauthorize(self, gid):
+            calls.append(("remove", gid))
+            if gid not in bot.authorized:
+                return False
+            bot.authorized.remove(gid)
+            return True
+
+    auth = Auth()
+    bot.get_cog = lambda name: auth if name == "Authorization" else None
+    server = login_server(bot)
+    dev_token, dev_headers = cookie(server, BOT_OWNER)
+    owner_token, owner_headers = cookie(server, GUILD_OWNER)
+    base = {"csrf": csrf_of(server, dev_token), "guild_id": str(GUILD_ID)}
+
+    async def scenario(client):
+        assert (await client.get("/authorization", headers=owner_headers)).status == 403
+        assert (await client.post("/authorization", headers=owner_headers,
+                                  data={"csrf": csrf_of(server, owner_token), "action": "authorize",
+                                        "guild_id": "12345"})).status == 403
+        page = await client.get("/authorization", headers=dev_headers)
+        text = await page.text()
+        assert "&lt;script&gt;server&lt;/script&gt;" in text and "Not joined" in text
+        assert (await client.post("/authorization", headers=dev_headers,
+                                  data={**base, "csrf": "wrong", "action": "authorize"})).status == 403
+        assert (await client.post("/authorization", headers={**dev_headers, "Origin": "https://evil.example"},
+                                  data={**base, "action": "authorize"})).status == 403
+        assert (await client.post("/authorization", headers=dev_headers,
+                                  data={**base, "action": "revoke"})).status == 403
+        assert not calls
+        r = await client.post("/authorization", headers=dev_headers,
+                              data={"csrf": base["csrf"], "action": "authorize", "guild_id": "12345"})
+        assert r.status == 200 and 12345 in bot.authorized
+        assert calls[-1] == ("add", 12345, BOT_OWNER, "via dashboard")
+        r = await client.post("/authorization", headers=dev_headers, data={**base, "action": "review"})
+        text = await r.text()
+        confirmation = re.search(r'name="confirmation" value="([^"]+)"', text).group(1)
+        assert GUILD_ID in bot.authorized and not bot.guilds[0].leave.await_count
+        r = await client.post("/authorization", headers=dev_headers,
+                              data={**base, "action": "revoke", "confirmation": confirmation})
+        assert r.status == 200 and "bot left" in (await r.text()).lower()
+        assert GUILD_ID not in bot.authorized
+        bot.guilds[0].leave.assert_awaited_once()
+        bot.authorized.add(GUILD_ID)
+        r = await client.post("/authorization", headers=dev_headers,
+                              data={**base, "action": "revoke", "confirmation": confirmation})
+        assert r.status == 403 and GUILD_ID in bot.authorized
+
+    run(server, scenario)
+
+
+def test_log_selection_rejects_channels_not_in_guild_without_writes():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}", headers=headers)
+        text = await page.text()
+        for field in ("log_roles", "log_messages", "log_timeouts", "log_antinuke", "log_server"):
+            assert f'name="{field}"' in text
+        r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
+                              data={"csrf": csrf_of(server, token), "log_roles": "999", "rbl_roles": "42"})
+        assert r.status == 400 and "Nothing was saved" in await r.text()
+        r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
+                              data={"csrf": csrf_of(server, token), "log_roles": "44", "log_timeouts": "-1"})
+        assert r.status == 302
+
+    run(server, scenario)
+    assert bot.db.store.get((GUILD_ID, "roleblacklist"), {}) == {}
+    assert bot.db.store[(GUILD_ID, "logs")] == {"roles": 44, "timeouts": -1}
+
+
+def test_revocation_still_blocks_owner_if_leave_fails_and_reports_failure():
+    bot = make_bot()
+    bot.authorized = {GUILD_ID}
+    bot.is_authorized = lambda gid: gid in bot.authorized
+    bot.guilds[0].leave = AsyncMock(side_effect=RuntimeError("Discord unavailable"))
+
+    class Auth:
+        def __init__(self):
+            self._auth_lock = asyncio.Lock()
+
+        async def unauthorize(self, gid):
+            bot.authorized.remove(gid)
+            return True
+
+    auth = Auth()
+    bot.get_cog = lambda name: auth
+    server = login_server(bot)
+    token, headers = cookie(server, BOT_OWNER)
+    _, owner_headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        assert (await client.get("/api/guilds", headers=owner_headers)).status == 200
+        data = {"csrf": csrf_of(server, token), "guild_id": str(GUILD_ID)}
+        r = await client.post("/authorization", headers=headers, data={**data, "action": "review"})
+        confirmation = re.search(r'name="confirmation" value="([^"]+)"', await r.text()).group(1)
+        r = await client.post("/authorization", headers=headers,
+                              data={**data, "action": "revoke", "confirmation": confirmation})
+        assert r.status == 200 and "leave failed or timed out" in (await r.text()).lower()
+        assert (await client.get("/api/guilds", headers=owner_headers)).status == 403
+        assert (await client.get(f"/servers/{GUILD_ID}", headers=headers)).status == 200
+
+    run(server, scenario)
+
+
+def test_revoking_explicit_entry_keeps_automatically_authorized_server():
+    bot = make_bot()
+    bot.authorized = {GUILD_ID}
+    bot.is_authorized = lambda gid: True
+    bot.guilds[0].leave = AsyncMock()
+
+    class Auth:
+        def __init__(self):
+            self._auth_lock = asyncio.Lock()
+
+        async def unauthorize(self, gid):
+            bot.authorized.remove(gid)
+            return True
+
+    bot.get_cog = lambda name: Auth()
+    server = login_server(bot)
+    token, headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        data = {"csrf": csrf_of(server, token), "guild_id": str(GUILD_ID)}
+        r = await client.post("/authorization", headers=headers, data={**data, "action": "review"})
+        confirmation = re.search(r'name="confirmation" value="([^"]+)"', await r.text()).group(1)
+        r = await client.post("/authorization", headers=headers,
+                              data={**data, "action": "revoke", "confirmation": confirmation})
+        assert r.status == 200 and "automatically authorized" in await r.text()
+        bot.guilds[0].leave.assert_not_awaited()
+
+    run(server, scenario)
+
+
+def test_dashboard_authorization_updates_real_cog_and_database():
+    from cogs.authorization import Authorization
+    from core.db import Database
+
+    async def go():
+        bot = make_bot()
+        db = Database(":memory:")
+        await db.connect()
+        bot.db = db
+        bot.authorized = set()
+        bot.is_authorized = lambda gid: gid in bot.authorized
+        cog = Authorization(bot)
+        bot.get_cog = lambda name: cog if name == "Authorization" else None
+        server = login_server(bot)
+        token, headers = cookie(server, BOT_OWNER)
+        client = TestClient(TestServer(server.app))
+        await client.start_server()
+        try:
+            data = {"csrf": csrf_of(server, token), "guild_id": "12345"}
+            r = await client.post("/authorization", headers=headers, data={**data, "action": "authorize"})
+            assert r.status == 200 and bot.authorized == {12345}
+            row = await db.fetchone("SELECT * FROM authorized WHERE guild_id=?", 12345)
+            assert row["authorized_by"] == BOT_OWNER and row["note"] == "via dashboard"
+            r = await client.post("/authorization", headers=headers, data={**data, "action": "review"})
+            confirmation = re.search(r'name="confirmation" value="([^"]+)"', await r.text()).group(1)
+            r = await client.post("/authorization", headers=headers,
+                                  data={**data, "action": "revoke", "confirmation": confirmation})
+            assert r.status == 200 and bot.authorized == set()
+            assert await db.fetchone("SELECT * FROM authorized WHERE guild_id=?", 12345) is None
+        finally:
+            await client.close()
+            await db.close()
+
+    asyncio.run(go())

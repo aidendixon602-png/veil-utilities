@@ -126,7 +126,7 @@ When `DATABASE_URL` points to PostgreSQL, `,backup` cannot export it. Use your P
 | Bot leaves a server | `AUTH_REQUIRED`, authorization list and developer alerts. If a leave failed, investigate the reported outcome. |
 | A moderation or antinuke action fails | Audit-log and action permissions, target hierarchy, enabled rules, exemptions and `,an health`. Not all actions can be restored. |
 | Developer DM missing | `OWNER_IDS`, Discord application discovery, recipient DM settings, `ANTINUKE_DEV_ALERTS`, database health and delivery retry logs. Only certain incident types use the durable outbox. |
-| Dashboard cannot be reached | Confirm `DASHBOARD_ENABLED`, bind host, port, OAuth callback and reverse proxy. Local-only mode is deliberately restricted to loopback. |
+| Dashboard cannot be reached | Confirm `DASHBOARD_ENABLED`, HTTPS URL, client secret, bind host, port, OAuth callback and reverse proxy. The backend binds to loopback by default and does not start without login. |
 | Music or external lookup fails | Check the relevant integration configuration and external service availability. |
 | Startup unexpectedly changes files | See the default hard-reset behavior and `AUTO_SYNC_GIT=0` in [hosting](HOSTING.md#updating). |
 
