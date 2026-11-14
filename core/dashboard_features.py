@@ -90,6 +90,7 @@ async def features_page(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
+    settings = await server.bot.db.get_config(guild.id, "settings") or {}
     filters = await server.bot.db.get_config(guild.id, "filters", FILTER_DEFAULT)
     levels = await server.bot.db.get_config(guild.id, "levels", LEVEL_DEFAULT)
     tickets = await server.bot.db.get_config(guild.id, "tickets", TICKET_DEFAULT)
@@ -98,6 +99,14 @@ async def features_page(server, request: web.Request) -> web.Response:
     antinuke = deepcopy(antinuke_raw)
     Antinuke.migrate(antinuke)
     on_off = (("off", "Off"), ("on", "On"))
+
+    prefix = settings.get("prefix", getattr(server.bot, "default_prefix", ","))
+    form = _form_start(server, guild, user, "general", "settings", settings)
+    form += ('<div class="form-group"><label for="prefix">Server command prefix</label>'
+             f'<input id="prefix" name="prefix" value="{_esc(prefix)}" minlength="1" maxlength="10" required>'
+             '<span class="hint">1–10 characters without spaces. This changes the server prefix, not personal prefixes.</span></div>'
+             '<button class="btn" type="submit">Save prefix</button></form>')
+    general_section = _section("Server prefix", "00", "Choose how members start Veil commands in this server.", form, "general")
 
     form = _form_start(server, guild, user, "automod", "filters", filters)
     form += '<div class="note">These filters can delete messages and apply timeouts. Members with Manage Messages are exempt.</div><div class="form-grid">'
@@ -176,7 +185,7 @@ async def features_page(server, request: web.Request) -> web.Response:
     antinuke_section = _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
     saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
-    sections = {"automod": ("Automod", automod_section), "leveling": ("Leveling", levels_section),
+    sections = {"general": ("Server settings", general_section), "automod": ("Automod", automod_section), "leveling": ("Leveling", levels_section),
                 "tickets": ("Tickets", tickets_section), "rules": ("Antinuke", antinuke_section)}
     selected = request.query.get("section", "")
     if selected and selected not in sections:
@@ -195,9 +204,9 @@ async def features_page(server, request: web.Request) -> web.Response:
             '<p>Manage selected security and community features. Each section saves separately.</p></div>'
             f'<a class="btn btn-plain" href="/servers/{guild.id}">← Server settings</a></div>{saved}'
             '<div class="settings-layout"><nav class="section-nav" aria-label="Feature sections"><span>ON THIS PAGE</span>'
-            '<a href="#automod">Automod</a><a href="#leveling">Leveling</a><a href="#tickets">Tickets</a>'
+            '<a href="#general">Server settings</a><a href="#automod">Automod</a><a href="#leveling">Leveling</a><a href="#tickets">Tickets</a>'
             '<a href="#rules">Antinuke rules</a></nav><div>'
-            f'{automod_section}{levels_section}{tickets_section}{antinuke_section}</div></div>')
+            f'{general_section}{automod_section}{levels_section}{tickets_section}{antinuke_section}</div></div>')
     return server._page("Feature controls", body, user, guild=guild)
 
 
@@ -250,7 +259,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
-    modules = {"automod": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
+    modules = {"general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
                "tickets": ("tickets", TICKET_DEFAULT), "protection": ("antinuke", AN_DEFAULT),
                "rule": ("antinuke", AN_DEFAULT)}
     if feature not in modules:
@@ -267,7 +276,12 @@ async def save_feature(server, request: web.Request) -> web.Response:
         Antinuke.migrate(cfg)
     notice = None
     try:
-        if feature == "automod":
+        if feature == "general":
+            prefix = str(data.get("prefix", ""))
+            if not 1 <= len(prefix) <= 10 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in prefix):
+                raise InvalidSetting("Prefix must be 1–10 characters without spaces or control characters")
+            cfg["prefix"] = prefix
+        elif feature == "automod":
             for key in ("invites", "links", "zalgo", "antighostping"):
                 cfg[key] = _choice(data, key, ("on", "off")) == "on"
             for key, low, high in (("caps", 30, 100), ("massmention", 3, 50), ("emojis", 2, 50), ("newlines", 3, 50)):
@@ -353,6 +367,6 @@ async def save_feature(server, request: web.Request) -> web.Response:
             pass  # security notices are best effort, as in the Discord commands
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s updated %s for guild %s", user["uid"], feature, guild.id)
-    anchor = {"automod": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
+    anchor = {"general": "general", "automod": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
     section = f"&section={anchor}" if data.get("return_section") == anchor else ""
     return server._redirect(f"/servers/{guild.id}/features?saved=1{section}#{anchor}")
