@@ -153,7 +153,10 @@ except (OSError, ValueError):
     print("[veil] Cannot open the log file; check LOG_FILE and its directory permissions.", flush=True)
     raise
 logfile.setFormatter(logging.Formatter(PLAIN_FORMAT))
-logging.basicConfig(level=logging.INFO, handlers=[console, logfile])
+# This is the application entry point: install our handlers even if a host or dependency
+# configured the root logger earlier. Otherwise basicConfig silently does nothing and
+# Veil INFO messages (including dashboard startup) can disappear from both outputs.
+logging.basicConfig(level=logging.INFO, handlers=[console, logfile], force=True)
 # library noise: retries/gateway chatter add nothing the bot's own logs don't already say better
 logging.getLogger("discord").setLevel(logging.WARNING)
 logging.getLogger("wavelink").setLevel(logging.WARNING)

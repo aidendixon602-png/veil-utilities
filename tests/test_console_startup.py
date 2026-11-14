@@ -50,3 +50,17 @@ def test_unwritable_log_path_is_reported_on_stdout(tmp_path):
     assert result.returncode != 0
     assert "Cannot open the log file" in result.stdout
     assert "test-token-not-real" not in result.stdout + result.stderr
+
+
+def test_application_logs_survive_preconfigured_root_logger(tmp_path):
+    # Reproduce a host or library installing a WARNING-only root handler before Veil starts.
+    code = ("import logging, runpy; logging.basicConfig(level=logging.WARNING); "
+            "m = runpy.run_path(" + repr(str(ROOT / "main.py")) + ", run_name='offline_test'); "
+            "m['log'].info('console-after-preconfigured-root'); m['log'].warning('warning-once')")
+    result = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=_env(tmp_path),
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert "console-after-preconfigured-root" in result.stdout
+    assert result.stdout.count("warning-once") == 1
+    assert "console-after-preconfigured-root" in (tmp_path / "veil.log").read_text()
+    assert "test-token-not-real" not in result.stdout + result.stderr

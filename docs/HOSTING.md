@@ -32,8 +32,10 @@ environment variables in separate fields. Set `AUTO_SYNC_GIT=0` in the process e
 
 After a controlled restart, current Veil code prints `[veil] Starting Veil Utilities` to stdout before
 checking dependencies. Normal application logs go to stdout as well as `LOG_FILE` (default `veil.log`);
-Python tracebacks and some startup errors still go to stderr. `-u` or `PYTHONUNBUFFERED=1` helps with
-buffering, but cannot repair a panel that is not launching the script or capturing its streams. If the
+Python tracebacks and some startup errors still go to stderr. The entry point replaces pre-existing Python
+root logging handlers with Veil's stdout and file handlers, so a host/library's earlier configuration cannot
+silently suppress Veil INFO logs. This does not ensure a hosting panel captures either stream. `-u` or
+`PYTHONUNBUFFERED=1` helps with buffering, but cannot repair a panel that is not launching the script or capturing its streams. If the
 line is absent, check the command, working directory and panel output capture with the host; check the
 file manager for `veil.log` too. An older deployment may not contain the early startup line. If the line
 appears but startup stops, inspect stderr and the log file, redacting tokens, secrets and database URLs
