@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Strip cards now use the two-column audit layout: a "Member Stripped" title, `User` and `By` side by side with
+  clickable mentions and IDs, and one `Roles removed` field. `,strip` adds a small line saying that a developer can
+  restore the saved roles; `,stripstaff` posts the same card to the moderation logs. Role changes in the logs use
+  the same shape ("Roles Updated", with `Added (n)` / `Removed (n)` and who made the change), and only call a mass
+  removal a strip when (nearly) every role went at once. Role lists now end with `+N more` instead of cutting a
+  mention in half.
+
 ### Repository and documentation
 
 - Reworked the README and operator guides around verified setup, comma-prefix commands, authorization, notifications,

@@ -9,6 +9,7 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+from core import logembeds as fmt
 from core.modlog import case_line, create_case, dm_target
 import core.utils as _cu
 import importlib
@@ -1092,14 +1093,31 @@ class Moderation(commands.Cog):
     @has_perms(administrator=True)
     @is_server_owner()
     async def stripstaff(self, ctx: Context, member: discord.Member):
-        """Remove every role with dangerous permissions from a member"""
+        """Remove every role with dangerous permissions from a member
+
+        Posts a Member Stripped card to the moderation logs. Roles are not saved: give them back by hand.
+        """
         await check_hierarchy_async(ctx, member, "strip")
         roles = [r for r in member.roles if is_dangerous(r.permissions) and r < ctx.guild.me.top_role and not r.managed]
         if not roles:
             raise UserError(f"{member.mention} has no staff roles I can remove")
         await member.remove_roles(*roles, reason=audit_reason(ctx.author, action="stripstaff"))
         await create_case(self.bot, ctx.guild, "stripstaff", member, ctx.author, f"removed {len(roles)} roles")
+        await self._stripped_spill(ctx.guild, member, roles, ctx.author)
         await ctx.approve(f"stripped **{len(roles)}** staff role{'' if len(roles) == 1 else 's'} from {member.mention}")
+
+    async def _stripped_spill(self, guild, member: discord.Member, roles: list, actor) -> None:
+        """Post the staff-strip card where moderation logs go; a missing channel is not the command's problem."""
+        get_cog = getattr(self.bot, "get_cog", None)
+        logs = get_cog("Logging") if get_cog else None
+        if logs is None:
+            return
+        try:
+            channel = await logs.route(guild, "bans", "members", user_id=member.id)
+            if channel:
+                await logs.post(channel, fmt.member_stripped(member, roles, actor))
+        except Exception:  # logging must never fail the action itself
+            pass
 
     @commands.command(aliases=["rolelist"])
     @commands.guild_only()
