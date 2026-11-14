@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Startup logging.** Veil's process entry point installs its stdout and rotating-file handlers even when
+  another library or host has already configured Python's root logger. This cannot fix output capture outside
+  the Python process.
+
+### Changed
+
+- **Dashboard workspace.** Refreshed the server and feature pages with a more compact information-first layout,
+  clearer navigation icons, and a consistent dark-blue theme. Existing permissions and forms are unchanged.
+
 ### Changed
 
 - **Unauthorized-server approval window.** Veil waits up to 120 seconds from joining for developer approval,

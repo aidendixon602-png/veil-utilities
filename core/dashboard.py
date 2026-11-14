@@ -73,6 +73,27 @@ def _esc(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+# Fixed inline icons avoid external resources, font-glyph gaps and user-controlled markup.
+_ICON_PATHS = {
+    "overview": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    "general": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',
+    "rules": '<path d="M12 2 20 5v6c0 5-3 8-8 11-5-3-8-6-8-11V5l8-3Z"/><path d="m9 12 2 2 4-5"/>',
+    "automod": '<path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/>',
+    "logging": '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    "exclusions": '<circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/>',
+    "trusted": '<circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/>',
+    "leveling": '<path d="M4 19h16M6 16v-3m6 3V9m6 7V5"/><path d="m5 9 5-4 4 2 5-4"/>',
+    "tickets": '<path d="M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4V7Z"/><path d="M12 8v2m0 4v2"/>',
+    "blacklist": '<path d="M12 3 3 20h18L12 3Z"/><path d="M12 9v4m0 3v.1"/>',
+}
+
+
+def _dashboard_icon(name: str) -> str:
+    paths = _ICON_PATHS.get(name, _ICON_PATHS["overview"])
+    return ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+            f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{paths}</svg>')
+
+
 def _server_avatar(guild) -> str:
     """Render an actual Discord CDN icon when available; never trust an arbitrary image URL."""
     icon = getattr(guild, "icon", None)
@@ -350,6 +371,62 @@ header { background:#0e1120; border-color:#252a40; }
 .list-controls .form-group { margin:0; } .list-controls button { min-height:42px; }
 @media (max-width:600px) { .route-grid { grid-template-columns:1fr; } .list-controls { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .feature-tile { transition:none; } .feature-tile:hover { transform:none; } }
+/* A quieter, information-first workspace. Existing controls and permission checks are unchanged. */
+:root { --bg:#090e19; --surface:#121a29; --surface2:#192235; --border:#29384c;
+        --text:#eef3fb; --muted:#adbdd0; --subtle:#91a4ba; --accent:#9aabff; }
+body { background:#090e19; }
+.sidebar { background:#0d1522; border-color:#233145; }
+header { background:#0d1522; border-color:#233145; }
+.brand-mark { background:#425ec1; border-color:#6c83d8; box-shadow:none; }
+.nav-link.active { background:#1d3155; border-color:#385683; }
+.nav-link:hover { background:#1a2a40; }
+.nav-icon { color:#9fb7f1; }
+.container { max-width:1440px; }
+.welcome-panel { min-height:0; align-items:center; padding:30px 34px; border-color:#304760;
+  border-radius:15px; background:linear-gradient(115deg,#152c48,#152338 75%,#1b2945); box-shadow:none; }
+.welcome-kicker { background:#192e48; border-color:#405a78; color:#c5d6fa; }
+.kicker-dot { background:#8ac7b4; box-shadow:none; }
+.welcome-panel h1 { margin-top:13px; font-size:clamp(26px,3vw,35px); }
+.welcome-panel p { color:#c1cede; max-width:560px; }
+.welcome-actions { margin-top:19px; gap:18px; }
+.welcome-actions .btn { color:#f7f9ff; background:#4c6fd1; border-color:#708cdd; }
+.welcome-actions .btn:hover { background:#5d7bdf; }
+.hero-action { color:#c5d7ff; }
+.welcome-aside { display:flex; align-items:center; gap:13px; color:#b1c6eb; font-size:11px;
+  font-weight:750; letter-spacing:.1em; }
+.welcome-aside small { display:block; color:#91a7c0; font-size:9px; letter-spacing:.09em; margin-top:3px; }
+.workspace-symbol { display:grid; place-items:center; width:52px; height:52px; color:#d7e2ff;
+  background:#273e60; border:1px solid #486686; border-radius:14px; font-size:27px; }
+.activity-bar { background:#111b2a; border-color:#293b51; }
+.activity-bar > div + div { border-color:#293b51; }
+.servers-section { margin-top:32px; }
+.servers-heading h2 { font-size:21px; }
+.server-search input,.filter-row { background:#121c2b; }
+.guild-card,.feature-tile { background:#121c2b; border-color:#2b3b50; box-shadow:none; }
+.guild-card:hover,.feature-tile:hover { border-color:#6687c1; }
+.guild-access { background:#1c3041; border-color:#34566c; }
+.guild-facts { border-color:#2b3b50; }
+.guild-open,.tile-status { color:#adc6ff; }
+.guild-open { background:#1c3050; border-color:#3b5881; }
+.guild-open:hover { background:#29436b; border-color:#668bd1; }
+.side-note { background:#152235; border-color:#2f4057; }
+.tile-icon svg { width:21px; height:21px; }
+.workspace-symbol svg { width:26px; height:26px; }
+.server-hero { padding:27px 30px; border-color:#304760; border-radius:15px; margin-bottom:30px;
+  background:linear-gradient(110deg,#152c48,#152338 75%); }
+.hero-copy { margin-top:13px; }
+.feature-tile { min-height:172px; border-radius:12px; }
+.tile-icon,.feature-tile:nth-child(n) .tile-icon { font-size:19px; background:#213858; color:#c5d8ff; }
+.card { background:#121c2b; border-color:#2b3b50; box-shadow:none; }
+.section-icon { background:#213858; border-color:#3a5778; color:#c5d8ff; }
+.btn { background:#4969c8; border-color:#6d87d8; }
+.btn:hover { background:#5b7bdf; border-color:#90a9ed; }
+.btn-plain { background:#1d2a3c; border-color:#3b4f69; }
+.btn-plain:hover { background:#283b53; }
+input,select,textarea { background:#0c1522; border-color:#425670; }
+@media (max-width:760px) { .welcome-panel { padding:25px; } .welcome-aside { display:none; }
+  .server-hero { padding:24px; } }
+@media (max-width:480px) { .welcome-panel { padding:22px; } .feature-tile { min-height:150px; } }
 """
 
 
@@ -629,10 +706,10 @@ class DashboardServer:
         nav = f'<a class="server-switch" href="/" title="Switch server">{_server_avatar(guild)}<span><small>SERVER WORKSPACE</small><strong>{_esc(guild.name)}</strong></span><b aria-hidden="true">↕</b></a>'
         for label, links in groups:
             nav += f'<span class="nav-label">{label}</span>'
-            for key, text, href, icon in links:
+            for key, text, href, _icon in links:
                 selected = ' active" aria-current="page' if key == active else ''
                 nav += (f'<a class="nav-link{selected}" href="{_esc(href)}" title="{_esc(text)}">'
-                        f'<span class="nav-icon" aria-hidden="true">{icon}</span><span class="nav-text">{text}</span></a>')
+                        f'<span class="nav-icon" aria-hidden="true">{_dashboard_icon(key)}</span><span class="nav-text">{text}</span></a>')
         return nav
 
     def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "", *,
@@ -650,10 +727,10 @@ class DashboardServer:
         sub = f'<div class="sub">{subtitle}</div>' if subtitle else ""
         nav = (self._server_navigation(guild, active, limited) if guild else
                '<span class="nav-label">WORKSPACE</span><a class="nav-link active" href="/" aria-current="page">'
-               '<span class="nav-icon" aria-hidden="true">◈</span><span class="nav-text">Server overview</span></a>')
+               f'<span class="nav-icon" aria-hidden="true">{_dashboard_icon("overview")}</span><span class="nav-text">Server overview</span></a>')
         if not guild and developer:
             nav += ('<span class="nav-label">DEVELOPER</span><a class="nav-link" href="/authorization" title="Server authorization">'
-                    '<span class="nav-icon" aria-hidden="true">◇</span><span class="nav-text">Authorization</span></a>')
+                    f'<span class="nav-icon" aria-hidden="true">{_dashboard_icon("rules")}</span><span class="nav-text">Authorization</span></a>')
         mobile_nav = (f'<details class="mobile-nav"><summary>Navigate server workspace</summary><nav aria-label="Mobile server navigation">{nav}</nav></details>'
                       if guild else '')
         doc = (
@@ -704,11 +781,10 @@ class DashboardServer:
         authorization_link = ('<a class="hero-action" href="/authorization">Manage authorization <span aria-hidden="true">↗</span></a>'
                               if is_developer and not user.get("local") else "")
         body = (f'<section class="welcome-panel"><div class="welcome-copy"><div class="welcome-kicker"><span class="kicker-dot"></span>{role}</div>'
-                f'<h1>Make your server<br><span>feel unstoppable.</span></h1><p>{access_description}</p>'
-                f'<div class="welcome-actions"><a href="#servers" class="btn">Explore your servers <span aria-hidden="true">↓</span></a>{authorization_link}</div>'
-                '</div><div class="welcome-art" aria-hidden="true"><div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div>'
-                '<div class="art-shield"><svg viewBox="0 0 80 90" fill="none"><path d="M40 5 72 19v23c0 19-13 32-32 42C21 74 8 61 8 42V19L40 5Z" stroke="currentColor" stroke-width="3"/><path d="m26 44 9 9 20-22" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
-                '<span class="art-spark spark-one">✦</span><span class="art-spark spark-two">✧</span></div></section>')
+                f'<h1>Your servers, in one place.</h1><p>{access_description}</p>'
+                f'<div class="welcome-actions"><a href="#servers" class="btn">Browse servers <span aria-hidden="true">↓</span></a>{authorization_link}</div>'
+                f'</div><div class="welcome-aside" aria-hidden="true"><span class="workspace-symbol">{_dashboard_icon("rules")}</span>'
+                '<span>VEIL UTILITIES<small>SERVER WORKSPACE</small></span></div></section>')
         if is_developer:
             all_guilds = list(self.bot.guilds)
             members = sum(getattr(g, "member_count", None) or len(getattr(g, "members", [])) for g in all_guilds)
@@ -956,17 +1032,20 @@ class DashboardServer:
             cards = [card for card in cards if card[1] in ("Automod", "Logging channels", "Log exclusions", "Leveling", "Tickets")]
             cards = [(icon, name, desc, f"{base}/features?section=logging" if name in ("Logging channels", "Log exclusions") else href, status)
                      for icon, name, desc, href, status in cards]
+        tile_icons = {"Server settings": "general", "Antinuke": "rules", "Automod": "automod", "Logging channels": "logging",
+                      "Log exclusions": "exclusions", "Trusted identities": "trusted", "Leveling": "leveling",
+                      "Tickets": "tickets", "Role blacklist": "blacklist"}
         tiles = "".join(
-            f'<a class="feature-tile" href="{_esc(href)}"><div class="tile-top"><span class="tile-icon">{icon}</span><span aria-hidden="true">↗</span></div>'
+            f'<a class="feature-tile" href="{_esc(href)}"><div class="tile-top"><span class="tile-icon">{_dashboard_icon(tile_icons.get(name, "overview"))}</span><span aria-hidden="true">↗</span></div>'
             f'<h3>{_esc(name)}</h3><p>{_esc(desc)}</p><span class="tile-status">{_esc(status)}</span></a>'
-            for icon, name, desc, href, status in cards)
+            for _icon, name, desc, href, status in cards)
         overview_description = ('Everything you need, organized by feature.' if limited else
                                 'Everything you need, organized by feature. Logging, trust, and blacklist links open a shared settings form.')
         body = (f'<div class="server-hero"><div><p class="eyebrow">YOUR SERVER WORKSPACE</p>'
                 f'<div class="hero-server">{_server_avatar(guild)}<div><h1>{_esc(guild.name)}</h1>'
                 f'<p>Server ID · {_esc(guild.id)}</p></div></div>'
                 '<p class="hero-copy">Your tools for a safer, better organized community. Choose a feature below to get started.</p></div>'
-                '<span class="hero-emblem" aria-hidden="true">✦</span></div>'
+                '</div>'
                 '<div class="overview-heading"><div><p class="eyebrow">YOUR TOOLKIT</p><h2>Manage your server</h2>'
                 f'<p>{overview_description}</p></div></div>'
                 f'<div class="feature-grid">{tiles}</div>'

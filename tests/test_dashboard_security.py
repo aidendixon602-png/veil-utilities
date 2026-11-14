@@ -1510,3 +1510,21 @@ def test_administrator_scoped_access_writes_and_revocation():
         assert (await client.get(f"{path}/overview", headers=headers)).status == 403
 
     run(server, scenario)
+
+
+def test_dashboard_workspace_refresh_keeps_real_links_and_safe_static_icons():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        home = await (await client.get("/", headers=headers)).text()
+        assert "Your servers, in one place." in home and "Make your server<br>" not in home
+        assert f'href="/servers/{GUILD_ID}/overview"' in home
+        overview = await (await client.get(f"/servers/{GUILD_ID}/overview", headers=headers)).text()
+        assert 'class="tile-icon"><svg' in overview
+        assert f'href="/servers/{GUILD_ID}/features?section=automod"' in overview
+        assert f'href="/servers/{GUILD_ID}#logging"' in overview
+        assert f'href="/servers/{GUILD_ID}/features?section=rules"' in overview
+        assert bot.db.writes == []
+    run(server, scenario)
