@@ -176,6 +176,21 @@ async def features_page(server, request: web.Request) -> web.Response:
     antinuke_section = _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
     saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
+    sections = {"automod": ("Automod", automod_section), "leveling": ("Leveling", levels_section),
+                "tickets": ("Tickets", tickets_section), "rules": ("Antinuke", antinuke_section)}
+    selected = request.query.get("section", "")
+    if selected and selected not in sections:
+        return server._message("Unknown feature", "Choose a feature from the server overview.", 404, user)
+    if selected:
+        label, content = sections[selected]
+        # A fixed, allowlisted return hint keeps a save on the selected page.
+        content = content.replace('<input type="hidden" name="csrf"',
+                                  f'<input type="hidden" name="return_section" value="{selected}"><input type="hidden" name="csrf"')
+        body = (f'<div class="page-heading"><div><p class="eyebrow">{_esc(guild.name)} / Features</p>'
+                f'<h1>{_esc(label)}</h1><p>Review your settings and save changes when ready.</p></div>'
+                f'<a class="btn btn-plain" href="/servers/{guild.id}/overview">← Server overview</a></div>{saved}'
+                f'<div class="feature-content">{content}</div>')
+        return server._page(label, body, user, guild=guild, active=selected)
     body = (f'<div class="page-heading"><div><p class="eyebrow">Servers / Feature controls</p><h1>{_esc(guild.name)}</h1>'
             '<p>Manage selected security and community features. Each section saves separately.</p></div>'
             f'<a class="btn btn-plain" href="/servers/{guild.id}">← Server settings</a></div>{saved}'
@@ -183,7 +198,7 @@ async def features_page(server, request: web.Request) -> web.Response:
             '<a href="#automod">Automod</a><a href="#leveling">Leveling</a><a href="#tickets">Tickets</a>'
             '<a href="#rules">Antinuke rules</a></nav><div>'
             f'{automod_section}{levels_section}{tickets_section}{antinuke_section}</div></div>')
-    return server._page("Feature controls", body, user)
+    return server._page("Feature controls", body, user, guild=guild)
 
 
 class InvalidSetting(ValueError):
@@ -339,4 +354,5 @@ async def save_feature(server, request: web.Request) -> web.Response:
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s updated %s for guild %s", user["uid"], feature, guild.id)
     anchor = {"automod": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
-    return server._redirect(f"/servers/{guild.id}/features?saved=1#{anchor}")
+    section = f"&section={anchor}" if data.get("return_section") == anchor else ""
+    return server._redirect(f"/servers/{guild.id}/features?saved=1{section}#{anchor}")

@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Server workspace navigation.** Added a server overview with feature cards, grouped navigation and focused
+  automod, leveling, ticket and antinuke pages. Logging and security retain their combined settings form.
+
 - **Dashboard workspace.** Updated the dashboard with a Discord-inspired app navigation, clearer status and
   statistics, Discord server icons where available, and mobile-friendly server cards. Existing settings and
   access checks remain unchanged.

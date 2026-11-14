@@ -253,7 +253,42 @@ tbody tr:hover { background:#ffffff06; } tbody tr:last-child td { border-bottom:
   .server-table td:last-child .btn { width:100%; margin-top:3px; }
   .server-table td[colspan] { grid-column:1 / -1; }
 }
-@media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+/* Workspace navigation and feature overview */
+.sidebar { gap:28px; }
+.sidebar nav { display:grid; gap:3px; }
+.nav-label { padding:17px 10px 5px; }
+.nav-link { background:transparent; border-color:transparent; color:#b9c0d3; padding:9px 10px; }
+.nav-link:hover { background:#20253b; }
+.nav-link.active { background:#302a50; border-color:#51467b; color:#fff; }
+.nav-icon { display:grid; place-items:center; flex:none; width:19px; color:#c4b4ff; font-size:17px; }
+.server-switch { display:flex; align-items:center; min-width:0; padding:10px; gap:8px; margin:0 0 6px; border:1px solid #353c53; border-radius:11px; background:#1a1f31; }
+.server-switch .server-icon,.server-switch .server-initial { width:36px; height:36px; margin:0; flex:none; }
+.server-switch span:not(.server-initial) { min-width:0; }
+.server-switch small,.server-switch strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.server-switch small { color:var(--subtle); font-size:9px; letter-spacing:.08em; }
+.server-switch strong { font-size:12px; } .server-switch b { margin-left:auto; color:var(--subtle); }
+.mobile-nav { display:none; }
+.server-hero { position:relative; overflow:hidden; display:flex; justify-content:space-between; gap:20px; padding:36px;
+  border:1px solid #514879; border-radius:18px; background:radial-gradient(circle at 85% 0%,#6446aa80,transparent 42%),linear-gradient(115deg,#202345,#191a30 65%); margin-bottom:38px; }
+.hero-server { display:flex; align-items:center; gap:16px; min-width:0; } .hero-server > div { min-width:0; } .hero-server h1 { overflow-wrap:anywhere; } .hero-server .server-icon,.hero-server .server-initial { width:58px; height:58px; margin:0; font-size:22px; }
+.hero-server p,.hero-copy { color:#c7c7de; } .hero-server p { margin-top:5px; font-size:12px; }
+.hero-copy { max-width:530px; margin-top:22px; } .hero-emblem { font-size:88px; line-height:1; color:#bdaaff; opacity:.35; }
+.overview-heading { margin-bottom:20px; } .overview-heading h2 { font-size:21px; } .overview-heading p:last-child { color:var(--muted); margin-top:5px; }
+.feature-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.feature-tile { display:flex; flex-direction:column; min-width:0; min-height:190px; padding:21px; border:1px solid var(--border); border-radius:14px; background:linear-gradient(145deg,#1a2032,#141827); transition:border-color .15s,transform .15s; }
+.feature-tile:hover { border-color:#907de0; transform:translateY(-2px); } .tile-top { display:flex; justify-content:space-between; align-items:center; color:#a49bc7; margin-bottom:18px; }
+.tile-icon { display:grid; place-items:center; width:38px; height:38px; border-radius:11px; background:#332b50; color:#d6caff; font-size:11px; font-weight:700; }
+.feature-tile:nth-child(3n+2) .tile-icon { background:#342b42; color:#f3bbd7; }
+.feature-tile:nth-child(3n) .tile-icon { background:#203b43; color:#a9e1e6; }
+.feature-tile h3 { font-size:15px; } .feature-tile p { color:var(--muted); font-size:12px; margin:7px 0 16px; }
+.tile-status { color:#c9bcff; font-size:11px; font-weight:700; margin-top:auto; } .overview-note { color:var(--subtle); font-size:12px; margin-top:20px; }
+@media (max-width:1050px) { .server-switch { justify-content:center; padding:6px; } .server-switch span:not(.server-initial),.server-switch b { display:none; } .feature-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:760px) { .mobile-nav { display:block; margin:12px 20px 0; border:1px solid var(--border); background:#141826; border-radius:10px; }
+ .mobile-nav summary { padding:12px 14px; cursor:pointer; font-weight:650; } .mobile-nav nav { padding:0 10px 10px; }
+ .mobile-nav .nav-label,.mobile-nav .nav-text { display:block; } .mobile-nav .nav-link { justify-content:flex-start; } .mobile-nav .server-switch { display:none; }
+ .server-hero { padding:25px; } .hero-emblem { font-size:55px; } }
+@media (max-width:480px) { .feature-grid { grid-template-columns:1fr; } .feature-tile { min-height:160px; } .hero-emblem { display:none; } }
+@media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .feature-tile { transition:none; } .feature-tile:hover { transform:none; } }
 """
 
 
@@ -312,6 +347,7 @@ class DashboardServer:
         r.add_get("/", self.handle_home)
         r.add_get("/servers", self.handle_home)
         r.add_get("/servers/{guild_id}", self.handle_server)
+        r.add_get("/servers/{guild_id}/overview", self.handle_server_overview)
         r.add_get("/servers/{guild_id}/features", self.handle_features)
         r.add_post("/servers/{guild_id}/features/{feature}", self.handle_save_feature)
         r.add_get("/authorization", self.handle_authorization)
@@ -471,7 +507,27 @@ class DashboardServer:
         return bool(submitted) and hmac.compare_digest(str(submitted), str(user.get("csrf", "")))
 
     # ------------------------------------------------------------------ page helpers
-    def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "") -> web.Response:
+    def _server_navigation(self, guild, active: str) -> str:
+        base = f"/servers/{guild.id}"
+        groups = (
+            ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),)),
+            ("SECURITY", (("rules", "Antinuke", f"{base}/features?section=rules", "◇"),
+                          ("automod", "Automod", f"{base}/features?section=automod", "✦"),
+                          ("logging", "Logging & security", base, "≡"))),
+            ("COMMUNITY", (("leveling", "Leveling", f"{base}/features?section=leveling", "↗"),
+                           ("tickets", "Tickets", f"{base}/features?section=tickets", "▣"))),
+        )
+        nav = f'<a class="server-switch" href="/" title="Switch server">{_server_avatar(guild)}<span><small>SERVER WORKSPACE</small><strong>{_esc(guild.name)}</strong></span><b aria-hidden="true">↕</b></a>'
+        for label, links in groups:
+            nav += f'<span class="nav-label">{label}</span>'
+            for key, text, href, icon in links:
+                selected = ' active" aria-current="page' if key == active else ''
+                nav += (f'<a class="nav-link{selected}" href="{_esc(href)}" title="{_esc(text)}">'
+                        f'<span class="nav-icon" aria-hidden="true">{icon}</span><span class="nav-text">{text}</span></a>')
+        return nav
+
+    def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "", *,
+              guild=None, active: str = "") -> web.Response:
         who = ""
         if user and not user.get("local"):
             who = (f'<div class="who"><span class="account-dot" aria-hidden="true">'
@@ -483,6 +539,11 @@ class DashboardServer:
         elif user:
             who = '<div class="who">Local access (127.0.0.1)</div>'
         sub = f'<div class="sub">{subtitle}</div>' if subtitle else ""
+        nav = (self._server_navigation(guild, active) if guild else
+               '<span class="nav-label">WORKSPACE</span><a class="nav-link active" href="/" aria-current="page">'
+               '<span class="nav-icon" aria-hidden="true">◈</span><span class="nav-text">Server overview</span></a>')
+        mobile_nav = (f'<details class="mobile-nav"><summary>Navigate server workspace</summary><nav aria-label="Mobile server navigation">{nav}</nav></details>'
+                      if guild else '')
         doc = (
             '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
@@ -494,15 +555,11 @@ class DashboardServer:
             '<path d="m8.8 11.5 2.2 2.2 4.6-5"/></svg></span>'
             '<span class="brand-copy"><span class="logo">Veil Utilities</span>'
             '<span class="brand-caption">Server management</span></span></a>'
-            '<nav aria-label="Main navigation"><span class="nav-label">WORKSPACE</span>'
-            '<a class="nav-link" href="/" aria-label="Server overview"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" '
-            'stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/>'
-            '<rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>'
-            '<rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="nav-text">Server overview</span></a></nav>'
+            f'<nav aria-label="Main navigation">{nav}</nav>'
             '<div class="side-note"><strong>Your workspace</strong>Manage settings for the servers available to your account.</div>'
             '</aside><div class="workspace"><header>'
             f'<div class="top-title"><a href="/">Veil Utilities</a><span class="top-separator">/</span><b>{_esc(title)}</b>{sub}</div>{who}'
-            f'</header><div class="container"><main id="main">{body}</main></div></div></div></body></html>'
+            f'</header>{mobile_nav}<div class="container"><main id="main">{body}</main></div></div></div></body></html>'
         )
         return web.Response(text=doc, content_type="text/html")
 
@@ -605,11 +662,11 @@ class DashboardServer:
             state = "on" if enabled else "off"
             rows.append(
                 f'<tr><td data-label="Server">{_server_avatar(g)}'
-                f'<a href="/servers/{_esc(g.id)}">{_esc(g.name)}</a></td>'
+                f'<a href="/servers/{_esc(g.id)}/overview">{_esc(g.name)}</a></td>'
                 f'<td data-label="Server ID">{_esc(g.id)}</td><td data-label="Members">{_esc(count)}</td>'
                 f'<td data-label="Antinuke"><span class="tag {state}">{state.title()}</span></td>'
                 f'<td data-label="Authorized">{auth.title()}</td><td data-label="Logs">{log_count} configured</td>'
-                f'<td data-label=""><a class="btn btn-plain" href="/servers/{_esc(g.id)}" '
+                f'<td data-label=""><a class="btn btn-plain" href="/servers/{_esc(g.id)}/overview" '
                 f'aria-label="Configure {_esc(g.name)}">Configure</a></td></tr>'
             )
         listing = "".join(rows) or '<tr><td colspan="7">No servers match your filters.</td></tr>'
@@ -745,6 +802,46 @@ class DashboardServer:
             return self._message("Authorization revoked", detail, user=user)
         return self._message("Invalid action", "No changes were made.", 400, user)
 
+    async def handle_server_overview(self, request: web.Request) -> web.Response:
+        user = self._user(request)
+        if user is None:
+            return self._redirect("/login" if self.login_enabled else "/")
+        guild = await self._guild_for(request, user)
+        if guild is None:
+            return self._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
+        from cogs.logging import KINDS
+        from cogs.levels import DEFAULT as LEVEL_DEFAULT
+
+        an = await self._antinuke_cfg(guild.id)
+        logs = await self.bot.db.get_config(guild.id, "logs") or {}
+        levels = await self.bot.db.get_config(guild.id, "levels", LEVEL_DEFAULT)
+        count = sum(isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
+                    for key in KINDS)
+        state = "on" if an.get("enabled") else "off"
+        level_state = "on" if levels.get("enabled") else "off"
+        base = f"/servers/{guild.id}"
+        cards = (
+            ("01", "Antinuke", "Protection rules, thresholds and responses.", f"{base}/features?section=rules", f"Protection {state}"),
+            ("02", "Automod", "Message filters and moderation actions.", f"{base}/features?section=automod", "Configure filters"),
+            ("03", "Logging & security", "Log channels, exclusions and trusted identities.", base, f"{count} explicit log {'channel' if count == 1 else 'channels'}"),
+            ("04", "Leveling", "XP settings and level-up announcements.", f"{base}/features?section=leveling", f"Leveling {level_state}"),
+            ("05", "Tickets", "Support roles, ticket settings and transcripts.", f"{base}/features?section=tickets", "Configure tickets"),
+        )
+        tiles = "".join(
+            f'<a class="feature-tile" href="{_esc(href)}"><div class="tile-top"><span class="tile-icon">{icon}</span><span aria-hidden="true">↗</span></div>'
+            f'<h3>{_esc(name)}</h3><p>{_esc(desc)}</p><span class="tile-status">{_esc(status)}</span></a>'
+            for icon, name, desc, href, status in cards)
+        body = (f'<div class="server-hero"><div><p class="eyebrow">YOUR SERVER WORKSPACE</p>'
+                f'<div class="hero-server">{_server_avatar(guild)}<div><h1>{_esc(guild.name)}</h1>'
+                f'<p>Server ID · {_esc(guild.id)}</p></div></div>'
+                '<p class="hero-copy">Your tools for a safer, better organized community. Choose a feature below to get started.</p></div>'
+                '<span class="hero-emblem" aria-hidden="true">✦</span></div>'
+                '<div class="overview-heading"><div><p class="eyebrow">YOUR TOOLKIT</p><h2>Manage your server</h2>'
+                '<p>Everything you need, organized by feature.</p></div></div>'
+                f'<div class="feature-grid">{tiles}</div>'
+                '<p class="overview-note">Log channel counts show explicit selections only; automatic routing is not included.</p>')
+        return self._page("Server overview", body, user, guild=guild, active="overview")
+
     async def handle_server(self, request: web.Request) -> web.Response:
         user = self._user(request)
         if user is None:
@@ -825,7 +922,7 @@ class DashboardServer:
   <section class="card" id="antinuke"><div class="card-head"><span class="section-icon" aria-hidden="true">04</span>
     <div><h2>Antinuke</h2><p>Manage the default response and the people who administer protection.</p></div></div>
     <div class="note">Protection is currently <strong>{'on' if an_cfg.get("enabled") else 'off'}</strong>.
-      Enable or disable protection and manage individual rules using Veil's Discord commands.</div>
+      Enable or disable protection and manage individual rules in <a href="/servers/{_esc(guild.id)}/features?section=rules">Antinuke rules</a>.</div>
     <div class="form-grid"><div class="form-group"><label for="an_punishment">Default punishment</label>
       <select id="an_punishment" name="an_punishment">{options}</select><span class="hint">Used by modules without their own punishment.</span></div>
     <div class="form-group"><label for="an_admins">Antinuke admin user IDs</label>
@@ -844,7 +941,8 @@ class DashboardServer:
     <div class="buttons"><a href="/" class="btn btn-plain">Cancel</a><button type="submit" class="btn">Save changes</button></div></div>
 </form></div>"""
 
-        return self._page(guild.name, body, user, subtitle=f"Server settings: <b>{_esc(guild.name)}</b>")
+        return self._page(guild.name, body, user, subtitle=f"Server settings: <b>{_esc(guild.name)}</b>",
+                          guild=guild, active="logging")
 
     async def handle_features(self, request: web.Request) -> web.Response:
         from core.dashboard_features import features_page

@@ -1115,3 +1115,66 @@ def test_feature_controls_escape_config_values_and_enforce_revision_user_and_gui
         assert r.status == 409 and not bot.db.writes
 
     run(server, scenario)
+
+
+def test_server_workspace_navigation_access_and_real_status():
+    bot = make_bot('<script>alert("server")</script>')
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True}
+    bot.db.store[(GUILD_ID, "levels")] = {"enabled": False}
+    bot.db.store[(GUILD_ID, "logs")] = {"joinleave": 44, "commands": -1}
+    server = login_server(bot)
+    _, owner_headers = cookie(server, GUILD_OWNER)
+    _, developer_headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        path = f"/servers/{GUILD_ID}/overview"
+        assert (await client.get(path, allow_redirects=False)).status == 302
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/overview", headers=owner_headers)).status == 404
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/overview", headers=developer_headers)).status == 200
+        response = await client.get(path, headers=owner_headers)
+        html = await response.text()
+        assert response.status == 200 and 'aria-label="Mobile server navigation"' in html
+        assert "<script>" not in html and "&lt;script&gt;" in html
+        assert "Protection on" in html and "Leveling off" in html and "1 explicit log channel" in html
+        for section in ("automod", "leveling", "tickets", "rules"):
+            assert f"?section={section}" in html
+        assert bot.db.writes == []
+
+    run(server, scenario)
+
+
+def test_feature_pages_are_focused_and_keep_safe_save_redirects():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        url = f"/servers/{GUILD_ID}/features"
+        for section, feature in (("automod", "automod"), ("leveling", "levels"),
+                                 ("tickets", "tickets"), ("rules", "protection")):
+            page = await client.get(f"{url}?section={section}", headers=headers)
+            html = await page.text()
+            assert page.status == 200
+            assert f'action="{url}/{feature}"' in html
+            assert f'name="return_section" value="{section}"' in html
+            if section != "automod":
+                assert f'action="{url}/automod"' not in html
+            assert 'aria-current="page"' in html
+        assert (await client.get(f"{url}?section=not-real", headers=headers)).status == 404
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/features?section=tickets", headers=headers)).status == 404
+        page = await client.get(f"{url}?section=leveling", headers=headers)
+        revision = _feature_revision(await page.text(), GUILD_ID, "levels")
+        data = {"csrf": csrf_of(server, token), "revision": revision, "enabled": "on", "voice": "on", "stack": "on",
+                "channel": "", "message": "hello", "return_section": "leveling"}
+        response = await client.post(f"{url}/levels", headers=headers, data=data, allow_redirects=False)
+        assert response.status == 302
+        assert response.headers["Location"] == f"{url}?saved=1&section=leveling#leveling"
+        # The selected-page form retains the same stale-revision protection.
+        assert (await client.post(f"{url}/levels", headers=headers, data=data)).status == 409
+        page = await client.get(f"{url}?section=leveling", headers=headers)
+        data["revision"] = _feature_revision(await page.text(), GUILD_ID, "levels")
+        data["return_section"] = "//evil.example"
+        response = await client.post(f"{url}/levels", headers=headers, data=data, allow_redirects=False)
+        assert response.headers["Location"] == f"{url}?saved=1#leveling"
+
+    run(server, scenario)
