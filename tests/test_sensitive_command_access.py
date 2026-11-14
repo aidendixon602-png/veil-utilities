@@ -139,9 +139,9 @@ def test_dm_rbl_buttons_recheck_live_server_owner():
     asyncio.run(go())
 
 
-def test_every_rbl_entry_point_sets_private_delivery_and_requires_owner():
+def test_every_rbl_entry_point_requires_owner_and_only_dms_when_the_server_asked_for_it():
     async def run():
-        bot = SimpleNamespace(owner_ids={30}, owner_id=None)
+        bot = SimpleNamespace(owner_ids={30}, owner_id=None, get_cog=lambda name: None)
         cog = Moderation(bot)
         roots = [Moderation.roleblacklist, Moderation.bypass, Moderation.hardbl,
                  Moderation.cmd_checkbled, Moderation.cmd_stripbled,
@@ -151,7 +151,7 @@ def test_every_rbl_entry_point_sets_private_delivery_and_requires_owner():
             ctx = SimpleNamespace(command=command, guild=SimpleNamespace(id=1, owner_id=10),
                                   author=SimpleNamespace(id=20), bot=bot)
             await cog.cog_before_invoke(ctx)
-            assert ctx._private_rbl, command.qualified_name
+            assert ctx._private_rbl is False, command.qualified_name  # in the channel unless DMs are turned on
             checks = [check for check in command.checks if getattr(check, "__veil_owner_only__", False)]
             assert checks, command.qualified_name
             for check in checks:

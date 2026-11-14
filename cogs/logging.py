@@ -106,6 +106,7 @@ ALIASES = {
     "command": "commands", "cmd": "commands", "cmds": "commands", "security": "antinuke",
 }
 NO_SERVER_FALLBACK = ("commands", "bans", "joinleave", "timeouts")  # these never spill into the general server log
+DM_KEY = "rbl_dm"  # `,logs` → "Replies: DM": role-blacklist answers go to the person's DMs, not the channel
 BANS_ONLY = {"bans", "banlogs", "banlog", "ban"}  # a moderation channel with one of these names only gets bans
 
 
@@ -260,6 +261,22 @@ def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
     return None
 
 
+def _shared_home(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
+    """The channel a category without a channel of its own rides in: timeouts in the moderation log (unless that is
+    a bans-only `#bans`), then the member stream - the same order `timeout_channel` uses when posting them."""
+    if kind != "timeouts":
+        text_channels = [c for c in getattr(guild, "text_channels", []) if not other_bots_channel(c)]
+        for key in FALLBACKS.get(kind, ()):
+            channel = None if cfg.get(key) == OFF else (_set_channel(guild, cfg, key) or _named(text_channels, key))
+            if channel is not None:
+                return channel
+        return None
+    mod = _channel_for(guild, cfg, "bans")
+    if mod is not None and not bans_only(mod):
+        return mod
+    return _channel_for(guild, cfg, "members") or _channel_for(guild, cfg, "joinleave")
+
+
 def _sharers(home: str) -> tuple[str, ...]:
     """Categories whose logs ride in the channel `home` creates (the general log carries the odd ones out)."""
     return CARRIES.get(home, ())
@@ -277,14 +294,21 @@ def _leave_own_channel(guild, cfg: dict, key: str) -> None:
 
 
 def describe(guild, cfg: dict, kind: str) -> str:
-    """How a category's destination reads in the panel."""
+    """How a category's destination reads in the panel.
+
+    A category with no setting of its own still has a home - timeouts ride in `#mod-logs`, nicknames in the join
+    log - so the panel names that channel. Saying "not set" there reads as "your timeouts are being dropped".
+    """
     if cfg.get(kind) == OFF:
         return "`off`"
     explicit = guild.get_channel(cfg.get(kind) or 0)
     if isinstance(explicit, discord.TextChannel):
         return explicit.mention
     found = _channel_for(guild, cfg, kind)
-    return f"{found.mention} *(auto)*" if found else "`not set`"
+    if found:
+        return f"{found.mention} *(auto)*"
+    shared = _shared_home(guild, cfg, kind)
+    return f"{shared.mention} *(shared)*" if shared else "`not set`"
 
 
 def can_post(channel: discord.TextChannel) -> bool:
@@ -402,8 +426,8 @@ class ChannelPick(discord.ui.ChannelSelect["LogPanel"]):
 
 class PanelButton(discord.ui.Button["LogPanel"]):
     def __init__(self, label: str, action: str, style=discord.ButtonStyle.secondary, emoji: str | None = None,
-                 disabled: bool = False):
-        super().__init__(label=label, emoji=emoji, style=style, disabled=disabled, row=2)
+                 disabled: bool = False, row: int = 1):
+        super().__init__(label=label, emoji=emoji, style=style, disabled=disabled, row=row)
         self.action = action
 
     async def callback(self, it: discord.Interaction):
@@ -434,10 +458,11 @@ class LogPanel(OwnedView):
         for kind in KINDS.values():
             mark = "▸ " if kind.key == self.selected else ""
             lines.append(f"{mark}{kind.emoji} **{kind.label}** — {describe(self.guild, self.cfg, kind.key)}")
+        where = "DM'd" if self.cfg.get(DM_KEY) else "in the channel"
+        lines += ["", f"🔐 **Role blacklist replies** — {where}"]
         e = discord.Embed(title="Logging", color=Colors.main, description="\n".join(lines))
-        e.set_footer(text=("Pick a category, then a channel · " if not self.selected else
-                           f"Now choose where {KINDS[self.selected].label} logs go · ")
-                     + "`auto` finds channels by name")
+        e.set_footer(text=(f"Now choose where {KINDS[self.selected].label} logs go · " if self.selected else
+                           "Pick a category, then a channel · ") + "`auto` finds channels by name")
         return e
 
     def rebuild(self):
@@ -445,10 +470,14 @@ class LogPanel(OwnedView):
         self.add_item(KindSelect(self.selected))
         if self.selected:
             self.add_item(ChannelPick(KINDS[self.selected].label))
-        self.add_item(PanelButton("Create channels", "create", discord.ButtonStyle.primary, "✨"))
-        self.add_item(PanelButton("Turn off", "off", emoji="⛔", disabled=not self.selected))
-        self.add_item(PanelButton("Auto", "auto", emoji="🔁", disabled=not self.selected))
-        self.add_item(PanelButton("Done", "done", emoji="✅"))
+        # A select takes a whole row of its own: categories (row 0), channel (row 1), the actions (row 2),
+        # and the one setting that is not a category (row 3).
+        self.add_item(PanelButton("Create channels", "create", discord.ButtonStyle.primary, "✨", row=2))
+        self.add_item(PanelButton("Turn off", "off", emoji="⛔", row=2))
+        self.add_item(PanelButton("Auto", "auto", emoji="🔁", row=2))
+        self.add_item(PanelButton("Done", "done", emoji="✅", row=2))
+        self.add_item(PanelButton("Role blacklist: DM" if self.cfg.get(DM_KEY) else "Role blacklist: here",
+                                  "toggle_dm", emoji="🔐", row=3))
 
     async def refresh(self, it: discord.Interaction):
         self.rebuild()
@@ -469,13 +498,31 @@ class LogPanel(OwnedView):
         await self.cog.save(self.guild, self.cfg)
         await self.refresh(it)
 
+    async def _need_kind(self, it: discord.Interaction) -> bool:
+        """A greyed-out button says nothing; say what is missing instead."""
+        if self.selected:
+            return False
+        await it.response.send_message("Pick a category in the menu first — then **Turn off** and **Auto** work.",
+                                       ephemeral=True)
+        return True
+
     async def do_off(self, it: discord.Interaction):
+        if await self._need_kind(it):
+            return
         self.cfg[self.selected] = OFF
         await self.cog.save(self.guild, self.cfg)
         await self.refresh(it)
 
     async def do_auto(self, it: discord.Interaction):
+        if await self._need_kind(it):
+            return
         self.cfg[self.selected] = None
+        await self.cog.save(self.guild, self.cfg)
+        await self.refresh(it)
+
+    async def do_toggle_dm(self, it: discord.Interaction):
+        """Role-blacklist replies follow this person's own choice: in the channel, or privately by DM."""
+        self.cfg[DM_KEY] = not self.cfg.get(DM_KEY)
         await self.cog.save(self.guild, self.cfg)
         await self.refresh(it)
 
@@ -555,6 +602,10 @@ class Logging(commands.Cog):
             if channel:
                 return channel
         return None
+
+    async def rbl_private(self, guild: discord.Guild) -> bool:
+        """Whether role-blacklist replies go to DMs: only when the server's owner (or a developer) asked for that."""
+        return bool((await self.config(guild)).get(DM_KEY))
 
     async def _send(self, channel: discord.TextChannel, embed: discord.Embed, *, file: discord.File | None = None,
                     view: discord.ui.View | None = None) -> discord.Message | None:

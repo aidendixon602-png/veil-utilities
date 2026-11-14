@@ -176,6 +176,17 @@ def test_describe_reads_naturally_for_the_panel():
     assert describe(guild, {}, "voice") == "`not set`"
 
 
+def test_the_panel_names_the_channel_a_category_actually_rides_in():
+    """`,logs` used to say "not set" for timeouts while the bot filed them in `#mod-logs`: that reads as "you are
+    losing your timeouts". A category with no setting of its own names where it really lands."""
+    guild = make_guild([text_channel(1, "mod-logs"), text_channel(2, "join-logs")])
+    assert describe(guild, {}, "timeouts") == "<#1> *(shared)*"          # the moderation log, as posted
+    only_bans = make_guild([text_channel(1, "bans"), text_channel(2, "join-logs")])
+    assert describe(only_bans, {}, "timeouts") == "<#2> *(shared)*"      # #bans gets bans only: the join log
+    assert describe(only_bans, {}, "bans") == "`not set`"   # a channel called #bans is picked up by setting only
+    assert describe(make_guild([]), {}, "timeouts") == "`not set`"
+
+
 def test_route_skips_ignored_channels_and_members_and_tries_fallbacks_in_order():
     async def go():
         mods, members = text_channel(1, "a"), text_channel(2, "b")
@@ -1030,18 +1041,19 @@ def test_panel_lists_every_category_and_starts_without_a_channel_picker():
     options = next(c for c in view.children if isinstance(c, KindSelect)).options
     assert [o.value for o in options] == list(L.TYPES)
     text = view.embed().description
-    assert text.count("\n") == len(L.KINDS) - 1 and "💬 **Messages** — <#1> *(auto)*" in text
+    assert "💬 **Messages** — <#1> *(auto)*" in text and "🔐 **Role blacklist replies** — in the channel" in text
     buttons = {c.label: c for c in view.children if isinstance(c, L.PanelButton)}
-    assert buttons["Turn off"].disabled and buttons["Auto"].disabled and not buttons["Create channels"].disabled
+    # nothing is greyed out: pressing Turn off or Auto without picking a category explains what to do instead
+    assert not any(b.disabled for b in buttons.values())
+    assert {"Create channels", "Turn off", "Auto", "Done", "Role blacklist: here"} == set(buttons)
 
 
-def test_choosing_a_category_reveals_the_channel_picker_and_enables_the_buttons():
+def test_choosing_a_category_reveals_the_channel_picker():
     async def go():
         view, *_ = panel()
         it = interaction()
         await view.choose(it, "roles")
         assert any(isinstance(c, ChannelPick) for c in view.children)
-        assert next(c for c in view.children if isinstance(c, L.PanelButton) and c.label == "Turn off").disabled is False
         assert "▸ 🏷️ **Roles**" in view.embed().description
         assert [o.value for o in next(c for c in view.children if isinstance(c, KindSelect)).options if o.default] == ["roles"]
     asyncio.run(go())
@@ -1070,6 +1082,30 @@ def test_panel_off_and_auto_buttons_update_the_config():
         assert store["logs"]["voice"] == OFF and "`off`" in view.embed().description
         await view.do_auto(interaction())
         assert store["logs"]["voice"] is None
+    asyncio.run(go())
+
+
+def test_turn_off_and_auto_say_what_is_missing_before_a_category_is_picked():
+    async def go():
+        view, _, store, _ = panel()
+        it = interaction()
+        await view.do_off(it)
+        message = it.response.send_message.await_args.args[0]
+        assert "Pick a category" in message and store["logs"] == {}   # nothing changed behind the scenes
+    asyncio.run(go())
+
+
+def test_role_blacklist_replies_are_in_the_channel_until_the_server_turns_dms_on():
+    async def go():
+        view, cog, store, guild = panel()
+        assert await cog.rbl_private(guild) is False           # the default: answer where the command was run
+        it = interaction()
+        await view.do_toggle_dm(it)
+        assert store["logs"]["rbl_dm"] is True
+        assert await cog.rbl_private(guild) is True
+        assert "🔐 **Role blacklist replies** — DM'd" in view.embed().description
+        await view.do_toggle_dm(interaction())
+        assert store["logs"]["rbl_dm"] is False                # and it turns back off
     asyncio.run(go())
 
 

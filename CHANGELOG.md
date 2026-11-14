@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `,logs` panel no longer leaves **Turn off** and **Auto** greyed out before a category is picked: pressing one
+  says which category to pick first. Role-blacklist replies are now a visible setting on the panel (**,logs** →
+  **Role blacklist: here / DM**) instead of always arriving by DM, with the channel as the default; servers that
+  would rather keep them private can turn DMs on again. The panel also names where a category without a channel of
+  its own actually lands - timeouts read `#mod-logs *(shared)*` rather than "not set", which looked like they were
+  being dropped.
 - Log channels now follow one leaner set: `,logs setup` creates `#join-logs`, `#command-logs`,
   `#veil-utilities-logging`, `#antinuke-logs`, `#role-logs`, `#channel-logs`, `#voice-logs` and `#mod-logs` under
   **VEIL LOGS**, down from eleven. Nothing is dropped: deleted messages, nicknames and timeouts ride in the channel
