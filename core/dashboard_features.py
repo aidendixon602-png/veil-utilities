@@ -121,8 +121,41 @@ async def features_page(server, request: web.Request) -> web.Response:
     form += _number("spam_seconds", "Spam interval (seconds)", spam[1], 2, 120)
     form += _select("action", "Filter response", filters.get("action", "delete"), (("delete", "Delete message"), ("timeout", "Delete and timeout")))
     form += _number("timeout", "Timeout (seconds)", filters.get("timeout", 60), 10, 2419200, "10 seconds to 28 days.")
-    form += '</div><p class="hint">Word lists, regex, exemptions and allowed domains are preserved; manage them in Discord.</p><button class="btn" type="submit">Save automod</button></form>'
+    form += '</div><p class="hint">Advanced lists and exemptions save separately below.</p><button class="btn" type="submit">Save automod</button></form>'
     automod_section = _section("Automod", "01", "Control message filters and their response.", form, "automod")
+
+    advanced = '<div class="note">Exempt roles and channels bypass message filters. Removing a blocked entry or adding an exemption may weaken protection.</div>'
+    for key, label, help_text in (("words", "Blocked words", "100 entries maximum, 100 characters each. End with * to match inside words."),
+                                  ("regex", "Blocked regex", "20 patterns maximum, 300 characters each. Patterns run on every message."),
+                                  ("links_allow", "Allowed domains", "Domains and their subdomains bypass the link filter.")):
+        entries = filters.get(key) or []
+        choices = [("", "Select an existing entry to remove")] + [(str(i), value) for i, value in enumerate(entries)]
+        advanced += f'<div class="list-edit"><h3>{label} · {len(entries)}</h3><span class="hint">{help_text}</span>'
+        advanced += _form_start(server, guild, user, "automod-entry", "filters", filters)
+        advanced += f'<input type="hidden" name="list_key" value="{key}">'
+        advanced += f'<div class="list-controls"><div class="form-group"><label for="add_{key}">Add {label.lower()}</label><input id="add_{key}" name="entry" maxlength="300"></div>'
+        advanced += '<button class="btn btn-plain" name="operation" value="add">Add</button></div>'
+        advanced += '<div class="list-controls">' + _select("remove_" + key, "Existing entry", "", choices).replace('name="remove_' + key + '"', 'name="index"')
+        advanced += '<button class="btn btn-plain" name="operation" value="remove">Remove selected</button></div>'
+        advanced += '<label class="confirm-choice"><input type="checkbox" name="confirm_remove" value="yes"> Confirm removal of the selected entry.</label></form></div>'
+
+    for key, label, objects in (("exempt_roles", "Exempt roles", getattr(guild, "roles", [])),
+                                ("exempt_channels", "Exempt channels", getattr(guild, "text_channels", []))):
+        existing = filters.get(key) or []
+        choices = [("", "Choose a role or channel")]
+        choices += [(str(obj.id), obj.name) for obj in objects if obj.id != guild.id]
+        known = {value for value, _ in choices}
+        choices += [(str(value), f"Unavailable ({value})") for value in existing if str(value) not in known]
+        advanced += f'<div class="list-edit"><h3>{label} · {len(existing)}</h3><span class="hint">Existing exemptions: '
+        names = {str(value): name for value, name in choices}
+        advanced += _esc(", ".join(names.get(str(v), str(v)) for v in existing) or "None") + '.</span>'
+        advanced += _form_start(server, guild, user, "automod-exempt", "filters", filters)
+        advanced += f'<input type="hidden" name="list_key" value="{key}"><div class="list-controls">'
+        advanced += _select("pick_" + key, label, "", choices).replace('name="pick_' + key + '"', 'name="target"')
+        advanced += '<button class="btn btn-plain" name="operation" value="add">Add exemption</button></div>'
+        advanced += '<label class="confirm-choice"><input type="checkbox" name="confirm_remove" value="yes"> Confirm removal of the selected exemption.</label>'
+        advanced += '<button class="btn btn-plain" name="operation" value="remove">Remove exemption</button></form></div>'
+    automod_section += _section("Advanced Automod", "02", "Manage individual entries and exemptions without replacing your other settings.", advanced, "automod-advanced")
 
     form = _form_start(server, guild, user, "levels", "levels", levels) + '<div class="form-grid">'
     form += _select("levels_enabled", "Leveling", _on_off(levels.get("enabled")), on_off,
@@ -182,7 +215,8 @@ async def features_page(server, request: web.Request) -> web.Response:
                             (("", "Server default"), ("ban", "Ban"), ("kick", "Kick"), ("strip", "Strip roles"))).replace(
                                 f'name="punishment_{key}"', 'name="punishment"')
         form += '<button class="btn btn-plain" type="submit">Save rule</button></div></form>'
-    antinuke_section = _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
+    from core.dashboard_security_views import antinuke_health
+    antinuke_section = antinuke_health(server.bot, guild, antinuke_raw) + _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
     saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
     sections = {"general": ("Server settings", general_section), "automod": ("Automod", automod_section), "leveling": ("Leveling", levels_section),
@@ -259,7 +293,8 @@ async def save_feature(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
-    modules = {"general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
+    modules = {"general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
+               "automod-exempt": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
                "tickets": ("tickets", TICKET_DEFAULT), "protection": ("antinuke", AN_DEFAULT),
                "rule": ("antinuke", AN_DEFAULT)}
     if feature not in modules:
@@ -291,6 +326,75 @@ async def save_feature(server, request: web.Request) -> web.Response:
             cfg["spam"] = [messages, seconds] if messages else None
             cfg["action"] = _choice(data, "action", ("delete", "timeout"))
             cfg["timeout"] = _int(data, "timeout", 10, 2419200)
+        elif feature == "automod-entry":
+            from cogs.automod import MAX_PATTERN_LEN, _domain
+            import regex
+            import re
+            key = _choice(data, "list_key", ("words", "regex", "links_allow"))
+            operation = _choice(data, "operation", ("add", "remove"))
+            entries = cfg.setdefault(key, [])
+            if not isinstance(entries, list):
+                raise InvalidSetting("This list has an unexpected format; manage it in Discord")
+            if operation == "remove":
+                if data.get("confirm_remove") != "yes":
+                    raise InvalidSetting("Confirm removal of the selected entry")
+                raw_index = str(data.get("index", ""))
+                if not raw_index.isascii() or not raw_index.isdigit() or len(raw_index) > 6 or int(raw_index) >= len(entries):
+                    raise InvalidSetting("Select an existing entry")
+                entries.pop(int(raw_index))
+            else:
+                value = str(data.get("entry", "")).strip()
+                if not value or "\n" in value or "\r" in value:
+                    raise InvalidSetting("Enter one non-empty entry")
+                if key == "words":
+                    value = value.lower()
+                    if len(value) > 100 or len(entries) >= 100:
+                        raise InvalidSetting("Words are limited to 100 entries of 100 characters")
+                elif key == "regex":
+                    if len(value) > MAX_PATTERN_LEN or len(entries) >= 20:
+                        raise InvalidSetting("Regex is limited to 20 patterns of 300 characters")
+                    try:
+                        regex.compile(value)
+                    except regex.error:
+                        raise InvalidSetting("Invalid regex pattern") from None
+                else:
+                    value = _domain(value)
+                    if len(value) > 253 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", value) or ".." in value:
+                        raise InvalidSetting("Enter a valid domain name")
+                    if len(entries) >= 100:
+                        raise InvalidSetting("Allowed domains are limited to 100 entries")
+                if value in entries:
+                    raise InvalidSetting("That entry already exists")
+                entries.append(value)
+        elif feature == "automod-exempt":
+            key = _choice(data, "list_key", ("exempt_roles", "exempt_channels"))
+            operation = _choice(data, "operation", ("add", "remove"))
+            try:
+                ids = _parse_ids(str(data.get("target", "")))
+            except ValueError:
+                raise InvalidSetting("Select a valid role or channel") from None
+            if len(ids) != 1:
+                raise InvalidSetting("Select one role or channel")
+            target = ids[0]
+            entries = cfg.setdefault(key, [])
+            if not isinstance(entries, list):
+                raise InvalidSetting("This list has an unexpected format; manage it in Discord")
+            if operation == "remove":
+                if data.get("confirm_remove") != "yes" or target not in entries:
+                    raise InvalidSetting("Select an existing exemption and confirm removal")
+                entries.remove(target)
+            else:
+                if target in entries or len(entries) >= 100:
+                    raise InvalidSetting("Exemption already exists or the limit of 100 was reached")
+                if key == "exempt_roles":
+                    get_role = getattr(guild, "get_role", None)
+                    if target == guild.id or not callable(get_role) or get_role(target) is None:
+                        raise InvalidSetting("Choose a role from this server other than @everyone")
+                else:
+                    get_channel = getattr(guild, "get_channel", None)
+                    if not callable(get_channel) or not isinstance(get_channel(target), discord.TextChannel):
+                        raise InvalidSetting("Choose a text channel from this server")
+                entries.append(target)
         elif feature == "levels":
             for key in ("enabled", "voice", "stack"):
                 cfg[key] = _choice(data, key, ("on", "off")) == "on"
@@ -367,6 +471,6 @@ async def save_feature(server, request: web.Request) -> web.Response:
             pass  # security notices are best effort, as in the Discord commands
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s updated %s for guild %s", user["uid"], feature, guild.id)
-    anchor = {"general": "general", "automod": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
+    anchor = {"general": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
     section = f"&section={anchor}" if data.get("return_section") == anchor else ""
     return server._redirect(f"/servers/{guild.id}/features?saved=1{section}#{anchor}")

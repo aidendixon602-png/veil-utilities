@@ -335,6 +335,20 @@ header { background:#0e1120; border-color:#252a40; }
  .activity-bar { grid-template-columns:repeat(2,minmax(0,1fr)); } .activity-bar > div:nth-child(3) { border-left:0; } .activity-bar > div:nth-child(n+3) { border-top:1px solid #30354a; }
  .servers-section { margin-top:30px; } }
 @media (max-width:540px) { .welcome-art { display:none; } .welcome-panel h1 { font-size:32px; } .guild-grid { grid-template-columns:1fr; } .servers-heading { align-items:start; flex-direction:column; gap:12px; } .search-row { flex-wrap:wrap; } .search-field { flex-basis:100%; } .search-row .btn { flex:1; } }
+/* Read-only security and routing summaries */
+.health-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-bottom:15px; }
+.health-grid > div { border:1px solid var(--border); border-radius:10px; background:#101522; padding:13px; }
+.health-grid span,.route-row small { color:var(--muted); font-size:11px; }
+.health-grid span { display:block; font-weight:700; letter-spacing:.06em; } .health-grid strong { display:block; margin-top:5px; }
+.routes-preview { padding:16px; margin-bottom:22px; border:1px solid var(--border); border-radius:10px; background:#101522; }
+.route-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 22px; margin-top:12px; }
+.route-row { display:grid; grid-template-columns:minmax(80px,1fr) minmax(80px,1fr); gap:3px 10px; border-top:1px solid var(--border); padding:10px 0; }
+.route-row strong { overflow-wrap:anywhere; font-size:12px; } .route-row small { grid-column:2; }
+.list-edit { border-top:1px solid var(--border); margin-top:20px; padding-top:20px; }
+.list-edit:first-of-type { border-top:0; margin-top:0; padding-top:0; } .list-edit h3 { margin-bottom:5px; }
+.list-controls { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:end; margin-top:12px; }
+.list-controls .form-group { margin:0; } .list-controls button { min-height:42px; }
+@media (max-width:600px) { .route-grid { grid-template-columns:1fr; } .list-controls { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .feature-tile { transition:none; } .feature-tile:hover { transform:none; } }
 """
 
@@ -924,6 +938,8 @@ class DashboardServer:
         saved = ('<div class="note ok">Settings saved.</div>' if request.query.get("saved") else "")
 
         from cogs.logging import KINDS
+        from core.dashboard_security_views import log_routes
+        routes_preview = log_routes(guild, logs_cfg)
         channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
         log_forms = []
         for field, key in LOG_FIELDS:
@@ -967,8 +983,8 @@ class DashboardServer:
 {rbl_form}
   <section class="card" id="logging"><div class="card-head"><span class="section-icon" aria-hidden="true">02</span>
     <div><h2>Logging channels</h2><p>Choose where each type of activity is sent.</p></div></div>
-    <div class="note">Auto uses Veil's normal routing. Off disables that category. Select a channel to override it.</div>
-    <div class="form-grid">{logs_form}</div>
+    <div class="note">Auto uses Veil's normal routing. Off disables that direct route; some events can still use other categories as fallbacks. Select a channel to override it.</div>
+    {routes_preview}<div class="form-grid">{logs_form}</div>
   </section>
   <section class="card" id="exclusions"><div class="card-head"><span class="section-icon" aria-hidden="true">03</span>
     <div><h2>Log exclusions</h2><p>Exclude activity from specific channels or users when the event supports it.</p></div></div>
