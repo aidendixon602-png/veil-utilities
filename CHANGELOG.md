@@ -109,6 +109,9 @@ See `docs/PRODUCTION_AUDIT.md` for scope, upgrade cautions, known limitations an
 
 ### Fixed
 
+- Dashboard form pages use a same-origin referrer policy so browser saves, authorization and logout no longer
+  fail when browsers send `Origin: null` under `no-referrer`. Cross-site and null-origin requests remain rejected;
+  OAuth callbacks retain `no-referrer` to protect temporary login codes.
 - Dashboard saves reject invalid or excessive IDs before changing any settings, instead of silently dropping them.
 - Antinuke panels and rule details show effective global defaults and fixed instant-rule values.
 - Giveaway entries are rejected after the scheduled deadline, even if the checker hasn't marked them ended yet.

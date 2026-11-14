@@ -311,6 +311,12 @@ class DashboardServer:
         return self._finish(request, resp)
 
     def _finish(self, request: web.Request, resp: web.StreamResponse) -> web.StreamResponse:
+        # With no-referrer, browsers can send Origin: null on same-origin form POSTs.
+        # Form pages need same-origin so those POSTs carry their real Origin; referrers
+        # are still withheld from other origins. Keep OAuth callbacks at no-referrer
+        # so their one-time codes are not sent even to same-origin pages.
+        if request.path != "/callback" and resp.content_type == "text/html":
+            resp.headers.setdefault("Referrer-Policy", "same-origin")
         for k, v in SECURITY_HEADERS.items():
             resp.headers.setdefault(k, v)
         token = request.get(NEW_SESSION_KEY)

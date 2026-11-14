@@ -778,3 +778,45 @@ def test_dashboard_extended_settings_validate_before_writes_and_forbid_everyone(
         assert bot.db.writes == []
 
     run(server, scenario)
+
+
+def test_form_referrer_policy_allows_browser_origin_without_weakening_csrf():
+    bot = make_bot()
+    bot.authorized = {GUILD_ID}
+    bot.get_cog = lambda name: SimpleNamespace() if name == "Authorization" else None
+    server = login_server(bot)
+    token, headers = cookie(server, BOT_OWNER)
+    csrf = csrf_of(server, token)
+    same_origin = {**headers, "Origin": "https://veil.example.com", "Sec-Fetch-Site": "same-origin"}
+
+    async def scenario(client):
+        for path in ("/", f"/servers/{GUILD_ID}", "/authorization"):
+            response = await client.get(path, headers=headers)
+            assert response.status == 200
+            assert response.headers["Referrer-Policy"] == "same-origin"
+        callback = await client.get("/callback?code=private-code&state=invalid", headers=headers)
+        assert callback.headers["Referrer-Policy"] == "no-referrer"
+        redirect = await client.get("/login", allow_redirects=False)
+        assert redirect.headers["Referrer-Policy"] == "no-referrer"
+
+        form = {"csrf": csrf, "an_admins": "42"}
+        url = f"/api/guilds/{GUILD_ID}/config"
+        for origin, fetch_site in (("null", "same-origin"), ("https://evil.example", "cross-site"),
+                                   ("https://veil.example.com", "cross-site")):
+            response = await client.post(url, headers={**headers, "Origin": origin, "Sec-Fetch-Site": fetch_site},
+                                         data=form, allow_redirects=False)
+            assert response.status == 403
+        assert bot.db.writes == []
+        response = await client.post(url, headers=same_origin, data={**form, "csrf": "wrong"})
+        assert response.status == 403 and bot.db.writes == []
+        response = await client.post(url, headers=same_origin, data=form, allow_redirects=False)
+        assert response.status == 302
+        assert bot.db.store[(GUILD_ID, "antinuke")]["admins"] == [42]
+        response = await client.post("/authorization", headers=same_origin,
+                                     data={"csrf": csrf, "guild_id": str(GUILD_ID), "action": "review"})
+        assert response.status == 200 and "Confirm revocation" in await response.text()
+        assert response.headers["Referrer-Policy"] == "same-origin"
+        response = await client.post("/logout", headers=same_origin, data={"csrf": csrf}, allow_redirects=False)
+        assert response.status == 302
+
+    run(server, scenario)
