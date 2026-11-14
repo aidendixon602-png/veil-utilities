@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dashboard refresh.** Redesigned the overview and server settings with responsive layouts, section navigation,
+  clearer logging controls and status information. Owners and developers can also manage log exclusions,
+  role-blacklist reply location, and antinuke trusted users and roles; trust changes generate a best-effort security notice.
 - Dashboard tunnel failures now report their setup stage and safe ngrok error code when available, without printing
   credentials or raw SDK errors. Startup and online diagnostics no longer claim a stopped dashboard is active.
 - **Dashboard login is now required.** The web listener refuses to start without Discord OAuth and HTTPS, and

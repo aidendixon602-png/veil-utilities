@@ -720,3 +720,61 @@ def test_dashboard_authorization_updates_real_cog_and_database():
             await db.close()
 
     asyncio.run(go())
+
+
+def test_dashboard_extended_settings_save_and_preserve_other_configuration():
+    bot = make_bot()
+    bot.guilds[0].get_role = lambda role_id: SimpleNamespace(id=role_id) if role_id == 44 else None
+    notice = AsyncMock()
+    bot.get_cog = lambda name: SimpleNamespace(security_notice=notice) if name == "Antinuke" else None
+    bot.db.store[(GUILD_ID, "logs")] = {"ignore": {"users": [5], "channels": [6], "other": [7]}, "commands": 44}
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True, "modules": {"ban": {"on": True}},
+                                             "whitelist": [8], "whitelist_roles": [9]}
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}", headers=headers)
+        html = await page.text()
+        assert 'name="an_whitelist" value="8"' in html
+        assert 'name="log_ignore_users" value="5"' in html
+        response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
+                                     data={"csrf": csrf_of(server, token), "an_whitelist": "11, 11, 12",
+                                           "an_whitelist_roles": "44", "log_ignore_users": "22",
+                                           "log_ignore_channels": "33", "rbl_reply_mode": "dm"})
+        assert response.status == 302
+
+    run(server, scenario)
+    logs = bot.db.store[(GUILD_ID, "logs")]
+    assert logs == {"ignore": {"users": [22], "channels": [33], "other": [7]}, "commands": 44, "rbl_dm": True}
+    an = bot.db.store[(GUILD_ID, "antinuke")]
+    assert an["whitelist"] == [11, 12] and an["whitelist_roles"] == [44]
+    assert an["enabled"] is True and an["modules"] == {"ban": {"on": True}}
+    notice.assert_awaited_once()
+    assert notice.call_args.args[1].id == GUILD_OWNER
+
+
+def test_dashboard_extended_settings_validate_before_writes_and_forbid_everyone():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        for field, value in (("an_whitelist", "bad"), ("log_ignore_users", "12, nope"),
+                             ("an_whitelist_roles", str(GUILD_ID)), ("an_whitelist_roles", "999"),
+                             ("rbl_reply_mode", "invalid")):
+            response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
+                                         data={"csrf": csrf_of(server, token), "rbl_roles": "11", field: value})
+            assert response.status == 400
+            assert "Nothing was saved" in await response.text()
+        assert bot.db.writes == []
+        response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
+                                     data={"csrf": "wrong", "log_ignore_users": "22", "an_whitelist": "11"})
+        assert response.status == 403 and bot.db.writes == []
+        # An authenticated owner cannot change another owner's server even with valid CSRF.
+        response = await client.post(f"/api/guilds/{OTHER_GUILD_ID}/config", headers=headers,
+                                     data={"csrf": csrf_of(server, token), "an_whitelist": "11"})
+        assert response.status == 404
+        assert bot.db.writes == []
+
+    run(server, scenario)

@@ -99,54 +99,76 @@ def _parse_ids(raw: str) -> list[int]:
 
 
 CSS = """
-:root { --bg:#0f0d13; --card:#18151f; --accent:#b10f2e; --accent-hover:#d11237; --text:#f0edf5;
-        --muted:#8c8599; --border:#282433; --ok:#2ecc71; --bad:#e74c3c; }
-* { box-sizing:border-box; margin:0; padding:0;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-body { background:var(--bg); color:var(--text); padding:2rem 1rem; }
-.container { max-width:1000px; margin:0 auto; }
-header { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;
-         border-bottom:1px solid var(--border); padding-bottom:1.25rem; margin-bottom:2rem; }
-.logo { font-size:1.5rem; font-weight:700; color:var(--accent); }
-.sub { font-size:1.05rem; margin-top:.25rem; }
-.who { display:flex; align-items:center; gap:.75rem; color:var(--muted); font-size:.9rem; }
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:2rem; }
-.stat-card, .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:1.25rem; }
-.card { margin-bottom:1.5rem; }
-.stat-val { font-size:1.6rem; font-weight:700; margin-top:.25rem; }
-.stat-lbl, label { font-size:.85rem; color:var(--muted); }
-.stat-lbl { text-transform:uppercase; letter-spacing:.05em; }
-h2 { font-size:1.2rem; margin-bottom:1rem; }
-p.muted { color:var(--muted); margin-bottom:1.25rem; }
-.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; }
-.server-box { border:1px solid var(--border); border-radius:6px; padding:1rem; display:flex;
-              justify-content:space-between; align-items:center; gap:1rem; }
-.server-name { font-weight:600; overflow-wrap:anywhere; }
-.server-meta { font-size:.8rem; color:var(--muted); }
-.btn { background:var(--accent); color:#fff; padding:.55rem 1.1rem; border-radius:6px; text-decoration:none;
-       font-size:.875rem; font-weight:600; border:none; cursor:pointer; display:inline-block; }
-.btn:hover { background:var(--accent-hover); }
-.btn-plain { background:var(--border); color:var(--text); }
-.form-group { margin-bottom:1rem; }
-label { display:block; margin-bottom:.35rem; }
-input, select { width:100%; padding:.6rem .8rem; background:var(--bg); border:1px solid var(--border);
-                border-radius:6px; color:var(--text); font-size:.9rem; }
-input:focus, select:focus { outline:none; border-color:var(--accent); }
-.note { padding:.75rem 1rem; border-radius:6px; margin-bottom:1.5rem; border:1px solid var(--border); }
-.note.ok { border-color:var(--ok); } .note.bad { border-color:var(--bad); }
-.center { text-align:center; padding:3rem 1rem; }
-form.inline { display:inline; }
-.filters { display:flex; gap:.75rem; align-items:end; flex-wrap:wrap; margin-bottom:1rem; }
-.filters .form-group { flex:1 1 160px; margin:0; }
-.table-wrap { overflow-x:auto; }
-table { width:100%; border-collapse:collapse; text-align:left; }
-th { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
-th, td { padding:.85rem .7rem; border-bottom:1px solid var(--border); }
-td { font-size:.9rem; } td:first-child { min-width:180px; }
-.tag { display:inline-block; padding:.2rem .5rem; border-radius:4px; background:var(--border); }
-.tag.on { color:#83d9a0; } .tag.off { color:var(--muted); }
-.table-note { color:var(--muted); font-size:.85rem; margin-bottom:.75rem; }
-
+:root { color-scheme:dark; --bg:#090c14; --surface:#111622; --raised:#161d2b; --border:#293244;
+        --text:#eef2fa; --muted:#a5afc1; --subtle:#78869b; --accent:#a78bfa; --blue:#8dbcfb; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:radial-gradient(ellipse at 50% -20%,#20213c 0,transparent 48%),var(--bg);
+       color:var(--text); font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+a { color:#c4b5fd; text-decoration:none; } a:hover { color:#e0d6ff; text-decoration:underline; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid #c4b5fd; outline-offset:2px; }
+.container { max-width:1440px; margin:auto; padding:0 44px 60px; }
+header { display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:84px;
+         border-bottom:1px solid var(--border); margin-bottom:42px; }
+.brand { display:flex; align-items:center; gap:12px; color:var(--text); text-decoration:none; }
+.brand:hover { text-decoration:none; color:var(--text); }
+.brand-mark { display:grid; place-items:center; width:39px; height:39px; border:1px solid #7158ba; border-radius:12px;
+              color:#e2d7ff; background:linear-gradient(145deg,#7052c9,#32255e); font-size:19px; font-weight:800; }
+.logo { font-weight:750; letter-spacing:-.03em; font-size:17px; line-height:1.2; }
+.brand-caption { color:var(--subtle); font-size:10px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
+.sub { color:var(--muted); margin-top:4px; font-size:12px; }
+.who { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:13px; }
+.who b { color:var(--text); } .inline { display:inline; }
+.eyebrow { color:var(--accent); font-size:11px; font-weight:750; letter-spacing:.14em; text-transform:uppercase; margin:0 0 8px; }
+h1 { font-size:clamp(27px,4vw,37px); letter-spacing:-.045em; line-height:1.15; margin:0 0 10px; }
+h2 { font-size:17px; letter-spacing:-.02em; margin:0 0 7px; } h3 { font-size:14px; margin:0 0 8px; }
+p { margin:0; } p.muted { color:var(--muted); margin:0 0 20px; }
+.page-heading { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:28px; }
+.page-heading p:not(.eyebrow) { color:var(--muted); max-width:650px; }
+.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:0 0 28px; }
+.stat-card,.card { background:linear-gradient(145deg,#151b29,#101520); border:1px solid var(--border); border-radius:14px; }
+.stat-card { padding:20px 22px; min-width:0; } .stat-lbl { color:var(--muted); font-size:12px; font-weight:600; }
+.stat-val { font-size:27px; font-weight:730; letter-spacing:-.04em; margin-top:7px; line-height:1.2; }
+.card { padding:24px; margin-bottom:16px; } .card-head { display:flex; gap:14px; align-items:flex-start; margin-bottom:20px; }
+.section-icon { display:grid; place-items:center; flex:none; width:39px; height:39px; background:#292440; border:1px solid #44365f;
+                border-radius:11px; font-size:17px; } .card-head p { color:var(--muted); font-size:13px; }
+.btn { display:inline-flex; justify-content:center; align-items:center; gap:8px; background:#8465df; border:1px solid #9b80ef;
+       color:white; border-radius:9px; padding:10px 16px; font:inherit; font-size:13px; font-weight:700; cursor:pointer;
+       text-decoration:none; white-space:nowrap; } .btn:hover { background:#977cec; color:white; text-decoration:none; }
+.btn-plain { background:#1b2231; border-color:#344054; color:#e2e8f3; } .btn-plain:hover { background:#273247; }
+.form-group { margin-bottom:17px; min-width:0; } label { display:block; color:#d7dfec; font-size:12px; font-weight:650; margin-bottom:7px; }
+input,select { width:100%; min-height:43px; padding:10px 12px; color:var(--text); background:#0b101a; border:1px solid #354054;
+               border-radius:8px; font:inherit; } input[type=hidden] { display:none; }
+input:focus,select:focus { border-color:#a78bfa; } input::placeholder { color:#79879b; }
+.hint { display:block; color:var(--muted); font-size:12px; margin-top:6px; }
+.note { padding:13px 16px; margin-bottom:18px; border:1px solid #3c4c65; border-radius:10px; color:#d8e5fa; background:#182337; }
+.note.ok { border-color:#2f765d; color:#b2f3cf; background:#122b24; } .note.bad { border-color:#9d4f5a; }
+.center { text-align:center; padding:70px 24px; } .center .btn { margin-top:5px; }
+.grid,.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; }
+.server-box { border:1px solid var(--border); border-radius:10px; padding:16px; display:flex; justify-content:space-between; gap:15px; }
+.server-name { font-weight:700; overflow-wrap:anywhere; } .server-meta,.table-note { font-size:12px; color:var(--muted); }
+.filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin:22px 0; }
+.filters .form-group { flex:1 1 140px; margin:0; } .filters .form-group:first-child { flex:2 1 210px; }
+.table-wrap { overflow-x:auto; } table { width:100%; border-collapse:collapse; text-align:left; }
+th { color:var(--subtle); font-size:10px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+th,td { padding:15px 12px; border-bottom:1px solid #252e3d; } td { color:#d8dfeb; font-size:13px; }
+td:first-child { min-width:180px; font-weight:650; } tbody tr:hover { background:#ffffff05; } tbody tr:last-child td { border-bottom:0; }
+.tag { display:inline-flex; padding:3px 9px; border-radius:99px; font-size:11px; font-weight:700; background:#242a37; color:#abb5c5; }
+.tag.on { background:#15352e; color:#84dfb3; } .tag.off { color:#b0b8c7; }
+.settings-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
+.section-nav { position:sticky; top:22px; padding:12px; border:1px solid var(--border); background:#111723; border-radius:12px; }
+.section-nav span { display:block; padding:8px 10px; color:var(--subtle); font-size:10px; font-weight:750; letter-spacing:.12em; }
+.section-nav a { display:block; padding:10px; color:#c4cede; border-radius:7px; font-size:13px; font-weight:600; }
+.section-nav a:hover { background:#232b3b; text-decoration:none; }
+.settings-actions { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:18px 0; }
+.settings-actions p { color:var(--muted); font-size:12px; } .settings-actions .buttons { display:flex; gap:10px; }
+@media (max-width:900px) { .container { padding:0 24px 40px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .settings-layout { grid-template-columns:1fr; } .section-nav { position:static; display:flex; flex-wrap:wrap; gap:3px; }
+  .section-nav span { width:100%; } }
+@media (max-width:600px) { .container { padding:0 16px 35px; } header { margin-bottom:30px; flex-wrap:wrap; padding:15px 0; }
+  .who { width:100%; justify-content:space-between; } .page-heading { align-items:flex-start; flex-direction:column; }
+  .card { padding:18px; } .grid,.form-grid { grid-template-columns:1fr; } .stat-card { padding:16px; }
+  .stat-val { font-size:23px; } .settings-actions { align-items:stretch; flex-direction:column; } }
 """
 
 
@@ -370,7 +392,8 @@ class DashboardServer:
             '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
             f"<title>Veil Utilities • {_esc(title)}</title><style>{CSS}</style></head><body>"
-            f'<div class="container"><header><div><div class="logo">⚡ Veil Utilities</div>{sub}</div>{who}</header>'
+            f'<div class="container"><header><div><a href="/" class="brand"><span class="brand-mark">V</span>'
+            f'<span><span class="logo">Veil Utilities</span><br><span class="brand-caption">Control center</span></span></a>{sub}</div>{who}</header>'
             f"{body}</div></body></html>"
         )
         return web.Response(text=doc, content_type="text/html")
@@ -390,12 +413,16 @@ class DashboardServer:
         user = self._user(request)
         if user is None:
             return self._page("Sign in", (
-                '<div class="card center"><h2>Sign in to manage your servers</h2>'
-                '<p class="muted">You can manage the servers you own that Veil is in.</p>'
-                '<a class="btn" href="/login">Log in with Discord</a></div>'))
+                '<div class="card center"><p class="eyebrow">Veil control center</p>'
+                '<h1>Security, in one place.</h1>'
+                '<p class="muted">Sign in with Discord to manage your authorized servers. '
+                'Bot developers can access all joined servers.</p>'
+                '<a class="btn" href="/login">Log in with Discord →</a></div>'))
 
         guilds = await self._guilds_for(user)
-        body = ""
+        body = ('<div class="page-heading"><div><p class="eyebrow">Overview</p>'
+                '<h1>Your servers, at a glance.</h1><p>Manage security and logging for the servers available to you.</p>'
+                '</div></div>')
         if await self._is_bot_owner(user):
             all_guilds = list(self.bot.guilds)
             members = sum(getattr(g, "member_count", None) or len(getattr(g, "members", [])) for g in all_guilds)
@@ -493,7 +520,8 @@ class DashboardServer:
                  f'<select id="logs" name="logs">{log_options}</select></div>'
                  f'<div class="form-group"><label for="sort">Sort by</label>'
                  f'<select id="sort" name="sort">{sort_options}</select></div>'
-                 '<button class="btn" type="submit">Apply</button></form>'
+                 '<button class="btn" type="submit">Apply filters</button>'
+                 '<a class="btn btn-plain" href="/">Clear</a></form>'
                  f'<p class="table-note">{len(visible)} of {len(guilds)} servers shown</p>'
                  '<div class="table-wrap"><table><thead><tr><th>Server</th><th>ID</th><th>Members</th>'
                  '<th>Antinuke</th><th>Authorized</th><th>Logs</th><th></th></tr></thead>'
@@ -638,32 +666,68 @@ class DashboardServer:
             log_forms.append(f'<div class="form-group"><label for="{field}">{_esc(KINDS[key].label)}</label>'
                              f'<select id="{field}" name="{field}">{options_html}</select></div>')
         logs_form = "".join(log_forms)
+        ignored = logs_cfg.get("ignore") or {}
 
-        rbl_form = f'''  <div class="card"><h2>🚫 Role blacklist (BLED)</h2>
-    <div class="form-group"><label for="rbl_roles">Blacklisted role IDs (comma-separated)</label>
-      <input id="rbl_roles" type="text" name="rbl_roles" value="{ids(rbl.get("roles"))}"></div>
-    <div class="form-group"><label for="rbl_authorized">Authorized user and role IDs (comma-separated)</label>
-      <input id="rbl_authorized" type="text" name="rbl_authorized" value="{ids(rbl.get("authorized"))}"></div>
-  </div>''' if can_rbl else ""
-        body = f"""{saved}
+        rbl_form = f'''<section class="card" id="blacklist"><div class="card-head"><span class="section-icon">⛔</span>
+    <div><h2>Role blacklist</h2><p>Control which roles are restricted and who may bypass the blacklist.</p></div></div>
+    <div class="form-grid"><div class="form-group"><label for="rbl_roles">Blacklisted role IDs</label>
+      <input id="rbl_roles" type="text" name="rbl_roles" value="{ids(rbl.get("roles"))}" placeholder="Role IDs, separated by commas">
+      <span class="hint">Ordinary blacklist only. Hard-blacklisted roles are managed separately.</span></div>
+    <div class="form-group"><label for="rbl_authorized">Authorized users and roles</label>
+      <input id="rbl_authorized" type="text" name="rbl_authorized" value="{ids(rbl.get("authorized"))}" placeholder="User or role IDs, separated by commas">
+      <span class="hint">These IDs can bypass the ordinary role blacklist.</span></div></div>
+    <div class="form-group"><label for="rbl_reply_mode">Role blacklist reply location</label>
+      <select id="rbl_reply_mode" name="rbl_reply_mode">
+        <option value="channel"{' selected' if not logs_cfg.get('rbl_dm') else ''}>In the channel</option>
+        <option value="dm"{' selected' if logs_cfg.get('rbl_dm') else ''}>Direct message</option>
+      </select><span class="hint">Controls role-blacklist replies; direct messages can fail if the recipient has DMs closed.</span></div>
+  </section>''' if can_rbl else ""
+        body = f"""<div class="page-heading"><div><p class="eyebrow">Server settings</p>
+  <h1>{_esc(guild.name)}</h1><p>Configure how Veil protects your server and routes its activity logs.</p></div>
+  <a class="btn btn-plain" href="/">← All servers</a></div>
+{saved}<div class="settings-layout"><nav class="section-nav" aria-label="Settings sections">
+  <span>ON THIS PAGE</span>{'<a href="#blacklist">Role blacklist</a>' if can_rbl else ''}
+  <a href="#logging">Logging channels</a><a href="#exclusions">Log exclusions</a><a href="#antinuke">Antinuke</a>
+  <a href="#trusted">Trusted identities</a></nav>
 <form method="POST" action="/api/guilds/{_esc(guild.id)}/config">
   <input type="hidden" name="csrf" value="{_esc(user["csrf"])}">
 {rbl_form}
-  <div class="card"><h2>📜 Logging channels</h2>
-    <p class="muted">Auto follows Veil's normal routing. Off disables this category. Pick a text channel to override it.</p>
-    {logs_form}
-  </div>
-  <div class="card"><h2>🛡️ Antinuke</h2>
-    <div class="form-group"><label for="an_punishment">Default punishment (used by modules
-      without their own)</label>
-      <select id="an_punishment" name="an_punishment">{options}</select></div>
-    <div class="form-group"><label for="an_admins">Antinuke admin user IDs (comma-separated). Admins can configure
-      antinuke and are never punished by it.</label>
-      <input id="an_admins" type="text" name="an_admins" value="{ids(an_cfg.get("admins"))}"></div>
-  </div>
-  <div style="text-align:right"><a href="/" class="btn btn-plain">← All servers</a>
-    <button type="submit" class="btn">💾 Save</button></div>
-</form>"""
+  <section class="card" id="logging"><div class="card-head"><span class="section-icon">▤</span>
+    <div><h2>Logging channels</h2><p>Choose where each type of activity is sent.</p></div></div>
+    <div class="note">Auto uses Veil's normal routing. Off disables that category. Select a channel to override it.</div>
+    <div class="form-grid">{logs_form}</div>
+  </section>
+  <section class="card" id="exclusions"><div class="card-head"><span class="section-icon">◌</span>
+    <div><h2>Log exclusions</h2><p>Exclude activity from specific channels or users when the event supports it.</p></div></div>
+    <div class="form-grid"><div class="form-group"><label for="log_ignore_channels">Ignored channel IDs</label>
+      <input id="log_ignore_channels" name="log_ignore_channels" value="{ids(ignored.get("channels"))}" placeholder="Channel IDs, separated by commas">
+      <span class="hint">Events that include a source channel will not be logged for these channels.</span></div>
+    <div class="form-group"><label for="log_ignore_users">Ignored user IDs</label>
+      <input id="log_ignore_users" name="log_ignore_users" value="{ids(ignored.get("users"))}" placeholder="User IDs, separated by commas">
+      <span class="hint">Events that include a user will not be logged for these users.</span></div></div>
+  </section>
+  <section class="card" id="antinuke"><div class="card-head"><span class="section-icon">◇</span>
+    <div><h2>Antinuke</h2><p>Manage the default response and the people who administer protection.</p></div></div>
+    <div class="note">Protection is currently <strong>{'on' if an_cfg.get("enabled") else 'off'}</strong>.
+      Enable or disable protection and manage individual rules using Veil's Discord commands.</div>
+    <div class="form-grid"><div class="form-group"><label for="an_punishment">Default punishment</label>
+      <select id="an_punishment" name="an_punishment">{options}</select><span class="hint">Used by modules without their own punishment.</span></div>
+    <div class="form-group"><label for="an_admins">Antinuke admin user IDs</label>
+      <input id="an_admins" type="text" name="an_admins" value="{ids(an_cfg.get("admins"))}" placeholder="User IDs, separated by commas">
+      <span class="hint">Admins can configure antinuke and are exempt from punishment.</span></div></div>
+  </section>
+  <section class="card" id="trusted"><div class="card-head"><span class="section-icon">☆</span>
+    <div><h2>Trusted identities</h2><p>Antinuke exclusions for trusted users and roles.</p></div></div>
+    <div class="note">Trusted users and members with trusted roles are exempt from antinuke enforcement; trusted bots are also exempt from bot-add detection and quarantine. Add only identities you trust.</div>
+    <div class="form-grid"><div class="form-group"><label for="an_whitelist">Trusted user IDs</label>
+      <input id="an_whitelist" name="an_whitelist" value="{ids(an_cfg.get("whitelist"))}" placeholder="User IDs, separated by commas"></div>
+    <div class="form-group"><label for="an_whitelist_roles">Trusted role IDs</label>
+      <input id="an_whitelist_roles" name="an_whitelist_roles" value="{ids(an_cfg.get("whitelist_roles"))}" placeholder="Role IDs, separated by commas"></div></div>
+  </section>
+  <div class="settings-actions"><p>Changes apply after you save. Review security exemptions carefully.</p>
+    <div class="buttons"><a href="/" class="btn btn-plain">Cancel</a><button type="submit" class="btn">Save changes</button></div></div>
+</form></div>"""
+
         return self._page(guild.name, body, user, subtitle=f"Server settings: <b>{_esc(guild.name)}</b>")
 
     # ------------------------------------------------------------------ Discord login
@@ -779,17 +843,30 @@ class DashboardServer:
             return self._message("Session expired", "Please refresh the page and try again.", 403, user)
         gid = guild.id
         rbl_fields = {"rbl_roles", "rbl_authorized"} & set(data)
-        if rbl_fields and not await self._can_manage_rbl(user, guild):
+        if (rbl_fields or "rbl_reply_mode" in data) and not await self._can_manage_rbl(user, guild):
             return self._message("Access denied", "Discord owner or developer login is required for role blacklist settings.", 403, user)
 
         # Validate every submitted list before modifying cached settings or making any writes.
         lists = {}
-        for field in ("rbl_roles", "rbl_authorized", "an_admins"):
+        for field in ("rbl_roles", "rbl_authorized", "an_admins", "an_whitelist", "an_whitelist_roles",
+                      "log_ignore_channels", "log_ignore_users"):
             if field in data:
                 try:
                     lists[field] = _parse_ids(str(data[field]))
                 except ValueError as exc:
                     return self._message("Invalid settings", f"{field}: {exc}. Nothing was saved.", 400, user)
+        if "rbl_reply_mode" in data and data["rbl_reply_mode"] not in ("channel", "dm"):
+            return self._message("Invalid settings", "Invalid role blacklist reply location. Nothing was saved.", 400, user)
+        an_cfg = deepcopy(await self._antinuke_cfg(gid))
+        if "an_whitelist_roles" in lists:
+            old_roles = set(an_cfg.get("whitelist_roles") or [])
+            for role_id in lists["an_whitelist_roles"]:
+                if role_id == guild.id:
+                    return self._message("Invalid settings", "The @everyone role cannot be trusted. Nothing was saved.", 400, user)
+                if role_id not in old_roles:
+                    get_role = getattr(guild, "get_role", None)
+                    if not callable(get_role) or get_role(role_id) is None:
+                        return self._message("Invalid settings", "Trusted roles must belong to this server. Nothing was saved.", 400, user)
         logs_cfg = deepcopy(await self.bot.db.get_config(gid, "logs") or {})
         for field, key in LOG_FIELDS:
             if field in data:
@@ -820,16 +897,38 @@ class DashboardServer:
                 logs_cfg[key] = None  # same as `log set <type>` with no channel: back to auto
             else:
                 logs_cfg[key] = int(value)
+        if "rbl_reply_mode" in data:
+            logs_cfg["rbl_dm"] = data["rbl_reply_mode"] == "dm"
+        for field, key in (("log_ignore_channels", "channels"), ("log_ignore_users", "users")):
+            if field in data:
+                if not isinstance(logs_cfg.get("ignore"), dict):
+                    logs_cfg["ignore"] = {}
+                logs_cfg["ignore"][key] = lists[field]
         await self.bot.db.set_config(gid, "logs", logs_cfg)
 
-        an_cfg = await self._antinuke_cfg(gid)
+        trust_changed = any(field in lists and set(lists[field]) != set(an_cfg.get(key) or [])
+                            for field, key in (("an_whitelist", "whitelist"),
+                                               ("an_whitelist_roles", "whitelist_roles")))
         an_cfg.pop("action", None)  # written by older dashboard versions; the antinuke never read it
         punishment = str(data.get("an_punishment", "")).strip().lower()
         if punishment in PUNISHMENTS:
             an_cfg["punishment"] = punishment
         if "an_admins" in data:
             an_cfg["admins"] = lists["an_admins"]
-        await self.bot.db.set_config(gid, "antinuke", an_cfg)
+        for field, key in (("an_whitelist", "whitelist"), ("an_whitelist_roles", "whitelist_roles")):
+            if field in data:
+                an_cfg[key] = lists[field]
+        await self.bot.db.set_config_committed(gid, "antinuke", an_cfg)
+        if trust_changed:
+            # Match the Discord command's best-effort owner/security-log notification.
+            try:
+                get_cog = getattr(self.bot, "get_cog", None)
+                cog = get_cog("Antinuke") if callable(get_cog) else None
+                if cog:
+                    actor = discord.Object(id=int(user["uid"]))
+                    await cog.security_notice(guild, actor, "updated the antinuke trusted users or roles via the dashboard")
+            except Exception:
+                log.warning("Dashboard: could not send antinuke trust-change notice for guild %s", gid)
 
         log.info("Dashboard: %s (%s) updated settings for guild %s", user.get("name"), user.get("uid"), gid)
         return self._redirect(f"/servers/{gid}?saved=1")
