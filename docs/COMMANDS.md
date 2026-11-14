@@ -85,7 +85,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `,antiraid punishment <punishment>` | Choose what happens to suspicious joiners: kick, ban or timeout | administrator |
 | `,antiraid start` (on, now) | Turn raid mode on now | administrator |
 | `,antiraid whitelist <user>` | Let a specific user bypass antiraid | administrator |
-| `,autosetup` (autoprotect) | Switch on any protection this server hasn't set up yet |  |
+| `,autosetup` (autoprotect) | Review and confirm recommended protection defaults |  |
 
 ## 🧹 Automod
 _Automatic chat filters_

@@ -1582,3 +1582,27 @@ def test_ghost_vanguard_category_is_neither_reused_nor_moved():
         assert any(ch.name == "mod-logs" for ch in report.created)
         assert created
     asyncio.run(go())
+
+
+def test_join_logging_waits_for_developer_approval(monkeypatch):
+    async def go():
+        guild, _ = creating_guild(gid=7)
+        authorized = set()
+        cog, _ = everywhere_cog([guild], authorized=lambda gid: gid in authorized)
+        cog.organize = AsyncMock()
+        ready, approval = asyncio.Event(), asyncio.Event()
+        async def wait_for_approval(gid):
+            ready.set()
+            await approval.wait()
+            return gid in authorized
+        auth = SimpleNamespace(wait_for_pending_approval=wait_for_approval)
+        cog.bot.get_cog = lambda name: auth if name == "Authorization" else None
+        monkeypatch.setattr(L, "asyncio", SimpleNamespace(sleep=AsyncMock()))
+        task = asyncio.create_task(cog.on_guild_join(guild))
+        await asyncio.wait_for(ready.wait(), timeout=1)
+        cog.organize.assert_not_awaited()
+        authorized.add(guild.id)
+        approval.set()
+        await asyncio.wait_for(task, timeout=1)
+        cog.organize.assert_awaited_once_with(guild)
+    asyncio.run(go())

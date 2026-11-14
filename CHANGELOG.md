@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Unauthorized-server approval window.** Veil waits up to 120 seconds from joining for developer approval,
+  with immediate best-effort alerts and a final authorization check before leaving. Restart uses Discord's join
+  timestamp when available. Explicit revocations still leave immediately; other background listeners are not sandboxed.
+
+- **Owner-confirmed protection setup.** Joining an authorized server now sends an optional preview to the owner;
+  `,autosetup` requires their confirmation. Startup no longer enables protection on existing servers. Previously
+  saved settings and protections remain in place; Discord AutoMod rule creation is disclosed separately. Automatic
+  logging setup is independent. A failed setup can partially apply changes.
+- **Help home.** Added visible category descriptions, icons, command-help guidance and counts without changing
+  command permission checks or exposing restricted categories.
+
 ### Added
 
 - **Scoped Administrator dashboard access.** Discord Administrators can manage Automod, logging, leveling and

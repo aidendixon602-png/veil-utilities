@@ -2182,43 +2182,44 @@ class Antinuke(commands.Cog):
         await self.security_notice(ctx.guild, ctx.author, msg)
         await ctx.approve(msg)
 
-    # ================================================================ automatic setup
+    # ================================================================ owner-confirmed setup
     @commands.Cog.listener("on_guild_join")
     async def autosetup_on_join(self, guild: discord.Guild):
-        await asyncio.sleep(8)  # after the authorization check and the log channels
+        await asyncio.sleep(8)  # wait for authorization and logging setup
         if self.bot.get_guild(guild.id) is None:
             return
-        from core import autosetup
-        await autosetup.run_once(self.bot, guild, dm_owner=True)  # a new server: its owner hears about it once
-
-    @commands.Cog.listener("on_ready")
-    async def autosetup_existing(self):
-        """Once per server the bot was already in: switch on what that server never set up."""
-        if getattr(self, "_autosetup_ran", False):
+        if not self.bot.is_authorized(guild.id):
+            authorization = self.bot.get_cog("Authorization")
+            if authorization is None or not await authorization.wait_for_pending_approval(guild.id):
+                return
+        if self.bot.get_guild(guild.id) is None or not self.bot.is_authorized(guild.id):
             return
-        self._autosetup_ran = True
         from core import autosetup
-        for guild in list(self.bot.guilds):
-            is_authorized = getattr(self.bot, "is_authorized", None)
-            if is_authorized is not None and not is_authorized(guild.id):
-                continue
-            await autosetup.run_once(self.bot, guild)
-            await asyncio.sleep(2)  # gently, server by server
+        await autosetup.prompt_owner(self.bot, guild)
 
     @commands.command(name="autosetup", aliases=["autoprotect"])
     @commands.guild_only()
     async def cmd_autosetup(self, ctx: Context):
-        """Switch on any protection this server hasn't set up yet
+        """Review and confirm recommended protection defaults
 
-        Covers the antinuke, raid detection, automod, warning punishments and staff levels. Anything already set up is left alone.
+        Only the server owner can confirm. Saved Veil module settings are left unchanged; a separate Discord
+        AutoMod slur rule may be created if none exists. Nothing is enabled until confirmation.
         """
-        if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
-            raise UserError("Only the **server owner** can run the automatic setup")
+        if ctx.author.id != ctx.guild.owner_id:
+            raise UserError("Only the **server owner** can confirm protection setup")
         from core import autosetup
-        done = await autosetup.run_once(self.bot, ctx.guild, force=True)
+        if not await ctx.confirm(autosetup.SETUP_PREVIEW + "\n\n**Apply these defaults?**", timeout=120):
+            return await ctx.warn("setup cancelled or timed out; no protection settings were changed")
+        if (ctx.author.id != ctx.guild.owner_id or self.bot.get_guild(ctx.guild.id) is None
+                or not self.bot.is_authorized(ctx.guild.id)):
+            return await ctx.warn("setup cancelled: server ownership or authorization changed")
+        try:
+            done = await autosetup.run_once(self.bot, ctx.guild, force=True, prefix=ctx.clean_prefix)
+        except Exception:
+            return await ctx.warn("setup failed; some changes may have been applied. Review your settings before retrying")
         if not done:
-            return await ctx.warn("everything is already set up here, so nothing changed")
-        await ctx.approve("switched on: " + "; ".join(line.split(" · ")[0] for line in done))
+            return await ctx.warn("no changes were made; review existing settings and bot permissions")
+        await ctx.approve("setup complete: " + "; ".join(line.split(" · ")[0] for line in done))
 
     @antinuke.command(name="panic", aliases=["emergency"])
     async def an_panic(self, ctx: Context, *, reason: str = None):

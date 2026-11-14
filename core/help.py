@@ -511,7 +511,8 @@ class CategoryButton(discord.ui.Button["HelpView"]):
     """Open a visible category from the help home screen."""
 
     def __init__(self, category: str, row: int):
-        super().__init__(label=category[:80], style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label=category[:80], emoji=CATEGORY_EMOJIS.get(category),
+                         style=discord.ButtonStyle.secondary, row=row)
         self.category = category
 
     async def callback(self, it: discord.Interaction):
@@ -602,7 +603,7 @@ class HelpView(OwnedView):
             self.books[label] = help_cmd.category_pages(label, cmds)
             self.pages[label] = self.books[label][0]
         self.home = help_cmd.home_embed(author_rank, categories, is_owner, total=sum(self.sizes.values()),
-                                        sections=len(self.pages))
+                                        sections=len(self.pages), visible_categories=list(self.pages))
         self.current = start if start in self.pages else None
         self._build_items()
 
@@ -773,11 +774,24 @@ class Help(commands.HelpCommand):
         return e
 
     def home_embed(self, author_rank: int = 0, categories: dict[str, list] | None = None,
-                   is_owner: bool = False, *, total: int | None = None, sections: int | None = None) -> discord.Embed:
-        """Overview of the caller's visible help entries and how to browse them."""
+                   is_owner: bool = False, *, total: int | None = None, sections: int | None = None,
+                   visible_categories: list[str] | None = None) -> discord.Embed:
+        """Describe only categories already permitted by the menu's visibility checks."""
         p = self.context.clean_prefix
-        lines = ["Select a category below to view its commands.", "", f"**Prefix:** `{p}`"]
-        return self._brand(discord.Embed(color=Colors.neutral, description="\n".join(lines)))
+        names = visible_categories if visible_categories is not None else category_labels(categories or {}, is_owner, author_rank)
+        lines = ["Your guide to Veil's commands. Select a category below to browse its commands and details.",
+                 "", f"**Prefix:** `{p}` · **Command help:** `{p}help <command>`"]
+        if names:
+            lines += ["", "**Explore categories**"]
+            for label in names:
+                emoji = CATEGORY_EMOJIS.get(label, "•")
+                desc = CATEGORY_DESCRIPTIONS.get(label, "Browse commands")
+                lines.append(f"{emoji} **{label}** — {desc}")
+        card = self._brand(discord.Embed(title="Command guide", color=HELP_COLOR,
+                                         description=shorten_md("\n".join(lines), 4000)))
+        if total is not None and sections is not None:
+            card.set_footer(text=f"{count(total, 'command')} · {count(sections, 'category', 'categories')} visible · Permissions still apply")
+        return card
 
     def command_line(self, cmd: commands.Command) -> str:
         """One command on a category page, with a marker for groups."""

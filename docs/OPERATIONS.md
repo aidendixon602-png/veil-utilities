@@ -78,11 +78,29 @@ This does not bypass Discord's installation rules: when Public Bot is off, the D
 use the link, and must have Manage Server in the destination. Veil's server authorization remains separate.
 The command does not enable Public Bot or alter Discord's install-link setting.
 
-With `AUTH_REQUIRED=true`, developer-owned servers are automatically authorized. Other servers need a developer's `,authorize <server-id>` or the authorization button in an alert, then a re-invite. `,authorized` lists approvals and `,unauthorize <server-id>` revokes one. An unauthorized join triggers a leave attempt; attribution is reported as unknown unless a recent matching audit entry can be correlated with the join. A failed or timed-out leave is reported, not automatically retried during that session.
+With `AUTH_REQUIRED=true`, developer-owned servers are automatically authorized. An unauthorized join gets a
+120-second window from the Discord join time for a developer to use `,authorize <server-id>`, the dashboard or
+the alert's authorization button. A prompt is attempted in the server and developers are alerted during the window;
+delivery depends on Discord and permissions. If approved in time, the bot stays. If not, it attempts to leave;
+authorizing after it leaves requires a re-invite. The window is not renewed by a restart when Discord supplies the
+join timestamp; if the timestamp is unavailable, a fresh window begins on detection. Existing command authorization
+checks still apply during the wait. This grace period is not a sandbox for background listeners or bot permissions;
+review what the bot can do in an unapproved server. `,authorized` lists approvals and explicit `,unauthorize`
+revocations still trigger an immediate leave. Attribution is unknown unless a recent matching audit entry can be
+correlated with the join. A failed or timed-out leave is reported, not automatically retried during that session.
 
 `AUTH_GRANDFATHER=true` can enroll already-joined servers on first initialization. An old database with an intentionally empty list needs special attention before its first upgrade; see [configuration](CONFIGURATION.md#authorization-and-developer-alerts) and the [production audit](PRODUCTION_AUDIT.md). `PRIVATE_MODE=true` restricts who can invoke commands even in an authorized server.
 
 ## Antinuke and moderation
+
+Protection setup is **opt-in**. When Veil joins an authorized server, it attempts to DM the server owner a preview;
+no protection settings are changed by that prompt. Existing servers are not prompted or set up on startup. If the
+DM cannot be delivered, the owner can still run `,autosetup` in the server to review the defaults and confirm or
+cancel. Only the actual server owner can confirm; confirmation times out after two minutes. The setup skips Veil
+modules with saved settings, even if disabled, and may separately create a Discord keyword-preset slur rule if none
+exists and Veil has Manage Server. It enables bot quarantine, raid detection, message filters and warning actions
+where no settings exist; review the preview carefully. An interrupted setup can leave partial changes. Previously
+enabled protections are not disabled or rolled back by this upgrade. Automatic **logging** setup is independent.
 
 Start with `,an status` and `,an health`, then review the [antinuke guide](ANTINUKE.md). Audit permissions, server-specific rules, exemptions, role position and punishment settings matter. Detection, punishment and restoration are best-effort. Some audit actions cannot be attributed or undone; only Veil commands wired into the guard count toward command-based thresholds. Test in a disposable server and avoid overlapping protection with another bot.
 

@@ -875,7 +875,7 @@ class DashboardServer:
             added = await cog.authorize(gid, int(user["uid"]), "via dashboard")
             log.info("Dashboard: developer %s authorized guild %s (added=%s)", user["uid"], gid, added)
             return self._message("Server authorized" if added else "Already authorized",
-                                 f"Server {gid} {'can now invite the bot' if added else 'is already on the list'}.", user=user)
+                                 f"Server {gid} {'is authorized' if added else 'is already on the list'}. If the bot has left, invite it again.", user=user)
         if action == "review":
             if gid not in self.bot.authorized:
                 return self._message("Not authorized", "That server is not on the explicit authorization list.", 404, user)

@@ -12,6 +12,12 @@ from cogs.authorization import Authorization
 from core.db import Database
 
 
+@pytest.fixture(autouse=True)
+def fast_default_rejection(monkeypatch):
+    # Existing containment tests exercise outcomes without waiting for the grace period.
+    monkeypatch.setattr("cogs.authorization.APPROVAL_GRACE_SECONDS", 0)
+
+
 def bot_for(db):
     bot = SimpleNamespace(db=db, authorized=set(), auth_required=True, guilds=[], user=SimpleNamespace(id=99))
     bot.is_authorized = lambda gid: gid in bot.authorized or not bot.auth_required
@@ -207,4 +213,117 @@ def test_unauthorized_join_persists_then_sends_actual_outcome(tmp_path, monkeypa
         assert sent["action"] == "Left the server."
         assert sent["actor_id"] is None
         await db.close()
+    asyncio.run(go())
+
+
+def test_approval_window_notifies_before_leaving_and_authorization_wakes_waiter(monkeypatch):
+    monkeypatch.setattr("cogs.authorization.APPROVAL_GRACE_SECONDS", 120)
+
+    async def go():
+        bot = bot_for(SimpleNamespace(execute=AsyncMock()))
+        bot.incident_manager = SimpleNamespace(record=AsyncMock(return_value="incident"), finalize=AsyncMock())
+        cog = Authorization(bot)
+        cog.find_inviter, cog.notify_guild = AsyncMock(return_value=None), AsyncMock()
+        notified = asyncio.Event()
+        async def alert(guild, inviter, *, action, include_dms):
+            if "Awaiting approval" in action:
+                notified.set()
+        cog.alert_developers = AsyncMock(side_effect=alert)
+        guild = guild_for()
+        task = asyncio.create_task(cog.reject(guild))
+        await asyncio.wait_for(notified.wait(), timeout=1)
+        guild.leave.assert_not_awaited()
+        assert not task.done()
+        assert bot.incident_manager.record.await_args.kwargs["defer_seconds"] > 120
+        assert await cog.authorize(guild.id, 42) is True
+        await asyncio.wait_for(task, timeout=1)
+        guild.leave.assert_not_awaited()
+        bot.incident_manager.finalize.assert_awaited_once_with("incident", "Authorized before leaving; the bot stayed.")
+        assert guild.id not in cog._pending_approvals
+    asyncio.run(go())
+
+
+def test_expired_window_leaves_and_restart_does_not_reset_join_time(monkeypatch):
+    monkeypatch.setattr("cogs.authorization.APPROVAL_GRACE_SECONDS", 0.08)
+
+    async def go():
+        bot = bot_for(None)
+        cog = Authorization(bot)
+        cog.find_inviter, cog.notify_guild, cog.alert_developers = AsyncMock(), AsyncMock(), AsyncMock()
+        guild = guild_for()
+        task = asyncio.create_task(cog.reject(guild))
+        await asyncio.sleep(0.01)
+        guild.leave.assert_not_awaited()
+        await asyncio.wait_for(task, timeout=1)
+        guild.leave.assert_awaited_once()
+        assert cog.alert_developers.await_count == 2  # pending, then actual outcome
+        assert "Awaiting approval" in cog.alert_developers.await_args_list[0].kwargs["action"]
+        assert cog.alert_developers.await_args_list[-1].kwargs["action"] == "Left the server."
+        old_guild = guild_for(456)
+        old_guild.me.joined_at = discord.utils.utcnow() - timedelta(seconds=121)
+        await asyncio.wait_for(cog.reject(old_guild), timeout=0.5)
+        old_guild.leave.assert_awaited_once()
+    asyncio.run(go())
+
+
+def test_startup_sweep_runs_approval_windows_concurrently(tmp_path, monkeypatch):
+    import cogs.authorization as auth
+    monkeypatch.setattr(auth, "developers", AsyncMock(return_value=set()))
+
+    async def go():
+        db = Database(str(tmp_path / "concurrent.db"))
+        await db.connect()
+        await db.execute("INSERT INTO config VALUES(?,?,?)", 0, "authorization_init", json.dumps({"complete": True}))
+        bot = bot_for(db)
+        bot.guilds = [guild_for(123), guild_for(124)]
+        cog = Authorization(bot)
+        started = []
+        both = asyncio.Event()
+        finish = asyncio.Event()
+        async def reject(g):
+            started.append(g.id)
+            if len(started) == 2:
+                both.set()
+            await finish.wait()
+        cog.reject = reject
+        task = asyncio.create_task(cog.on_ready())
+        await asyncio.wait_for(both.wait(), timeout=1)
+        assert set(started) == {123, 124}
+        finish.set()
+        await asyncio.wait_for(task, timeout=1)
+        await db.close()
+    asyncio.run(go())
+
+
+def test_pending_leave_does_not_remove_a_new_join_or_a_removed_bot():
+    async def go():
+        bot = bot_for(None)
+        cog = Authorization(bot)
+        cog.find_inviter, cog.notify_guild, cog.alert_developers = AsyncMock(), AsyncMock(), AsyncMock()
+        original = guild_for()
+        rejoined = guild_for()
+        bot.get_guild = lambda gid: rejoined
+        await cog.reject(original)
+        original.leave.assert_not_awaited()
+        assert "rejoined" in cog.alert_developers.await_args.kwargs["action"]
+        bot.get_guild = lambda gid: None
+        await cog.reject(original)
+        original.leave.assert_not_awaited()
+        assert "already removed" in cog.alert_developers.await_args.kwargs["action"]
+    asyncio.run(go())
+
+
+def test_grace_notice_and_revocation_notice_are_distinct():
+    async def go():
+        cog = Authorization(bot_for(None))
+        channel = SimpleNamespace(permissions_for=lambda member: SimpleNamespace(send_messages=True, embed_links=True),
+                                  send=AsyncMock())
+        guild = guild_for()
+        guild.system_channel, guild.text_channels = channel, []
+        await cog.notify_guild(guild)
+        text = channel.send.await_args.kwargs["embed"].description
+        assert "120 seconds" in text and "If I have already left" in text
+        await cog.notify_guild(guild, grace=False)
+        text = channel.send.await_args.kwargs["embed"].description
+        assert "revoked" in text and "120 seconds" not in text
     asyncio.run(go())

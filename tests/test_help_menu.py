@@ -103,14 +103,16 @@ def test_the_home_card():
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
-    assert card.title is None and card.footer.text is None
+    assert card.title == "Command guide" and "3 commands · 2 categories visible" in card.footer.text
     assert "**Prefix:** `,`" in card.description
     assert "Select a category" in card.description
+    assert "**Utility**" in card.description and "**Music**" in card.description
+    assert "**Antinuke**" not in card.description
 
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title is None and card.author.name is None
+    assert card.title == "Command guide" and card.author.name is None
 
 
 # ------------------------------------------------------------------ picking categories
@@ -1032,7 +1034,7 @@ def test_home_falls_back_to_select_if_category_catalog_grows():
 
 def test_home_card_uses_the_configured_prefix():
     card = _help("!").home_embed()
-    assert card.description == "Select a category below to view its commands.\n\n**Prefix:** `!`"
+    assert "**Prefix:** `!`" in card.description and "`!help <command>`" in card.description
 
 
 def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loaded_bot):
@@ -1150,3 +1152,13 @@ def test_compact_antinuke_overview_never_shows_owner_only_commands_to_assigned_o
         assert it.response.send_message.await_args.kwargs["ephemeral"]
         view.stop()
     asyncio.run(go())
+
+
+def test_home_descriptions_follow_the_same_visibility_as_the_buttons():
+    public = HelpView(_help(), ALL, author_rank=0)
+    assert "**Utility**" in public.home.description
+    assert "**Antinuke**" not in public.home.description and "**Developer**" not in public.home.description
+    owner = HelpView(_help(), ALL, is_owner=True)
+    assert "**Antinuke**" in owner.home.description and "**Developer**" in owner.home.description
+    assert all(item.emoji is not None for item in public.children if isinstance(item, CategoryButton))
+    assert len(owner.home.description) < 4096

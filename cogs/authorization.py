@@ -1,10 +1,7 @@
 """Server authorization: the bot only works in servers a developer has approved.
 
-Flow
-- Someone invites the bot to a server that isn't authorized -> the bot posts a notice there,
-  alerts every developer (DM + optional log channel) with an "Authorize" button, and leaves.
-- A developer authorizes the server (button or `authorize <server id>`), then the server re-invites the bot.
-- Developers are the owner (or team) of the bot's Discord application, plus any IDs in OWNER_IDS.
+Unauthorized joins are given a short window for developer approval. Commands remain authorization-gated;
+if approval does not arrive in time, the bot attempts to leave. Explicit revocations still leave immediately.
 """
 from __future__ import annotations
 
@@ -23,6 +20,8 @@ from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, now, ts
 
 log = logging.getLogger("veil.auth")
+
+APPROVAL_GRACE_SECONDS = 120
 
 
 async def developers(bot) -> set[int]:
@@ -66,7 +65,7 @@ class AuthorizeButton(discord.ui.DynamicItem[discord.ui.Button], template=r"auth
         self.item.label = "Authorized"
         await it.response.edit_message(view=self.view)
         await it.followup.send(f"✅ Server `{self.guild_id}` {'authorized' if added else 'was already authorized'}. "
-                               "They can re-invite the bot now.", ephemeral=True)
+                               "If the bot has already left, re-invite it; otherwise it can stay.", ephemeral=True)
 
 
 class Authorization(commands.Cog):
@@ -81,6 +80,7 @@ class Authorization(commands.Cog):
         self._reject_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
         self._left_guilds: dict[int, tuple[object, float]] = {}
         self._sweep_lock = asyncio.Lock()
+        self._pending_approvals: dict[int, asyncio.Event] = {}
 
     async def cog_load(self):
         self.bot.add_dynamic_items(AuthorizeButton)
@@ -98,6 +98,9 @@ class Authorization(commands.Cog):
                 return False
             await self.bot.db.execute("INSERT OR REPLACE INTO authorized VALUES(?,?,?,?)", guild_id, by, now(), note)
             self.bot.authorized.add(guild_id)
+            event = self._pending_approvals.get(guild_id)
+            if event:
+                event.set()
             return True
 
     async def unauthorize(self, guild_id: int) -> bool:
@@ -108,9 +111,24 @@ class Authorization(commands.Cog):
             self.bot.authorized.discard(guild_id)
             return True
 
-    async def notify_guild(self, guild: discord.Guild):
-        text = ("This server isn't authorized to use **veil utilities**, so I'm leaving.\n"
-                "Ask a bot developer to authorize this server ID, then invite me again:\n"
+    async def wait_for_pending_approval(self, guild_id: int) -> bool:
+        """Let join-time onboarding wait for an already pending approval without changing authorization."""
+        if self.bot.is_authorized(guild_id):
+            return True
+        event = self._pending_approvals.get(guild_id)
+        if event is None:
+            return False
+        try:
+            await asyncio.wait_for(event.wait(), timeout=APPROVAL_GRACE_SECONDS)
+        except asyncio.TimeoutError:
+            return False
+        return self.bot.is_authorized(guild_id)
+
+    async def notify_guild(self, guild: discord.Guild, *, grace: bool = True):
+        status = ("A bot developer can approve it within 120 seconds of joining; otherwise I will attempt to leave."
+                  if grace else "Authorization was revoked, so I will attempt to leave.")
+        text = ("This server isn't authorized to use **veil utilities**. " + status + "\n"
+                "Ask a bot developer to authorize this server ID. If I have already left, invite me again:\n"
                 f"```{guild.id}```")
         if self.support:
             text += f"\nSupport: {self.support}"
@@ -138,7 +156,7 @@ class Authorization(commands.Cog):
         e.add_field(name="Action", value=action, inline=False)
         if guild.icon:
             e.set_thumbnail(url=guild.icon.url)
-        e.set_footer(text="Authorize, then they need to re-invite the bot")
+        e.set_footer(text="Authorize now; if the bot has already left, re-invite it")
         view = discord.ui.View(timeout=None)
         view.add_item(AuthorizeButton(guild.id))
         dests = []
@@ -180,80 +198,119 @@ class Authorization(commands.Cog):
     async def reject(self, guild: discord.Guild):
         lock = self._reject_locks.setdefault(guild.id, asyncio.Lock())
         async with lock:
-            cutoff = time.monotonic() - 300
-            self._left_guilds = {gid: item for gid, item in self._left_guilds.items() if item[1] >= cutoff}
-            previous = self._left_guilds.get(guild.id)
-            join_time = getattr(guild.me, "joined_at", None)
-            if self.bot.is_authorized(guild.id) or (join_time and previous and previous[0] == join_time):
-                return
-            inviter = None
+            event = self._pending_approvals.setdefault(guild.id, asyncio.Event())
             try:
-                inviter = await asyncio.wait_for(self.find_inviter(guild), timeout=5)
-            except Exception:
-                log.exception("Could not identify inviter for unauthorized guild %s", guild.id)
+                await self._reject_locked(guild, event)
+            finally:
+                if self._pending_approvals.get(guild.id) is event:
+                    self._pending_approvals.pop(guild.id, None)
+
+    async def _reject_locked(self, guild: discord.Guild, event: asyncio.Event):
+        cutoff = time.monotonic() - 300
+        self._left_guilds = {gid: item for gid, item in self._left_guilds.items() if item[1] >= cutoff}
+        previous = self._left_guilds.get(guild.id)
+        join_time = getattr(guild.me, "joined_at", None)
+        if self.bot.is_authorized(guild.id) or (join_time and previous and previous[0] == join_time):
+            return
+        # Use Discord's original join timestamp so a restart doesn't reset the window.
+        remaining = float(APPROVAL_GRACE_SECONDS)
+        if join_time is not None and getattr(join_time, "tzinfo", None) is not None:
+            elapsed = (discord.utils.utcnow() - join_time).total_seconds()
+            remaining = max(0.0, min(remaining, remaining - elapsed))
+        deadline = time.monotonic() + remaining
+        inviter = None
+        try:
+            inviter = await asyncio.wait_for(self.find_inviter(guild), timeout=5)
+        except Exception:
+            log.exception("Could not identify inviter for unauthorized guild %s", guild.id)
+        try:
+            await asyncio.wait_for(self.notify_guild(guild), timeout=5)
+        except Exception:
+            log.exception("Could not send unauthorized-guild notice to %s", guild.id)
+        # Authorization may have been granted while the audit/notice was in flight.
+        if self.bot.is_authorized(guild.id):
+            return
+        # Persist before leaving, but do not allow a slow or failed DB to block containment.
+        # If the process stops before finalization, the queued outcome remains explicitly unknown.
+        manager = getattr(self.bot, "incident_manager", None)
+        incident_id = None
+        queued = False
+        if manager:
             try:
-                await asyncio.wait_for(self.notify_guild(guild), timeout=5)
+                incident_id = await asyncio.wait_for(manager.record(
+                    kind="unauthorized_server", severity="high", guild_id=guild.id,
+                    actor_id=getattr(inviter, "id", None),
+                    summary="The bot joined an unauthorized server.",
+                    action="Leave not confirmed; outcome unknown.", defer_seconds=APPROVAL_GRACE_SECONDS + 60,
+                    details={"Server": guild.name, "Owner ID": guild.owner_id,
+                             "Inviter": "verified audit entry" if inviter else "unknown"}), timeout=3)
+                from core.incidents import recipients
+                queued = bool(recipients(self.bot))
             except Exception:
-                log.exception("Could not send unauthorized-guild notice to %s", guild.id)
-            # Authorization may have been granted while the audit/notice was in flight.
+                log.exception("Failed to persist unauthorized-server incident for %s; using direct alerts", guild.id)
+        if deadline > time.monotonic() and not self.bot.is_authorized(guild.id):
+            try:
+                await asyncio.wait_for(self.alert_developers(
+                    guild, inviter, action="Awaiting approval; the bot will attempt to leave after the 120-second window.",
+                    include_dms=True), timeout=15)
+            except Exception:
+                log.exception("Could not send approval-window alert for unauthorized guild %s", guild.id)
+            remaining = deadline - time.monotonic()
+            if remaining > 0 and not self.bot.is_authorized(guild.id):
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    pass
+        # Serialize the final authorization check with approval while leaving.
+        # Notification and audit failures never prevent containment.
+        async with self._auth_lock:
+            get_guild = getattr(self.bot, "get_guild", None)
+            current = get_guild(guild.id) if callable(get_guild) else guild
+            current_join = getattr(getattr(current, "me", None), "joined_at", None)
             if self.bot.is_authorized(guild.id):
-                return
-            # Persist before leaving, but do not allow a slow or failed DB to block containment.
-            # If the process stops before finalization, the queued outcome remains explicitly unknown.
-            manager = getattr(self.bot, "incident_manager", None)
-            incident_id = None
-            queued = False
-            if manager:
+                action = "Authorized before leaving; the bot stayed."
+            elif current is None:
+                action = "The bot was already removed; no leave attempt was made."
+            elif join_time and current_join and join_time != current_join:
+                action = "The bot rejoined; this earlier leave attempt was cancelled."
+            else:
                 try:
-                    incident_id = await asyncio.wait_for(manager.record(
-                        kind="unauthorized_server", severity="high", guild_id=guild.id,
-                        actor_id=getattr(inviter, "id", None),
-                        summary="The bot joined an unauthorized server.",
-                        action="Leave not confirmed; outcome unknown.", defer_seconds=45,
-                        details={"Server": guild.name, "Owner ID": guild.owner_id,
-                                 "Inviter": "verified audit entry" if inviter else "unknown"}), timeout=3)
-                    from core.incidents import recipients
-                    queued = bool(recipients(self.bot))
+                    await asyncio.wait_for(guild.leave(), timeout=15)
                 except Exception:
-                    log.exception("Failed to persist unauthorized-server incident for %s; using direct alerts", guild.id)
-            # Serialize the final authorization check with approval while leaving.
-            # Notification and audit failures never prevent containment.
-            async with self._auth_lock:
-                if self.bot.is_authorized(guild.id):
-                    action = "Authorized before leaving; the bot stayed."
+                    action = "Leave failed or timed out; the bot may still be in the server."
+                    log.exception("Failed to leave unauthorized guild %s (%s)", guild.name, guild.id)
                 else:
-                    try:
-                        await asyncio.wait_for(guild.leave(), timeout=15)
-                    except Exception:
-                        action = "Leave failed or timed out; the bot may still be in the server."
-                        log.exception("Failed to leave unauthorized guild %s (%s)", guild.name, guild.id)
-                    else:
-                        action = "Left the server."
-                        if join_time is not None:
-                            self._left_guilds[guild.id] = (join_time, time.monotonic())
-                        log.warning("Left unauthorized guild %s (%s)", guild.name, guild.id)
-            if incident_id is not None:
-                try:
-                    await asyncio.wait_for(manager.finalize(incident_id, action), timeout=3)
-                except Exception:
-                    queued = False
-                    log.exception("Failed to finalize unauthorized-server incident %s", incident_id)
+                    action = "Left the server."
+                    if join_time is not None:
+                        self._left_guilds[guild.id] = (join_time, time.monotonic())
+                    log.warning("Left unauthorized guild %s (%s)", guild.name, guild.id)
+        if incident_id is not None:
             try:
-                await asyncio.wait_for(self.alert_developers(guild, inviter, action=action, include_dms=not queued),
-                                       timeout=15)
+                await asyncio.wait_for(manager.finalize(incident_id, action), timeout=3)
             except Exception:
-                log.exception("Could not alert developers about unauthorized guild %s", guild.id)
+                queued = False
+                log.exception("Failed to finalize unauthorized-server incident %s", incident_id)
+        try:
+            await asyncio.wait_for(self.alert_developers(guild, inviter, action=action, include_dms=not queued),
+                                   timeout=15)
+        except Exception:
+            log.exception("Could not alert developers about unauthorized guild %s", guild.id)
 
     # ------------------------------------------------------------ events
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
         if self.bot.is_authorized(guild.id):
             return
-        devs = await developers(self.bot)
-        if guild.owner_id in devs:  # developers' own servers are always allowed
-            await self.authorize(guild.id, guild.owner_id, "developer-owned")
-            return
-        await self.reject(guild)
+        event = self._pending_approvals.setdefault(guild.id, asyncio.Event())
+        try:
+            devs = await developers(self.bot)
+            if guild.owner_id in devs:  # developers' own servers are always allowed
+                await self.authorize(guild.id, guild.owner_id, "developer-owned")
+                return
+            await self.reject(guild)
+        finally:
+            if self._pending_approvals.get(guild.id) is event:
+                self._pending_approvals.pop(guild.id, None)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -287,13 +344,16 @@ class Authorization(commands.Cog):
             await self.bot.db.execute("UPDATE config SET data=? WHERE guild_id=? AND module=?",
                                       json.dumps(state), 0, "authorization_init")
             log.info("Authorization: initial enrollment completed")
+        rejected = []
         for g in list(self.bot.guilds):
             if self.bot.is_authorized(g.id):
                 continue
             if g.owner_id in devs:
                 await self.authorize(g.id, g.owner_id, "developer-owned")
                 continue
-            await self.reject(g)
+            rejected.append(g)
+        # Waiting periods must overlap, not accumulate for each joined server.
+        await asyncio.gather(*(self.reject(g) for g in rejected))
         self.swept = True
 
     # ------------------------------------------------------------ commands
@@ -302,7 +362,7 @@ class Authorization(commands.Cog):
         """Authorize a server ID to use the bot"""
         if not await self.authorize(guild_id, ctx.author.id, note):
             raise UserError(f"`{guild_id}` is already authorized")
-        await ctx.approve(f"authorized `{guild_id}` · they can invite the bot now")
+        await ctx.approve(f"authorized `{guild_id}` · if the bot has already left, invite it again")
 
     @commands.command(name="unauthorize", hidden=True, aliases=["deauth", "unauth"])
     async def unauthorize_server(self, ctx: Context, guild_id: int):
@@ -311,7 +371,7 @@ class Authorization(commands.Cog):
             raise UserError(f"`{guild_id}` isn't authorized")
         guild = self.bot.get_guild(guild_id)
         if guild:
-            await self.notify_guild(guild)
+            await self.notify_guild(guild, grace=False)
             await guild.leave()
         await ctx.approve(f"revoked `{guild_id}`" + (f" and left **{guild.name}**" if guild else ""))
 
