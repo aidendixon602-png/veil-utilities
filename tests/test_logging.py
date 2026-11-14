@@ -999,6 +999,46 @@ def test_test_command_reports_working_broken_and_unset_categories():
     asyncio.run(go())
 
 
+def test_cleanup_names_leftover_catch_alls_and_only_deletes_when_asked():
+    """The server from the screenshots: an older general log still sitting there after the split."""
+    async def go():
+        old_general, mod, general = (text_channel(1, "midtown-utilities-logging"), text_channel(2, "mod-logs"),
+                                     text_channel(3, "veil-utilities-logging"))
+        for c in (old_general, mod, general):
+            c.delete = AsyncMock()
+        guild = make_guild([old_general, mod, general])
+        cog, store = make_cog({"server": 3, "bans": 2})
+        ctx = command_ctx(guild, cog)
+        ctx.paginate = AsyncMock()
+
+        await cog.logs_cleanup.callback(cog, ctx)
+        description = ctx.paginate.await_args.args[0][0].description
+        assert "<#1>" in description and "<#2>" not in description and "<#3>" not in description
+        assert "logs cleanup delete" in description
+        old_general.delete.assert_not_awaited()          # listed, never removed unasked
+
+        await cog.logs_cleanup.callback(cog, ctx, "delete")
+        old_general.delete.assert_awaited_once()
+        mod.delete.assert_not_awaited() and general.delete.assert_not_awaited()
+        assert "deleted **1** leftover log channel" in ctx.approve.await_args.args[0]
+    asyncio.run(go())
+
+
+def test_setup_lists_the_categories_that_share_a_channel_too():
+    async def go():
+        guild, _ = creating_guild()
+        cog, store = make_cog()
+        ctx = command_ctx(guild, cog)
+        ctx.typing = MagicMock()
+        ctx.typing.return_value.__aenter__ = AsyncMock()
+        ctx.typing.return_value.__aexit__ = AsyncMock()
+        await cog.logs_setup.callback(cog, ctx)
+        description = ctx.send.await_args.kwargs["embed"].description
+        for label in ("Messages", "Members", "Timeouts", "Joins & leaves", "Commands"):
+            assert f"**{label}**" in description     # nothing looks dropped, even without a channel of its own
+    asyncio.run(go())
+
+
 def test_cleanup_only_reports_all_possibly_duplicate_channels():
     async def go():
         a, dup, other = text_channel(1, "message-logs"), text_channel(2, "message-logs"), text_channel(3, "general")

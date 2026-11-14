@@ -519,3 +519,13 @@ def test_role_update_never_auto_authorizes_based_on_audit_history(bot):
         bot.db.set_config.assert_not_awaited()
         bot.db.set_config_committed.assert_not_awaited()
     asyncio.run(run())
+
+
+def test_blacklisted_roles_that_were_deleted_are_named_as_deleted():
+    """A deleted role used to show as `@unknown-role`, which looks like the bot lost track of it."""
+    guild = MagicMock(spec=discord.Guild)
+    alive = _mock_role(55)
+    guild.get_role = lambda rid: alive if rid == 55 else None
+    assert Moderation._role_entry(guild, 55) == f"{alive.mention} (`55`)"
+    assert Moderation._role_entry(guild, 77) == "deleted role (`77`)"
+    assert Moderation._role_entry(None, 77) == "deleted role (`77`)"

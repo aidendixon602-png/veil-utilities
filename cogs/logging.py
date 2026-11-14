@@ -156,6 +156,11 @@ def _is_log_channel(channel) -> bool:
     return "log" in name or name in LOG_LIKE_NAMES or (isinstance(topic, str) and topic.startswith("Veil Utilities ·"))
 
 
+def _log_channels(guild) -> list:
+    """The server's channels that look like log channels of ours (by name, or by the topic the setup writes)."""
+    return [c for c in getattr(guild, "text_channels", []) if _is_log_channel(c)]
+
+
 @dataclass
 class SetupReport:
     created: list = field(default_factory=list)
@@ -993,7 +998,9 @@ class Logging(commands.Cog):
             except Exception:
                 pass
         cfg = await self.config(ctx.guild)
-        lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values() if k.channel]
+        # every category, including the ones that ride in another channel: a list that leaves them out reads as if
+        # messages, nicknames and timeouts had nowhere to go
+        lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values()]
         notes = []
         if report.created:
             notes.append(f"Created {len(report.created)} channel(s) under **{CATEGORY_NAME}**.")
@@ -1001,9 +1008,13 @@ class Logging(commands.Cog):
             notes.append(f"Moved {', '.join(c.mention for c in report.moved)} into **{CATEGORY_NAME}**.")
         if report.raised:
             notes.append(f"Moved **{CATEGORY_NAME}** to the top of the channel list.")
-        if report.unused:
-            many = len(report.unused) > 1
-            notes.append(f"{', '.join(c.mention for c in report.unused)} {'are' if many else 'is'} no longer used for "
+        # channels that look like logs but receive nothing any more: the ones an older set left behind
+        used_ids = {c.id for c in (_channel_for(ctx.guild, cfg, k) for k in KINDS) if c is not None}
+        orphans = [c for c in _log_channels(ctx.guild) if c.id not in used_ids and not other_bots_channel(c)]
+        if report.unused or orphans:
+            leftover = list({c.id: c for c in [*report.unused, *orphans]}.values())
+            many = len(leftover) > 1
+            notes.append(f"{', '.join(c.mention for c in leftover)} {'are' if many else 'is'} no longer used for "
                          f"logs; delete {'them' if many else 'it'} if you don't need {'them' if many else 'it'}.")
         auto = "on" if await self.auto_setup_enabled() else "off"
         await ctx.send(embed=discord.Embed(
@@ -1039,6 +1050,17 @@ class Logging(commands.Cog):
         Same as `logs setup`.
         """
         await self.logs_setup(ctx)
+
+    @logs.command(name="list", aliases=["show", "status"])
+    @has_perms(manage_guild=True)
+    @is_server_owner()
+    async def logs_list(self, ctx: Context):
+        """Show where every log category goes, without opening the panel"""
+        cfg = await self.config(ctx.guild)
+        lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values()]
+        lines.append("")
+        lines.append("-# `auto` is a channel found by its name · `shared` is a channel other categories ride in")
+        await ctx.send(embed=discord.Embed(title="Where logs go", color=Colors.main, description="\n".join(lines)))
 
     @logs.command(name="test")
     @has_perms(manage_guild=True)
@@ -1111,23 +1133,50 @@ class Logging(commands.Cog):
     @logs.command(name="cleanup", aliases=["clean", "purgeduplicates", "cleanupchannels"])
     @has_perms(manage_guild=True)
     @is_server_owner()
-    async def logs_cleanup(self, ctx: Context):
-        """List possible duplicate log channels without deleting anything"""
+    async def logs_cleanup(self, ctx: Context, delete: str = None):
+        """List leftover log channels and delete them only when you ask
+
+        `,logs cleanup delete` removes the leftover channels it lists. Nothing goes without that word.
+        """
         groups: dict[str, list] = {}
         for channel in getattr(ctx.guild, "text_channels", []):
             name = channel.name.lower()
             if name in SETUP_NAMES:
                 groups.setdefault(name, []).append(channel)
         duplicates = [channel for name in sorted(groups) if len(groups[name]) > 1 for channel in groups[name]]
-        if not duplicates:
-            return await ctx.neutral("no possible duplicate log channel names were found; nothing was deleted")
-        lines = [f"<#{channel.id}> · `{channel.id}`" for channel in duplicates]
-        pages = chunk_embeds("Possible duplicate log channels", lines, per_page=10, numbered=False)
-        for page in pages:
-            page.description = ("Matching names do not prove ownership or redundancy. "
-                                "Nothing was deleted; review each channel and its messages before acting.\n\n"
-                                + page.description)
-        await ctx.paginate(pages)
+
+        cfg = await self.config(ctx.guild)
+        used_ids = {c.id for c in (_channel_for(ctx.guild, cfg, k) for k in KINDS) if c is not None}
+        # an old general log (this bot's own or one named after it under another name) that receives nothing now
+        leftover = [c for c in _log_channels(ctx.guild) if c.id not in used_ids and not other_bots_channel(c)]
+        candidates = list({c.id: c for c in [*duplicates, *leftover]}.values())
+        if not candidates:
+            return await ctx.neutral("no possible duplicate or leftover log channels were found; nothing was deleted")
+        if delete is None:
+            lines = [f"<#{channel.id}> · `{channel.id}`" for channel in candidates]
+            pages = chunk_embeds("Possible duplicate or leftover log channels", lines, per_page=10, numbered=False)
+            for page in pages:
+                page.description = ("Matching names do not prove ownership or redundancy. "
+                                    "Nothing was deleted; review each channel and its messages before acting.\n\n"
+                                    f"Run `{ctx.clean_prefix}logs cleanup delete` to remove them.\n\n"
+                                    + page.description)
+            return await ctx.paginate(pages)
+        if delete.lower() not in ("delete", "confirm", "yes"):
+            raise UserError(f"Use `{ctx.clean_prefix}logs cleanup` to see the list, or "
+                            f"`{ctx.clean_prefix}logs cleanup delete` to remove the channels on it.")
+        if not ctx.guild.me.guild_permissions.manage_channels:
+            raise UserError("I need the **Manage Channels** permission to delete them.")
+        gone, failed = [], []
+        for channel in candidates:
+            try:
+                await channel.delete(reason=f"Veil Utilities: leftover log channel, deleted by {ctx.author}")
+                gone.append(channel.name)
+            except discord.HTTPException:
+                failed.append(channel.mention)
+        text = f"deleted **{len(gone)}** leftover log channel{'' if len(gone) == 1 else 's'}"
+        if failed:
+            text += f" · couldn't delete {', '.join(failed)}"
+        await (ctx.warn if failed else ctx.approve)(text)
 
     @commands.command(name="cleanuplogs", aliases=["cleanuplogchannels", "purgeduplicatelogs"])
     @has_perms(manage_guild=True)

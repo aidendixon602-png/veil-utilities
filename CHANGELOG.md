@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `,logs cleanup` now finds channels an older setup left behind (the retired `#veil-utilities-logging`, or a
+  general log named after the bot) as well as duplicates, and `,logs cleanup delete` removes them once you say so -
+  a bare `,logs cleanup` still only lists. `,logs setup` lists every category, including the ones that share a
+  channel, and names leftover channels to delete; `,logs list` shows where every category goes without opening the
+  panel.
 - The `,logs` panel no longer leaves **Turn off** and **Auto** greyed out before a category is picked: pressing one
   says which category to pick first. Role-blacklist replies are now a visible setting on the panel (**,logs** →
   **Role blacklist: here / DM**) instead of always arriving by DM, with the channel as the default; servers that
