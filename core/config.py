@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, fields
+from urllib.parse import urlsplit
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
@@ -164,9 +165,9 @@ class Settings:
     # network / proxy (bypasses datacenter or hosting IP rate limits)
     proxy: str | None = None
 
-    # web dashboard (off unless DASHBOARD_ENABLED=true; public only with Discord login configured)
+    # Web dashboard (off unless enabled; HTTPS and Discord login are required).
     dashboard_enabled: bool = False
-    dashboard_host: str | None = None     # None = 0.0.0.0 with login configured, otherwise 127.0.0.1
+    dashboard_host: str | None = None     # None = 127.0.0.1; expose only behind a trusted TLS proxy
     dashboard_port: int = 8080
     dashboard_url: str | None = None      # public base URL, e.g. https://veil.example.com
     discord_client_id: int | None = None
@@ -238,10 +239,19 @@ class Settings:
             r.problems.append("PREFIX can be at most 10 characters")
         if settings.dashboard_secret is not None and len(settings.dashboard_secret) < 32:
             r.problems.append("DASHBOARD_SECRET must be at least 32 characters (or leave it empty)")
-        login_parts = (settings.discord_client_id, settings.discord_client_secret, settings.dashboard_url)
-        if settings.dashboard_enabled and any(login_parts) and not settings.dashboard_login_configured:
+        if settings.dashboard_enabled and not settings.dashboard_login_configured:
             r.problems.append("Dashboard login needs both DISCORD_CLIENT_SECRET and DASHBOARD_URL "
-                              "(the client ID is detected automatically), or neither for a localhost-only dashboard")
+                              "(the client ID is detected automatically)")
+        if settings.dashboard_enabled and settings.dashboard_url:
+            try:
+                url = urlsplit(settings.dashboard_url)
+                valid_url = (url.scheme == "https" and bool(url.hostname) and not url.username and not url.password
+                             and url.path in ("", "/") and not url.query and not url.fragment)
+                _ = url.port  # reject malformed ports
+            except ValueError:
+                valid_url = False
+            if not valid_url:
+                r.problems.append("DASHBOARD_URL must be an HTTPS origin without a path, query or credentials")
         if r.problems:
             raise ConfigError(r.problems)
         return settings

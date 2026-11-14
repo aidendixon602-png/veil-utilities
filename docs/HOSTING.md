@@ -58,7 +58,15 @@ PostgreSQL upgrades may alter tables and take locks; test and back up first. Cha
 
 ## Dashboard
 
-The optional dashboard is off by default. Set `DASHBOARD_ENABLED=true` to start it. Without OAuth it binds to loopback and treats local visitors as bot owners; do **not** publish this mode. To use Discord login, configure `DISCORD_CLIENT_SECRET`, `DASHBOARD_URL` and the Discord OAuth redirect `<DASHBOARD_URL>/callback`; the client ID is detected or can be set explicitly. Set a strong `DASHBOARD_SECRET` of at least 32 characters to keep sessions across restarts. Use HTTPS and a correctly configured reverse proxy, and keep the secret private. See [dashboard settings](CONFIGURATION.md#optional-dashboard) and [`core/dashboard.py`](../core/dashboard.py) for the access model.
+The dashboard runs in the bot process and stays **off by default** until hosting is configured. It requires Discord login and HTTPS; unauthenticated local mode is no longer started. Server owners can access only authorized servers they own; bot developers can access every joined server and manage the explicit server authorization list. A revocation requires a separate confirmation and may cause the bot to leave the server. Existing servers automatically authorized through developer ownership or `AUTH_REQUIRED=false` can remain authorized after their explicit entry is removed.
+
+1. Choose a public HTTPS origin and a hosting provider or reverse proxy that can route it to the bot's backend port. The default backend bind is `127.0.0.1:8080`; keep that HTTP port private. If your provider's proxy runs on another host, configure a private `DASHBOARD_HOST` and firewall it so only the proxy can reach it. Do not publish the unencrypted backend directly.
+2. In the Discord Developer Portal for the **same application as the bot**, add the exact redirect `<DASHBOARD_URL>/callback` to OAuth2. For example, `https://veil.example.com/callback`. The public address is an origin, without a path or query.
+3. In the host's private environment, set `DISCORD_CLIENT_SECRET`, `DASHBOARD_URL`, and a random `DASHBOARD_SECRET` of at least 32 characters. The OAuth client ID is detected from the bot unless `DISCORD_CLIENT_ID` is explicitly set. Never share these secrets or put them in Git.
+4. Once the proxy and OAuth redirect are ready, set `DASHBOARD_ENABLED=true` and restart the bot. Open your configured HTTPS origin and sign in with Discord. Missing login settings or a non-HTTPS URL are rejected. If the host cannot expose an HTTPS website, keep the dashboard disabled.
+5. Test access using a bot developer, a server owner and an unrelated account; confirm the unrelated account is denied. Test changes on a disposable server first. Verify server authorization and any requested leave independently in Discord.
+
+The dashboard covers server overview, explicit server authorization for developers, logging routing, and selected role-blacklist and antinuke settings; it is not a replacement for every bot command. Existing settings forms save multiple modules separately, so a database failure can leave a partial save. See [dashboard settings](CONFIGURATION.md#optional-dashboard) and [`core/dashboard.py`](../core/dashboard.py) before exposing it.
 
 ## Rollback
 

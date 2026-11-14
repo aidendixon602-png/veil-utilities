@@ -166,8 +166,8 @@ allow DMs from server members. Messages you type in a server, old bot messages, 
 and information the recipient shares cannot be made private retroactively. If a DM cannot be
 sent, there is no public fallback; changes already made before a failed reply may have completed.
 Interactive RBL action buttons check the current server owner/developer again when clicked.
-The logged-in dashboard remains an additional settings interface with its own server-side checks;
-localhost-only sessions have no verified Discord identity and cannot read or write RBL settings.
+The dashboard remains an additional settings interface with its own server-side checks and requires
+Discord login; it no longer starts an unauthenticated local listener.
 
 Existing legacy authorizations are retained. A role assignment made by legacy authorized staff
 cannot silently authorize a new recipient; only an owner/developer can do that. Discord audit

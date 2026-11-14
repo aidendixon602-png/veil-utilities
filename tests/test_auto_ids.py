@@ -70,7 +70,10 @@ def test_dashboard_login_needs_only_the_secret_and_the_address():
     Settings.from_env({**on, "DISCORD_CLIENT_SECRET": "s", "DASHBOARD_URL": "https://veil.example.com"})
     with pytest.raises(ConfigError, match="DISCORD_CLIENT_SECRET and DASHBOARD_URL"):
         Settings.from_env({**on, "DISCORD_CLIENT_SECRET": "s"})
-    assert Settings.from_env(on).dashboard_login_configured is False
+    with pytest.raises(ConfigError, match="DISCORD_CLIENT_SECRET and DASHBOARD_URL"):
+        Settings.from_env(on)
+    with pytest.raises(ConfigError, match="HTTPS origin"):
+        Settings.from_env({**on, "DISCORD_CLIENT_SECRET": "s", "DASHBOARD_URL": "http://example.com"})
 
 
 def test_dashboard_takes_the_client_id_from_the_bot():

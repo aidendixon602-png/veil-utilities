@@ -3,8 +3,7 @@
 Security model
 --------------
 * Off unless ``DASHBOARD_ENABLED=true``.
-* Without Discord login configured it only listens on 127.0.0.1, and the person at that machine is treated as a
-  bot owner. Requests must use a localhost address in the Host header, which blocks DNS-rebinding tricks.
+* A real listener requires HTTPS and Discord login; it never starts in unauthenticated local mode.
 * With ``DISCORD_CLIENT_SECRET`` and ``DASHBOARD_URL`` set (the client ID comes from the bot itself), people sign in with Discord
   (``identify`` scope only) and each server is shown only to its owner or to a bot developer. This mirrors the
   Discord commands: only the server owner can change antinuke admins, which this page edits.
@@ -13,6 +12,7 @@ Security model
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 from copy import deepcopy
 import hashlib
@@ -29,6 +29,7 @@ from urllib.parse import urlencode, urlsplit
 from core.perms import is_bot_developer
 
 import aiohttp
+import discord
 from aiohttp import web
 
 if TYPE_CHECKING:
@@ -50,7 +51,10 @@ MAX_IDS = 100
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 # typed request-storage key on newer aiohttp, plain string on older versions
 NEW_SESSION_KEY: Any = web.RequestKey("veil_new_session", str) if hasattr(web, "RequestKey") else "veil_new_session"
-LOG_FIELDS = (("log_commands", "commands"), ("log_bans", "bans"), ("log_joins", "joinleave"))
+LOG_FIELDS = (("log_joins", "joinleave"), ("log_commands", "commands"), ("log_server", "server"),
+              ("log_antinuke", "antinuke"), ("log_messages", "messages"), ("log_members", "members"),
+              ("log_roles", "roles"), ("log_channels", "channels"), ("log_voice", "voice"),
+              ("log_bans", "bans"), ("log_timeouts", "timeouts"))
 
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -168,7 +172,8 @@ class DashboardServer:
         self.redirect_uri = f"{self.public_url}/callback" if self.public_url else None
         self.secure_cookies = bool(self.public_url and self.public_url.startswith("https://"))
 
-        wanted = host or ("0.0.0.0" if self.login_enabled else "127.0.0.1")
+        # Default to loopback even with login: only a trusted TLS proxy should reach the app directly.
+        wanted = host or "127.0.0.1"
         if self.local_mode and not _is_loopback(wanted):
             log.warning("Dashboard: ignoring DASHBOARD_HOST=%s. Without Discord login configured it only listens on "
                         "127.0.0.1 (set DISCORD_CLIENT_SECRET and DASHBOARD_URL to make it public)",
@@ -177,6 +182,7 @@ class DashboardServer:
         self.host = wanted
 
         self._secret = (secret or secrets.token_hex(32)).encode()
+        self._pending_revocations: dict[str, tuple[int, int, float]] = {}
         self._http_session: aiohttp.ClientSession | None = None
         self.app = web.Application(middlewares=[self._security_middleware])
         self.runner: web.AppRunner | None = None
@@ -199,6 +205,8 @@ class DashboardServer:
         r.add_get("/", self.handle_home)
         r.add_get("/servers", self.handle_home)
         r.add_get("/servers/{guild_id}", self.handle_server)
+        r.add_get("/authorization", self.handle_authorization)
+        r.add_post("/authorization", self.handle_authorization_action)
         r.add_get("/login", self.handle_login)
         r.add_get("/callback", self.handle_callback)
         r.add_post("/logout", self.handle_logout)
@@ -267,6 +275,11 @@ class DashboardServer:
             fetch_site = request.headers.get("Sec-Fetch-Site")
             if (origin and origin != self._origin(request)) or fetch_site == "cross-site":
                 return self._finish(request, web.Response(status=403, text="Cross-site request refused"))
+        # Recheck every request so losing ownership or developer status revokes an existing session.
+        if self.login_enabled and request.path not in {"/login", "/callback", "/logout"}:
+            user = self._user(request)
+            if user and not await self._may_use_dashboard(user):
+                return self._finish(request, self._message("Access denied", "Only server owners and bot developers may use this dashboard.", 403))
         try:
             resp = await handler(request)
         except web.HTTPException as exc:
@@ -294,6 +307,17 @@ class DashboardServer:
         except Exception:
             return False
 
+    async def _may_use_dashboard(self, user: dict) -> bool:
+        if user.get("local"):
+            return False
+        if await self._is_bot_owner(user):
+            return True
+        return any(g.owner_id == user.get("uid") and self._server_authorized(g) for g in self.bot.guilds)
+
+    def _server_authorized(self, guild) -> bool:
+        check = getattr(self.bot, "is_authorized", None)
+        return bool(check(guild.id)) if callable(check) else False
+
     async def _can_manage_rbl(self, user: dict, guild) -> bool:
         # Local mode has no verified Discord identity, even though it may manage other settings.
         if user.get("local"):
@@ -307,7 +331,7 @@ class DashboardServer:
     async def _guilds_for(self, user: dict) -> list:
         if await self._is_bot_owner(user):
             return list(self.bot.guilds)
-        return [g for g in self.bot.guilds if g.owner_id == user["uid"]]
+        return [g for g in self.bot.guilds if g.owner_id == user["uid"] and self._server_authorized(g)]
 
     async def _guild_for(self, request: web.Request, user: dict):
         """The guild in the URL, only if this user may manage it (else None, so nothing is revealed)."""
@@ -318,7 +342,7 @@ class DashboardServer:
         guild = self.bot.get_guild(gid)
         if guild is None:
             return None
-        if guild.owner_id == user["uid"] or await self._is_bot_owner(user):
+        if await self._is_bot_owner(user) or (guild.owner_id == user["uid"] and self._server_authorized(guild)):
             return guild
         return None
 
@@ -379,6 +403,9 @@ class DashboardServer:
             latency_ms = int(latency * 1000) if isinstance(latency, (int, float)) and latency == latency else 0
             uptime = int(time.time() - getattr(self.bot, "started_at", time.time()))
             hours, rem = divmod(max(uptime, 0), 3600)
+            if not user.get("local"):
+                body += ('<p style="margin-bottom:1rem"><a class="btn btn-plain" href="/authorization">'
+                         'Server authorization</a></p>')
             body += (
                 '<div class="stats">'
                 f'<div class="stat-card"><div class="stat-lbl">Servers</div><div class="stat-val">{len(all_guilds)}</div></div>'
@@ -473,6 +500,108 @@ class DashboardServer:
                  f'<tbody>{listing}</tbody></table></div></div>')
         return self._page("Dashboard", body, user)
 
+    async def _authorization_user(self, request: web.Request) -> dict | None:
+        user = self._user(request)
+        if not user or user.get("local") or not await self._is_bot_owner(user):
+            return None
+        return user
+
+    async def handle_authorization(self, request: web.Request) -> web.Response:
+        user = await self._authorization_user(request)
+        if user is None:
+            return self._message("Access denied", "Only bot developers can manage server authorization.", 403)
+        ids = sorted(getattr(self.bot, "authorized", set()))
+        rows = []
+        for gid in ids:
+            guild = self.bot.get_guild(gid)
+            name = guild.name if guild else "Not joined"
+            rows.append(f'<tr><td>{_esc(name)}</td><td>{_esc(gid)}</td><td>'
+                        f'<form method="post" action="/authorization" class="inline">'
+                        f'<input type="hidden" name="csrf" value="{_esc(user["csrf"])}">'
+                        f'<input type="hidden" name="guild_id" value="{_esc(gid)}">'
+                        '<button class="btn btn-plain" name="action" value="review">Review revocation</button>'
+                        '</form></td></tr>')
+        listing = "".join(rows) or '<tr><td colspan="3">No explicitly authorized servers.</td></tr>'
+        body = (f'<div class="card"><h2>Server authorization</h2>'
+                '<p class="muted">Only bot developers can change this list. You can authorize a server ID before '
+                'the bot joins it. Developer-owned servers may be authorized automatically.</p>'
+                '<form method="post" action="/authorization" class="filters">'
+                f'<input type="hidden" name="csrf" value="{_esc(user["csrf"])}">'
+                '<div class="form-group"><label for="guild_id">Discord server ID</label>'
+                '<input id="guild_id" name="guild_id" required inputmode="numeric"></div>'
+                '<button class="btn" name="action" value="authorize">Authorize</button></form>'
+                f'<div class="table-wrap"><table><thead><tr><th>Server</th><th>ID</th><th></th></tr></thead>'
+                f'<tbody>{listing}</tbody></table></div></div><a href="/">← Back to servers</a>')
+        return self._page("Server authorization", body, user)
+
+    async def handle_authorization_action(self, request: web.Request) -> web.Response:
+        user = await self._authorization_user(request)
+        if user is None:
+            return self._message("Access denied", "Only bot developers can manage server authorization.", 403)
+        data = await request.post()
+        if not self._csrf_ok(user, data.get("csrf")):
+            return self._message("Session expired", "Please refresh the page and try again.", 403, user)
+        try:
+            ids = _parse_ids(str(data.get("guild_id", "")))
+            if len(ids) != 1:
+                raise ValueError("Enter one server ID")
+            gid = ids[0]
+        except ValueError:
+            return self._message("Invalid server ID", "Enter one positive Discord server ID.", 400, user)
+        action = data.get("action")
+        cog = self.bot.get_cog("Authorization")
+        if cog is None:
+            return self._message("Unavailable", "The authorization module is not loaded; no changes were made.", 503, user)
+        if action == "authorize":
+            added = await cog.authorize(gid, int(user["uid"]), "via dashboard")
+            log.info("Dashboard: developer %s authorized guild %s (added=%s)", user["uid"], gid, added)
+            return self._message("Server authorized" if added else "Already authorized",
+                                 f"Server {gid} {'can now invite the bot' if added else 'is already on the list'}.", user=user)
+        if action == "review":
+            if gid not in self.bot.authorized:
+                return self._message("Not authorized", "That server is not on the explicit authorization list.", 404, user)
+            guild = self.bot.get_guild(gid)
+            name = guild.name if guild else "Not joined"
+            now = time.monotonic()
+            self._pending_revocations = {k: v for k, v in self._pending_revocations.items() if v[2] > now}
+            confirmation = secrets.token_urlsafe(24)
+            self._pending_revocations[confirmation] = (user["uid"], gid, now + 300)
+            body = (f'<div class="card"><h2>Confirm revocation</h2><p class="muted">'
+                    f'Revoke {_esc(name)} (<code>{_esc(gid)}</code>)? If the bot is in the server and it is '
+                    'no longer automatically authorized, it will attempt to leave. This may interrupt service.</p>'
+                    '<form method="post" action="/authorization">'
+                    f'<input type="hidden" name="csrf" value="{_esc(user["csrf"])}">'
+                    f'<input type="hidden" name="guild_id" value="{_esc(gid)}">'
+                    f'<input type="hidden" name="confirmation" value="{_esc(confirmation)}">'
+                    '<button class="btn" name="action" value="revoke">Confirm revocation</button> '
+                    '<a class="btn btn-plain" href="/authorization">Cancel</a></form></div>')
+            return self._page("Confirm revocation", body, user)
+        if action == "revoke":
+            confirmation = self._pending_revocations.pop(str(data.get("confirmation", "")), None)
+            if (not confirmation or confirmation[0] != user["uid"] or confirmation[1] != gid
+                    or confirmation[2] <= time.monotonic()):
+                return self._message("Confirmation required", "Review this revocation before confirming it.", 403, user)
+            removed = await cog.unauthorize(gid)
+            if not removed:
+                return self._message("Not authorized", "That server is not on the explicit authorization list.", 404, user)
+            log.info("Dashboard: developer %s revoked authorization for guild %s", user["uid"], gid)
+            guild = self.bot.get_guild(gid)
+            detail = "The bot is not currently in that server."
+            if guild:
+                # Serialize the final check with authorization, just like the join rejection path.
+                async with cog._auth_lock:
+                    if self.bot.is_authorized(gid):
+                        detail = "The bot stayed because this server is still automatically authorized or authorization is disabled."
+                    else:
+                        try:
+                            await asyncio.wait_for(guild.leave(), timeout=15)
+                            detail = "The bot left the server."
+                        except Exception:
+                            log.exception("Dashboard: failed to leave revoked guild %s", gid)
+                            detail = "The leave failed or timed out; check Discord and the bot logs, then remove it manually if needed."
+            return self._message("Authorization revoked", detail, user=user)
+        return self._message("Invalid action", "No changes were made.", 400, user)
+
     async def handle_server(self, request: web.Request) -> web.Response:
         user = self._user(request)
         if user is None:
@@ -494,6 +623,22 @@ class DashboardServer:
             f'<option value="{p}"{" selected" if p == current else ""}>{p}</option>' for p in PUNISHMENTS)
         saved = ('<div class="note ok">Settings saved.</div>' if request.query.get("saved") else "")
 
+        from cogs.logging import KINDS
+        channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
+        log_forms = []
+        for field, key in LOG_FIELDS:
+            current_log = logs_cfg.get(key)
+            value = str(current_log) if current_log is not None else ""
+            choices = [("", "Auto"), ("-1", "Off")]
+            choices.extend((str(ch.id), f"#{ch.name}") for ch in channels)
+            if value and value not in {v for v, _ in choices}:
+                choices.append((value, f"Unavailable channel ({value})"))
+            options_html = "".join(f'<option value="{_esc(v)}"{" selected" if v == value else ""}>{_esc(label)}</option>'
+                                   for v, label in choices)
+            log_forms.append(f'<div class="form-group"><label for="{field}">{_esc(KINDS[key].label)}</label>'
+                             f'<select id="{field}" name="{field}">{options_html}</select></div>')
+        logs_form = "".join(log_forms)
+
         rbl_form = f'''  <div class="card"><h2>🚫 Role blacklist (BLED)</h2>
     <div class="form-group"><label for="rbl_roles">Blacklisted role IDs (comma-separated)</label>
       <input id="rbl_roles" type="text" name="rbl_roles" value="{ids(rbl.get("roles"))}"></div>
@@ -505,12 +650,8 @@ class DashboardServer:
   <input type="hidden" name="csrf" value="{_esc(user["csrf"])}">
 {rbl_form}
   <div class="card"><h2>📜 Logging channels</h2>
-    <div class="form-group"><label for="log_commands">Command logs channel ID</label>
-      <input id="log_commands" type="text" name="log_commands" value="{_esc(logs_cfg.get("commands") or "")}"></div>
-    <div class="form-group"><label for="log_bans">Ban logs channel ID</label>
-      <input id="log_bans" type="text" name="log_bans" value="{_esc(logs_cfg.get("bans") or "")}"></div>
-    <div class="form-group"><label for="log_joins">Join/leave logs channel ID</label>
-      <input id="log_joins" type="text" name="log_joins" value="{_esc(logs_cfg.get("joinleave") or "")}"></div>
+    <p class="muted">Auto follows Veil's normal routing. Off disables this category. Pick a text channel to override it.</p>
+    {logs_form}
   </div>
   <div class="card"><h2>🛡️ Antinuke</h2>
     <div class="form-group"><label for="an_punishment">Default punishment (used by modules
@@ -532,7 +673,7 @@ class DashboardServer:
         state = secrets.token_urlsafe(24)
         query = urlencode({
             "client_id": self.client_id, "redirect_uri": self.redirect_uri, "response_type": "code",
-            "scope": "identify", "state": state, "prompt": "none",
+            "scope": "identify", "state": state,
         })
         resp = self._redirect(f"{DISCORD_AUTHORIZE}?{query}")
         self._set_cookie(resp, STATE_COOKIE, self._sign({"t": "state", "s": state, "exp": int(time.time()) + STATE_TTL}),
@@ -555,6 +696,10 @@ class DashboardServer:
             log.warning("Dashboard login failed: %s", e)
             return self._message("Login failed", "Couldn't verify your Discord account. Please try again.", 502)
         name = str(me.get("global_name") or me.get("username") or uid)
+        if not await self._may_use_dashboard({"uid": uid, "local": False}):
+            resp = self._message("Access denied", "Only server owners and bot developers may use this dashboard.", 403)
+            resp.del_cookie(STATE_COOKIE, path="/")
+            return resp
         resp = self._redirect("/")
         self._set_cookie(resp, SESSION_COOKIE, self.make_session(uid, name), SESSION_TTL)
         resp.del_cookie(STATE_COOKIE, path="/")
@@ -645,12 +790,18 @@ class DashboardServer:
                     lists[field] = _parse_ids(str(data[field]))
                 except ValueError as exc:
                     return self._message("Invalid settings", f"{field}: {exc}. Nothing was saved.", 400, user)
-        for field, _ in LOG_FIELDS:
+        logs_cfg = deepcopy(await self.bot.db.get_config(gid, "logs") or {})
+        for field, key in LOG_FIELDS:
             if field in data:
                 value = str(data[field]).strip()
-                if value and value != "-1" and (not value.isascii() or not value.isdigit()
-                                                   or len(value) > 20 or not 0 < int(value) < 2**64):
-                    return self._message("Invalid settings", f"{field}: enter a channel ID or leave it blank. Nothing was saved.", 400, user)
+                if value and value != "-1":
+                    if (not value.isascii() or not value.isdigit() or len(value) > 20
+                            or not 0 < int(value) < 2**64):
+                        return self._message("Invalid settings", f"{field}: invalid channel ID. Nothing was saved.", 400, user)
+                    get_channel = getattr(guild, "get_channel", None)
+                    channel = get_channel(int(value)) if callable(get_channel) else None
+                    if int(value) != logs_cfg.get(key) and not isinstance(channel, discord.TextChannel):
+                        return self._message("Invalid settings", f"{field}: choose a text channel in this server. Nothing was saved.", 400, user)
 
         if rbl_fields:
             rbl = deepcopy(await self.bot.db.get_config(gid, "roleblacklist") or {})
@@ -661,7 +812,6 @@ class DashboardServer:
             if "rbl_authorized" in data:
                 rbl["authorized"] = lists["rbl_authorized"]
             await self.bot.db.set_config_committed(gid, "roleblacklist", rbl)
-        logs_cfg = await self.bot.db.get_config(gid, "logs") or {}
         for field, key in LOG_FIELDS:
             if field not in data:
                 continue
@@ -686,6 +836,8 @@ class DashboardServer:
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self):
+        if not self.login_enabled or not self.secure_cookies:
+            raise RuntimeError("Dashboard requires Discord login and an HTTPS public URL; refusing to listen")
         self.runner = web.AppRunner(self.app, access_log=None)
         await self.runner.setup()
         site = web.TCPSite(self.runner, self.host, self.port)

@@ -56,14 +56,14 @@ Network-dependent integrations can fail or change independently of Veil; no prov
 
 ## Optional dashboard
 
-The dashboard is disabled by default. Without Discord OAuth it is restricted to loopback and treats a local visitor as the bot owner; do not expose that local-only mode to untrusted users. With OAuth configured, server owners see their own servers and bot developers can access all servers. Use HTTPS and a correctly configured reverse proxy for public access.
+The dashboard remains disabled until you configure a public HTTPS origin and Discord OAuth. It will not start an unauthenticated local listener. Discord server owners can manage only authorized servers they own; recognized bot developers can access all joined servers and manage the explicit server authorization list. Access is checked again on every request. The bot must be running, and a correctly configured HTTPS reverse proxy or hosting provider must route traffic to it.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DASHBOARD_ENABLED` | `false` | Start the dashboard. |
-| `DASHBOARD_HOST` | automatic | Bind address; loopback without OAuth, `0.0.0.0` with OAuth unless overridden. |
+| `DASHBOARD_HOST` | `127.0.0.1` | Backend bind address. Use a private interface for the TLS proxy; never expose the backend HTTP port publicly. |
 | `DASHBOARD_PORT` | `PORT`, or `8080` | Listening port (1–65535). |
-| `DASHBOARD_URL` | unset | Public HTTP(S) base URL. Configure its `/callback` as a Discord OAuth redirect. |
+| `DASHBOARD_URL` | unset | Public HTTPS origin, with no path, query or credentials. Configure its `/callback` as a Discord OAuth redirect. |
 | `DISCORD_CLIENT_ID` | detected from bot | Optional OAuth client ID override. |
 | `DISCORD_CLIENT_SECRET` | unset | Discord OAuth client secret; required with `DASHBOARD_URL` for login. |
 | `DASHBOARD_SECRET` | random per startup | Optional session-signing secret, at least 32 characters. Without it, sessions do not survive restart. |
