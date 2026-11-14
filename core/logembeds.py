@@ -8,9 +8,12 @@ Every card reads the same way, top to bottom:
     -# position 1 · was shown separately           <- small grey details
     Role ID: 1564424937685393469 · Today at 4:46 PM <- IDs live in the footer only, next to Discord's own time
 
-No field grids, no thumbnails, no IDs in code blocks: the header says what it is, the body says who and why. The
-header's icon is the face that matters: the member a member event is about, or whoever did it for roles, channels
-and the server. When the audit log doesn't say who did something, the card just doesn't name anyone.
+No thumbnails, no IDs in code blocks: the header says what it is, the body says who and why. The header's icon is
+the face that matters: the member a member event is about, or whoever did it for roles, channels and the server.
+When the audit log doesn't say who did something, the card just doesn't name anyone.
+
+Strips and role changes use `field_card` instead: the same header and footer, but the who/what sits in labelled
+fields, two to a row like Discord's own audit log (see `member_stripped` and `roles_updated`).
 
 The cog (cogs/logging.py) decides where each card goes; everything here returns a discord.Embed.
 """
@@ -62,6 +65,20 @@ def quote(text: str | None, limit: int = QUOTE_LIMIT) -> str:
 
 def mentions(items: Iterable, limit: int = 900) -> str:
     return shorten_md(", ".join(i.mention for i in items), limit)
+
+
+def mention_list(items: Iterable, limit: int = 1000) -> str:
+    """Mentions joined with `, `; what doesn't fit becomes `+N more` instead of a half-written mention."""
+    items = list(items)
+    out, used = [], 0
+    for i, item in enumerate(items):
+        step = len(item.mention) + 2
+        if used + step > limit - 16:
+            out.append(f"*+{len(items) - i} more*")
+            break
+        out.append(item.mention)
+        used += step
+    return ", ".join(out)
 
 
 def footer(ids: Iterable[tuple[str, object]]) -> str:
@@ -224,6 +241,47 @@ def entry_card(color: int, sentence: str, *, subject=None, icon: str | None = No
     return embed
 
 
+FIELD_ROW = 78  # label + value characters that sit side by side on one row of inline fields
+FIELD_MIN = 10  # stop a row before the fields left on it would get narrower than this
+FIELD_GAP = 3  # space between two inline fields: the gap Discord leaves, plus the label's own padding
+
+
+def field_card(color: int, title: str, *, subject=None, icon: str | None = None, lead: str | None = None,
+               fields: Iterable[tuple[str, object, bool]] = (), details: Iterable[tuple[str, object]] = (),
+               ids: Iterable[tuple] = (), header: str | None = None) -> discord.Embed:
+    """The two-column audit shape: a small author line, a bold `title`, optional bold `lead` text, then
+    labelled field groups (as many side by side as fit on one row) and small grey detail lines.
+
+    Fields are `(label, value, inline)`. Inline fields sit next to each other while they fit, like Discord's own
+    audit log; a label with no value is left out, so a field the event doesn't have never shows as empty. The
+    footer carries the IDs and Discord shows the time, so the card never repeats either.
+    """
+    embed = discord.Embed(color=color, title=shorten(title, 256), timestamp=discord.utils.utcnow())
+    if lead:
+        embed.description = shorten_md(lead, 4096)
+    name = header or (name_of(subject) if subject is not None else None)
+    if name:
+        embed.set_author(name=shorten(name, 256), icon_url=icon or (avatar_of(subject) if subject is not None else None))
+    room = 0  # label + value characters left on the current row of inline fields
+    for label, value, inline in fields:
+        if not value:
+            continue
+        text = shorten_md(str(value), 1024)
+        if inline and room >= FIELD_MIN:
+            room -= len(str(label)) + len(text) + FIELD_GAP
+        else:
+            room = FIELD_ROW - len(str(label)) - len(text) if inline else -1
+        embed.add_field(name=shorten(label, 256), value=text, inline=inline)
+    kept = [(label, str(value)) for label, value in details if value not in (None, "")]
+    if kept:
+        more = "\n".join(small(label, value) for label, value in kept)
+        embed.description = shorten_md(f"{embed.description}\n\n{more}" if embed.description else more, 4096)
+    ids = list(ids)
+    if ids:
+        embed.set_footer(text=shorten(footer(ids), 2048))
+    return embed
+
+
 def feed_line(emoji: str, text: str) -> str:
     """One audit-feed entry: `<t:..:t> ⌨️ @x ran ,ban in #general`. Sent with mentions switched off."""
     return shorten_md(f"{ts(discord.utils.utcnow(), 't')} {emoji} {text}", 1900)
@@ -359,6 +417,57 @@ def roles_changed(m: discord.Member, added: list, removed: list, actor=None, rea
         ("Added", mentions(added) if added else ""), ("Removed", mentions(removed) if removed else ""),
         ("Reason", reason or ""), ("⚠️ Dangerous", _role_warnings(added)),
     ], ids=[("User ID", m.id)])
+
+
+def with_id(user) -> str:
+    """`@mention (`id`)`: the mention to click, and the ID that still works once the account is gone."""
+    if user is None:
+        return ""
+    return f"{user.mention} (`{user.id}`)"
+
+
+def roles_updated(m: discord.Member, added: list, removed: list, actor=None, reason: str | None = None,
+                  *, total: int | None = None) -> discord.Embed:
+    """One card for a member's roles changing: who they are, who changed it, and what was given or taken.
+
+    `total` is how many roles they had before the change: when a large share of them goes at once, that is a
+    strip rather than an ordinary edit, and the card says so.
+    """
+    # a strip takes (nearly) everything they had at once; anything smaller is an ordinary edit
+    strip = bool(removed) and not added and bool(total) and len(removed) >= max(3, total - 1)
+    if strip:
+        color, title = Colors.orange, "Member Stripped"
+    elif added and not removed:
+        color, title = Colors.success, "Roles Updated"
+    else:
+        color, title = Colors.blurple, "Roles Updated"
+    lead = None
+    if strip:
+        left = total - len(removed)
+        lead = (f"Stripped **{plural(len(removed), 'role')}** from {m.mention}"
+                + (f", leaving {plural(left, 'role')}." if left else ", every role they had."))
+    return field_card(color, title, subject=m, lead=lead, fields=[
+        ("User", with_id(m), True),
+        ("Changed By", with_id(actor), True),
+        ("Added" if removed else f"Added ({len(added)})", mention_list(added) if added else "", False),
+        ("Removed" if added else f"Removed ({len(removed)})", mention_list(removed) if removed else "", False),
+        ("Reason", reason, False),
+        ("⚠️ Dangerous", _role_warnings(added), False),
+    ], ids=[("User ID", m.id)])
+
+
+def member_stripped(m, removed: Iterable = (), actor=None, *, hint: str | None = None) -> discord.Embed:
+    """The staff-role strip card: the member in the header, who ran it, and the roles that came off.
+
+    `hint` is the small line that says how to undo it. Each caller knows who can put the roles back, so the card
+    never names a command its readers can't run; without a hint it falls back to plain advice.
+    """
+    removed = list(removed)
+    hint = hint or "Give the role(s) above back to undo this."
+    return field_card(Colors.orange, "Member Stripped", subject=m, fields=[
+        ("User", with_id(m), True), ("By", with_id(actor), True),
+        ("Roles removed", mention_list(removed) if removed else "", False),
+    ], details=[("How to undo", hint)], ids=[("User ID", m.id)])
 
 
 def timed_out(m: discord.Member, until, actor=None, reason: str | None = None) -> discord.Embed:

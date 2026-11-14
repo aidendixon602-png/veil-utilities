@@ -1123,9 +1123,12 @@ class Logging(commands.Cog):
         return await self.route(guild, "members")
 
     # ------------------------------------------------------------ member updates and roles
-    async def _build_role_update_embed(self, member: discord.Member, added: list, removed: list) -> discord.Embed:
+    async def _build_role_update_embed(self, member: discord.Member, added: list, removed: list,
+                                       had: int | None = None) -> discord.Embed:
+        """The roles-changed card. `had` is how many roles the member had before the burst started, which is what
+        tells an ordinary edit apart from a strip."""
         actor, reason = await fmt.audit_actor(member.guild, discord.AuditLogAction.member_role_update, member.id)
-        return fmt.roles_changed(member, added, removed, actor, reason)
+        return fmt.roles_updated(member, added, removed, actor, reason, total=had)
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
@@ -1175,7 +1178,7 @@ class Logging(commands.Cog):
             return
         channel = await self.route(last.guild, "roles", user_id=last.id)
         if channel:
-            await self.post(channel, await self._build_role_update_embed(last, added, removed))
+            await self.post(channel, await self._build_role_update_embed(last, added, removed, had=len(first.roles)))
 
     # ------------------------------------------------------------ roles, channels, server
     @commands.Cog.listener()

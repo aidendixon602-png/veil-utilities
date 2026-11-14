@@ -673,7 +673,14 @@ def test_role_changes_are_merged_into_one_log(monkeypatch):
         await asyncio.gather(*[t for t in cog._role_update_tasks.values()], return_exceptions=True)
         assert channel.send.await_count == 1
         embed = channel.send.await_args.kwargs["embed"]
-        assert body(embed)[0] == "**<@7> was given roles**" and detail(embed, "Added") == "<@&2>, <@&3>, <@&4>"
+        # the same card shape as the strip log: a title, who and what, one field per side
+        assert embed.title == "Roles Updated" and embed.author.name == "ham"
+        # no audit-log access here, so the card names nobody rather than blaming someone
+        assert [f.name for f in embed.fields] == ["User", "Added (3)"]
+        assert embed.fields[0].value == "<@7> (`7`)"  # the mention to click, and the ID that outlives the account
+        added = embed.fields[1]
+        assert added.name == "Added (3)" and added.value == "<@&2>, <@&3>, <@&4>"
+        assert not any(f.name.startswith("Removed") for f in embed.fields)
     asyncio.run(go())
 
 

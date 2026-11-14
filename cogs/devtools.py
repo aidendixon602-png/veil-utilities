@@ -13,6 +13,7 @@ import time
 import discord
 from discord.ext import commands
 
+from core import logembeds as fmt
 from core import perms
 from core.utils import Colors, Confirm, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, role_protection_ids, shorten, ts
 
@@ -64,11 +65,24 @@ class DevTools(commands.Cog):
         raise commands.NotOwner()  # silent — don't confirm the command exists
 
     # ================================================================ strip / unstrip
+    async def _strip_card(self, ctx: Context, member: discord.Member, removed: list) -> discord.Embed:
+        """The strip card: what came off, and who can put it back.
+
+        `,unstrip` is a developer tool, so naming it to everyone else would be a dead end. The card says a bot
+        developer can restore the saved roles instead, which is true for everyone who can read the channel.
+        """
+        saved = f"{plural(len(removed), 'saved role')}"
+        return fmt.member_stripped(member, removed, ctx.author,
+                                   hint=f"A bot developer can put the {saved} back with {ctx.clean_prefix}unstrip")
+
     @commands.command(hidden=True)
     @commands.guild_only()
     @commands.bot_has_permissions(manage_roles=True)
     async def strip(self, ctx: Context, member: discord.Member):
-        """Remove every role from a member (restore with unstrip)"""
+        """Remove every role from a member and log the strip
+
+        The roles are saved, so `,unstrip` can put them back.
+        """
         check_target(ctx, member, "strip")
         removable = [r for r in member.roles if not r.is_default() and not r.managed and r < ctx.guild.me.top_role]
         if not removable:
@@ -77,10 +91,7 @@ class DevTools(commands.Cog):
         cfg[str(member.id)] = [r.id for r in removable]
         await self.bot.db.set_config(ctx.guild.id, "strips", cfg)
         await member.remove_roles(*removable, reason=f"strip by {ctx.author}")
-        e = discord.Embed(color=Colors.main, description=f"Stripped **{len(removable)}** role(s) from {member.mention}.")
-        e.add_field(name="Removed", value=shorten(" ".join(r.mention for r in removable), 1024), inline=False)
-        e.set_footer(text=f"use {ctx.clean_prefix}unstrip to restore")
-        await ctx.send(embed=e)
+        await ctx.send(embed=await self._strip_card(ctx, member, removable))
 
     @commands.command(hidden=True, aliases=["restore"])
     @commands.guild_only()

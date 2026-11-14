@@ -28,7 +28,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,joinleavelogs [channel]` (jllogs) | Log joins, leaves and kicks in their own channel |
 | `,massunrole [role] [flag]` | Remove a role from everyone |
 | `,revert <user> <duration>` | Undo someone's recent bans and deletions |
-| `,strip <member>` | Remove every role from a member (restore with unstrip) |
+| `,strip <member>` | Remove every role from a member and log the strip |
 | `,ungenreban <user>` (unreban, unhardban, globalunban, unhb) | Lift a network genreban in every server |
 | `,unstrip <member>` (restore) | Give back the roles a strip removed |
 
