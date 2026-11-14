@@ -120,7 +120,7 @@ body { margin:0; background:var(--bg); color:var(--text);
        font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 a { color:inherit; text-decoration:none; }
 a:hover { color:#fff; }
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid #d4cbff; outline-offset:3px; }
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid #d4cbff; outline-offset:3px; }
 .skip-link { position:absolute; left:-9999px; top:8px; padding:10px 14px; background:#fff; color:#111; z-index:8; }
 .skip-link:focus { left:12px; color:#111; }
 .shell { min-height:100vh; display:grid; grid-template-columns:224px minmax(0,1fr); }
@@ -180,11 +180,12 @@ p.muted { color:var(--muted); margin:8px 0 20px; }
 .btn-plain:hover { background:#30384c; border-color:#606a84; }
 .form-group { margin-bottom:18px; min-width:0; }
 label { display:block; color:#e0e3ed; font-size:12px; font-weight:650; margin-bottom:7px; }
-input,select { display:block; width:100%; min-height:42px; padding:10px 12px; background:#0e1220; color:var(--text);
+input,select,textarea { display:block; width:100%; min-height:42px; padding:10px 12px; background:#0e1220; color:var(--text);
                border:1px solid #424c63; border-radius:8px; font:inherit; font-size:13px; }
 input[type=hidden] { display:none; } input::placeholder { color:#98a2b6; }
 input:focus,select:focus { border-color:#b7a8ff; }
 .hint { display:block; color:var(--muted); font-size:12px; line-height:1.5; margin-top:7px; }
+p.hint + .btn { margin-top:16px; } textarea { resize:vertical; }
 .note { background:#252335; border:1px solid #554969; border-radius:9px; color:#e1d7e8; padding:13px 15px; margin-bottom:22px; font-size:13px; }
 .note.ok { border-color:#35745e; color:#bcebd1; background:#19332c; }
 .note.bad { border-color:#ab535b; }
@@ -218,7 +219,15 @@ tbody tr:hover { background:#ffffff06; } tbody tr:last-child td { border-bottom:
 .section-nav a { display:block; padding:9px 10px; color:#c9ccda; border-radius:7px; font-size:13px; }
 .section-nav a:hover,.section-nav a:focus { background:#29283f; color:#f2edff; }
 .settings-actions { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 0; }
-.settings-actions p { color:var(--muted); font-size:12px; } .settings-actions .buttons { display:flex; gap:10px; }
+.settings-actions p { color:var(--muted); font-size:12px; } .settings-actions .buttons,.heading-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.confirm-choice { display:flex; align-items:center; gap:9px; font-weight:500; margin:14px 0; }
+.confirm-choice input { width:18px; height:18px; min-height:0; flex:none; }
+.rules-heading { border-top:1px solid var(--border); padding-top:22px; margin-top:26px; }
+.rule-row { display:grid; grid-template-columns:minmax(125px,1.4fr) repeat(4,minmax(85px,1fr)) auto;
+            align-items:end; gap:10px; padding:15px 0; border-bottom:1px solid var(--border); }
+.rule-row .form-group { margin:0; } .rule-row .hint { margin-top:2px; }
+@media (max-width:1050px) { .rule-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rule-row > div:first-child { grid-column:1 / -1; } }
 @media (max-width:1050px) { .shell { grid-template-columns:76px minmax(0,1fr); } .sidebar { padding:24px 12px; }
   .brand { justify-content:center; padding:0; } .brand-copy,.nav-label,.nav-text,.side-note { display:none; }
   .nav-link { justify-content:center; padding:12px; } .settings-layout { grid-template-columns:1fr; gap:18px; }
@@ -303,6 +312,8 @@ class DashboardServer:
         r.add_get("/", self.handle_home)
         r.add_get("/servers", self.handle_home)
         r.add_get("/servers/{guild_id}", self.handle_server)
+        r.add_get("/servers/{guild_id}/features", self.handle_features)
+        r.add_post("/servers/{guild_id}/features/{feature}", self.handle_save_feature)
         r.add_get("/authorization", self.handle_authorization)
         r.add_post("/authorization", self.handle_authorization_action)
         r.add_get("/login", self.handle_login)
@@ -611,7 +622,7 @@ class DashboardServer:
         log_options = "".join(option(v, label, log_filter == v) for v, label in
                               (("any", "Any"), ("configured", "Configured"), ("none", "None configured")))
         body += (f'<div class="card"><h2>Servers</h2>'
-                 '<p class="muted">Manage role blacklists, logging channels and antinuke settings. '
+                 '<p class="muted">Manage logging, security, automod, leveling and tickets for each server. '
                  'Log counts show explicitly configured channels, not automatic routing.</p>'
                  '<form method="GET" action="/" class="filters">'
                  f'<div class="form-group"><label for="q">Search name or ID</label>'
@@ -788,7 +799,8 @@ class DashboardServer:
   </section>''' if can_rbl else ""
         body = f"""<div class="page-heading"><div><p class="eyebrow">Servers / Settings</p>
   <h1>{_esc(guild.name)}</h1><p>Manage the blacklist, logging, and antinuke settings for this server.</p></div>
-  <a class="btn btn-plain" href="/">← All servers</a></div>
+  <div class="heading-actions"><a class="btn btn-plain" href="/">← All servers</a>
+    <a class="btn" href="/servers/{_esc(guild.id)}/features">More feature controls →</a></div></div>
 {saved}<div class="settings-layout"><nav class="section-nav" aria-label="Settings sections">
   <span>ON THIS PAGE</span>{'<a href="#blacklist">Role blacklist</a>' if can_rbl else ''}
   <a href="#logging">Logging channels</a><a href="#exclusions">Log exclusions</a><a href="#antinuke">Antinuke</a>
@@ -833,6 +845,14 @@ class DashboardServer:
 </form></div>"""
 
         return self._page(guild.name, body, user, subtitle=f"Server settings: <b>{_esc(guild.name)}</b>")
+
+    async def handle_features(self, request: web.Request) -> web.Response:
+        from core.dashboard_features import features_page
+        return await features_page(self, request)
+
+    async def handle_save_feature(self, request: web.Request) -> web.Response:
+        from core.dashboard_features import save_feature
+        return await save_feature(self, request)
 
     # ------------------------------------------------------------------ Discord login
     async def handle_login(self, request: web.Request) -> web.Response:
