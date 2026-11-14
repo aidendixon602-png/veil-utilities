@@ -870,3 +870,248 @@ def test_server_icons_only_use_the_correct_discord_cdn_path():
             assert '<span class="server-initial" aria-hidden="true">T</span>' in html
 
     run(server, scenario)
+
+
+def _feature_revision(html, gid, feature):
+    pattern = rf'<form method="post" action="/servers/{gid}/features/{feature}">.*?name="revision" value="([^"]+)"'
+    return re.search(pattern, html, re.S).group(1)
+
+
+def test_feature_controls_auth_csrf_and_foreign_server():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        assert (await client.get(f"/servers/{GUILD_ID}/features", allow_redirects=False)).status == 302
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/features", headers=headers)).status == 404
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        html = await page.text()
+        for heading in ("Automod", "Leveling", "Tickets", "Antinuke rules"):
+            assert heading in html
+        from html.parser import HTMLParser
+
+        class IDCollector(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.ids = []
+
+            def handle_starttag(self, tag, attrs):
+                self.ids.extend(value for name, value in attrs if name == "id")
+
+        parser = IDCollector()
+        parser.feed(html)
+        assert len(parser.ids) == len(set(parser.ids))
+        rev = _feature_revision(html, GUILD_ID, "levels")
+        data = {"csrf": csrf_of(server, token), "revision": rev, "enabled": "on", "voice": "on", "stack": "on",
+                "channel": "", "message": "hello"}
+        assert (await client.post(f"/servers/{GUILD_ID}/features/levels", headers=headers,
+                                  data={**data, "csrf": "wrong"})).status == 403
+        assert (await client.post(f"/servers/{GUILD_ID}/features/levels", headers={**headers, "Origin": "https://evil.example"},
+                                  data=data)).status == 403
+        assert (await client.post(f"/servers/{OTHER_GUILD_ID}/features/levels", headers=headers, data=data)).status == 404
+        assert bot.db.writes == []
+
+    run(server, scenario)
+
+
+def test_feature_controls_save_correct_configs_without_overwriting_other_fields():
+    bot = make_bot()
+    bot.guilds[0].get_role = lambda rid: SimpleNamespace(id=rid) if rid == 21 else None
+    bot.db.store[(GUILD_ID, "filters")] = {"words": ["bad"], "regex": ["pattern"], "links_allow": ["example.com"],
+                                           "exempt_roles": [50], "escalate": {"hits": 3}, "timeout": 60}
+    bot.db.store[(GUILD_ID, "levels")] = {"enabled": False, "voice": True, "stack": True,
+                                          "roles": {"2": 31}, "multipliers": {"9": 2}, "ignored": [17]}
+    bot.db.store[(GUILD_ID, "tickets")] = {"support": [20], "max": 1, "legacy": "kept"}
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    csrf = csrf_of(server, token)
+
+    async def revision(client, feature):
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        assert page.status == 200
+        return _feature_revision(await page.text(), GUILD_ID, feature)
+
+    async def scenario(client):
+        data = {"csrf": csrf, "revision": await revision(client, "automod"), "invites": "on", "links": "off",
+                "zalgo": "on", "antighostping": "off", "caps": "50", "massmention": "3", "emojis": "0",
+                "newlines": "0", "spam_messages": "5", "spam_seconds": "10", "action": "timeout", "timeout": "60"}
+        r = await client.post(f"/servers/{GUILD_ID}/features/automod", headers=headers, data=data, allow_redirects=False)
+        assert r.status == 302
+        filters = bot.db.store[(GUILD_ID, "filters")]
+        assert filters["spam"] == [5, 10] and filters["action"] == "timeout" and filters["caps"] == 50
+        assert filters["words"] == ["bad"] and filters["regex"] == ["pattern"] and filters["exempt_roles"] == [50]
+        assert filters["links_allow"] == ["example.com"] and filters["escalate"] == {"hits": 3}
+        data = {"csrf": csrf, "revision": await revision(client, "levels"), "enabled": "on", "voice": "off",
+                "stack": "on", "channel": "44", "message": "Level {level}"}
+        r = await client.post(f"/servers/{GUILD_ID}/features/levels", headers=headers, data=data, allow_redirects=False)
+        assert r.status == 302
+        levels = bot.db.store[(GUILD_ID, "levels")]
+        assert levels["enabled"] is True and levels["voice"] is False and levels["channel"] == 44
+        assert levels["message"] == "Level {level}" and levels["roles"] == {"2": 31}
+        assert levels["multipliers"] == {"9": 2} and levels["ignored"] == [17]
+        data = {"csrf": csrf, "revision": await revision(client, "tickets"), "category": "", "log": "66",
+                "ping": "on", "max": "3", "support": "20,21", "message": "Welcome"}
+        r = await client.post(f"/servers/{GUILD_ID}/features/tickets", headers=headers, data=data, allow_redirects=False)
+        assert r.status == 302
+        tickets = bot.db.store[(GUILD_ID, "tickets")]
+        assert tickets["support"] == [20, 21] and tickets["ping"] and tickets["log"] == 66
+        assert tickets["max"] == 3 and tickets["legacy"] == "kept"
+        assert set(bot.db.writes) == {(GUILD_ID, "filters"), (GUILD_ID, "levels"), (GUILD_ID, "tickets")}
+
+    run(server, scenario)
+
+
+def test_feature_controls_reject_invalid_and_stale_submissions_without_writes():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    csrf = csrf_of(server, token)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        html = await page.text()
+        base = {"csrf": csrf, "revision": _feature_revision(html, GUILD_ID, "automod"), "invites": "on", "links": "on",
+                "zalgo": "off", "antighostping": "off", "caps": "30", "massmention": "3", "emojis": "2",
+                "newlines": "3", "spam_messages": "2", "spam_seconds": "5", "action": "delete", "timeout": "60"}
+        for field, value in (("caps", "29"), ("spam_messages", "1"), ("timeout", "99999999"), ("action", "ban")):
+            r = await client.post(f"/servers/{GUILD_ID}/features/automod", headers=headers, data={**base, field: value})
+            assert r.status == 400 and "Nothing was saved" in await r.text()
+        ticket = {"csrf": csrf, "revision": _feature_revision(html, GUILD_ID, "tickets"), "category": "", "log": "",
+                  "ping": "off", "max": "1", "support": str(GUILD_ID), "message": ""}
+        r = await client.post(f"/servers/{GUILD_ID}/features/tickets", headers=headers, data=ticket)
+        assert r.status == 400 and "@everyone" in await r.text()
+        r = await client.post(f"/servers/{GUILD_ID}/features/tickets", headers=headers, data={**ticket, "support": "999"})
+        assert r.status == 400
+        assert bot.db.writes == []
+        bot.db.store[(GUILD_ID, "filters")]["links_allow"] = ["new.example"]
+        r = await client.post(f"/servers/{GUILD_ID}/features/automod", headers=headers, data=base)
+        assert r.status == 409 and "Nothing was saved" in await r.text()
+        assert bot.db.store[(GUILD_ID, "filters")]["links_allow"] == ["new.example"]
+        assert bot.db.writes == []
+
+    run(server, scenario)
+
+
+def test_feature_antinuke_rules_and_disable_confirmation():
+    bot = make_bot()
+    notice = AsyncMock()
+    bot.get_cog = lambda name: SimpleNamespace(security_notice=notice) if name == "Antinuke" else None
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True, "modules": {"ban": {"on": True, "threshold": 5,
+                                                                                  "window": 90, "punishment": "strip"}},
+                                             "whitelist": [11], "admins": [12]}
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    csrf = csrf_of(server, token)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        html = await page.text()
+        rev = _feature_revision(html, GUILD_ID, "protection")
+        data = {"csrf": csrf, "revision": rev, "enabled": "off"}
+        r = await client.post(f"/servers/{GUILD_ID}/features/protection", headers=headers, data=data)
+        assert r.status == 400 and not bot.db.writes
+        r = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers,
+                              data={"csrf": csrf, "revision": rev, "rule": "ban", "state": "off"}, allow_redirects=False)
+        assert r.status == 302
+        an = bot.db.store[(GUILD_ID, "antinuke")]
+        assert an["enabled"] and an["modules"]["ban"] == {"on": False, "threshold": 5, "window": 90, "punishment": "strip"}
+        assert an["whitelist"] == [11] and an["admins"] == [12]
+        r = await client.post(f"/servers/{GUILD_ID}/features/protection", headers=headers,
+                              data={**data, "confirm_disable": "yes"})
+        assert r.status == 409  # stale after changing the rule
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        data["revision"] = _feature_revision(await page.text(), GUILD_ID, "protection")
+        r = await client.post(f"/servers/{GUILD_ID}/features/protection", headers=headers,
+                              data={**data, "confirm_disable": "yes"}, allow_redirects=False)
+        assert r.status == 302 and bot.db.store[(GUILD_ID, "antinuke")]["enabled"] is False
+        assert notice.await_count == 2
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        rev = _feature_revision(await page.text(), GUILD_ID, "protection")
+        r = await client.post(f"/servers/{GUILD_ID}/features/protection", headers=headers,
+                              data={"csrf": csrf, "revision": rev, "enabled": "on"}, allow_redirects=False)
+        assert r.status == 302
+        an = bot.db.store[(GUILD_ID, "antinuke")]
+        assert an["enabled"] is True and an["modules"]["ban"]["on"] is False
+        assert "botadd" in an["modules"]  # enabling uses the bot's actual default rules
+
+    run(server, scenario)
+
+
+def test_feature_rule_threshold_window_and_punishment_validation():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True, "modules": {"ban": {"on": True, "command": False}},
+                                             "punishment": "ban"}
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        rev = _feature_revision(await page.text(), GUILD_ID, "rule")
+        data = {"csrf": csrf_of(server, token), "revision": rev, "rule": "ban", "state": "on",
+                "threshold": "4", "window": "120", "punishment": "kick"}
+        for patch in ({"threshold": "0"}, {"window": "86401"}, {"punishment": "ban-everyone"},
+                      {"rule": "permissions", "punishment": "ban"}, {"rule": "botadd", "threshold": "5"}):
+            r = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers, data={**data, **patch})
+            assert r.status == 400
+            assert not bot.db.writes
+        r = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers, data=data, allow_redirects=False)
+        assert r.status == 302
+        mod = bot.db.store[(GUILD_ID, "antinuke")]["modules"]["ban"]
+        assert mod == {"on": True, "command": False, "threshold": 4, "window": 120, "punishment": "kick"}
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        data.update(revision=_feature_revision(await page.text(), GUILD_ID, "rule"), threshold="", window="", punishment="")
+        r = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers, data=data, allow_redirects=False)
+        assert r.status == 302
+        assert bot.db.store[(GUILD_ID, "antinuke")]["modules"]["ban"] == {"on": True, "command": False}
+
+    run(server, scenario)
+
+
+def test_feature_rule_page_shows_effective_migrations_without_writing_on_get():
+    bot = make_bot()
+    original = {"enabled": True, "modules": {"roleinvite": {"on": True, "threshold": 1}}}
+    bot.db.store[(GUILD_ID, "antinuke")] = json.loads(json.dumps(original))
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
+        html = await page.text()
+        assert 'id="threshold_roleinvite"' in html and 'value="10"' in html
+        assert bot.db.store[(GUILD_ID, "antinuke")] == original and not bot.db.writes
+        revision = _feature_revision(html, GUILD_ID, "rule")
+        response = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers, allow_redirects=False,
+                                     data={"csrf": csrf_of(server, token), "revision": revision,
+                                           "rule": "ban", "state": "on"})
+        assert response.status == 302
+        assert bot.db.store[(GUILD_ID, "antinuke")]["modules"]["roleinvite"]["threshold"] == 10
+        assert bot.db.store[(GUILD_ID, "antinuke")]["rules_v3"] is True
+
+    run(server, scenario)
+
+
+def test_feature_controls_escape_config_values_and_enforce_revision_user_and_guild():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, "tickets")] = {"support": [], "max": 1, "message": '</textarea><script>alert(1)</script>'}
+    server = login_server(bot)
+    owner_token, owner_headers = cookie(server, GUILD_OWNER)
+    dev_token, dev_headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f"/servers/{GUILD_ID}/features", headers=owner_headers)
+        html = await page.text()
+        assert '&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;' in html
+        assert '<script>alert(1)</script>' not in html
+        revision = _feature_revision(html, GUILD_ID, "levels")
+        data = {"csrf": csrf_of(server, dev_token), "revision": revision, "enabled": "on", "voice": "on",
+                "stack": "on", "channel": "", "message": "hello"}
+        r = await client.post(f"/servers/{GUILD_ID}/features/levels", headers=dev_headers, data=data)
+        assert r.status == 409 and not bot.db.writes  # signed to the owner, not the developer
+        r = await client.post(f"/servers/{OTHER_GUILD_ID}/features/levels", headers=dev_headers, data=data)
+        assert r.status == 409 and not bot.db.writes  # also tied to its original guild
+        r = await client.post(f"/servers/{GUILD_ID}/features/levels", headers=owner_headers,
+                              data={**data, "csrf": csrf_of(server, owner_token), "revision": revision + 'x'})
+        assert r.status == 409 and not bot.db.writes
+
+    run(server, scenario)

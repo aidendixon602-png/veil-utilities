@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **More dashboard feature controls.** Server owners and developers can configure selected automod filters,
+  leveling, tickets and individual antinuke rules. Each feature saves separately and rejects stale snapshots;
+  turning antinuke off requires confirmation. Existing XP, tickets, channels and unrelated settings are preserved.
 - **Optional ngrok dashboard tunnel.** Veil can start an ngrok HTTPS endpoint for its loopback-only dashboard
   using a private authtoken, without putting the token in a startup command. The bot remains available if the
   tunnel fails, and the dashboard listener is stopped in that case. This requires the ngrok SDK and network access.
