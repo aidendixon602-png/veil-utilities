@@ -1,18 +1,11 @@
-"""Automatic protection: what a server gets without anyone running a setup command.
+"""Owner-confirmed protection setup, preserving existing module settings.
 
-When the bot joins a server (and once for servers it was already in), it switches on whatever that server hasn't
-set up itself: anything already configured is left exactly as it is. It then reports what it did in the antinuke
-log channel, with the command to change each part. Only a server the bot has just joined also DMs its owner, so a
-restart never sends an owner one DM per server.
-
-  * antinuke on with the Default preset, raid detection (a join wave of 10 in 10s), new bots quarantined
-  * automod: spam (6 messages in 5s), mass mentions (6+), zalgo text and invite links, plus Discord's own
-    AutoMod slur filter (Discord keeps that word list up to date; the bot only switches it on)
-  * escalation: 3 warnings = 1 hour timeout, 5 = kick; repeated automod hits get a short timeout
-  * staff levels are never assigned automatically from role names; an authorized operator must grant them.
+No protection is enabled on join or startup. The owner can review the proposed defaults and explicitly
+confirm them in their server. Discord's optional AutoMod slur rule is separate from saved Veil modules.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import discord
@@ -23,6 +16,44 @@ AUTOMOD_DEFAULTS = {"spam": [6, 5], "massmention": 6, "zalgo": True, "invites": 
                     "escalate": {"hits": 3, "within": 600, "timeout": 600}}
 WARN_DEFAULTS = {"3": "timeout:3600", "5": "kick"}
 RAID_DEFAULTS = {"massjoin": {"joins": 10, "seconds": 10}}
+
+
+SETUP_PREVIEW = (
+    "**Proposed defaults** (only for Veil modules without saved settings):\n"
+    "• Antinuke Default preset can ban, kick or strip roles; newly added bots are quarantined until approved\n"
+    "• Raid detection: 10 joins in 10 seconds can kick joiners and temporarily pause invites and member DMs\n"
+    "• Automod deletes messages for 6 messages in 5 seconds, 6 mentions, zalgo and invites; "
+    "3 hits in 10 minutes = 10-minute timeout\n"
+    "• Warnings: 3 = 1-hour timeout; 5 = kick\n\n"
+    "Discord's slur AutoMod rule may also be created if Veil has Manage Server and no keyword preset rule exists; "
+    "this check is separate from saved Veil settings. Staff levels are not assigned. "
+    "Existing saved Veil settings are left unchanged. Actions require the bot's Discord permissions."
+)
+
+
+async def prompt_owner(bot, guild) -> None:
+    """Offer the owner an opt-in; never change protection settings or send on startup."""
+    owner = getattr(guild, "owner", None)
+    if owner is None and getattr(guild, "owner_id", None) and callable(getattr(guild, "fetch_member", None)):
+        try:
+            owner = await asyncio.wait_for(guild.fetch_member(guild.owner_id), timeout=5)
+        except (discord.HTTPException, asyncio.TimeoutError):
+            return
+    if owner is None:
+        return
+    try:
+        settings = await bot.db.get_config(guild.id, "settings")
+        prefix = settings.get("prefix", getattr(bot, "default_prefix", ",")) or ","
+        prefix = str(prefix).replace("`", "")
+        embed = discord.Embed(title="Set up server protection?", color=0x5865F2,
+                              description=("No protection was changed by this message. Some protections may already "
+                                           "be active.\n\n" + SETUP_PREVIEW +
+                                           f"\n\nTo review and confirm, run `{prefix}autosetup` in this server. "
+                                           "This setup will not enable anything unless you confirm. Ignore this message to do nothing."))
+        embed.set_author(name=guild.name)
+        await owner.send(embed=embed)
+    except (discord.HTTPException, AttributeError):
+        log.info("Could not send protection setup prompt for guild %s", guild.id)
 
 
 async def _saved(db, guild_id: int, module: str) -> bool:
@@ -48,7 +79,7 @@ async def _slur_filter(guild) -> str | None:
                                            presets=discord.AutoModPresets(slurs=True)),
             actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.block_message,
                                                custom_message="That word isn't allowed here.")],
-            enabled=True, reason="Veil automatic setup")
+            enabled=True, reason="Veil owner-confirmed protection setup")
         return "Discord's AutoMod slur filter"
     except (discord.HTTPException, AttributeError, TypeError):
         return None
@@ -91,14 +122,14 @@ async def run(bot, guild) -> list[str]:
     return done
 
 
-async def announce(bot, guild, done: list[str], *, dm_owner: bool = False) -> None:
-    """Post what was switched on where antinuke alerts go; DM the owner too only when `dm_owner` (a new server)."""
+async def announce(bot, guild, done: list[str], *, dm_owner: bool = False, prefix: str = ",") -> None:
+    """Post the confirmed changes to the antinuke log and optionally DM the owner."""
     if not done:
         return
-    e = discord.Embed(title="🛡️ Protection set up automatically", color=0x5865F2, description=(
-        "These were off, so I switched them on. Anything you had set up yourself is unchanged.\n\n"
-        + "\n".join(f"• {line}" for line in done)
-        + "\n\n-# staff access is assigned separately with `,perm`"))
+    e = discord.Embed(title="🛡️ Protection setup completed", color=0x5865F2, description=(
+        "The owner confirmed setup. These changes were applied; saved Veil module settings were left unchanged.\n\n"
+        + "\n".join(f"• {line.replace('`,', '`' + prefix)}" for line in done)
+        + f"\n\n-# staff access is assigned separately with `{prefix}perm`"))
     from core.perms import ghost_guards
     if ghost_guards(guild) and any("antinuke" in line or "raid detection" in line for line in done):
         e.description += ("\n\n⚠️ Ghost Vanguard is also present. Disable overlapping protection in one bot "
@@ -108,7 +139,14 @@ async def announce(bot, guild, done: list[str], *, dm_owner: bool = False) -> No
         icon = getattr(getattr(guild, "icon", None), "url", None)
         e.set_author(name=name, icon_url=icon) if icon else e.set_author(name=name)
     antinuke = bot.get_cog("Antinuke")
-    channel = await antinuke._log_channel(guild, await antinuke.cfg(guild.id)) if antinuke else None
+    channel = None
+    if antinuke:
+        try:
+            # Reading the raw configuration avoids running Antinuke migrations just to announce setup.
+            cfg = await bot.db.get_config(guild.id, "antinuke") or {}
+            channel = await antinuke._log_channel(guild, cfg)
+        except Exception:
+            log.exception("Could not find setup log channel for guild %s", guild.id)
     for dest in (channel, getattr(guild, "owner", None) if dm_owner else None):
         if dest is None:
             continue
@@ -118,17 +156,17 @@ async def announce(bot, guild, done: list[str], *, dm_owner: bool = False) -> No
             pass
 
 
-async def run_once(bot, guild, *, force: bool = False, dm_owner: bool = False) -> list[str]:
-    """Run the automatic setup for a server once (recorded), unless `force`. `dm_owner` for a server just joined."""
+async def run_once(bot, guild, *, force: bool = False, dm_owner: bool = False, prefix: str = ",") -> list[str]:
+    """Apply a confirmed setup once (recorded), unless the owner explicitly requests another run."""
     marker = await bot.db.get_config(guild.id, "autosetup")
     if marker.get("done") and not force:
         return []
     try:
         done = await run(bot, guild)
     except Exception:
-        log.exception("Automatic setup failed in %s (%s)", getattr(guild, "name", "?"), guild.id)
-        return []
+        log.exception("Protection setup failed in %s (%s)", getattr(guild, "name", "?"), guild.id)
+        raise  # A partial setup is possible; the caller must not report success.
     marker["done"] = True
     await bot.db.set_config(guild.id, "autosetup", marker)
-    await announce(bot, guild, done, dm_owner=dm_owner)
+    await announce(bot, guild, done, dm_owner=dm_owner, prefix=prefix)
     return done

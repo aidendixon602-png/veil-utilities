@@ -906,7 +906,15 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
-        await asyncio.sleep(5)  # let the authorization check leave an unauthorized server first
+        await asyncio.sleep(5)  # give authorization a chance to start
+        if self.bot.get_guild(guild.id) is None:
+            return
+        is_authorized = getattr(self.bot, "is_authorized", lambda gid: True)
+        if not is_authorized(guild.id):
+            get_cog = getattr(self.bot, "get_cog", None)
+            authorization = get_cog("Authorization") if callable(get_cog) else None
+            if authorization is None or not await authorization.wait_for_pending_approval(guild.id):
+                return
         if self.bot.get_guild(guild.id) is None or not self._eligible(guild) or not await self.auto_setup_enabled():
             return
         try:

@@ -194,7 +194,7 @@ def test_a_blocked_action_says_why_privately():
 def _announce_setup(dm_owner):
     log_channel, owner = SimpleNamespace(send=AsyncMock()), SimpleNamespace(send=AsyncMock())
     an = SimpleNamespace(_log_channel=AsyncMock(return_value=log_channel), cfg=AsyncMock(return_value={}))
-    bot = SimpleNamespace(get_cog=lambda name: an)
+    bot = SimpleNamespace(get_cog=lambda name: an, db=FakeDB())
     guild = SimpleNamespace(id=5, name="Midtown", icon=None, owner=owner)
     asyncio.run(autosetup.announce(bot, guild, ["raid detection"], dm_owner=dm_owner))
     return log_channel, owner
@@ -211,3 +211,148 @@ def test_a_server_just_joined_tells_its_owner_once():
     log_channel, owner = _announce_setup(dm_owner=True)
     log_channel.send.assert_awaited_once()
     owner.send.assert_awaited_once()
+
+
+# ------------------------------------------------------------------ opt-in protection setup
+
+def test_join_prompts_owner_without_enabling_protections(monkeypatch):
+    from cogs.antinuke import Antinuke
+    db = FakeDB({"settings": {"prefix": "!"}})
+    bot = bot_with(db)
+    guild = guild_with(manage_guild=True)
+    guild.owner_id = 27
+    guild.owner = SimpleNamespace(id=27, send=AsyncMock())
+    guild.fetch_automod_rules = AsyncMock(return_value=[])
+    guild.create_automod_rule = AsyncMock()
+    bot.get_guild = lambda gid: guild
+    bot.is_authorized = lambda gid: True
+    cog = bot.get_cog("Antinuke")
+    monkeypatch.setattr("cogs.antinuke.asyncio.sleep", AsyncMock())
+    asyncio.run(cog.autosetup_on_join(guild))
+    embed = guild.owner.send.await_args.kwargs["embed"]
+    assert embed.title == "Set up server protection?"
+    assert "`!autosetup`" in embed.description and "unless you confirm" in embed.description
+    assert "kick joiners" in embed.description and "pause invites" in embed.description
+    assert "ban, kick or strip" in embed.description and "Discord's slur" in embed.description
+    assert set(db.store) == {"settings"}
+    guild.create_automod_rule.assert_not_awaited()
+    guild.owner.send.reset_mock()
+    bot.is_authorized = lambda gid: False
+    asyncio.run(cog.autosetup_on_join(guild))
+    guild.owner.send.assert_not_awaited()
+    assert not any(name == "autosetup_existing" for name in dir(Antinuke))
+
+
+def test_owner_setup_requires_confirmation_and_preserves_existing_settings(monkeypatch):
+    from cogs.antinuke import Antinuke
+    existing = {"enabled": False, "modules": {"ban": {"on": False}}}
+    db = FakeDB({"antinuke": json.loads(json.dumps(existing)), "filters": {"invites": False}})
+    bot = bot_with(db)
+    guild = guild_with(manage_guild=True)
+    guild.owner_id = 27
+    guild.fetch_automod_rules = AsyncMock(return_value=[])
+    guild.create_automod_rule = AsyncMock()
+    bot.get_guild = lambda gid: guild
+    bot.is_authorized = lambda gid: True
+    cog = bot.get_cog("Antinuke")
+    monkeypatch.setattr(autosetup, "announce", AsyncMock())
+    ctx = SimpleNamespace(guild=guild, clean_prefix=",", author=SimpleNamespace(id=27), confirm=AsyncMock(return_value=False),
+                          approve=AsyncMock(), warn=AsyncMock())
+    asyncio.run(Antinuke.cmd_autosetup.callback(cog, ctx))
+    assert set(db.store) == {"antinuke", "filters"} and db.store["antinuke"] == existing
+    guild.create_automod_rule.assert_not_awaited()
+    assert "Proposed defaults" in ctx.confirm.await_args.args[0]
+    ctx.author.id = 28
+    with pytest.raises(UserError):
+        asyncio.run(Antinuke.cmd_autosetup.callback(cog, ctx))
+    assert ctx.confirm.await_count == 1 and "warnpunish" not in db.store
+    ctx.author.id = 27
+    ctx.confirm.return_value = True
+    asyncio.run(Antinuke.cmd_autosetup.callback(cog, ctx))
+    assert db.store["antinuke"] == existing and db.store["filters"] == {"invites": False}
+    assert db.store["antiraid"] == autosetup.RAID_DEFAULTS and db.store["warnpunish"] == autosetup.WARN_DEFAULTS
+    guild.create_automod_rule.assert_awaited_once()
+    assert "setup complete" in ctx.approve.await_args.args[0]
+
+
+def test_revoked_authorization_or_owner_change_during_confirmation_prevents_setup(monkeypatch):
+    from cogs.antinuke import Antinuke
+    for change in ("owner", "authorization", "left"):
+        db = FakeDB()
+        bot = bot_with(db)
+        guild = guild_with()
+        guild.owner_id = 27
+        bot.get_guild = lambda gid: guild
+        bot.is_authorized = lambda gid: True
+        cog = bot.get_cog("Antinuke")
+        async def confirm(*args, **kwargs):
+            if change == "owner":
+                guild.owner_id = 29
+            elif change == "authorization":
+                bot.is_authorized = lambda gid: False
+            else:
+                bot.get_guild = lambda gid: None
+            return True
+        ctx = SimpleNamespace(guild=guild, clean_prefix=",", author=SimpleNamespace(id=27), confirm=confirm,
+                              approve=AsyncMock(), warn=AsyncMock())
+        asyncio.run(Antinuke.cmd_autosetup.callback(cog, ctx))
+        assert db.store == {} and ctx.approve.await_count == 0
+        assert "cancelled" in ctx.warn.await_args.args[0]
+
+
+def test_setup_reports_possible_partial_failure(monkeypatch):
+    from cogs.antinuke import Antinuke
+    db = FakeDB()
+    bot = bot_with(db)
+    guild = guild_with()
+    guild.owner_id = 27
+    bot.get_guild = lambda gid: guild
+    bot.is_authorized = lambda gid: True
+    cog = bot.get_cog("Antinuke")
+    monkeypatch.setattr(autosetup, "run_once", AsyncMock(side_effect=RuntimeError("db failed")))
+    ctx = SimpleNamespace(guild=guild, clean_prefix=",", author=SimpleNamespace(id=27), confirm=AsyncMock(return_value=True),
+                          approve=AsyncMock(), warn=AsyncMock())
+    asyncio.run(Antinuke.cmd_autosetup.callback(cog, ctx))
+    assert "some changes may have been applied" in ctx.warn.await_args.args[0]
+    ctx.approve.assert_not_awaited()
+
+
+def test_join_prompt_waits_for_authorization_during_grace_period(monkeypatch):
+    from cogs.authorization import Authorization
+    bot = bot_with(FakeDB())
+    guild = guild_with()
+    guild.owner_id = 27
+    guild.owner = SimpleNamespace(id=27, send=AsyncMock())
+    bot.authorized = set()
+    bot.db.execute = AsyncMock()
+    bot.get_guild = lambda gid: guild
+    bot.is_authorized = lambda gid: gid in bot.authorized
+    an = bot.get_cog("Antinuke")
+    auth = Authorization(bot)
+    bot.get_cog = lambda name: {"Antinuke": an, "Authorization": auth}.get(name)
+    auth.find_inviter, auth.notify_guild, auth.alert_developers = AsyncMock(), AsyncMock(), AsyncMock()
+    guild.me.joined_at = discord.utils.utcnow()
+    guild.leave = AsyncMock()
+    monkeypatch.setitem(an.autosetup_on_join.__func__.__globals__, "asyncio", SimpleNamespace(sleep=AsyncMock()))
+
+    async def go():
+        rejecting = asyncio.create_task(auth.reject(guild))
+        # Synchronize on the pending event without depending on Discord timing.
+        for _ in range(20):
+            if guild.id in auth._pending_approvals:
+                break
+            await asyncio.sleep(0)
+        waiting = asyncio.Event()
+        original_wait = auth.wait_for_pending_approval
+        async def wait_for_approval(gid):
+            waiting.set()
+            return await original_wait(gid)
+        auth.wait_for_pending_approval = wait_for_approval
+        prompt = asyncio.create_task(an.autosetup_on_join(guild))
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        guild.owner.send.assert_not_awaited()
+        await auth.authorize(guild.id, 42)
+        await asyncio.wait_for(asyncio.gather(rejecting, prompt), timeout=1)
+        guild.owner.send.assert_awaited_once()
+        guild.leave.assert_not_awaited()
+    asyncio.run(go())
