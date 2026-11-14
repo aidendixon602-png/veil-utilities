@@ -21,6 +21,7 @@ import html
 import ipaddress
 import json
 import logging
+import re
 import secrets
 import time
 from typing import TYPE_CHECKING, Any
@@ -72,6 +73,17 @@ def _esc(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def _server_avatar(guild) -> str:
+    """Render an actual Discord CDN icon when available; never trust an arbitrary image URL."""
+    icon = getattr(guild, "icon", None)
+    if icon:
+        url = str(icon)
+        pattern = rf"https://cdn\.discordapp\.com/icons/{int(guild.id)}/[a-zA-Z0-9_]+\.(?:png|jpg|jpeg|webp|gif)(?:\?size=\d+)?"
+        if re.fullmatch(pattern, url):
+            return f'<img class="server-icon" src="{_esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">'
+    return f'<span class="server-initial" aria-hidden="true">{_esc(guild.name[:1].upper() or "?")}</span>'
+
+
 def _is_loopback(host: str) -> bool:
     if host.lower() == "localhost":
         return True
@@ -99,98 +111,139 @@ def _parse_ids(raw: str) -> list[int]:
 
 
 CSS = """
-:root { color-scheme:dark; --bg:#101112; --surface:#18191b; --raised:#202123; --border:#343537;
-        --text:#f2f0eb; --muted:#aaa9a4; --subtle:#8d8d88; --accent:#e16e65; }
+:root { color-scheme:dark; --bg:#0b0d17; --surface:#141826; --surface2:#1a2031;
+        --border:#30374a; --text:#f5f5fb; --muted:#b0b8ca; --subtle:#929bb0;
+        --accent:#a99bff; --rose:#ff8993; }
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; }
 body { margin:0; background:var(--bg); color:var(--text);
        font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 a { color:inherit; text-decoration:none; }
 a:hover { color:#fff; }
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid #f0998e; outline-offset:3px; }
-.skip-link { position:absolute; left:-9999px; top:8px; padding:10px 14px; background:#fff; color:#111; z-index:5; }
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid #d4cbff; outline-offset:3px; }
+.skip-link { position:absolute; left:-9999px; top:8px; padding:10px 14px; background:#fff; color:#111; z-index:8; }
 .skip-link:focus { left:12px; color:#111; }
-.container { max-width:1440px; margin:0 auto; padding:0 56px 80px; }
-header { min-height:86px; display:flex; align-items:center; justify-content:space-between; gap:24px;
-         border-bottom:1px solid var(--border); margin-bottom:50px; }
-.brand { display:flex; align-items:center; gap:13px; color:var(--text); }
+.shell { min-height:100vh; display:grid; grid-template-columns:224px minmax(0,1fr); }
+.sidebar { background:#101321; border-right:1px solid #282d3f; display:flex; flex-direction:column;
+           padding:26px 18px; gap:36px; }
+.brand { display:flex; align-items:center; gap:11px; color:var(--text); padding:0 5px; }
 .brand:hover { color:var(--text); }
-.brand-mark { width:35px; height:35px; display:grid; place-items:center; background:#c94f48; color:#fff;
-              font-family:Georgia,serif; font-size:23px; line-height:1; font-weight:700; }
-.logo { display:block; font-size:15px; font-weight:700; letter-spacing:.02em; line-height:1.1; }
-.brand-caption { display:block; margin-top:4px; color:var(--subtle); font-size:10px; line-height:1.1;
-                 font-weight:600; letter-spacing:.09em; text-transform:uppercase; }
+.brand-mark { display:grid; place-items:center; width:39px; height:39px; flex:none; border-radius:12px;
+              background:#704fcd; border:1px solid #9676ed; box-shadow:0 6px 18px #7452ce30; color:#fff; }
+.brand-mark svg { width:23px; height:23px; }
+.logo { display:block; font-size:15px; font-weight:750; letter-spacing:-.025em; line-height:1.15; }
+.brand-caption { display:block; margin-top:4px; color:var(--subtle); font-size:11px; line-height:1.1; }
+.nav-label { display:block; color:#8993a9; font-size:10px; font-weight:700; letter-spacing:.11em; padding:0 12px 10px; }
+.nav-link { display:flex; align-items:center; gap:11px; color:#e7e5ff; background:#282846; border:1px solid #454063;
+            border-radius:9px; padding:11px 12px; font-size:13px; font-weight:650; }
+.nav-link svg { width:17px; height:17px; color:#c6b9ff; flex:none; }
+.side-note { margin-top:auto; border:1px solid #30364b; border-radius:12px; padding:16px 14px;
+             background:#191d2d; color:var(--muted); font-size:12px; line-height:1.55; }
+.side-note strong { display:block; color:#e7e5f2; font-size:12px; margin-bottom:6px; }
+.workspace { min-width:0; }
+header { height:76px; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:20px;
+         border-bottom:1px solid #2b3142; background:#101321; }
+.top-title { color:var(--muted); font-size:12px; } .top-title b { color:#f2f1f8; font-size:13px; font-weight:650; }
+.top-separator { padding:0 9px; color:#677087; }
+.who { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--muted); }
+.who b { color:var(--text); font-weight:650; } .inline { display:inline; }
+.account-dot { display:grid; place-items:center; width:32px; height:32px; border-radius:50%;
+               background:#393153; color:#d8cfff; font-size:13px; font-weight:700; }
+.container { max-width:1440px; margin:0 auto; padding:42px 40px 72px; }
 .sub { display:none; }
-.who { display:flex; align-items:center; gap:12px; font-size:12px; color:var(--muted); }
-.who b { color:var(--text); font-weight:600; } .inline { display:inline; }
-.eyebrow { color:var(--accent); font:600 11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;
-           letter-spacing:.07em; text-transform:uppercase; margin:0 0 13px; }
-h1,h2,h3,p { margin:0; } h1 { font-size:clamp(27px,3.5vw,38px); line-height:1.15; letter-spacing:-.045em; font-weight:650; }
-h2 { font-size:16px; line-height:1.3; letter-spacing:-.015em; font-weight:650; } h3 { font-size:14px; }
+.eyebrow { color:#c1b5ff; font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; margin:0 0 10px; }
+h1,h2,h3,p { margin:0; } h1 { font-size:clamp(27px,3vw,36px); line-height:1.18; letter-spacing:-.04em; font-weight:720; }
+h2 { font-size:17px; line-height:1.3; letter-spacing:-.02em; font-weight:700; } h3 { font-size:14px; }
 p.muted { color:var(--muted); margin:8px 0 20px; }
-.page-heading { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; margin:0 0 32px; }
+.page-heading { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; margin:0 0 28px; }
 .page-heading p:not(.eyebrow) { color:var(--muted); margin-top:9px; max-width:650px; }
-.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--border);
-         background:var(--surface); margin:0 0 42px; }
-.stat-card { min-width:0; padding:21px 24px 20px; border-right:1px solid var(--border); }
-.stat-card:last-child { border-right:0; }
-.stat-lbl { color:var(--muted); font-size:12px; } .stat-val { margin-top:8px; font-size:25px; line-height:1.1;
-           font-weight:650; letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
-.card { background:var(--surface); border:1px solid var(--border); padding:26px; margin-bottom:14px; }
-.card-head { display:flex; align-items:flex-start; gap:15px; padding-bottom:20px; margin-bottom:22px; border-bottom:1px solid var(--border); }
-.section-icon { display:grid; place-items:center; width:30px; height:30px; flex:none; border:1px solid #5a4543;
-                color:#f18a7e; font:600 11px ui-monospace,SFMono-Regular,Consolas,monospace; }
+.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:0 0 26px; }
+.stat-card { position:relative; overflow:hidden; min-width:0; padding:20px; border:1px solid var(--border);
+             border-radius:13px; background:#161b2a; box-shadow:0 10px 24px #00000012; }
+.stat-card:before { content:""; display:block; width:32px; height:3px; background:#a78dff; border-radius:4px; margin-bottom:17px; }
+.stat-card:nth-child(2):before { background:#f18c98; } .stat-card:nth-child(3):before { background:#73bfcc; }
+.stat-card:nth-child(4):before { background:#e4ba70; }
+.stat-lbl { color:var(--muted); font-size:12px; font-weight:550; }
+.stat-val { margin-top:5px; font-size:27px; line-height:1.15; font-weight:720; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
+.stat-foot { color:var(--subtle); font-size:11px; margin-top:7px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:25px; margin-bottom:16px;
+        box-shadow:0 10px 25px #00000012; }
+.card-head { display:flex; align-items:flex-start; gap:14px; padding-bottom:19px; margin-bottom:22px; border-bottom:1px solid #30374a; }
+.section-icon { display:grid; place-items:center; width:38px; height:38px; flex:none; border:1px solid #51486f;
+                background:#28243b; border-radius:11px; color:#d8c8ff; font:700 11px ui-monospace,SFMono-Regular,Consolas,monospace; }
 .card-head p { color:var(--muted); font-size:13px; margin-top:4px; }
-.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:39px; padding:9px 15px;
-       background:#c74c45; border:1px solid #c74c45; border-radius:3px; color:#fff;
-       font-family:inherit; font-size:12px; line-height:1.2; font-weight:650; cursor:pointer; text-decoration:none; white-space:nowrap; }
-.btn:hover { background:#a93f39; border-color:#a93f39; color:#fff; }
-.btn-plain { background:transparent; border-color:#4a4b4c; color:#e7e4de; }
-.btn-plain:hover { background:#292a2c; border-color:#686869; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:10px 16px;
+       background:#7254cb; border:1px solid #896ee0; border-radius:8px; color:white;
+       font-family:inherit; font-size:12px; line-height:1.2; font-weight:700; cursor:pointer; text-decoration:none; white-space:nowrap; }
+.btn:hover { background:#6243ba; border-color:#a38cf5; color:#fff; }
+.btn-plain { background:#22283a; border-color:#3c445a; color:#f0f0f8; }
+.btn-plain:hover { background:#30384c; border-color:#606a84; }
 .form-group { margin-bottom:18px; min-width:0; }
-label { display:block; color:#e1dfda; font-size:12px; font-weight:600; margin-bottom:7px; }
-input,select { display:block; width:100%; min-height:42px; padding:10px 12px; background:#101112; color:var(--text);
-               border:1px solid #47484a; border-radius:3px; font:inherit; font-size:13px; }
-input[type=hidden] { display:none; } input::placeholder { color:#8e8e8b; }
-input:focus,select:focus { border-color:#e16e65; }
+label { display:block; color:#e0e3ed; font-size:12px; font-weight:650; margin-bottom:7px; }
+input,select { display:block; width:100%; min-height:42px; padding:10px 12px; background:#0e1220; color:var(--text);
+               border:1px solid #424c63; border-radius:8px; font:inherit; font-size:13px; }
+input[type=hidden] { display:none; } input::placeholder { color:#98a2b6; }
+input:focus,select:focus { border-color:#b7a8ff; }
 .hint { display:block; color:var(--muted); font-size:12px; line-height:1.5; margin-top:7px; }
-.note { background:#202122; border-left:2px solid #bc7068; color:#d6d2ca; padding:12px 15px; margin-bottom:22px; font-size:13px; }
-.note.ok { border-left-color:#76b89a; color:#b7e2ca; background:#1a2921; }
-.note.bad { border-left-color:#e16e65; }
-.center { max-width:620px; margin:75px auto; padding:58px 42px; text-align:center; }
+.note { background:#252335; border:1px solid #554969; border-radius:9px; color:#e1d7e8; padding:13px 15px; margin-bottom:22px; font-size:13px; }
+.note.ok { border-color:#35745e; color:#bcebd1; background:#19332c; }
+.note.bad { border-color:#ab535b; }
+.center { max-width:620px; margin:65px auto; padding:58px 42px; text-align:center; }
 .center h1 { margin:0 0 14px; } .center .btn { margin-top:8px; }
-.grid,.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 22px; }
-.server-box { border:1px solid var(--border); padding:16px; display:flex; justify-content:space-between; gap:15px; }
+.grid,.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; }
+.server-box { border:1px solid var(--border); border-radius:10px; padding:16px; display:flex; justify-content:space-between; gap:15px; }
 .server-name { font-weight:650; overflow-wrap:anywhere; } .server-meta,.table-note { font-size:12px; color:var(--muted); }
-.filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin:24px 0 22px; }
-.filters .form-group { flex:1 1 135px; margin:0; } .filters .form-group:first-child { flex:2 1 205px; }
-.table-wrap { overflow-x:auto; } table { width:100%; border-collapse:collapse; text-align:left; }
-th { color:var(--subtle); font-size:10px; font-weight:650; letter-spacing:.07em; text-transform:uppercase; white-space:nowrap; }
-th,td { padding:16px 12px; border-bottom:1px solid #303133; } td { color:#d5d3ce; font-size:13px; }
-td:first-child { min-width:200px; font-weight:650; } td:first-child a:hover { color:#f28a7c; }
-.server-initial { display:inline-grid; place-items:center; width:32px; height:32px; margin-right:12px;
-                  border:1px solid #50504e; color:#d7c6bf; background:#282422; font-size:12px; font-weight:650; }
+.filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin:23px 0 20px; padding:18px; border:1px solid #30384a;
+           border-radius:11px; background:#111522; }
+.filters .form-group { flex:1 1 120px; margin:0; } .filters .form-group:first-child { flex:2 1 190px; }
+.table-note { padding:0 0 5px; } .table-wrap { overflow-x:auto; } table { width:100%; border-collapse:collapse; text-align:left; }
+th { color:var(--subtle); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
+th,td { padding:15px 12px; border-bottom:1px solid #30374a; } td { color:#e0e3ed; font-size:13px; }
+td:first-child { min-width:200px; font-weight:650; } td:first-child a:hover { color:#c5b6ff; }
+.server-initial,.server-icon { display:inline-grid; vertical-align:middle; place-items:center; width:38px; height:38px; margin-right:12px;
+              border-radius:12px; border:1px solid #5c5284; color:#ede8ff; background:#373055; font-size:14px; font-weight:700; }
+.server-icon { object-fit:cover; }
 td:nth-child(2) { font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px; }
-tbody tr:hover { background:#ffffff04; } tbody tr:last-child td { border-bottom:0; }
-.tag { display:inline-flex; align-items:center; gap:7px; padding:0; font-size:12px; font-weight:600; color:#aaa9a4; }
-.tag:before { content:""; width:6px; height:6px; border-radius:50%; background:#82827c; }
-.tag.on { color:#a9d7bb; } .tag.on:before { background:#83be99; }
-.settings-layout { display:grid; grid-template-columns:205px minmax(0,1fr); gap:32px; align-items:start; }
-.section-nav { position:sticky; top:22px; border-top:1px solid var(--border); padding-top:14px; }
-.section-nav span { display:block; padding:0 12px 11px; color:var(--subtle); font-size:10px; font-weight:650; letter-spacing:.09em; }
-.section-nav a { display:block; padding:9px 12px; color:#bdbdb8; border-left:2px solid transparent; font-size:13px; }
-.section-nav a:hover,.section-nav a:focus { background:#1d1e20; border-left-color:#c74c45; color:#fff; }
+tbody tr:hover { background:#ffffff06; } tbody tr:last-child td { border-bottom:0; }
+.tag { display:inline-flex; align-items:center; gap:7px; padding:4px 9px; border-radius:99px; font-size:11px; font-weight:700;
+       color:#c0c7d5; background:#262b3a; }
+.tag:before { content:""; width:6px; height:6px; border-radius:50%; background:#929baa; }
+.tag.on { color:#a9e9c9; background:#193a31; } .tag.on:before { background:#78dba8; }
+.tag.off { color:#ffd0c9; background:#482b32; } .tag.off:before { background:#ff9b91; }
+#antinuke .section-icon, #blacklist .section-icon { background:#382631; border-color:#754954; color:#ffd1d2; }
+#logging .section-icon, #exclusions .section-icon { background:#20333d; border-color:#3e6977; color:#b3e9ef; }
+.settings-layout { display:grid; grid-template-columns:190px minmax(0,1fr); gap:24px; align-items:start; }
+.section-nav { position:sticky; top:22px; border:1px solid var(--border); background:#141826; border-radius:12px; padding:14px 10px; }
+.section-nav span { display:block; padding:4px 10px 10px; color:var(--subtle); font-size:10px; font-weight:700; letter-spacing:.08em; }
+.section-nav a { display:block; padding:9px 10px; color:#c9ccda; border-radius:7px; font-size:13px; }
+.section-nav a:hover,.section-nav a:focus { background:#29283f; color:#f2edff; }
 .settings-actions { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 0; }
 .settings-actions p { color:var(--muted); font-size:12px; } .settings-actions .buttons { display:flex; gap:10px; }
-@media (max-width:900px) { .container { padding:0 24px 50px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .stat-card:nth-child(2) { border-right:0; } .stat-card:nth-child(-n+2) { border-bottom:1px solid var(--border); }
-  .settings-layout { grid-template-columns:1fr; gap:20px; } .section-nav { position:static; display:flex; flex-wrap:wrap; gap:3px; }
-  .section-nav span { width:100%; } }
-@media (max-width:600px) { .container { padding:0 16px 36px; } header { min-height:0; padding:17px 0; margin-bottom:35px; flex-wrap:wrap; }
-  .who { width:100%; justify-content:space-between; } .page-heading { align-items:flex-start; flex-direction:column; }
-  .card { padding:20px 16px; } .grid,.form-grid { grid-template-columns:1fr; } .stat-card { padding:18px; }
-  .stat-val { font-size:22px; } .settings-actions { align-items:stretch; flex-direction:column; }
+@media (max-width:1050px) { .shell { grid-template-columns:76px minmax(0,1fr); } .sidebar { padding:24px 12px; }
+  .brand { justify-content:center; padding:0; } .brand-copy,.nav-label,.nav-text,.side-note { display:none; }
+  .nav-link { justify-content:center; padding:12px; } .settings-layout { grid-template-columns:1fr; gap:18px; }
+  .section-nav { position:static; display:flex; flex-wrap:wrap; gap:3px; } .section-nav span { width:100%; } }
+@media (max-width:760px) { .shell { display:block; } .sidebar { display:none; } header { height:auto; min-height:66px; padding:15px 20px; }
+  .container { padding:30px 20px 50px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .top-title { display:block; } .page-heading { align-items:flex-start; flex-direction:column; } }
+@media (max-width:480px) { header { flex-wrap:wrap; } .who { width:100%; justify-content:flex-end; }
+  .container { padding:26px 15px 36px; } .card { padding:20px 16px; } .grid,.form-grid { grid-template-columns:1fr; }
+  .stat-card { padding:16px; } .stat-val { font-size:23px; } .settings-actions { align-items:stretch; flex-direction:column; }
   .center { margin:35px auto; padding:42px 20px; } }
+@media (max-width:760px) {
+  .server-table,.server-table tbody { display:block; width:100%; }
+  .server-table thead { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+                        clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  .server-table tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px;
+                     border-bottom:1px solid #30374a; padding:18px 0; }
+  .server-table tr:last-child { border:0; } .server-table td { display:block; min-width:0; padding:0; border:0; overflow-wrap:anywhere; }
+  .server-table td:before { content:attr(data-label); display:block; color:var(--subtle); font-size:10px;
+                            font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin-bottom:3px; }
+  .server-table td:first-child,.server-table td:last-child { grid-column:1 / -1; }
+  .server-table td:first-child:before,.server-table td:last-child:before { display:none; }
+  .server-table td:last-child .btn { width:100%; margin-top:3px; }
+  .server-table td[colspan] { grid-column:1 / -1; }
+}
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
 """
 
@@ -410,7 +463,9 @@ class DashboardServer:
     def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "") -> web.Response:
         who = ""
         if user and not user.get("local"):
-            who = (f'<div class="who">Signed in as <b>{_esc(user.get("name"))}</b>'
+            who = (f'<div class="who"><span class="account-dot" aria-hidden="true">'
+                   f'{_esc(str(user.get("name") or "?")[:1].upper())}</span>'
+                   f'<span>Signed in as <b>{_esc(user.get("name"))}</b></span>'
                    f'<form class="inline" method="POST" action="/logout">'
                    f'<input type="hidden" name="csrf" value="{_esc(user.get("csrf"))}">'
                    f'<button class="btn btn-plain" type="submit">Log out</button></form></div>')
@@ -422,9 +477,21 @@ class DashboardServer:
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
             f"<title>Veil Utilities • {_esc(title)}</title><style>{CSS}</style></head><body>"
             '<a class="skip-link" href="#main">Skip to content</a>'
-            f'<div class="container"><header><div><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">V</span>'
-            f'<span><span class="logo">Veil Utilities</span><span class="brand-caption">Server administration</span></span></a>{sub}</div>{who}</header>'
-            f'<main id="main">{body}</main></div></body></html>'
+            '<div class="shell"><aside class="sidebar"><a href="/" class="brand">'
+            '<span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" '
+            'stroke="currentColor" stroke-width="1.7"><path d="M12 2.5 20 6v5.4c0 4.6-3.2 7.7-8 10.1-4.8-2.4-8-5.5-8-10.1V6L12 2.5Z"/>'
+            '<path d="m8.8 11.5 2.2 2.2 4.6-5"/></svg></span>'
+            '<span class="brand-copy"><span class="logo">Veil Utilities</span>'
+            '<span class="brand-caption">Server management</span></span></a>'
+            '<nav aria-label="Main navigation"><span class="nav-label">WORKSPACE</span>'
+            '<a class="nav-link" href="/" aria-label="Server overview"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" '
+            'stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/>'
+            '<rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>'
+            '<rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="nav-text">Server overview</span></a></nav>'
+            '<div class="side-note"><strong>Your workspace</strong>Manage settings for the servers available to your account.</div>'
+            '</aside><div class="workspace"><header>'
+            f'<div class="top-title"><a href="/">Veil Utilities</a><span class="top-separator">/</span><b>{_esc(title)}</b>{sub}</div>{who}'
+            f'</header><div class="container"><main id="main">{body}</main></div></div></div></body></html>'
         )
         return web.Response(text=doc, content_type="text/html")
 
@@ -460,15 +527,20 @@ class DashboardServer:
             all_guilds = list(self.bot.guilds)
             members = sum(getattr(g, "member_count", None) or len(getattr(g, "members", [])) for g in all_guilds)
             latency = self.bot.latency
-            latency_ms = int(latency * 1000) if isinstance(latency, (int, float)) and latency == latency else 0
+            latency_text = (f"{int(latency * 1000)} ms" if isinstance(latency, (int, float))
+                            and latency == latency and 0 < latency < float("inf") else "Unavailable")
             uptime = int(time.time() - getattr(self.bot, "started_at", time.time()))
             hours, rem = divmod(max(uptime, 0), 3600)
             body += (
                 '<div class="stats">'
-                f'<div class="stat-card"><div class="stat-lbl">Servers</div><div class="stat-val">{len(all_guilds)}</div></div>'
-                f'<div class="stat-card"><div class="stat-lbl">Members</div><div class="stat-val">{members}</div></div>'
-                f'<div class="stat-card"><div class="stat-lbl">Gateway latency</div><div class="stat-val">{latency_ms}ms</div></div>'
-                f'<div class="stat-card"><div class="stat-lbl">Uptime</div><div class="stat-val">{hours}h {rem // 60}m</div></div>'
+                f'<div class="stat-card"><div class="stat-lbl">Servers</div><div class="stat-val">{len(all_guilds):,}</div>'
+                '<div class="stat-foot">Joined by Veil</div></div>'
+                f'<div class="stat-card"><div class="stat-lbl">Members</div><div class="stat-val">{members:,}</div>'
+                '<div class="stat-foot">Across joined servers</div></div>'
+                f'<div class="stat-card"><div class="stat-lbl">Gateway latency</div><div class="stat-val">{latency_text}</div>'
+                '<div class="stat-foot">Discord connection</div></div>'
+                f'<div class="stat-card"><div class="stat-lbl">Uptime</div><div class="stat-val">{hours}h {rem // 60}m</div>'
+                '<div class="stat-foot">Since last start</div></div>'
                 "</div>"
             )
         # Search and filters are evaluated on the server, after the access check. No guild
@@ -521,12 +593,12 @@ class DashboardServer:
         for g, count, enabled, auth, log_count in visible:
             state = "on" if enabled else "off"
             rows.append(
-                f'<tr><td><span class="server-initial" aria-hidden="true">{_esc(g.name[:1].upper() or "?")}</span>'
+                f'<tr><td data-label="Server">{_server_avatar(g)}'
                 f'<a href="/servers/{_esc(g.id)}">{_esc(g.name)}</a></td>'
-                f'<td>{_esc(g.id)}</td><td>{_esc(count)}</td>'
-                f'<td><span class="tag {state}">{state.title()}</span></td>'
-                f'<td>{auth.title()}</td><td>{log_count} configured</td>'
-                f'<td><a class="btn btn-plain" href="/servers/{_esc(g.id)}" '
+                f'<td data-label="Server ID">{_esc(g.id)}</td><td data-label="Members">{_esc(count)}</td>'
+                f'<td data-label="Antinuke"><span class="tag {state}">{state.title()}</span></td>'
+                f'<td data-label="Authorized">{auth.title()}</td><td data-label="Logs">{log_count} configured</td>'
+                f'<td data-label=""><a class="btn btn-plain" href="/servers/{_esc(g.id)}" '
                 f'aria-label="Configure {_esc(g.name)}">Configure</a></td></tr>'
             )
         listing = "".join(rows) or '<tr><td colspan="7">No servers match your filters.</td></tr>'
@@ -555,7 +627,7 @@ class DashboardServer:
                  '<button class="btn" type="submit">Apply filters</button>'
                  '<a class="btn btn-plain" href="/">Clear</a></form>'
                  f'<p class="table-note">{len(visible)} of {len(guilds)} servers shown</p>'
-                 '<div class="table-wrap"><table><thead><tr><th>Server</th><th>ID</th><th>Members</th>'
+                 '<div class="table-wrap"><table class="server-table"><thead><tr><th>Server</th><th>ID</th><th>Members</th>'
                  '<th>Antinuke</th><th>Authorized</th><th>Logs</th><th></th></tr></thead>'
                  f'<tbody>{listing}</tbody></table></div></div>')
         return self._page("Dashboard", body, user)

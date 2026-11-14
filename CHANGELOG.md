@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dashboard workspace.** Updated the dashboard with a Discord-inspired app navigation, clearer status and
+  statistics, Discord server icons where available, and mobile-friendly server cards. Existing settings and
+  access checks remain unchanged.
 - **Dashboard visual refinement.** Reworked the interface with a restrained charcoal and red palette, denser
   server overview, simpler typography and section markers, and improved keyboard navigation.
 - **Dashboard refresh.** Redesigned the overview and server settings with responsive layouts, section navigation,
