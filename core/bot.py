@@ -207,12 +207,31 @@ class Veil(commands.AutoShardedBot):
         except Exception as e:
             log.warning("Could not start the web dashboard on %s:%d: %s", dashboard.host, dashboard.port, e)
             return
+        if settings.dashboard_ngrok_enabled:
+            from core.dashboard_tunnel import DashboardTunnel
+            try:
+                tunnel = await asyncio.wait_for(
+                    DashboardTunnel.open(token=settings.ngrok_authtoken, public_url=settings.dashboard_url,
+                                         host=dashboard.host, port=dashboard.port), timeout=30)
+            except Exception:
+                # SDK errors can contain credentials; never write their text to logs or Discord.
+                log.warning("Dashboard tunnel could not start; check ngrok settings and host connectivity. "
+                            "The dashboard listener has been stopped; the bot will continue.")
+                await dashboard.stop()
+                return
+            self.dashboard_tunnel = tunnel
+            log.info("Dashboard ngrok tunnel connected")
         self.dashboard = dashboard
 
     async def close(self) -> None:
         await self.incident_manager.close()
         if hasattr(self, "presence_rotator") and self.presence_rotator.is_running():
             self.presence_rotator.cancel()
+        if getattr(self, "dashboard_tunnel", None):
+            try:
+                await self.dashboard_tunnel.close()
+            except Exception:
+                log.warning("Could not cleanly close dashboard tunnel")
         if hasattr(self, "dashboard") and self.dashboard:
             try:
                 await self.dashboard.stop()

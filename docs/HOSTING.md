@@ -66,6 +66,12 @@ The dashboard runs in the bot process and stays **off by default** until hosting
 4. Once the proxy and OAuth redirect are ready, set `DASHBOARD_ENABLED=true` and restart the bot. Open your configured HTTPS origin and sign in with Discord. Missing login settings or a non-HTTPS URL are rejected. If the host cannot expose an HTTPS website, keep the dashboard disabled.
 5. Test access using a bot developer, a server owner and an unrelated account; confirm the unrelated account is denied. Test changes on a disposable server first. Verify server authorization and any requested leave independently in Discord.
 
+### Using ngrok on the bot host
+
+If the host cannot provide HTTPS, the optional ngrok SDK can connect a public HTTPS domain to the bot's **loopback** listener without a separate startup command. Use your account's ngrok-assigned domain as `DASHBOARD_URL` (a public HTTPS origin with no port), register its `/callback` redirect in Discord, and privately set `NGROK_AUTHTOKEN` and `DASHBOARD_NGROK_ENABLED=true`. Install the current `requirements.txt`, set `DASHBOARD_ENABLED=true` after OAuth is configured, and restart. Keep `DASHBOARD_HOST` unset or `127.0.0.1`; do not forward its port publicly. The tunnel will be stopped on shutdown. If it cannot connect, the dashboard listener is stopped and the bot continues; inspect the host's network access and ngrok account settings. The integration requires outbound access to ngrok and its SDK; compatibility with a particular hosting plan must be tested.
+
+The ngrok HTTPS endpoint is public; the random-looking address is not access control. Veil's Discord login still enforces access. HTTPS terminates at ngrok, which can process dashboard traffic; review your ngrok traffic inspection, retention, and account access settings, and avoid exposing OAuth codes or cookies. The free plan can have quotas and interstitials. Keep your ngrok token private and do not put it in a startup command, Git or screenshots.
+
 The dashboard covers server overview, explicit server authorization for developers, logging routing, and selected role-blacklist and antinuke settings; it is not a replacement for every bot command. Existing settings forms save multiple modules separately, so a database failure can leave a partial save. See [dashboard settings](CONFIGURATION.md#optional-dashboard) and [`core/dashboard.py`](../core/dashboard.py) before exposing it.
 
 ## Rollback

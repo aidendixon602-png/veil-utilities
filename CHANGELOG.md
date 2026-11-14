@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Optional ngrok dashboard tunnel.** Veil can start an ngrok HTTPS endpoint for its loopback-only dashboard
+  using a private authtoken, without putting the token in a startup command. The bot remains available if the
+  tunnel fails, and the dashboard listener is stopped in that case. This requires the ngrok SDK and network access.
 - **Dashboard server authorization.** Bot developers can review explicit server approvals, authorize IDs before
   the bot joins, and confirm revocations in the dashboard. Revoking can make the bot leave; automatic
   authorization and leave failures are reported separately. All logging categories can now be routed from the
