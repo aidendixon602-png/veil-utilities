@@ -529,3 +529,18 @@ def test_blacklisted_roles_that_were_deleted_are_named_as_deleted():
     assert Moderation._role_entry(guild, 55) == f"{alive.mention} (`55`)"
     assert Moderation._role_entry(guild, 77) == "deleted role (`77`)"
     assert Moderation._role_entry(None, 77) == "deleted role (`77`)"
+
+
+def test_security_scan_reads_real_filter_config_and_antinuke_default(bot):
+    async def _run():
+        guild = _mock_guild(123)
+        ctx = _mock_context(bot, guild, _mock_member(555))
+        bot._storage[(123, "filters")] = {"invites": True, "links": True, "words": ["test"]}
+        bot._storage[(123, "automod")] = {}  # an obsolete/unrelated module must not mask the real filters
+        await Moderation.security.callback(Moderation(bot), ctx)
+        embed = ctx.neutral.return_value.edit.call_args.kwargs["embed"]
+        telemetry = embed.fields[0].value
+        assert "Active (3 filters running)" in telemetry
+        assert "Antinuke Engine**: 🔴 Disabled" in telemetry
+
+    asyncio.run(_run())

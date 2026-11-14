@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dashboard security tools.** Antinuke readiness now reports enabled rules, bot permissions, role hierarchy
+  and intent limitations without changing settings. The logging form previews saved direct and event-fallback
+  routes. Advanced Automod controls manage individual words, patterns, allowed domains and role/channel exemptions,
+  with validation, explicit removal confirmation and stale-revision checks.
+
 - **Dashboard server prefix.** Owners and developers can change a server’s command prefix in its workspace;
   the form validates input and rejects stale settings while preserving unrelated configuration.
 
@@ -35,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   either.
 
 ### Changed
+
+- The Discord security scan now reads the actual Automod filter configuration and the Antinuke default, instead
+  of reporting an unrelated module or assuming Antinuke is enabled when its configuration is absent.
 
 - **Dashboard landing page.** Replaced the server table with searchable server cards and a role-aware workspace.
   Developers have direct access to authorization and bot-wide statistics; server owners only see their authorized

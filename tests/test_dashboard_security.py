@@ -48,6 +48,8 @@ def make_bot(guild_name="Test Server"):
     channels = {cid: MagicMock(spec=discord.TextChannel) for cid in (44, 66)}
     guilds[0].get_channel = lambda cid: channels.get(cid)
     guilds[0].text_channels = []
+    guilds[1].get_channel = lambda cid: None
+    guilds[1].text_channels = []
     return SimpleNamespace(
         guilds=guilds,
         get_guild=lambda gid: next((g for g in guilds if g.id == gid), None),
@@ -1262,5 +1264,169 @@ def test_general_prefix_form_preserves_other_settings_and_enforces_safety():
         result = await client.post(f"{url}/general", headers=dev_headers,
                                    data={**data, "csrf": csrf_of(server, dev_token), "revision": revision, "prefix": ";"})
         assert result.status == 200 and bot.db.store[(GUILD_ID, "settings")]["prefix"] == ";"
+
+    run(server, scenario)
+
+
+def test_antinuke_readiness_is_scoped_and_read_only():
+    bot = make_bot()
+    guild = bot.guilds[0]
+    guild.me = SimpleNamespace(guild_permissions=discord.Permissions(view_audit_log=True, manage_roles=True))
+    bot.intents = SimpleNamespace(members=False)
+    original = {"enabled": True, "modules": {"ban": {"on": True}, "roleinvite": {"on": True, "threshold": 1}}}
+    bot.db.store[(GUILD_ID, "antinuke")] = json.loads(json.dumps(original))
+    server = login_server(bot)
+    _, owner_headers = cookie(server, GUILD_OWNER)
+    _, dev_headers = cookie(server, BOT_OWNER)
+
+    async def scenario(client):
+        url = f"/servers/{GUILD_ID}/features?section=rules"
+        html = await (await client.get(url, headers=owner_headers)).text()
+        assert "Protection readiness" in html and "Missing permissions:" in html
+        assert "Manage Channels" in html and "Server Members intent is off" in html
+        assert "do not guarantee protection" in html
+        assert bot.db.store[(GUILD_ID, "antinuke")] == original and not bot.db.writes
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/features?section=rules", headers=owner_headers)).status == 404
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/features?section=rules", headers=dev_headers)).status == 200
+        guild.me = None
+        html = await (await client.get(url, headers=owner_headers)).text()
+        assert "Bot permissions could not be checked" in html
+
+    run(server, scenario)
+
+
+def test_log_preview_uses_saved_routing_and_timeout_event_fallback():
+    bot = make_bot()
+    guild = bot.guilds[0]
+
+    def channel(cid, name):
+        ch = MagicMock(spec=discord.TextChannel)
+        ch.id, ch.name, ch.position, ch.category = cid, name, cid, None
+        return ch
+
+    join = channel(44, "join-logs")
+    mod = channel(66, "mod-logs")
+    general = channel(77, "midtown-utilities-logging")
+    guild.text_channels = [join, mod, general]
+    guild.get_channel = lambda cid: next((c for c in guild.text_channels if c.id == cid), None)
+    bot.db.store[(GUILD_ID, "logs")] = {"joinleave": 44, "timeouts": -1, "roles": -1, "commands": 999}
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        html = await (await client.get(f"/servers/{GUILD_ID}", headers=headers)).text()
+        assert 'Joins &amp; leaves</span><strong>#join-logs</strong><small>Selected · shared' in html
+        assert 'Timeouts</span><strong>#mod-logs</strong><small>Event fallback; direct route off · shared' in html
+        assert 'Roles</span><strong>No destination</strong><small>Off' in html
+        assert 'Messages</span><strong>#midtown-utilities-logging</strong><small>Automatic' in html
+        assert 'Commands</span><strong>No destination</strong><small>No route found' in html
+        assert 'Unavailable channel (999)' in html and not bot.db.writes
+
+    run(server, scenario)
+
+
+def test_advanced_automod_entries_validate_and_require_explicit_removal():
+    bot = make_bot()
+    original = {"words": ["old", '<script>'], "regex": ["safe"], "links_allow": ["old.example"],
+                "invites": True, "exempt_roles": [90], "legacy": {"keep": True}}
+    bot.db.store[(GUILD_ID, "filters")] = json.loads(json.dumps(original))
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    _, dev_headers = cookie(server, BOT_OWNER)
+    csrf = csrf_of(server, token)
+    path = f"/servers/{GUILD_ID}/features"
+
+    async def revision(client):
+        html = await (await client.get(f"{path}?section=automod", headers=headers)).text()
+        assert "&lt;script&gt;" in html and "<script>" not in html
+        return _feature_revision(html, GUILD_ID, "automod-entry")
+
+    async def scenario(client):
+        rev = await revision(client)
+        base = {"csrf": csrf, "revision": rev, "list_key": "words", "operation": "add", "entry": "New*", "return_section": "automod"}
+        for patch in ({"entry": ""}, {"entry": "x" * 101}, {"entry": "x\ny"}, {"list_key": "legacy"},
+                      {"list_key": "regex", "entry": "["}, {"list_key": "links_allow", "entry": "bad..domain"}):
+            assert (await client.post(f"{path}/automod-entry", headers=headers, data={**base, **patch})).status == 400
+        assert (await client.post(f"{path}/automod-entry", headers=headers, data={**base, "csrf": "bad"})).status == 403
+        assert (await client.post(f"{path}/automod-entry", headers={**headers, "Origin": "https://evil.example"}, data=base)).status == 403
+        assert (await client.post(f"/servers/{OTHER_GUILD_ID}/features/automod-entry", headers=headers, data=base)).status == 404
+        assert (await client.post(f"{path}/automod-entry", headers=dev_headers, data=base)).status == 403
+        assert not bot.db.writes
+        r = await client.post(f"{path}/automod-entry", headers=headers, data=base, allow_redirects=False)
+        assert r.status == 302 and "section=automod" in r.headers["Location"]
+        assert bot.db.store[(GUILD_ID, "filters")]["words"] == ["old", '<script>', "new*"]
+        assert bot.db.store[(GUILD_ID, "filters")]["legacy"] == {"keep": True}
+        assert (await client.post(f"{path}/automod-entry", headers=headers, data=base)).status == 409
+        rev = await revision(client)
+        removal = {**base, "revision": rev, "operation": "remove", "index": "0"}
+        assert (await client.post(f"{path}/automod-entry", headers=headers, data=removal)).status == 400
+        assert bot.db.store[(GUILD_ID, "filters")]["words"][0] == "old"
+        r = await client.post(f"{path}/automod-entry", headers=headers,
+                              data={**removal, "confirm_remove": "yes"}, allow_redirects=False)
+        assert r.status == 302 and bot.db.store[(GUILD_ID, "filters")]["words"] == ['<script>', "new*"]
+        rev = await revision(client)
+        r = await client.post(f"{path}/automod-entry", headers=headers, allow_redirects=False,
+                              data={**base, "revision": rev, "list_key": "links_allow", "entry": "https://www.Example.com/path"})
+        assert r.status == 302 and "example.com" in bot.db.store[(GUILD_ID, "filters")]["links_allow"]
+
+    run(server, scenario)
+
+
+def test_advanced_automod_exemptions_reject_foreign_targets_and_preserve_existing():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, "filters")] = {"exempt_roles": [90], "exempt_channels": [], "invites": True}
+    guild = bot.guilds[0]
+    guild.roles = [SimpleNamespace(id=21, name="Helpers")]
+    guild.get_role = lambda rid: next((r for r in guild.roles if r.id == rid), None)
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    csrf = csrf_of(server, token)
+    path = f"/servers/{GUILD_ID}/features"
+
+    async def get_revision(client):
+        html = await (await client.get(f"{path}?section=automod", headers=headers)).text()
+        assert "Helpers" in html
+        return _feature_revision(html, GUILD_ID, "automod-exempt")
+
+    async def scenario(client):
+        html = await (await client.get(f"{path}?section=automod", headers=headers)).text()
+        assert "Unavailable (90)" in html
+        rev = await get_revision(client)
+        data = {"csrf": csrf, "revision": rev, "list_key": "exempt_roles", "target": "21", "operation": "add"}
+        for target in (str(GUILD_ID), "9999", "21,90", "bad"):
+            assert (await client.post(f"{path}/automod-exempt", headers=headers, data={**data, "target": target})).status == 400
+        assert not bot.db.writes
+        r = await client.post(f"{path}/automod-exempt", headers=headers, data=data, allow_redirects=False)
+        assert r.status == 302 and bot.db.store[(GUILD_ID, "filters")]["exempt_roles"] == [90, 21]
+        assert bot.db.store[(GUILD_ID, "filters")]["invites"] is True
+        rev = await get_revision(client)
+        removal = {**data, "revision": rev, "target": "90", "operation": "remove"}
+        assert (await client.post(f"{path}/automod-exempt", headers=headers, data=removal)).status == 400
+        r = await client.post(f"{path}/automod-exempt", headers=headers,
+                              data={**removal, "confirm_remove": "yes"}, allow_redirects=False)
+        assert r.status == 302 and bot.db.store[(GUILD_ID, "filters")]["exempt_roles"] == [21]
+        rev = await get_revision(client)
+        r = await client.post(f"{path}/automod-exempt", headers=headers, allow_redirects=False,
+                              data={**data, "revision": rev, "list_key": "exempt_channels", "target": "44"})
+        assert r.status == 302 and bot.db.store[(GUILD_ID, "filters")]["exempt_channels"] == [44]
+
+    run(server, scenario)
+
+
+def test_advanced_automod_developer_session_and_access_recheck():
+    bot = make_bot()
+    server = login_server(bot)
+    token, dev_headers = cookie(server, BOT_OWNER)
+    _, owner_headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        path = f"/servers/{OTHER_GUILD_ID}/features"
+        assert (await client.get(f"{path}?section=automod", headers=owner_headers)).status == 404
+        html = await (await client.get(f"{path}?section=automod", headers=dev_headers)).text()
+        revision = _feature_revision(html, OTHER_GUILD_ID, "automod-entry")
+        data = {"csrf": csrf_of(server, token), "revision": revision, "operation": "add", "list_key": "words", "entry": "hello"}
+        response = await client.post(f"{path}/automod-entry", headers=dev_headers, data=data, allow_redirects=False)
+        assert response.status == 302 and bot.db.store[(OTHER_GUILD_ID, "filters")]["words"] == ["hello"]
+        assert (await client.post(f"{path}/automod-entry", headers=owner_headers, data=data)).status == 404
 
     run(server, scenario)

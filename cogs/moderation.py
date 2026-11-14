@@ -2040,8 +2040,9 @@ class Moderation(commands.Cog):
             checks["Default Role (@everyone)"] = "🟢 Safe (No admin/mod perms)"
 
         # 2. Antinuke Shield check
-        an_cfg = await self.bot.db.get_config(ctx.guild.id, "antinuke")
-        if an_cfg.get("enabled", True):
+        from cogs.antinuke import DEFAULT as ANTINUKE_DEFAULT
+        an_cfg = await self.bot.db.get_config(ctx.guild.id, "antinuke", ANTINUKE_DEFAULT)
+        if an_cfg.get("enabled", False):
             preset = an_cfg.get("preset", "normal")
             checks["Antinuke Engine"] = f"🟢 Armed (`{preset.title()}` Preset)"
         else:
@@ -2070,7 +2071,8 @@ class Moderation(commands.Cog):
             checks["Role Blacklist (BLED)"] = "⚪ Unconfigured"
 
         # 4. Automod Shield check
-        am_cfg = await self.bot.db.get_config(ctx.guild.id, "automod")
+        am_cfg = await self.bot.db.get_config(ctx.guild.id, "filters",
+                                              {"exempt_roles": [], "exempt_channels": [], "action": "delete", "timeout": 60})
         am_active = sum(1 for f in ("invites", "links", "spam", "words", "massmention") if am_cfg.get(f))
         if am_active >= 3:
             checks["Automod Shield"] = f"🟢 Active ({am_active} filters running)"
