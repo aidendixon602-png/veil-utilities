@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dashboard tunnel failures now report their setup stage and safe ngrok error code when available, without printing
+  credentials or raw SDK errors. Startup and online diagnostics no longer claim a stopped dashboard is active.
 - **Dashboard login is now required.** The web listener refuses to start without Discord OAuth and HTTPS, and
   defaults to a loopback bind behind a TLS proxy. Access is restricted to bot developers and owners of joined
   servers and is checked on each request. Operators previously using localhost-only mode must configure Discord

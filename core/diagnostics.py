@@ -155,7 +155,8 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
         if db_url:
             db_engine += " · DATABASE_URL isn't a postgresql:// address, so it is ignored"
 
-    dash_port = os.environ.get("DASHBOARD_PORT", os.environ.get("PORT", "8080"))
+    dash_status = (f"Configured on port {settings.dashboard_port} (not started yet)"
+                   if settings.dashboard_enabled else "Disabled")
     music_status = "Lavalink (Public Nodes)" if settings.music_enabled else "Disabled"
     ai_status = f"{settings.ai_model or 'Auto'} ({'Key Set' if settings.ai_api_key else 'Public Tier'})"
 
@@ -167,7 +168,7 @@ def get_system_diagnostics(settings: Settings) -> list[tuple[str, str]]:
         ("Bot Developers:", f"{len(settings.owner_ids)} authorized developer(s)" if settings.owner_ids
                             else "found automatically from your Discord application"),
         ("Database Engine:", db_engine),
-        ("Web Dashboard:", f"Port {dash_port} (Active)"),
+        ("Web Dashboard:", dash_status),
         ("Music Subsystem:", music_status),
         ("Antinuke Shield:", f"Armed & Active (Dev Alerts: {'Enabled' if settings.antinuke_dev_alerts else 'Disabled'})"),
         ("AI Subsystem:", ai_status),
@@ -191,7 +192,8 @@ def get_ready_diagnostics(bot: Veil) -> list[tuple[str, str]]:
     shard_count = getattr(bot, "shard_count", 1) or 1
     shard_str = f"Shard #{shard_id} of {shard_count} ({latency_ms}ms)"
     bot_user = f"{bot.user} (ID: {bot.user.id})" if bot.user else "Veil Utilities"
-    port = getattr(getattr(bot, "dashboard", None), "port", 8080)
+    dashboard = getattr(bot, "dashboard", None)
+    dash_status = (getattr(dashboard, "public_url", None) or f"Listening on {dashboard.host}:{dashboard.port}") if dashboard else "Not running"
 
     return [
         ("Bot Account:", bot_user),
@@ -199,7 +201,7 @@ def get_ready_diagnostics(bot: Veil) -> list[tuple[str, str]]:
         ("Guilds Served:", f"{len(bot.guilds)} servers"),
         ("Total Members:", f"{total_members:,} cached members"),
         ("Loaded Commands:", f"{commands_total} commands across {len(bot.cogs)} modules"),
-        ("Web Dashboard:", f"http://0.0.0.0:{port}"),
+        ("Web Dashboard:", dash_status),
         ("Default Prefix:", f"{bot.default_prefix} (Help: {bot.default_prefix}help)"),
         ("Security Status:", "Role Blacklist & Antinuke Active"),
     ]
