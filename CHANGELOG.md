@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scoped Administrator dashboard access.** Discord Administrators can manage Automod, logging, leveling and
+  tickets in authorized servers; sensitive security and authorization controls remain owner/developer only.
+  Fresh Discord membership and role checks fail closed. Owners still require an authorized joined server.
+- **Antinuke rule navigation.** The main panel shows the original 12 rules; five additional protections remain
+  configured and accessible under Advanced. No rules, thresholds, presets or enforcement were removed.
+
 - **Dashboard security tools.** Antinuke readiness now reports enabled rules, bot permissions, role hierarchy
   and intent limitations without changing settings. The logging form previews saved direct and event-fallback
   routes. Advanced Automod controls manage individual words, patterns, allowed domains and role/channel exemptions,
