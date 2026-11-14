@@ -133,13 +133,32 @@ def test_off_means_off_even_when_a_channel_with_a_matching_name_exists():
     assert describe(guild, {"messages": OFF}, "messages") == "`off`"
 
 
-def test_joins_and_leaves_follow_the_member_log_unless_given_their_own():
+def test_joins_and_leaves_have_their_own_channel_and_fall_back_to_the_one_they_share():
+    """One member stream: joins, leaves and nicknames share a channel. A server set up under an older name (joins
+    in #member-logs, leaves in #join-logs) still logs both halves instead of dropping one."""
     members, joins = text_channel(1, "x"), text_channel(2, "y")
     guild = make_guild([members, joins])
-    assert L._channel_for(guild, {"members": 1}, "joinleave") is members
+    assert L._channel_for(guild, {"members": 1}, "joinleave") is members      # the channel the two share
     assert L._channel_for(guild, {"members": 1, "joinleave": 2}, "joinleave") is joins
     assert L._channel_for(guild, {"members": OFF}, "joinleave") is None
+    assert L._channel_for(guild, {"joinleave": OFF}, "joinleave") is None     # off is off, even for the shared one
     assert L._channel_for(make_guild([text_channel(3, "join-logs")]), {}, "joinleave").name == "join-logs"
+    both = make_guild([text_channel(4, "member-logs"), text_channel(5, "join-logs")])
+    assert L._channel_for(both, {}, "joinleave").name == "join-logs"          # its own name comes first
+    assert L._channel_for(both, {}, "members").name == "member-logs"
+
+
+def test_a_general_log_named_after_another_bot_still_takes_every_category():
+    """The screenshot's server: nothing configured, one `#midtown-utilities-logging`. Setups made under an older
+    bot name must keep their logs instead of dropping nine categories on the floor."""
+    guild = make_guild([text_channel(1, "midtown-utilities-logging"), text_channel(2, "join-logs"),
+                        text_channel(3, "command-logs")])
+    for kind in ("server", "antinuke", "messages", "roles", "channels", "voice"):
+        assert L._channel_for(guild, {}, kind).name == "midtown-utilities-logging"
+    assert L._channel_for(guild, {}, "joinleave").name == "join-logs"
+    assert L._channel_for(guild, {}, "commands").name == "command-logs"
+    assert L._channel_for(guild, {}, "bans") is None          # never spills into the general log
+    assert L._channel_for(guild, {"server": OFF}, "messages") is None   # off stays off
 
 
 def test_legacy_channel_names_still_work():
@@ -200,26 +219,29 @@ def test_setup_creates_one_private_channel_per_category_and_points_the_config_at
         cog, store = make_cog()
         made = await cog.ensure_default_channels(guild)
         names = {c.name for c in made}
-        assert names == {"message-logs", "member-logs", "role-logs", "channel-logs", "voice-logs", "mod-logs",
-                         "server-logs", "command-logs", "antinuke-logs"}
+        assert names == {"join-logs", "command-logs", "veil-utilities-logging", "antinuke-logs", "role-logs",
+                         "channel-logs", "voice-logs", "mod-logs"}
         overwrites = created[0][1]["overwrites"]
         assert overwrites[guild.default_role].view_channel is False
         assert all(kwargs["category"].name == "VEIL LOGS" for _, kwargs in created)
         by_name = {c.name: c.id for c in made}
-        assert store["logs"]["messages"] == by_name["message-logs"] and store["logs"]["bans"] == by_name["mod-logs"]
+        assert store["logs"]["bans"] == by_name["mod-logs"] and store["logs"]["roles"] == by_name["role-logs"]
+        assert store["logs"]["joinleave"] == by_name["join-logs"]
+        assert store["logs"]["channels"] == by_name["channel-logs"] and store["logs"]["voice"] == by_name["voice-logs"]
+        assert {store["logs"][k] for k in ("messages", "server")} == {
+            by_name["veil-utilities-logging"]}  # no channel of their own: they share the general log
     asyncio.run(go())
 
 
 def test_setup_reuses_existing_channels_and_respects_off_and_existing_settings():
     async def go():
-        existing = text_channel(1, "message-logs")
+        existing = text_channel(1, "role-logs")
         chosen = text_channel(2, "my-roles")
         guild, created = creating_guild([existing, chosen])
         cog, store = make_cog({"roles": 2, "voice": OFF})
         made = await cog.ensure_default_channels(guild)
         names = {c.name for c in made}
-        assert "message-logs" not in names and "role-logs" not in names and "voice-logs" not in names
-        assert store["logs"]["messages"] == 1          # bound to the channel that was already there
+        assert "role-logs" not in names and "voice-logs" not in names   # reused by name, and off stays off
         assert store["logs"]["roles"] == 2 and store["logs"]["voice"] == OFF
     asyncio.run(go())
 
@@ -1289,9 +1311,10 @@ def test_setup_splits_the_old_catch_all_channel_and_files_log_channels_under_vei
 
         report = await cog.organize(guild)
 
-        assert {c.name for c in report.created} == {"message-logs", "member-logs", "role-logs", "channel-logs",
-                                                    "voice-logs", "server-logs", "mod-logs"}  # #bans is Ghost Vanguard's
+        assert {c.name for c in report.created} == {"role-logs", "channel-logs", "voice-logs",
+                                                    "mod-logs"}  # #bans is Ghost Vanguard's; #join-logs is reused
         assert all(kwargs["category"].id == 50 for _, kwargs in created)       # made inside the existing category
+        assert store["logs"]["server"] == veil.id                              # the old catch-all becomes the general log
         assert not report.moved  # matching names alone do not establish that Veil owns a channel
         for ch in (joins, cmds, veil):
             ch.edit.assert_not_awaited()
@@ -1299,10 +1322,10 @@ def test_setup_splits_the_old_catch_all_channel_and_files_log_channels_under_vei
         anti.edit.assert_not_awaited()                                         # already there
         general.edit.assert_not_awaited()                                      # never touch non-log channels
         roles.edit.assert_not_awaited()
-        assert [c.name for c in report.unused] == ["veil-utilities-logging"]   # listed, not moved or deleted
+        assert not report.unused  # the old general log is replaced by a new one, listed nowhere and never deleted
         veil.delete.assert_not_awaited()
         assert store["logs"]["bans"] != 3 and store["logs"]["commands"] == 4  # #bans swapped for Veil's own
-        assert store["logs"]["messages"] != 1
+        assert store["logs"]["messages"] == veil.id                            # every odd category shares the general log
     asyncio.run(go())
 
 
@@ -1379,7 +1402,7 @@ def test_setup_runs_in_every_server_it_may_work_in(monkeypatch):
         monkeypatch.setattr("core.devchannels.ensure", AsyncMock())
         totals = await cog.organize_everywhere(pause=0)
         assert seen == [1, 2]
-        assert totals["servers"] == 2 and totals["skipped"] == 2 and totals["created"] == 18
+        assert totals["servers"] == 2 and totals["skipped"] == 2 and totals["created"] == 16
     asyncio.run(go())
 
 

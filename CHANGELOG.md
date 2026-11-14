@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Log channels now follow one leaner set: `,logs setup` creates `#join-logs`, `#command-logs`,
+  `#veil-utilities-logging`, `#antinuke-logs`, `#role-logs`, `#channel-logs`, `#voice-logs` and `#mod-logs` under
+  **VEIL LOGS**, down from eleven. Nothing is dropped: deleted messages, nicknames and timeouts ride in the channel
+  they belong to (the general log, the join log and the moderation log), every category still has a home, and a
+  category given its own channel with `,logs set` keeps it. Servers already set up are left as they are until
+  `,logs setup` runs again, and a general log named after any bot (`#midtown-utilities-logging`) is recognised, so
+  those servers no longer silently lose nine of eleven categories.
 - Strip cards now use the two-column audit layout: a "Member Stripped" title, `User` and `By` side by side with
   clickable mentions and IDs, and one `Roles removed` field. `,strip` adds a small line saying that a developer can
   restore the saved roles; `,stripstaff` posts the same card to the moderation logs. Role changes in the logs use
