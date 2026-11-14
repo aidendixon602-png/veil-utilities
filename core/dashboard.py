@@ -99,76 +99,99 @@ def _parse_ids(raw: str) -> list[int]:
 
 
 CSS = """
-:root { color-scheme:dark; --bg:#090c14; --surface:#111622; --raised:#161d2b; --border:#293244;
-        --text:#eef2fa; --muted:#a5afc1; --subtle:#78869b; --accent:#a78bfa; --blue:#8dbcfb; }
+:root { color-scheme:dark; --bg:#101112; --surface:#18191b; --raised:#202123; --border:#343537;
+        --text:#f2f0eb; --muted:#aaa9a4; --subtle:#8d8d88; --accent:#e16e65; }
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; }
-body { margin:0; background:radial-gradient(ellipse at 50% -20%,#20213c 0,transparent 48%),var(--bg);
-       color:var(--text); font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-a { color:#c4b5fd; text-decoration:none; } a:hover { color:#e0d6ff; text-decoration:underline; }
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid #c4b5fd; outline-offset:2px; }
-.container { max-width:1440px; margin:auto; padding:0 44px 60px; }
-header { display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:84px;
-         border-bottom:1px solid var(--border); margin-bottom:42px; }
-.brand { display:flex; align-items:center; gap:12px; color:var(--text); text-decoration:none; }
-.brand:hover { text-decoration:none; color:var(--text); }
-.brand-mark { display:grid; place-items:center; width:39px; height:39px; border:1px solid #7158ba; border-radius:12px;
-              color:#e2d7ff; background:linear-gradient(145deg,#7052c9,#32255e); font-size:19px; font-weight:800; }
-.logo { font-weight:750; letter-spacing:-.03em; font-size:17px; line-height:1.2; }
-.brand-caption { color:var(--subtle); font-size:10px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
-.sub { color:var(--muted); margin-top:4px; font-size:12px; }
-.who { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:13px; }
-.who b { color:var(--text); } .inline { display:inline; }
-.eyebrow { color:var(--accent); font-size:11px; font-weight:750; letter-spacing:.14em; text-transform:uppercase; margin:0 0 8px; }
-h1 { font-size:clamp(27px,4vw,37px); letter-spacing:-.045em; line-height:1.15; margin:0 0 10px; }
-h2 { font-size:17px; letter-spacing:-.02em; margin:0 0 7px; } h3 { font-size:14px; margin:0 0 8px; }
-p { margin:0; } p.muted { color:var(--muted); margin:0 0 20px; }
-.page-heading { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:28px; }
-.page-heading p:not(.eyebrow) { color:var(--muted); max-width:650px; }
-.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:0 0 28px; }
-.stat-card,.card { background:linear-gradient(145deg,#151b29,#101520); border:1px solid var(--border); border-radius:14px; }
-.stat-card { padding:20px 22px; min-width:0; } .stat-lbl { color:var(--muted); font-size:12px; font-weight:600; }
-.stat-val { font-size:27px; font-weight:730; letter-spacing:-.04em; margin-top:7px; line-height:1.2; }
-.card { padding:24px; margin-bottom:16px; } .card-head { display:flex; gap:14px; align-items:flex-start; margin-bottom:20px; }
-.section-icon { display:grid; place-items:center; flex:none; width:39px; height:39px; background:#292440; border:1px solid #44365f;
-                border-radius:11px; font-size:17px; } .card-head p { color:var(--muted); font-size:13px; }
-.btn { display:inline-flex; justify-content:center; align-items:center; gap:8px; background:#8465df; border:1px solid #9b80ef;
-       color:white; border-radius:9px; padding:10px 16px; font:inherit; font-size:13px; font-weight:700; cursor:pointer;
-       text-decoration:none; white-space:nowrap; } .btn:hover { background:#977cec; color:white; text-decoration:none; }
-.btn-plain { background:#1b2231; border-color:#344054; color:#e2e8f3; } .btn-plain:hover { background:#273247; }
-.form-group { margin-bottom:17px; min-width:0; } label { display:block; color:#d7dfec; font-size:12px; font-weight:650; margin-bottom:7px; }
-input,select { width:100%; min-height:43px; padding:10px 12px; color:var(--text); background:#0b101a; border:1px solid #354054;
-               border-radius:8px; font:inherit; } input[type=hidden] { display:none; }
-input:focus,select:focus { border-color:#a78bfa; } input::placeholder { color:#79879b; }
-.hint { display:block; color:var(--muted); font-size:12px; margin-top:6px; }
-.note { padding:13px 16px; margin-bottom:18px; border:1px solid #3c4c65; border-radius:10px; color:#d8e5fa; background:#182337; }
-.note.ok { border-color:#2f765d; color:#b2f3cf; background:#122b24; } .note.bad { border-color:#9d4f5a; }
-.center { text-align:center; padding:70px 24px; } .center .btn { margin-top:5px; }
-.grid,.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; }
-.server-box { border:1px solid var(--border); border-radius:10px; padding:16px; display:flex; justify-content:space-between; gap:15px; }
-.server-name { font-weight:700; overflow-wrap:anywhere; } .server-meta,.table-note { font-size:12px; color:var(--muted); }
-.filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin:22px 0; }
-.filters .form-group { flex:1 1 140px; margin:0; } .filters .form-group:first-child { flex:2 1 210px; }
+body { margin:0; background:var(--bg); color:var(--text);
+       font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+a { color:inherit; text-decoration:none; }
+a:hover { color:#fff; }
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid #f0998e; outline-offset:3px; }
+.skip-link { position:absolute; left:-9999px; top:8px; padding:10px 14px; background:#fff; color:#111; z-index:5; }
+.skip-link:focus { left:12px; color:#111; }
+.container { max-width:1440px; margin:0 auto; padding:0 56px 80px; }
+header { min-height:86px; display:flex; align-items:center; justify-content:space-between; gap:24px;
+         border-bottom:1px solid var(--border); margin-bottom:50px; }
+.brand { display:flex; align-items:center; gap:13px; color:var(--text); }
+.brand:hover { color:var(--text); }
+.brand-mark { width:35px; height:35px; display:grid; place-items:center; background:#c94f48; color:#fff;
+              font-family:Georgia,serif; font-size:23px; line-height:1; font-weight:700; }
+.logo { display:block; font-size:15px; font-weight:700; letter-spacing:.02em; line-height:1.1; }
+.brand-caption { display:block; margin-top:4px; color:var(--subtle); font-size:10px; line-height:1.1;
+                 font-weight:600; letter-spacing:.09em; text-transform:uppercase; }
+.sub { display:none; }
+.who { display:flex; align-items:center; gap:12px; font-size:12px; color:var(--muted); }
+.who b { color:var(--text); font-weight:600; } .inline { display:inline; }
+.eyebrow { color:var(--accent); font:600 11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;
+           letter-spacing:.07em; text-transform:uppercase; margin:0 0 13px; }
+h1,h2,h3,p { margin:0; } h1 { font-size:clamp(27px,3.5vw,38px); line-height:1.15; letter-spacing:-.045em; font-weight:650; }
+h2 { font-size:16px; line-height:1.3; letter-spacing:-.015em; font-weight:650; } h3 { font-size:14px; }
+p.muted { color:var(--muted); margin:8px 0 20px; }
+.page-heading { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; margin:0 0 32px; }
+.page-heading p:not(.eyebrow) { color:var(--muted); margin-top:9px; max-width:650px; }
+.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--border);
+         background:var(--surface); margin:0 0 42px; }
+.stat-card { min-width:0; padding:21px 24px 20px; border-right:1px solid var(--border); }
+.stat-card:last-child { border-right:0; }
+.stat-lbl { color:var(--muted); font-size:12px; } .stat-val { margin-top:8px; font-size:25px; line-height:1.1;
+           font-weight:650; letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+.card { background:var(--surface); border:1px solid var(--border); padding:26px; margin-bottom:14px; }
+.card-head { display:flex; align-items:flex-start; gap:15px; padding-bottom:20px; margin-bottom:22px; border-bottom:1px solid var(--border); }
+.section-icon { display:grid; place-items:center; width:30px; height:30px; flex:none; border:1px solid #5a4543;
+                color:#f18a7e; font:600 11px ui-monospace,SFMono-Regular,Consolas,monospace; }
+.card-head p { color:var(--muted); font-size:13px; margin-top:4px; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:39px; padding:9px 15px;
+       background:#c74c45; border:1px solid #c74c45; border-radius:3px; color:#fff;
+       font-family:inherit; font-size:12px; line-height:1.2; font-weight:650; cursor:pointer; text-decoration:none; white-space:nowrap; }
+.btn:hover { background:#a93f39; border-color:#a93f39; color:#fff; }
+.btn-plain { background:transparent; border-color:#4a4b4c; color:#e7e4de; }
+.btn-plain:hover { background:#292a2c; border-color:#686869; }
+.form-group { margin-bottom:18px; min-width:0; }
+label { display:block; color:#e1dfda; font-size:12px; font-weight:600; margin-bottom:7px; }
+input,select { display:block; width:100%; min-height:42px; padding:10px 12px; background:#101112; color:var(--text);
+               border:1px solid #47484a; border-radius:3px; font:inherit; font-size:13px; }
+input[type=hidden] { display:none; } input::placeholder { color:#8e8e8b; }
+input:focus,select:focus { border-color:#e16e65; }
+.hint { display:block; color:var(--muted); font-size:12px; line-height:1.5; margin-top:7px; }
+.note { background:#202122; border-left:2px solid #bc7068; color:#d6d2ca; padding:12px 15px; margin-bottom:22px; font-size:13px; }
+.note.ok { border-left-color:#76b89a; color:#b7e2ca; background:#1a2921; }
+.note.bad { border-left-color:#e16e65; }
+.center { max-width:620px; margin:75px auto; padding:58px 42px; text-align:center; }
+.center h1 { margin:0 0 14px; } .center .btn { margin-top:8px; }
+.grid,.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 22px; }
+.server-box { border:1px solid var(--border); padding:16px; display:flex; justify-content:space-between; gap:15px; }
+.server-name { font-weight:650; overflow-wrap:anywhere; } .server-meta,.table-note { font-size:12px; color:var(--muted); }
+.filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin:24px 0 22px; }
+.filters .form-group { flex:1 1 135px; margin:0; } .filters .form-group:first-child { flex:2 1 205px; }
 .table-wrap { overflow-x:auto; } table { width:100%; border-collapse:collapse; text-align:left; }
-th { color:var(--subtle); font-size:10px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
-th,td { padding:15px 12px; border-bottom:1px solid #252e3d; } td { color:#d8dfeb; font-size:13px; }
-td:first-child { min-width:180px; font-weight:650; } tbody tr:hover { background:#ffffff05; } tbody tr:last-child td { border-bottom:0; }
-.tag { display:inline-flex; padding:3px 9px; border-radius:99px; font-size:11px; font-weight:700; background:#242a37; color:#abb5c5; }
-.tag.on { background:#15352e; color:#84dfb3; } .tag.off { color:#b0b8c7; }
-.settings-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
-.section-nav { position:sticky; top:22px; padding:12px; border:1px solid var(--border); background:#111723; border-radius:12px; }
-.section-nav span { display:block; padding:8px 10px; color:var(--subtle); font-size:10px; font-weight:750; letter-spacing:.12em; }
-.section-nav a { display:block; padding:10px; color:#c4cede; border-radius:7px; font-size:13px; font-weight:600; }
-.section-nav a:hover { background:#232b3b; text-decoration:none; }
-.settings-actions { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:18px 0; }
+th { color:var(--subtle); font-size:10px; font-weight:650; letter-spacing:.07em; text-transform:uppercase; white-space:nowrap; }
+th,td { padding:16px 12px; border-bottom:1px solid #303133; } td { color:#d5d3ce; font-size:13px; }
+td:first-child { min-width:200px; font-weight:650; } td:first-child a:hover { color:#f28a7c; }
+.server-initial { display:inline-grid; place-items:center; width:32px; height:32px; margin-right:12px;
+                  border:1px solid #50504e; color:#d7c6bf; background:#282422; font-size:12px; font-weight:650; }
+td:nth-child(2) { font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px; }
+tbody tr:hover { background:#ffffff04; } tbody tr:last-child td { border-bottom:0; }
+.tag { display:inline-flex; align-items:center; gap:7px; padding:0; font-size:12px; font-weight:600; color:#aaa9a4; }
+.tag:before { content:""; width:6px; height:6px; border-radius:50%; background:#82827c; }
+.tag.on { color:#a9d7bb; } .tag.on:before { background:#83be99; }
+.settings-layout { display:grid; grid-template-columns:205px minmax(0,1fr); gap:32px; align-items:start; }
+.section-nav { position:sticky; top:22px; border-top:1px solid var(--border); padding-top:14px; }
+.section-nav span { display:block; padding:0 12px 11px; color:var(--subtle); font-size:10px; font-weight:650; letter-spacing:.09em; }
+.section-nav a { display:block; padding:9px 12px; color:#bdbdb8; border-left:2px solid transparent; font-size:13px; }
+.section-nav a:hover,.section-nav a:focus { background:#1d1e20; border-left-color:#c74c45; color:#fff; }
+.settings-actions { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 0; }
 .settings-actions p { color:var(--muted); font-size:12px; } .settings-actions .buttons { display:flex; gap:10px; }
-@media (max-width:900px) { .container { padding:0 24px 40px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .settings-layout { grid-template-columns:1fr; } .section-nav { position:static; display:flex; flex-wrap:wrap; gap:3px; }
+@media (max-width:900px) { .container { padding:0 24px 50px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .stat-card:nth-child(2) { border-right:0; } .stat-card:nth-child(-n+2) { border-bottom:1px solid var(--border); }
+  .settings-layout { grid-template-columns:1fr; gap:20px; } .section-nav { position:static; display:flex; flex-wrap:wrap; gap:3px; }
   .section-nav span { width:100%; } }
-@media (max-width:600px) { .container { padding:0 16px 35px; } header { margin-bottom:30px; flex-wrap:wrap; padding:15px 0; }
+@media (max-width:600px) { .container { padding:0 16px 36px; } header { min-height:0; padding:17px 0; margin-bottom:35px; flex-wrap:wrap; }
   .who { width:100%; justify-content:space-between; } .page-heading { align-items:flex-start; flex-direction:column; }
-  .card { padding:18px; } .grid,.form-grid { grid-template-columns:1fr; } .stat-card { padding:16px; }
-  .stat-val { font-size:23px; } .settings-actions { align-items:stretch; flex-direction:column; } }
+  .card { padding:20px 16px; } .grid,.form-grid { grid-template-columns:1fr; } .stat-card { padding:18px; }
+  .stat-val { font-size:22px; } .settings-actions { align-items:stretch; flex-direction:column; }
+  .center { margin:35px auto; padding:42px 20px; } }
+@media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
 """
 
 
@@ -398,9 +421,10 @@ class DashboardServer:
             '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
             f"<title>Veil Utilities • {_esc(title)}</title><style>{CSS}</style></head><body>"
-            f'<div class="container"><header><div><a href="/" class="brand"><span class="brand-mark">V</span>'
-            f'<span><span class="logo">Veil Utilities</span><br><span class="brand-caption">Control center</span></span></a>{sub}</div>{who}</header>'
-            f"{body}</div></body></html>"
+            '<a class="skip-link" href="#main">Skip to content</a>'
+            f'<div class="container"><header><div><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">V</span>'
+            f'<span><span class="logo">Veil Utilities</span><span class="brand-caption">Server administration</span></span></a>{sub}</div>{who}</header>'
+            f'<main id="main">{body}</main></div></body></html>'
         )
         return web.Response(text=doc, content_type="text/html")
 
@@ -419,26 +443,26 @@ class DashboardServer:
         user = self._user(request)
         if user is None:
             return self._page("Sign in", (
-                '<div class="card center"><p class="eyebrow">Veil control center</p>'
-                '<h1>Security, in one place.</h1>'
+                '<div class="card center"><p class="eyebrow">Veil Utilities / Dashboard</p>'
+                '<h1>Sign in to Veil</h1>'
                 '<p class="muted">Sign in with Discord to manage your authorized servers. '
                 'Bot developers can access all joined servers.</p>'
                 '<a class="btn" href="/login">Log in with Discord →</a></div>'))
 
         guilds = await self._guilds_for(user)
-        body = ('<div class="page-heading"><div><p class="eyebrow">Overview</p>'
-                '<h1>Your servers, at a glance.</h1><p>Manage security and logging for the servers available to you.</p>'
-                '</div></div>')
-        if await self._is_bot_owner(user):
+        is_developer = await self._is_bot_owner(user)
+        authorization_link = ('<a class="btn btn-plain" href="/authorization">Server authorization →</a>'
+                              if is_developer and not user.get("local") else "")
+        body = ('<div class="page-heading"><div><p class="eyebrow">Dashboard / Overview</p>'
+                '<h1>Server overview</h1><p>View and manage the servers available to your account.</p>'
+                f'</div>{authorization_link}</div>')
+        if is_developer:
             all_guilds = list(self.bot.guilds)
             members = sum(getattr(g, "member_count", None) or len(getattr(g, "members", [])) for g in all_guilds)
             latency = self.bot.latency
             latency_ms = int(latency * 1000) if isinstance(latency, (int, float)) and latency == latency else 0
             uptime = int(time.time() - getattr(self.bot, "started_at", time.time()))
             hours, rem = divmod(max(uptime, 0), 3600)
-            if not user.get("local"):
-                body += ('<p style="margin-bottom:1rem"><a class="btn btn-plain" href="/authorization">'
-                         'Server authorization</a></p>')
             body += (
                 '<div class="stats">'
                 f'<div class="stat-card"><div class="stat-lbl">Servers</div><div class="stat-val">{len(all_guilds)}</div></div>'
@@ -497,11 +521,13 @@ class DashboardServer:
         for g, count, enabled, auth, log_count in visible:
             state = "on" if enabled else "off"
             rows.append(
-                f'<tr><td><a href="/servers/{_esc(g.id)}">{_esc(g.name)}</a></td>'
+                f'<tr><td><span class="server-initial" aria-hidden="true">{_esc(g.name[:1].upper() or "?")}</span>'
+                f'<a href="/servers/{_esc(g.id)}">{_esc(g.name)}</a></td>'
                 f'<td>{_esc(g.id)}</td><td>{_esc(count)}</td>'
                 f'<td><span class="tag {state}">{state.title()}</span></td>'
                 f'<td>{auth.title()}</td><td>{log_count} configured</td>'
-                f'<td><a class="btn btn-plain" href="/servers/{_esc(g.id)}">Configure</a></td></tr>'
+                f'<td><a class="btn btn-plain" href="/servers/{_esc(g.id)}" '
+                f'aria-label="Configure {_esc(g.name)}">Configure</a></td></tr>'
             )
         listing = "".join(rows) or '<tr><td colspan="7">No servers match your filters.</td></tr>'
         status_options = "".join(option(v, label, status == v) for v, label in
@@ -512,7 +538,7 @@ class DashboardServer:
                                (("any", "Any"), ("yes", "Authorized"), ("no", "Not authorized")))
         log_options = "".join(option(v, label, log_filter == v) for v, label in
                               (("any", "Any"), ("configured", "Configured"), ("none", "None configured")))
-        body += (f'<div class="card"><h2>🛡️ Your servers</h2>'
+        body += (f'<div class="card"><h2>Servers</h2>'
                  '<p class="muted">Manage role blacklists, logging channels and antinuke settings. '
                  'Log counts show explicitly configured channels, not automatic routing.</p>'
                  '<form method="GET" action="/" class="filters">'
@@ -674,7 +700,7 @@ class DashboardServer:
         logs_form = "".join(log_forms)
         ignored = logs_cfg.get("ignore") or {}
 
-        rbl_form = f'''<section class="card" id="blacklist"><div class="card-head"><span class="section-icon">⛔</span>
+        rbl_form = f'''<section class="card" id="blacklist"><div class="card-head"><span class="section-icon" aria-hidden="true">01</span>
     <div><h2>Role blacklist</h2><p>Control which roles are restricted and who may bypass the blacklist.</p></div></div>
     <div class="form-grid"><div class="form-group"><label for="rbl_roles">Blacklisted role IDs</label>
       <input id="rbl_roles" type="text" name="rbl_roles" value="{ids(rbl.get("roles"))}" placeholder="Role IDs, separated by commas">
@@ -688,8 +714,8 @@ class DashboardServer:
         <option value="dm"{' selected' if logs_cfg.get('rbl_dm') else ''}>Direct message</option>
       </select><span class="hint">Controls role-blacklist replies; direct messages can fail if the recipient has DMs closed.</span></div>
   </section>''' if can_rbl else ""
-        body = f"""<div class="page-heading"><div><p class="eyebrow">Server settings</p>
-  <h1>{_esc(guild.name)}</h1><p>Configure how Veil protects your server and routes its activity logs.</p></div>
+        body = f"""<div class="page-heading"><div><p class="eyebrow">Servers / Settings</p>
+  <h1>{_esc(guild.name)}</h1><p>Manage the blacklist, logging, and antinuke settings for this server.</p></div>
   <a class="btn btn-plain" href="/">← All servers</a></div>
 {saved}<div class="settings-layout"><nav class="section-nav" aria-label="Settings sections">
   <span>ON THIS PAGE</span>{'<a href="#blacklist">Role blacklist</a>' if can_rbl else ''}
@@ -698,12 +724,12 @@ class DashboardServer:
 <form method="POST" action="/api/guilds/{_esc(guild.id)}/config">
   <input type="hidden" name="csrf" value="{_esc(user["csrf"])}">
 {rbl_form}
-  <section class="card" id="logging"><div class="card-head"><span class="section-icon">▤</span>
+  <section class="card" id="logging"><div class="card-head"><span class="section-icon" aria-hidden="true">02</span>
     <div><h2>Logging channels</h2><p>Choose where each type of activity is sent.</p></div></div>
     <div class="note">Auto uses Veil's normal routing. Off disables that category. Select a channel to override it.</div>
     <div class="form-grid">{logs_form}</div>
   </section>
-  <section class="card" id="exclusions"><div class="card-head"><span class="section-icon">◌</span>
+  <section class="card" id="exclusions"><div class="card-head"><span class="section-icon" aria-hidden="true">03</span>
     <div><h2>Log exclusions</h2><p>Exclude activity from specific channels or users when the event supports it.</p></div></div>
     <div class="form-grid"><div class="form-group"><label for="log_ignore_channels">Ignored channel IDs</label>
       <input id="log_ignore_channels" name="log_ignore_channels" value="{ids(ignored.get("channels"))}" placeholder="Channel IDs, separated by commas">
@@ -712,7 +738,7 @@ class DashboardServer:
       <input id="log_ignore_users" name="log_ignore_users" value="{ids(ignored.get("users"))}" placeholder="User IDs, separated by commas">
       <span class="hint">Events that include a user will not be logged for these users.</span></div></div>
   </section>
-  <section class="card" id="antinuke"><div class="card-head"><span class="section-icon">◇</span>
+  <section class="card" id="antinuke"><div class="card-head"><span class="section-icon" aria-hidden="true">04</span>
     <div><h2>Antinuke</h2><p>Manage the default response and the people who administer protection.</p></div></div>
     <div class="note">Protection is currently <strong>{'on' if an_cfg.get("enabled") else 'off'}</strong>.
       Enable or disable protection and manage individual rules using Veil's Discord commands.</div>
@@ -722,7 +748,7 @@ class DashboardServer:
       <input id="an_admins" type="text" name="an_admins" value="{ids(an_cfg.get("admins"))}" placeholder="User IDs, separated by commas">
       <span class="hint">Admins can configure antinuke and are exempt from punishment.</span></div></div>
   </section>
-  <section class="card" id="trusted"><div class="card-head"><span class="section-icon">☆</span>
+  <section class="card" id="trusted"><div class="card-head"><span class="section-icon" aria-hidden="true">05</span>
     <div><h2>Trusted identities</h2><p>Antinuke exclusions for trusted users and roles.</p></div></div>
     <div class="note">Trusted users and members with trusted roles are exempt from antinuke enforcement; trusted bots are also exempt from bot-add detection and quarantine. Add only identities you trust.</div>
     <div class="form-grid"><div class="form-group"><label for="an_whitelist">Trusted user IDs</label>

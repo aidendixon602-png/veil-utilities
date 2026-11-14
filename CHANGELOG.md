@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dashboard visual refinement.** Reworked the interface with a restrained charcoal and red palette, denser
+  server overview, simpler typography and section markers, and improved keyboard navigation.
 - **Dashboard refresh.** Redesigned the overview and server settings with responsive layouts, section navigation,
   clearer logging controls and status information. Owners and developers can also manage log exclusions,
   role-blacklist reply location, and antinuke trusted users and roles; trust changes generate a best-effort security notice.

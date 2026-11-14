@@ -820,3 +820,29 @@ def test_form_referrer_policy_allows_browser_origin_without_weakening_csrf():
         assert response.status == 302
 
     run(server, scenario)
+
+
+def test_dashboard_layout_preserves_accessibility_and_server_form_controls():
+    bot = make_bot(guild_name='<script>alert(1)</script>"')
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        response = await client.get("/", headers=headers)
+        html = await response.text()
+        assert '<a class="skip-link" href="#main">Skip to content</a>' in html
+        assert '<main id="main">' in html and "Server overview" in html
+        assert '<span class="server-initial" aria-hidden="true">&lt;</span>' in html
+        assert "<script>alert(1)" not in html
+        response = await client.get(f"/servers/{GUILD_ID}", headers=headers)
+        html = await response.text()
+        assert 'aria-label="Settings sections"' in html
+        for fragment in ("#blacklist", "#logging", "#exclusions", "#antinuke", "#trusted"):
+            assert f'href="{fragment}"' in html
+        for field in ("csrf", "rbl_roles", "rbl_authorized", "rbl_reply_mode", "log_joins", "log_timeouts",
+                      "log_ignore_users", "log_ignore_channels", "an_admins", "an_whitelist", "an_whitelist_roles"):
+            assert f'name="{field}"' in html
+        assert response.headers["Referrer-Policy"] == "same-origin"
+        assert "form-action 'self'" in response.headers["Content-Security-Policy"]
+
+    run(server, scenario)
