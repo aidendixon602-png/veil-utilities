@@ -29,6 +29,47 @@ from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, a
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
 
+# Role permission bits, not members' effective permissions or channel overwrites.
+VIEW_ADMIN_PERMISSIONS = (
+    ("Administrator", "administrator"),
+    ("Manage Server", "manage_guild"),
+    ("Manage Channels", "manage_channels"),
+    ("Manage Roles", "manage_roles"),
+    ("Ban Members", "ban_members"),
+    ("Kick Members", "kick_members"),
+    ("Manage Messages", "manage_messages"),
+    ("Timeout Members", "moderate_members"),
+    ("Manage Webhooks", "manage_webhooks"),
+    ("Mention Everyone", "mention_everyone"),
+)
+
+
+def viewadmins_pages(roles: list[discord.Role]) -> list[discord.Embed]:
+    """Group explicit role permissions into Discord-sized pages without dropping roles."""
+    roles = sorted(roles, key=lambda role: role.position, reverse=True)
+    pages: list[discord.Embed] = []
+    body = ""
+
+    def flush():
+        nonlocal body
+        if body:
+            embed = discord.Embed(title="Roles by permission", description=body, color=Colors.caution)
+            embed.set_footer(text="Explicit role permissions only · Administrator grants all permissions")
+            pages.append(embed)
+            body = ""
+
+    for label, permission in VIEW_ADMIN_PERMISSIONS:
+        mentions = [role.mention for role in roles if getattr(role.permissions, permission)] or ["None"]
+        heading = f"**{label}**\n"
+        for i, mention in enumerate(mentions):
+            prefix = ("\n\n" if body else "") + heading if i == 0 else "\n"
+            if len(body) + len(prefix) + len(mention) > 3800:
+                flush()
+                prefix = heading
+            body += prefix + mention
+    flush()
+    return pages
+
 
 # ==================================================================== role blacklist views
 class SingleMemberBledView(discord.ui.View):
@@ -1150,6 +1191,17 @@ class Moderation(commands.Cog):
         rs = sorted([r for r in ctx.guild.roles if not r.is_default()], key=lambda r: r.position, reverse=True)
         lines = [f"{r.mention} — `{r.id}` · {len(r.members)} member(s)" for r in rs]
         await ctx.paginate(chunk_embeds(f"Server Roles ({len(rs)})", lines))
+
+    @commands.command()
+    @commands.guild_only()
+    @has_perms(manage_guild=True)
+    async def viewadmins(self, ctx: Context):
+        """List roles grouped by their sensitive Discord permissions
+
+        Shows permissions set directly on roles, not channel overwrites or Veil permission levels.
+        Administrator grants all permissions even when the other bits are not set.
+        """
+        await ctx.paginate(viewadmins_pages(ctx.guild.roles))
 
     # ================================================================ role blacklist
     def _is_role_authorized(self, guild: discord.Guild, member: discord.Member, cfg: dict, *, include_soft=True) -> bool:
