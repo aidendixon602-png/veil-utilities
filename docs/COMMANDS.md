@@ -1,6 +1,6 @@
 # Command reference
 
-466 commands. Default prefix `,`. `<required>` `[optional]`.
+467 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -319,10 +319,11 @@ _Log server events to channels_
 | `,cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | List possible duplicate log channels without deleting anything | manage guild, server owner or bot developer |
 | `,logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild, server owner or bot developer |
 | `,logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild, server owner or bot developer |
-| `,logs cleanup` (clean, purgeduplicates, cleanupchannels) | List possible duplicate log channels without deleting anything | manage guild, server owner or bot developer |
+| `,logs cleanup [delete]` (clean, purgeduplicates, cleanupchannels) | List leftover log channels and delete them only when you ask | manage guild, server owner or bot developer |
 | `,logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore add <target>` | Ignore a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild, server owner or bot developer |
+| `,logs list` (show, status) | Show where every log category goes, without opening the panel | manage guild, server owner or bot developer |
 | `,logs off <category>` (disable) | Stop logging a category | manage guild, server owner or bot developer |
 | `,logs set <category> [channel]` | Send a log category to a channel | manage guild, server owner or bot developer |
 | `,logs setup [mode]` (init, default, defaults, create) | Create one private log channel per category, together under VEIL LOGS | manage guild, server owner or bot developer |

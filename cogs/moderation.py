@@ -239,6 +239,19 @@ class Moderation(commands.Cog):
         except Exception:  # a config read must never stop a command from running
             return False
 
+    @staticmethod
+    def _role_entry(guild, rid: int) -> str:
+        """`@Role` (`id`), or `deleted role` (`id`) when it is gone.
+
+        A deleted role renders as `@unknown-role`, which reads like the bot lost it; the ID is what is stored, so
+        naming that state is both truer and the thing to act on (`,rbl remove deleted`).
+        """
+        get_role = getattr(guild, "get_role", None)
+        role = get_role(rid) if callable(get_role) else None
+        if role is None:
+            return f"deleted role (`{rid}`)"
+        return f"{role.mention} (`{rid}`)"
+
     async def _cfg(self, gid, mod):
         return await self.bot.db.get_config(gid, mod)
 
@@ -1201,7 +1214,7 @@ class Moderation(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         bypass = cfg.get("soft_bypass", {})
         lines = ([f"User <@{uid}> (`{uid}`)" for uid in bypass.get("users", [])]
-                 + [f"Role <@&{rid}> (`{rid}`)" for rid in bypass.get("roles", [])])
+                 + [f"Role {self._role_entry(ctx.guild, rid)}" for rid in bypass.get("roles", [])])
         if not lines:
             return await ctx.neutral("No separate soft role-blacklist bypasses are configured.")
         await ctx.paginate(chunk_embeds("Soft role-blacklist bypasses", lines, numbered=False))
@@ -1255,7 +1268,8 @@ class Moderation(commands.Cog):
         roles = cfg.get("hard_roles", [])
         if not roles:
             return await ctx.neutral("No roles are hard-blacklisted.")
-        await ctx.paginate(chunk_embeds("Hard-blacklisted roles", [f"<@&{rid}> (`{rid}`)" for rid in roles], numbered=False))
+        await ctx.paginate(chunk_embeds("Hard-blacklisted roles", [self._role_entry(ctx.guild, rid) for rid in roles],
+                                        numbered=False))
 
     @commands.group(aliases=["rbl", "rolebl"], invoke_without_command=True)
     @requires_uperm("admin")
@@ -1342,8 +1356,11 @@ class Moderation(commands.Cog):
         roles = cfg.get("roles", [])
         if not roles:
             return await ctx.warn("no roles are blacklisted")
-        lines = [f"<@&{rid}> (`{rid}`)" for rid in roles]
-        await ctx.paginate(chunk_embeds(f"Blacklisted roles ({len(lines)})", lines, numbered=False))
+        lines = [self._role_entry(ctx.guild, rid) for rid in roles]
+        gone = sum(1 for rid in roles if ctx.guild.get_role(rid) is None)
+        if gone:
+            lines.append(f"-# {gone} of these no longer exist: `{ctx.clean_prefix}rbl remove deleted` clears them")
+        await ctx.paginate(chunk_embeds(f"Blacklisted roles ({len(roles)})", lines, numbered=False))
 
     async def _scan_guild_bled(self, ctx: Context, cfg: dict, b_roles: set[int]):
         if not b_roles:
