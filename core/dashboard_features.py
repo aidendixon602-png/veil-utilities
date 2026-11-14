@@ -14,7 +14,7 @@ import time
 import discord
 from aiohttp import web
 
-from core.dashboard import _esc, _parse_ids
+from core.dashboard import LOG_FIELDS, _esc, _parse_ids
 
 
 FILTER_DEFAULT = {"exempt_roles": [], "exempt_channels": [], "action": "delete", "timeout": 60}
@@ -87,7 +87,13 @@ async def features_page(server, request: web.Request) -> web.Response:
     guild = await server._guild_for(request, user)
     if guild is None:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
-    from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MODULES, RULE_LOOKUP
+    limited = not await server._can_manage_security(user, guild)
+    requested = request.query.get("section", "")
+    if limited and not requested:
+        return server._redirect(f"/servers/{guild.id}/overview")
+    if limited and requested not in ("automod", "logging", "leveling", "tickets"):
+        return server._message("Access denied", "Only the server owner or a bot developer may manage security settings.", 403, user)
+    from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MIDTOWN_RULES, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
     settings = await server.bot.db.get_config(guild.id, "settings") or {}
@@ -193,7 +199,11 @@ async def features_page(server, request: web.Request) -> web.Response:
              'Turning a rule off weakens protection; turning a rule on does not enable the overall protection. '
              'Blank thresholds use rule defaults; blank windows and inherited punishments follow the server defaults.</p></div>')
     # The legacy "vanity" alias has no separate audit event; serverupdate handles it.
-    for key in (k for k in dict.fromkeys([*RULE_LOOKUP, *MODULES]) if k != "vanity"):
+    primary_keys = [r["key"] for r in MIDTOWN_RULES[:12]]
+    advanced_keys = [k for k in dict.fromkeys([*RULE_LOOKUP, *MODULES]) if k not in primary_keys and k != "vanity"]
+    for key in primary_keys + advanced_keys:
+        if key == advanced_keys[0]:
+            form += '<details class="rules-heading"><summary>Advanced rules (existing settings are preserved)</summary>'
         mod = rules.get(key) or {}
         title = LABELS.get(key, RULE_LOOKUP.get(key, {}).get("name", MODULES.get(key, key)))
         state = _on_off(mod.get("on"))
@@ -215,11 +225,36 @@ async def features_page(server, request: web.Request) -> web.Response:
                             (("", "Server default"), ("ban", "Ban"), ("kick", "Kick"), ("strip", "Strip roles"))).replace(
                                 f'name="punishment_{key}"', 'name="punishment"')
         form += '<button class="btn btn-plain" type="submit">Save rule</button></div></form>'
+    if advanced_keys:
+        form += "</details>"
     from core.dashboard_security_views import antinuke_health
     antinuke_section = antinuke_health(server.bot, guild, antinuke_raw) + _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
+    from cogs.logging import KINDS
+    from core.dashboard_security_views import log_routes
+    logs = await server.bot.db.get_config(guild.id, "logs") or {}
+    form = _form_start(server, guild, user, "logging", "logs", logs)
+    form += '<div class="note">Auto uses normal routing. Off disables the direct route; some events use other routes as fallbacks.</div>'
+    form += log_routes(guild, logs) + '<div class="form-grid">'
+    channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
+    for field, key in LOG_FIELDS:
+        current = logs.get(key)
+        value = str(current) if current is not None else ""
+        choices = [("", "Auto"), ("-1", "Off")] + [(str(ch.id), f"#{ch.name}") for ch in channels]
+        if value and value not in {v for v, _ in choices}:
+            choices.append((value, f"Unavailable channel ({value})"))
+        form += _select(field, KINDS[key].label, value, choices)
+    ignore = logs.get("ignore") or {}
+    form += '</div><div class="form-grid">'
+    for field, label, key in (("log_ignore_channels", "Ignored channel IDs", "channels"),
+                              ("log_ignore_users", "Ignored user IDs", "users")):
+        value = ", ".join(str(v) for v in ignore.get(key, []))
+        form += f'<div class="form-group"><label for="{field}">{label}</label><input id="{field}" name="{field}" value="{_esc(value)}"><span class="hint">Comma-separated Discord IDs.</span></div>'
+    form += '</div><button class="btn" type="submit">Save logging</button></form>'
+    logging_section = _section("Logging", "03", "Configure log destinations and exclusions.", form, "logging")
+
     saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
-    sections = {"general": ("Server settings", general_section), "automod": ("Automod", automod_section), "leveling": ("Leveling", levels_section),
+    sections = {"logging": ("Logging", logging_section), "general": ("Server settings", general_section), "automod": ("Automod", automod_section), "leveling": ("Leveling", levels_section),
                 "tickets": ("Tickets", tickets_section), "rules": ("Antinuke", antinuke_section)}
     selected = request.query.get("section", "")
     if selected and selected not in sections:
@@ -233,7 +268,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                 f'<h1>{_esc(label)}</h1><p>Review your settings and save changes when ready.</p></div>'
                 f'<a class="btn btn-plain" href="/servers/{guild.id}/overview">← Server overview</a></div>{saved}'
                 f'<div class="feature-content">{content}</div>')
-        return server._page(label, body, user, guild=guild, active=selected)
+        return server._page(label, body, user, guild=guild, active=selected, limited=limited)
     body = (f'<div class="page-heading"><div><p class="eyebrow">Servers / Feature controls</p><h1>{_esc(guild.name)}</h1>'
             '<p>Manage selected security and community features. Each section saves separately.</p></div>'
             f'<a class="btn btn-plain" href="/servers/{guild.id}">← Server settings</a></div>{saved}'
@@ -286,6 +321,10 @@ async def save_feature(server, request: web.Request) -> web.Response:
     guild = await server._guild_for(request, user)
     if guild is None:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
+    feature = request.match_info["feature"]
+    if not await server._can_manage_security(user, guild) and feature not in (
+            "automod", "automod-entry", "automod-exempt", "logging", "levels", "tickets"):
+        return server._message("Access denied", "Only the server owner or a bot developer may change security settings.", 403, user)
     data = await request.post()
     if not server._csrf_ok(user, data.get("csrf")):
         return server._message("Session expired", "Please refresh the page and try again.", 403, user)
@@ -293,7 +332,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
-    modules = {"general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
+    modules = {"logging": ("logs", {}), "general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
                "automod-exempt": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
                "tickets": ("tickets", TICKET_DEFAULT), "protection": ("antinuke", AN_DEFAULT),
                "rule": ("antinuke", AN_DEFAULT)}
@@ -316,6 +355,28 @@ async def save_feature(server, request: web.Request) -> web.Response:
             if not 1 <= len(prefix) <= 10 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in prefix):
                 raise InvalidSetting("Prefix must be 1–10 characters without spaces or control characters")
             cfg["prefix"] = prefix
+        elif feature == "logging":
+            # This independent form never writes role blacklist or antinuke fields.
+            for field, key in LOG_FIELDS:
+                if field not in data:
+                    raise InvalidSetting("Missing log route; refresh the page")
+                value = str(data[field]).strip()
+                if value == "":
+                    cfg[key] = None
+                elif value == "-1":
+                    cfg[key] = -1
+                else:
+                    cfg[key] = _channel(guild, data, field, discord.TextChannel, old.get(key))
+            if not isinstance(cfg.get("ignore", {}), dict):
+                raise InvalidSetting("Log exclusions have an unexpected format")
+            ignore = cfg.setdefault("ignore", {})
+            for field, key in (("log_ignore_channels", "channels"), ("log_ignore_users", "users")):
+                if field not in data:
+                    raise InvalidSetting("Missing log exclusions; refresh the page")
+                try:
+                    ignore[key] = _parse_ids(str(data[field]))
+                except ValueError:
+                    raise InvalidSetting("Invalid log exclusion IDs") from None
         elif feature == "automod":
             for key in ("invites", "links", "zalgo", "antighostping"):
                 cfg[key] = _choice(data, key, ("on", "off")) == "on"
@@ -471,6 +532,6 @@ async def save_feature(server, request: web.Request) -> web.Response:
             pass  # security notices are best effort, as in the Discord commands
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s updated %s for guild %s", user["uid"], feature, guild.id)
-    anchor = {"general": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
+    anchor = {"logging": "logging", "general": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
     section = f"&section={anchor}" if data.get("return_section") == anchor else ""
     return server._redirect(f"/servers/{guild.id}/features?saved=1{section}#{anchor}")

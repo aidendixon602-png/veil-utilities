@@ -485,7 +485,7 @@ class DashboardServer:
         if self.login_enabled and request.path not in {"/login", "/callback", "/logout"}:
             user = self._user(request)
             if user and not await self._may_use_dashboard(user):
-                return self._finish(request, self._message("Access denied", "Only server owners and bot developers may use this dashboard.", 403))
+                return self._finish(request, self._message("Access denied", "Only bot developers and owners or administrators of authorized servers may use this dashboard.", 403))
         try:
             resp = await handler(request)
         except web.HTTPException as exc:
@@ -519,19 +519,48 @@ class DashboardServer:
         except Exception:
             return False
 
+    async def _is_discord_admin(self, user: dict, guild) -> bool:
+        """Fail closed and fetch fresh membership and role permissions for every authorization decision.
+
+        Member.roles resolves against the gateway cache, so use the fresh member role IDs with freshly
+        fetched roles. This also works when the privileged members intent or member cache is unavailable.
+        """
+        try:
+            uid = int(user["uid"])
+            fetch_member = getattr(guild, "fetch_member", None)
+            fetch_roles = getattr(guild, "fetch_roles", None)
+            if not callable(fetch_member) or not callable(fetch_roles):
+                return False
+            member = await asyncio.wait_for(fetch_member(uid), timeout=5)
+            if member.id != uid:
+                return False
+            member_roles = getattr(member, "_roles", None)
+            if member_roles is None:
+                return False
+            ids = {int(rid) for rid in member_roles} | {guild.id}
+            roles = await asyncio.wait_for(fetch_roles(), timeout=5)
+            return any(role.id in ids and role.permissions.administrator for role in roles)
+        except Exception:
+            return False  # missing membership, revoked permissions, API failures and timeouts deny access
+
     async def _may_use_dashboard(self, user: dict) -> bool:
         if user.get("local"):
             return False
         if await self._is_bot_owner(user):
             return True
-        return any(g.owner_id == user.get("uid") and self._server_authorized(g) for g in self.bot.guilds)
+        authorized = [g for g in self.bot.guilds if self._server_authorized(g)]
+        if any(g.owner_id == user.get("uid") for g in authorized):
+            return True
+        for guild in authorized:
+            if await self._is_discord_admin(user, guild):
+                return True
+        return False
 
     def _server_authorized(self, guild) -> bool:
         check = getattr(self.bot, "is_authorized", None)
         return bool(check(guild.id)) if callable(check) else False
 
     async def _can_manage_rbl(self, user: dict, guild) -> bool:
-        # Local mode has no verified Discord identity, even though it may manage other settings.
         if user.get("local"):
             return False
         try:
@@ -540,13 +569,21 @@ class DashboardServer:
         except (KeyError, TypeError, ValueError):
             return False
 
+    async def _can_manage_security(self, user: dict, guild) -> bool:
+        # Preserve the legacy, non-startable local test mode; real listeners require Discord login.
+        return bool(user.get("local")) or await self._can_manage_rbl(user, guild)
+
     async def _guilds_for(self, user: dict) -> list:
         if await self._is_bot_owner(user):
             return list(self.bot.guilds)
-        return [g for g in self.bot.guilds if g.owner_id == user["uid"] and self._server_authorized(g)]
+        result = []
+        for guild in self.bot.guilds:
+            if self._server_authorized(guild) and (guild.owner_id == user["uid"] or await self._is_discord_admin(user, guild)):
+                result.append(guild)
+        return result
 
     async def _guild_for(self, request: web.Request, user: dict):
-        """The guild in the URL, only if this user may manage it (else None, so nothing is revealed)."""
+        """Return a server only after fresh role and server-authorization checks."""
         try:
             gid = int(request.match_info["guild_id"])
         except (KeyError, ValueError):
@@ -554,7 +591,9 @@ class DashboardServer:
         guild = self.bot.get_guild(gid)
         if guild is None:
             return None
-        if await self._is_bot_owner(user) or (guild.owner_id == user["uid"] and self._server_authorized(guild)):
+        if await self._is_bot_owner(user):
+            return guild
+        if self._server_authorized(guild) and (guild.owner_id == user["uid"] or await self._is_discord_admin(user, guild)):
             return guild
         return None
 
@@ -568,7 +607,7 @@ class DashboardServer:
         return bool(submitted) and hmac.compare_digest(str(submitted), str(user.get("csrf", "")))
 
     # ------------------------------------------------------------------ page helpers
-    def _server_navigation(self, guild, active: str) -> str:
+    def _server_navigation(self, guild, active: str, limited: bool = False) -> str:
         base = f"/servers/{guild.id}"
         groups = (
             ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),
@@ -579,6 +618,14 @@ class DashboardServer:
             ("COMMUNITY", (("leveling", "Leveling", f"{base}/features?section=leveling", "↗"),
                            ("tickets", "Tickets", f"{base}/features?section=tickets", "▣"))),
         )
+        if limited:
+            groups = (
+                ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),)),
+                ("MODERATION", (("automod", "Automod", f"{base}/features?section=automod", "✦"),
+                                 ("logging", "Logging", f"{base}/features?section=logging", "≡"))),
+                ("COMMUNITY", (("leveling", "Leveling", f"{base}/features?section=leveling", "↗"),
+                               ("tickets", "Tickets", f"{base}/features?section=tickets", "▣"))),
+            )
         nav = f'<a class="server-switch" href="/" title="Switch server">{_server_avatar(guild)}<span><small>SERVER WORKSPACE</small><strong>{_esc(guild.name)}</strong></span><b aria-hidden="true">↕</b></a>'
         for label, links in groups:
             nav += f'<span class="nav-label">{label}</span>'
@@ -589,7 +636,7 @@ class DashboardServer:
         return nav
 
     def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "", *,
-              guild=None, active: str = "", developer: bool = False) -> web.Response:
+              guild=None, active: str = "", developer: bool = False, limited: bool = False) -> web.Response:
         who = ""
         if user and not user.get("local"):
             who = (f'<div class="who"><span class="account-dot" aria-hidden="true">'
@@ -601,7 +648,7 @@ class DashboardServer:
         elif user:
             who = '<div class="who">Local access (127.0.0.1)</div>'
         sub = f'<div class="sub">{subtitle}</div>' if subtitle else ""
-        nav = (self._server_navigation(guild, active) if guild else
+        nav = (self._server_navigation(guild, active, limited) if guild else
                '<span class="nav-label">WORKSPACE</span><a class="nav-link active" href="/" aria-current="page">'
                '<span class="nav-icon" aria-hidden="true">◈</span><span class="nav-text">Server overview</span></a>')
         if not guild and developer:
@@ -651,9 +698,9 @@ class DashboardServer:
 
         guilds = await self._guilds_for(user)
         is_developer = await self._is_bot_owner(user)
-        role = "Developer workspace" if is_developer else "Server owner workspace"
+        role = "Developer workspace" if is_developer else "Server owner / administrator workspace"
         access_description = ("Manage every server Veil has joined and review server authorizations."
-                              if is_developer else "Manage the authorized servers you own, all in one place.")
+                              if is_developer else "Manage authorized servers you own or administer, all in one place.")
         authorization_link = ('<a class="hero-action" href="/authorization">Manage authorization <span aria-hidden="true">↗</span></a>'
                               if is_developer and not user.get("local") else "")
         body = (f'<section class="welcome-panel"><div class="welcome-copy"><div class="welcome-kicker"><span class="kicker-dot"></span>{role}</div>'
@@ -697,7 +744,8 @@ class DashboardServer:
                 continue
             an = await self._antinuke_cfg(g.id)
             enabled = bool(an.get("enabled"))
-            if status != "any" and enabled != (status == "on"):
+            security_access = await self._can_manage_security(user, g)
+            if status != "any" and (not security_access or enabled != (status == "on")):
                 continue
             is_authorized = getattr(self.bot, "is_authorized", None)
             auth = ("yes" if is_authorized(g.id) else "no") if callable(is_authorized) else "unknown"
@@ -711,7 +759,7 @@ class DashboardServer:
             count = getattr(g, "member_count", None)
             if count is None:
                 count = len(getattr(g, "members", []))
-            visible.append((g, count, enabled, auth, log_count))
+            visible.append((g, count, enabled, auth, log_count, security_access))
         if order == "members":
             visible.sort(key=lambda row: (-row[1], row[0].name.casefold(), row[0].id))
         else:
@@ -721,16 +769,18 @@ class DashboardServer:
             return f'<option value="{value}"{" selected" if selected else ""}>{label}</option>'
 
         cards = []
-        for g, count, enabled, auth, log_count in visible:
+        for g, count, enabled, auth, log_count, security_access in visible:
             state = "on" if enabled else "off"
             access = {"yes": "Authorized", "no": "Not authorized", "unknown": "Authorization unknown"}[auth]
+            security_fact = (f'<div><span>ANTINUKE</span><strong class="fact-{state}">{state.title()}</strong></div>'
+                             if security_access else "")
             cards.append(
                 f'<article class="guild-card"><div class="guild-card-top">{_server_avatar(g)}'
                 f'<span class="guild-access">{_esc(access)}</span></div>'
                 f'<div class="guild-identity"><a href="/servers/{_esc(g.id)}/overview">{_esc(g.name)}</a>'
                 f'<span>Server ID · {_esc(g.id)}</span></div>'
                 f'<div class="guild-facts"><div><span>MEMBERS</span><strong>{_esc(count)}</strong></div>'
-                f'<div><span>ANTINUKE</span><strong class="fact-{state}">{state.title()}</strong></div>'
+                f'{security_fact}'
                 f'<div><span>LOG ROUTES</span><strong>{log_count} configured</strong></div></div>'
                 f'<a class="guild-open" href="/servers/{_esc(g.id)}/overview" '
                 f'aria-label="Configure {_esc(g.name)}">Manage server <span aria-hidden="true">↗</span></a></article>'
@@ -741,7 +791,7 @@ class DashboardServer:
             listing = '<div class="empty-servers"><strong>No servers match your filters.</strong><p>Try a different search or clear the filters.</p><a href="/">Clear filters →</a></div>'
         else:
             listing = ('<div class="empty-servers"><strong>No servers available yet.</strong>'
-                       '<p>Veil must be in a server you own and the server must be authorized. '
+                       '<p>Veil must be in an authorized server you own or administer. '
                        'Bot developers can access every joined server.</p></div>')
         status_options = "".join(option(v, label, status == v) for v, label in
                                  (("any", "Any"), ("on", "On"), ("off", "Off")))
@@ -901,20 +951,27 @@ class DashboardServer:
         ]
         if await self._can_manage_rbl(user, guild):
             cards.append(("08", "Role blacklist", "Manage restricted roles and blacklist bypasses.", f"{base}#blacklist", "Review blacklist"))
+        limited = not await self._can_manage_security(user, guild)
+        if limited:
+            cards = [card for card in cards if card[1] in ("Automod", "Logging channels", "Log exclusions", "Leveling", "Tickets")]
+            cards = [(icon, name, desc, f"{base}/features?section=logging" if name in ("Logging channels", "Log exclusions") else href, status)
+                     for icon, name, desc, href, status in cards]
         tiles = "".join(
             f'<a class="feature-tile" href="{_esc(href)}"><div class="tile-top"><span class="tile-icon">{icon}</span><span aria-hidden="true">↗</span></div>'
             f'<h3>{_esc(name)}</h3><p>{_esc(desc)}</p><span class="tile-status">{_esc(status)}</span></a>'
             for icon, name, desc, href, status in cards)
+        overview_description = ('Everything you need, organized by feature.' if limited else
+                                'Everything you need, organized by feature. Logging, trust, and blacklist links open a shared settings form.')
         body = (f'<div class="server-hero"><div><p class="eyebrow">YOUR SERVER WORKSPACE</p>'
                 f'<div class="hero-server">{_server_avatar(guild)}<div><h1>{_esc(guild.name)}</h1>'
                 f'<p>Server ID · {_esc(guild.id)}</p></div></div>'
                 '<p class="hero-copy">Your tools for a safer, better organized community. Choose a feature below to get started.</p></div>'
                 '<span class="hero-emblem" aria-hidden="true">✦</span></div>'
                 '<div class="overview-heading"><div><p class="eyebrow">YOUR TOOLKIT</p><h2>Manage your server</h2>'
-                '<p>Everything you need, organized by feature. Logging, trust, and blacklist links open a shared settings form.</p></div></div>'
+                f'<p>{overview_description}</p></div></div>'
                 f'<div class="feature-grid">{tiles}</div>'
                 '<p class="overview-note">Log route counts show explicitly selected categories, not automatic routing.</p>')
-        return self._page("Server overview", body, user, guild=guild, active="overview")
+        return self._page("Server overview", body, user, guild=guild, active="overview", limited=limited)
 
     async def handle_server(self, request: web.Request) -> web.Response:
         user = self._user(request)
@@ -923,6 +980,9 @@ class DashboardServer:
         guild = await self._guild_for(request, user)
         if guild is None:
             return self._message("Server not found", "Veil isn't in that server, or you don't own it.", 404, user)
+
+        if not await self._can_manage_security(user, guild):
+            return self._redirect(f"/servers/{guild.id}/features?section=logging")
 
         can_rbl = await self._can_manage_rbl(user, guild)
         rbl = (await self.bot.db.get_config(guild.id, "roleblacklist") or {}) if can_rbl else {}
@@ -1059,7 +1119,7 @@ class DashboardServer:
             return self._message("Login failed", "Couldn't verify your Discord account. Please try again.", 502)
         name = str(me.get("global_name") or me.get("username") or uid)
         if not await self._may_use_dashboard({"uid": uid, "local": False}):
-            resp = self._message("Access denied", "Only server owners and bot developers may use this dashboard.", 403)
+            resp = self._message("Access denied", "Only bot developers and owners or administrators of authorized servers may use this dashboard.", 403)
             resp.del_cookie(STATE_COOKIE, path="/")
             return resp
         resp = self._redirect("/")
@@ -1120,6 +1180,8 @@ class DashboardServer:
         guild = await self._guild_for(request, user)
         if guild is None:
             return web.json_response({"error": "not found"}, status=404)
+        if not await self._can_manage_security(user, guild):
+            return web.json_response({"error": "owner or developer required"}, status=403)
         result = {
             "logs": await self.bot.db.get_config(guild.id, "logs") or {},
             "antinuke": await self._antinuke_cfg(guild.id),
@@ -1136,6 +1198,8 @@ class DashboardServer:
         guild = await self._guild_for(request, user)
         if guild is None:
             return self._message("Server not found", "Veil isn't in that server, or you don't own it.", 404, user)
+        if not await self._can_manage_security(user, guild):
+            return self._message("Access denied", "Only the server owner or a bot developer may change security settings.", 403, user)
         data = await request.post()
         if not self._csrf_ok(user, data.get("csrf")):
             return self._message("Session expired", "Please refresh the page and try again.", 403, user)

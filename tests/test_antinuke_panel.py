@@ -84,7 +84,7 @@ def test_the_home_card_shows_the_state_and_offers_the_main_controls():
     cog, guild = setup()
     panel, embed = open_panel(cog, guild)
     assert embed.title == "Antinuke" and embed.description.startswith("antinuke is **off**.")
-    assert labels(panel) == ["Turn on", "Default", "Strict", "Relaxed", "Previous", "Rules 1/3", "Next"]
+    assert labels(panel) == ["Turn on", "Default", "Strict", "Relaxed", "Advanced", "Previous", "Rules 1/2", "Next"]
     (select,) = [i for i in panel.children if isinstance(i, RuleSelect)]
     assert len(select.options) == 6 and select.options[0].label == "Ban"
 
@@ -281,22 +281,27 @@ def test_rule_selector_pages_cover_every_rule_without_saving():
     panel, _ = open_panel(cog, guild)
     before = json.loads(json.dumps(saved(cog)))
     seen = []
-    for page in range(3):
+    for page in range(2):
         select = next(c for c in panel.children if isinstance(c, RuleSelect))
         seen.extend(o.value for o in select.options)
         assert len(select.options) <= 6
-        assert f"Rules {page + 1}/3" in labels(panel)
-        if page < 2:
+        assert f"Rules {page + 1}/2" in labels(panel)
+        if page == 0:
             press(panel, "Next")
-    assert seen == [r["key"] for r in MIDTOWN_RULES]
-    assert saved(cog) == before
-    final_rule = next(c for c in panel.children if isinstance(c, RuleSelect)).options[-1]
+    assert seen == [r["key"] for r in MIDTOWN_RULES[:12]]
+    press(panel, "Advanced")
+    select = next(c for c in panel.children if isinstance(c, RuleSelect))
+    assert [o.value for o in select.options] == [r["key"] for r in MIDTOWN_RULES[12:]]
+    assert panel.embed().title == "Antinuke · Advanced"
+    final_rule = select.options[-1]
     press(panel, final_rule.label)
     assert panel.rule == final_rule.value
     press(panel, "← Back")
-    assert "Rules 3/3" in labels(panel)
-    press(panel, "Previous")
-    assert "Rules 2/3" in labels(panel)
+    assert panel.advanced
+    press(panel, "Main rules")
+    assert "Rules 1/2" in labels(panel)
+    assert saved(cog) == before
+
 
 
 def test_rule_panel_write_failure_does_not_mutate_cached_settings():

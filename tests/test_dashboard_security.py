@@ -1194,7 +1194,7 @@ def test_landing_workspace_owner_developer_and_revoked_server_access():
 
     async def scenario(client):
         owner = await (await client.get("/", headers=owner_headers)).text()
-        assert "Server owner workspace" in owner and "Test Server</a>" in owner
+        assert "Server owner / administrator workspace" in owner and "Test Server</a>" in owner
         assert "Other</a>" not in owner and "Developer workspace" not in owner
         assert 'href="/authorization"' not in owner and "JOINED SERVERS" not in owner
         assert 'class="guild-card"' in owner and "1 configured" in owner
@@ -1428,5 +1428,85 @@ def test_advanced_automod_developer_session_and_access_recheck():
         response = await client.post(f"{path}/automod-entry", headers=dev_headers, data=data, allow_redirects=False)
         assert response.status == 302 and bot.db.store[(OTHER_GUILD_ID, "filters")]["words"] == ["hello"]
         assert (await client.post(f"{path}/automod-entry", headers=owner_headers, data=data)).status == 404
+
+    run(server, scenario)
+
+
+def test_administrator_scoped_access_writes_and_revocation():
+    from core.dashboard import LOG_FIELDS
+
+    bot = make_bot()
+    guild = bot.guilds[0]
+    role_id = 42
+    member = SimpleNamespace(id=STRANGER, _roles=[role_id])
+    admin_role = SimpleNamespace(id=role_id, permissions=discord.Permissions(administrator=True))
+    guild.fetch_member = AsyncMock(return_value=member)
+    guild.fetch_roles = AsyncMock(return_value=[admin_role])
+    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True, "whitelist": [1234]}
+    bot.db.store[(GUILD_ID, "roleblacklist")] = {"roles": [5678]}
+    bot.db.store[(GUILD_ID, "logs")] = {"commands": 44, "unknown": "preserve", "ignore": {"users": [9], "extra": [88]}}
+    server = login_server(bot)
+    token, headers = cookie(server, STRANGER)
+    path = f"/servers/{GUILD_ID}"
+
+    async def scenario(client):
+        home = await (await client.get("/", headers=headers)).text()
+        assert "Test Server</a>" in home and "Other</a>" not in home
+        assert '<span>ANTINUKE</span>' not in home
+        assert "Test Server</a>" not in await (await client.get("/?antinuke=on", headers=headers)).text()
+        overview = await (await client.get(f"{path}/overview", headers=headers)).text()
+        assert "Automod" in overview and "Tickets" in overview and "Logging channels" in overview
+        assert "Antinuke" not in overview and "Trusted identities" not in overview and "Role blacklist" not in overview
+        for section in ("automod", "logging", "leveling", "tickets"):
+            page = await client.get(f"{path}/features?section={section}", headers=headers)
+            assert page.status == 200
+            html = await page.text()
+            assert 'section=rules' not in html and 'id="an_whitelist"' not in html
+        for section in ("rules", "general", "garbage"):
+            assert (await client.get(f"{path}/features?section={section}", headers=headers)).status == 403
+        assert (await client.get(path, headers=headers, allow_redirects=False)).status == 302
+        assert (await client.get(f"/api/guilds/{GUILD_ID}/config", headers=headers)).status == 403
+        assert (await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, data={"an_whitelist": "1"})).status == 403
+        assert (await client.get("/authorization", headers=headers)).status == 403
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/overview", headers=headers)).status == 404
+        for feature in ("general", "rule", "protection", "authorization"):
+            assert (await client.post(f"{path}/features/{feature}", headers=headers,
+                                      data={"csrf": csrf_of(server, token)})).status == 403
+        for section, feature, fields in (
+            ("automod", "automod", {"invites": "on", "links": "off", "zalgo": "off", "antighostping": "off",
+                                    "caps": "0", "massmention": "0", "emojis": "0", "newlines": "0",
+                                    "spam_messages": "0", "spam_seconds": "10", "action": "delete", "timeout": "60"}),
+            ("leveling", "levels", {"enabled": "on", "voice": "off", "stack": "on", "channel": "", "message": "hi"}),
+            ("tickets", "tickets", {"category": "", "log": "", "ping": "off", "max": "2", "support": "", "message": "hi"}),
+        ):
+            html = await (await client.get(f"{path}/features?section={section}", headers=headers)).text()
+            data = {**fields, "csrf": csrf_of(server, token), "revision": _feature_revision(html, GUILD_ID, feature),
+                    "an_whitelist": "1", "rbl_roles": "1"}
+            assert (await client.post(f"{path}/features/{feature}", headers=headers, data=data, allow_redirects=False)).status == 302
+        html = await (await client.get(f"{path}/features?section=logging", headers=headers)).text()
+        revision = _feature_revision(html, GUILD_ID, "logging")
+        data = {field: "" for field, _ in LOG_FIELDS}
+        data.update({"csrf": csrf_of(server, token), "revision": revision, "log_commands": "44",
+                     "log_ignore_channels": "55, 66", "log_ignore_users": "77", "an_whitelist": "1",
+                     "rbl_roles": "1", "return_section": "logging"})
+        assert (await client.post(f"{path}/features/logging", headers={**headers, "Origin": "https://evil.example"}, data=data)).status == 403
+        assert (await client.post(f"{path}/features/logging", headers=headers, data={**data, "csrf": "bad"})).status == 403
+        assert (await client.post(f"{path}/features/logging", headers=headers, data=data, allow_redirects=False)).status == 302
+        logs = bot.db.store[(GUILD_ID, "logs")]
+        assert logs["commands"] == 44 and logs["unknown"] == "preserve"
+        assert logs["ignore"] == {"users": [77], "channels": [55, 66], "extra": [88]}
+        assert bot.db.store[(GUILD_ID, "antinuke")]["whitelist"] == [1234]
+        assert bot.db.store[(GUILD_ID, "roleblacklist")]["roles"] == [5678]
+        assert (await client.post(f"{path}/features/logging", headers=headers, data=data)).status == 409
+        # Fresh roles are used: removal of Administrator immediately denies the old session.
+        admin_role.permissions = discord.Permissions.none()
+        assert (await client.get(f"{path}/features?section=logging", headers=headers)).status == 403
+        assert (await client.post(f"{path}/features/logging", headers=headers, data=data)).status == 403
+        admin_role.permissions = discord.Permissions(administrator=True)
+        guild.fetch_member.side_effect = RuntimeError("Discord unavailable")
+        assert (await client.get(f"{path}/overview", headers=headers)).status == 403
+        guild.fetch_member.side_effect = None
+        bot.is_authorized = lambda gid: gid != GUILD_ID
+        assert (await client.get(f"{path}/overview", headers=headers)).status == 403
 
     run(server, scenario)
