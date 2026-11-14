@@ -72,26 +72,29 @@ class Kind:
     names: tuple[str, ...]  # channels with these names are picked up automatically when nothing is set
 
 
+# Channels `,logs setup` makes, in the order a server reads them. Every log category has a home here: the leaner
+# set chooses the ones that mean the most, and anything without its own channel shares the general log.
 KINDS: dict[str, Kind] = {k.key: k for k in (
-    Kind("messages", "Messages", "💬", "Deleted, edited and bulk-deleted messages", "message-logs",
-         ("message-logs", "msg-logs")),
-    Kind("members", "Members", "👥", "Joins, leaves, nicknames", "member-logs", ("member-logs", "members")),
-    Kind("joinleave", "Joins & leaves", "🚪", "Optional: give joins and leaves their own channel", None,
+    Kind("joinleave", "Joins & leaves", "🚪", "Joins, leaves and kicks", "join-logs",
          ("join-logs", "join-log", "joins-leaves")),
+    Kind("commands", "Commands", "⌨️", "Every command a member runs", "command-logs",
+         ("command-logs", "cmd-logs", "commands", "command-log")),
+    Kind("server", "Server", "⚙️", "Server settings, invites and emojis", "veil-utilities-logging",
+         ("veil-utilities-logging", "server-logs", "bot-logs", "logs")),
+    Kind("antinuke", "Antinuke", "🚨", "Antinuke alerts and what the bot did about them", "antinuke-logs",
+         ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging")),
+    Kind("messages", "Messages", "💬", "Deleted, edited and bulk-deleted messages", None, ("message-logs", "msg-logs")),
+    Kind("members", "Members", "👥", "Nicknames; joins and leaves ride with the join log", None,
+         ("member-logs", "members")),
     Kind("roles", "Roles", "🏷️", "Roles created, edited, deleted, given or taken", "role-logs", ("role-logs", "roles")),
     Kind("channels", "Channels", "📁", "Channels and categories created, edited, deleted", "channel-logs",
          ("channel-logs", "channels")),
-    Kind("voice", "Voice", "🎙️", "Voice joins, leaves, moves and server mutes", "voice-logs", ("voice-logs", "vc-logs")),
+    Kind("voice", "Voice", "🎙️", "Voice joins, leaves, moves and server mutes", "voice-logs",
+         ("voice-logs", "vc-logs")),
     Kind("bans", "Moderation", "🔨", "Bans and unbans, plus kicks and timeouts unless the channel is called bans",
          "mod-logs", ("mod-logs", "modlog", "ban-logs", "ban-log", "punishments")),
-    Kind("timeouts", "Timeouts", "⏳", "Optional: give timeouts (mutes) their own channel", None,
+    Kind("timeouts", "Timeouts", "⏳", "Timeouts (mutes), unless the moderation channel takes them", None,
          ("mute-logs", "timeout-logs", "mute-log", "timeout-log", "mutes", "timeouts")),
-    Kind("server", "Server", "⚙️", "Server settings, invites and emojis", "server-logs",
-         ("server-logs", "veil-utilities-logging", "bot-logs", "logs")),
-    Kind("commands", "Commands", "⌨️", "Every command a member runs", "command-logs",
-         ("command-logs", "cmd-logs", "commands", "command-log")),
-    Kind("antinuke", "Antinuke", "🚨", "Antinuke alerts and what the bot did about them", "antinuke-logs",
-         ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging")),
 )}
 TYPES = tuple(KINDS)
 
@@ -124,11 +127,23 @@ log = std_logging.getLogger("veil.logs")
 
 SHARED_NAMES = {"veil-utilities-logging", "logs", "bot-logs"}  # catch-all channels from older setups
 LOG_LIKE_NAMES = {"punishments", "modlog", "veil-security"}  # log channels without "log" in the name
+CATCHALL_SUFFIXES = ("-utilities-logging", "-utilities-logs", "-main-group-logging", "-main-group-logs")
+CATCHALL = re.compile(r"^(?:.*-)?(?:utilities|main-group)-(?:logging|logs)$")  # midtown-utilities-logging
+
+
+def is_catchall(channel) -> bool:
+    """A channel meant to receive everything, whatever the bot is called: `#midtown-utilities-logging` counts.
+
+    Setups made under an older bot name (and this bot's own `#veil-utilities-logging`) name their general log after
+    the bot. Recognising that shape means those servers keep every category instead of quietly dropping them.
+    """
+    return CATCHALL.match(getattr(channel, "name", "").lower()) is not None
 
 
 def _shared(channel, uses: dict[int, int]) -> bool:
-    """A catch-all log channel: an old one-channel-for-everything name, or several categories pointed at it."""
-    return channel.name.lower() in SHARED_NAMES or uses.get(channel.id, 0) > 1
+    """A catch-all log channel: an old one-channel-for-everything name, a bot-named general log, or several
+    categories pointed at one channel."""
+    return channel.name.lower() in SHARED_NAMES or is_catchall(channel) or uses.get(channel.id, 0) > 1
 
 
 def _is_log_channel(channel) -> bool:
@@ -179,25 +194,86 @@ def other_bots_channel(channel) -> bool:
     return "ghost vanguard" in normalized or "midtown vanguard" in normalized
 
 
-def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
-    """The channel a category logs to: the one set in the config, else a channel with a recognisable name."""
-    chain = [kind] + (["members"] if kind == "joinleave" else [])  # joins and leaves ride with the member log
-    text_channels = [c for c in getattr(guild, "text_channels", []) if not other_bots_channel(c)]
-    for key in chain:  # a category's own setting, then a channel named for it, before falling back to the next
-        value = cfg.get(key)
-        if value == OFF:
-            return None
-        channel = guild.get_channel(value or 0)
-        if isinstance(channel, discord.TextChannel) and not other_bots_channel(channel):
-            return channel
-        for channel in text_channels:
-            if channel.name.lower() in KINDS[key].names:
-                return channel
-    if kind not in NO_SERVER_FALLBACK:
-        for channel in text_channels:
-            if channel.name.lower() in KINDS["server"].names:
-                return channel
+# Where a category goes when it has no channel of its own. The order is the point: a channel named after the
+# category wins, then the channel it shares with, and only then the general log (see `_channel_for`).
+FALLBACKS: dict[str, tuple[str, ...]] = {
+    "joinleave": ("members",),  # joins ride with the member channel when there is no #join-logs
+    "members": ("joinleave",),  # one member stream: nicknames, joins, leaves and kicks
+    "messages": ("server",), "roles": ("server",), "channels": ("server",), "voice": ("server",),
+}
+# The flip side: a category whose channel carries other categories' logs with it when it is made.
+CARRIES: dict[str, tuple[str, ...]] = {
+    "joinleave": ("members",),
+    "bans": ("timeouts",),
+    "server": ("messages", "roles", "channels", "voice"),
+}
+
+
+def _named(text_channels, key: str) -> discord.TextChannel | None:
+    """The channel whose name is one this category goes by."""
+    return next((c for c in text_channels if c.name.lower() in KINDS[key].names), None)
+
+
+def _set_channel(guild, cfg: dict, key: str) -> discord.TextChannel | None:
+    """The channel the config points this category at (None when unset, `off`, gone, or another bot's)."""
+    if guild is None or cfg.get(key) == OFF:
+        return None
+    channel = guild.get_channel(cfg.get(key) or 0)
+    if isinstance(channel, discord.TextChannel) and not other_bots_channel(channel):
+        return channel
     return None
+
+
+def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
+    """The channel a category logs to.
+
+    1. the channel set by hand (`,logs set`), which always wins;
+    2. a channel named after it (`#role-logs`), or after the category it shares a stream with (`#member-logs` for
+       joins and leaves) - unless that category is switched off;
+    3. the general log: its setting, its name, or any channel named after a bot (`#midtown-utilities-logging`);
+    4. nothing: `off` stays off, and commands, bans and the general log itself never spill into the general log.
+    """
+    if cfg.get(kind) == OFF:
+        return None
+    explicit = _set_channel(guild, cfg, kind)
+    if explicit is not None:
+        return explicit
+    text_channels = [c for c in getattr(guild, "text_channels", []) if not other_bots_channel(c)]
+    for key in (kind, *[k for k in FALLBACKS.get(kind, ()) if k != kind]):
+        if cfg.get(key) == OFF:
+            continue  # switched off: not even a channel with that name
+        named = _named(text_channels, key)
+        if named is not None:
+            return named
+        shared = _set_channel(guild, cfg, key)  # the channel this category shares with it (a member stream, say)
+        if shared is not None:
+            return shared
+    if kind == "server":
+        return next((c for c in text_channels if is_catchall(c)), None)  # the general log, whatever it is called
+    if kind in NO_SERVER_FALLBACK:
+        return None  # these never spill into the general log
+    if cfg.get("server") != OFF:
+        shared = _set_channel(guild, cfg, "server") or _named(text_channels, "server") \
+            or next((c for c in text_channels if is_catchall(c)), None)
+        if shared is not None:
+            return shared
+    return None
+
+
+def _sharers(home: str) -> tuple[str, ...]:
+    """Categories whose logs ride in the channel `home` creates (the general log carries the odd ones out)."""
+    return CARRIES.get(home, ())
+
+
+def _leave_own_channel(guild, cfg: dict, key: str) -> None:
+    """Make an optional category fall back to `home` again, but only if it never got a channel of its own.
+
+    `,logs setup` runs on servers that set things up by hand, so a channel someone chose themselves (say a real
+    `#mod-logs`) is never taken away; a leftover from an older default set is.
+    """
+    if isinstance(guild.get_channel(cfg.get(key) or 0), discord.TextChannel):
+        return
+    cfg[key] = None
 
 
 def describe(guild, cfg: dict, kind: str) -> str:
@@ -597,9 +673,13 @@ class Logging(commands.Cog):
         return (await self.organize(guild, kinds)).created
 
     async def organize(self, guild: discord.Guild, kinds: tuple[str, ...] | None = None) -> SetupReport:
-        """Give every log category its own private channel and keep all log channels together under VEIL LOGS.
+        """Give the categories that mean the most their own private channel under VEIL LOGS; the rest share the
+        general log.
 
-        * A category with no channel, or one sharing a catch-all channel with others (the old single
+        * One channel each for joins, commands, the general log, antinuke, roles, channels, voice and moderation;
+          messages, nicknames and timeouts ride in the channel they share (the general log, the join log and the
+          moderation log). Every category keeps a home, so nothing is lost by having fewer channels.
+        * A category with no channel, or one sharing a catch-all with others (the old single
           `#veil-utilities-logging` setup), gets its own channel: an existing one with the right name, else a new one.
         * A category pointed at a channel of its own is left where it is (e.g. Moderation → `#bans`).
         * Existing channels are moved only when their topic has Veil's marker. Unmarked channels stay in place;
@@ -626,16 +706,20 @@ class Logging(commands.Cog):
             if before[key] is not None:
                 uses[before[key].id] = uses.get(before[key].id, 0) + 1
 
-        todo = []
+        todo = {}
         for key in kinds or SETUP_KINDS:
             kind = KINDS[key]
             if not kind.channel or cfg.get(key) == OFF:
                 continue  # not created by default, or switched off on purpose
-            current = guild.get_channel(cfg.get(key) or 0)
-            if isinstance(current, discord.TextChannel) and not _shared(current, uses) \
-                    and not other_bots_channel(current):
-                continue  # pointed at a channel of its own: keep it
-            todo.append(kind)
+            if kinds:
+                todo[key] = kind
+                continue
+            home = _channel_for(guild, cfg, key)
+            if home is not None and not _shared(home, uses):
+                continue  # already alone in a channel of its own: a full setup leaves it there
+            if home is None and _named(existing.values(), key) is not None:
+                continue  # it has a channel with the right name: the config is pointed at it below
+            todo[key] = kind  # nothing yet, or one catch-all channel doing for several
 
         private = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
@@ -653,7 +737,7 @@ class Logging(commands.Cog):
                     category = None
             return category
 
-        for kind in todo:
+        for key, kind in todo.items():
             channel = existing.get(kind.channel)
             if channel is None:
                 try:
@@ -664,7 +748,25 @@ class Logging(commands.Cog):
                     continue
                 report.created.append(channel)
                 existing[kind.channel] = channel
-            cfg[kind.key] = channel.id
+                # a new channel carries the logs that share it, so the set keeps to one channel per home
+                for other in _sharers(key):
+                    current = _set_channel(guild, cfg, other)
+                    if cfg.get(other) != OFF and (current is None or _shared(current, uses)):
+                        cfg[other] = channel.id
+            cfg[key] = channel.id
+        # a category with a channel of the right name already there is pointed at it rather than given another
+        for key in SETUP_KINDS:
+            if key in todo or cfg.get(key) is not None or cfg.get(key) == OFF:
+                continue
+            home = _channel_for(guild, cfg, key)
+            if home is not None:
+                cfg[key] = home.id
+        # a category with its own channel of that name is a deliberate choice; a leftover member/mute channel from
+        # an older setup is not, so those go back to sharing their home
+        if "joinleave" in todo:
+            _leave_own_channel(guild, cfg, "members")
+        if "bans" in todo or "timeouts" in todo:
+            _leave_own_channel(guild, cfg, "timeouts")
         if todo:
             await self.save(guild, cfg)
 
@@ -823,9 +925,10 @@ class Logging(commands.Cog):
     @has_perms(manage_guild=True)
     @is_server_owner()
     async def logs_setup(self, ctx: Context, mode: str = None):
-        """Give every log category its own private channel
+        """Create one private log channel per category, together under VEIL LOGS
 
-        They're kept together under VEIL LOGS at the top. `on` or `off` sets whether this happens automatically.
+        Messages, nicknames and timeouts share the channel they belong to instead of getting one of their own,
+        so nothing is missed. `on` or `off` sets whether this happens automatically.
         """
         if mode is not None:
             return await self._set_auto(ctx, mode)
@@ -1069,13 +1172,17 @@ class Logging(commands.Cog):
     # ------------------------------------------------------------ joins, leaves, bans
     @commands.Cog.listener()
     async def on_member_join(self, m: discord.Member):
-        channel = await self.route(m.guild, "joinleave")
+        if m.guild is None:
+            return  # a DM: nothing to log
+        channel = await self.member_stream_channel(m.guild)
         if channel:
             await self.post(channel, fmt.member_joined(m))
 
     @commands.Cog.listener()
     async def on_member_remove(self, m: discord.Member):
-        left = await self.route(m.guild, "joinleave")
+        if m.guild is None:
+            return  # a DM: nothing to log
+        left = await self.member_stream_channel(m.guild)
         mod = await self.route(m.guild, "bans")
         if mod is not None and bans_only(mod):  # #bans is for bans: a kick goes with the leaves
             mod = None
@@ -1111,16 +1218,23 @@ class Logging(commands.Cog):
         await self.post(channel, fmt.user_unbanned(user, mod, reason, clicked=clicker is not None),
                         view=BanLogButton.build(guild.id, user.id, False))
 
+    async def member_stream_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        """The one channel member events share: `#join-logs` when the server has it, else the general log."""
+        own = await self.route(guild, "joinleave")
+        if own and not bans_only(own):
+            return own
+        return await self.route(guild, "server")
+
     async def timeout_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
-        """Timeouts: their own channel if there is one, else the moderation channel (unless it's a bans-only
-        channel like #bans), else the member log."""
+        """Timeouts: their own channel if they have one, else the moderation channel (unless it's a bans-only
+        channel like #bans), else the join log, which carries the member stream."""
         own = await self.route(guild, "timeouts")
         if own:
             return own
         mod = await self.route(guild, "bans")
         if mod and not bans_only(mod):
             return mod
-        return await self.route(guild, "members")
+        return await self.route(guild, "members", "joinleave")  # the member stream, whichever channel it lives in
 
     # ------------------------------------------------------------ member updates and roles
     async def _build_role_update_embed(self, member: discord.Member, added: list, removed: list,
@@ -1133,7 +1247,7 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if before.nick != after.nick:
-            channel = await self.route(after.guild, "members", user_id=after.id)
+            channel = await self.member_stream_channel(after.guild)
             if channel:
                 actor, _ = await fmt.audit_actor(after.guild, discord.AuditLogAction.member_update, after.id)
                 await self.post(channel, fmt.nickname_changed(after, before.nick, after.nick, actor))

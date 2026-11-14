@@ -325,7 +325,7 @@ _Log server events to channels_
 | `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild, server owner or bot developer |
 | `,logs off <category>` (disable) | Stop logging a category | manage guild, server owner or bot developer |
 | `,logs set <category> [channel]` | Send a log category to a channel | manage guild, server owner or bot developer |
-| `,logs setup [mode]` (init, default, defaults, create) | Give every log category its own private channel | manage guild, server owner or bot developer |
+| `,logs setup [mode]` (init, default, defaults, create) | Create one private log channel per category, together under VEIL LOGS | manage guild, server owner or bot developer |
 | `,logs test` | Send a test line to every log channel | manage guild, server owner or bot developer |
 | `,setuplogs` (setupchannels, autologs) | Make a private channel for every log category | manage guild, server owner or bot developer |
 
