@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import re
 
 import discord
@@ -28,16 +29,18 @@ def perm_label(perm: str) -> str:
 
 
 def parse_perms(text: str) -> tuple[list[str], list[str]]:
-    """`ban members, kick_members manage roles` -> (["ban_members", "kick_members", "manage_roles"], unknown words).
-    Commas, spaces and underscores all work; the longest known permission name wins at each step."""
+    """Parse permission names/aliases separated by commas, spaces, hyphens or underscores."""
     words = [w for w in re.split(r"[\s,]+", text.strip().lower()) if w]
+    flags = discord.Permissions.VALID_FLAGS
+    canonical = {flags[name]: name for name in VALID_PERMS}
     found, unknown, i = [], [], 0
     while i < len(words):
-        for size in (4, 3, 2, 1):
+        for size in range(min(6, len(words) - i), 0, -1):
             joined = "_".join(words[i:i + size]).replace("-", "_")
-            if joined in VALID_PERMS:
-                if joined not in found:
-                    found.append(joined)
+            if joined in flags:
+                key = canonical.get(flags[joined], joined)
+                if key not in found:
+                    found.append(key)
                 i += size
                 break
         else:
@@ -424,7 +427,7 @@ class Settings(commands.Cog):
         lst = fp.setdefault(str(role.id), [])
         lst.extend(p for p in perms if p not in lst)
         await self.bot.db.set_config(guild.id, "fakeperms", fp)
-        note = ("\n-# ⚠️ `administrator` lets this role use every bot command, including antinuke-sensitive ones"
+        note = ("\n-# ⚠️ `administrator` grants broad bot-command access; owner, developer and Antinuke checks still apply"
                 if "administrator" in perms else "")
         return (f"gave {role.mention} {human_join([f'`{perm_label(p)}`' for p in perms])} "
                 f"through the bot{note}")
@@ -484,9 +487,14 @@ class Settings(commands.Cog):
 
     @fakepermissions.command(name="list", aliases=["show", "view"])
     @commands.guild_only()
-    async def fp_list(self, ctx: Context):
-        """See which roles have fake permissions"""
+    async def fp_list(self, ctx: Context, *, role: discord.Role = None):
+        """See fake permissions for every role, or a specified role"""
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
+        if role is not None:
+            permissions = fp.get(str(role.id), [])
+            if not permissions:
+                return await ctx.warn(f"{role.mention} has no fake permissions")
+            fp = {str(role.id): permissions}
         lines = [f"**<@&{r}>**\n{', '.join(f'`{perm_label(p)}`' for p in ps)}" for r, ps in fp.items() if ps]
         if not lines:
             return await ctx.warn(f"no roles have fake permissions yet, give some with `{ctx.clean_prefix}fp add`")
@@ -503,8 +511,15 @@ class Settings(commands.Cog):
         fp = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
         if not any(fp.values()):
             return await ctx.warn("no roles have fake permissions")
+        before = copy.deepcopy(fp)
+        count = sum(1 for v in before.values() if v)
+        if not await ctx.confirm(f"Remove all fake permissions from **{count}** role(s)? This cannot be undone automatically."):
+            return await ctx.neutral("cancelled; fake permissions were not changed")
+        current = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
+        if current != before:
+            raise UserError("Fake permissions changed while confirming; nothing was removed. Run the command again.")
         await self.bot.db.set_config(ctx.guild.id, "fakeperms", {})
-        await ctx.approve(f"removed the fake permissions from **{sum(1 for v in fp.values() if v)}** role(s)")
+        await ctx.approve(f"removed the fake permissions from **{count}** role(s)")
 
 
 async def setup(bot):

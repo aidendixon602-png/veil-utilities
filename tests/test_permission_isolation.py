@@ -1,4 +1,4 @@
-"""Native Discord permissions must not silently grant the shared Veil permission checks."""
+"""Ordinary permissions include Discord grants, without bypassing independent controls."""
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -14,13 +14,13 @@ from core.utils import Ignored, UserError, missing_perms
 
 @pytest.mark.parametrize("permission", ["administrator", "ban_members", "kick_members", "moderate_members",
                                         "manage_messages", "manage_roles", "manage_channels", "manage_guild"])
-def test_native_permissions_do_not_authorize_shared_checks_on_empty_guild(permission):
+def test_native_permissions_authorize_shared_checks_on_empty_guild(permission):
     async def go():
         author = SimpleNamespace(id=20, roles=[], guild_permissions=discord.Permissions.all())
         bot = SimpleNamespace(db=SimpleNamespace(get_config=AsyncMock(return_value={})), owner_ids=set())
         ctx = SimpleNamespace(author=author, bot=bot, guild=SimpleNamespace(id=1, owner_id=10),
                               channel=SimpleNamespace(permissions_for=lambda _: discord.Permissions.all()))
-        assert await missing_perms(ctx, **{permission: True}) == [permission]
+        assert await missing_perms(ctx, **{permission: True}) == []
         ctx.guild.owner_id = author.id
         assert await missing_perms(ctx, **{permission: True}) == []
     asyncio.run(go())
@@ -43,7 +43,7 @@ def test_fake_grants_remain_explicit_and_guild_scoped():
     asyncio.run(go())
 
 
-def test_native_admin_cannot_bypass_disabled_or_ignored_command_or_staff_mode():
+def test_native_admin_cannot_bypass_disabled_or_ignored_command():
     async def go():
         bot = Veil()
         bot.auth_required = False
@@ -57,7 +57,7 @@ def test_native_admin_cannot_bypass_disabled_or_ignored_command_or_staff_mode():
         cmd = SimpleNamespace(name="ping", qualified_name="ping", root_parent=None, hidden=False, parents=[])
         ctx = SimpleNamespace(guild=guild, author=author, command=cmd, channel=SimpleNamespace(id=30),
                               cog=None, send=AsyncMock())
-        assert not await bot.is_staff_member(ctx)
+        assert await bot.is_staff_member(ctx)
         with pytest.raises(UserError, match="disabled"):
             await bot._global_check(ctx)
         settings.clear()
@@ -66,8 +66,7 @@ def test_native_admin_cannot_bypass_disabled_or_ignored_command_or_staff_mode():
             await bot._global_check(ctx)
         settings.clear()
         settings["staff_only"] = True
-        with pytest.raises(UserError, match="staff-only"):
-            await bot._global_check(ctx)
+        assert await bot._global_check(ctx)
     asyncio.run(go())
 
 
@@ -84,7 +83,7 @@ def test_native_manage_channels_alone_does_not_grant_ticket_support():
     asyncio.run(go())
 
 
-def test_help_hides_protected_command_without_a_veil_grant():
+def test_help_shows_ordinary_command_with_native_grant():
     async def go():
         help_command = Help()
         author = SimpleNamespace(id=20, roles=[], guild_permissions=discord.Permissions.all())
@@ -94,7 +93,7 @@ def test_help_hides_protected_command_without_a_veil_grant():
         help_command.context = SimpleNamespace(author=author, guild=SimpleNamespace(id=1, owner_id=10),
                                                channel=SimpleNamespace(permissions_for=lambda _: discord.Permissions.all()),
                                                bot=SimpleNamespace(db=db))
-        assert not (await help_command.help_access(0)).permits(cmd)
+        assert (await help_command.help_access(0)).permits(cmd)
     asyncio.run(go())
 
 

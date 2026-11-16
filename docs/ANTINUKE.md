@@ -23,7 +23,10 @@ to find a rule, then select it to edit. The rule page retains its on/off, count,
 detection controls, with fixed settings disabled. `,an health` checks the bot's core permissions and member intent, and warns
 about overlapping protection if Ghost Vanguard is present. The check cannot guarantee that the bot can act on every
 target. Existing positional commands such as `,an ban 3 ban 60s`, presets and the panel still work. Changing a rule does **not** turn on the antinuke itself; use `,an toggle on` first.
-Only the server owner or a bot developer can turn the whole antinuke off.
+Only the server owner, a bot developer, or an explicitly appointed Antinuke admin can open or manage the
+Antinuke commands and panel. Staff levels and fake or native Administrator alone do not grant access. Appointed
+admins retain limited controls; only the server owner or a bot developer can turn the whole antinuke off or
+appoint Antinuke admins.
 
 - `--threshold` is the number of actions that triggers the rule, from 1 to 100.
 - `--window` accepts seconds, minutes or hours, e.g. `60s`, `2m` or `1h` (clamped to 5 seconds–24 hours).
@@ -51,7 +54,8 @@ must have antinuke enabled, receive a usable Discord audit-log entry, and have a
 channel it can write to. Missing or delayed entries and delivery errors can prevent alerts.
 A separate existing rule may still act on a simultaneous vanity change.
 
-The Antinuke category in `,help` lists available security commands on one compact overview. Select
+The Antinuke category in `,help` lists authorized Antinuke commands on one compact overview. Antiraid and
+Anti-Alt appear separately under Security. Select
 a command group to browse its subcommands, descriptions and aliases; long groups can have multiple
 detail pages. If the command catalog outgrows Discord's message limits, the overview falls back to
 multiple pages rather than omitting commands. The `,mod` and `,admin` panel commands are removed;
@@ -82,7 +86,7 @@ unknown exemption, and blocks guarded bot commands; this can reduce protection d
 Role cache and Discord events can still be stale or unavailable, and configuration writes are not serialized
 across all writers. Review trust entries and test changes in a disposable server. Only trust accounts you are
 willing to exempt from protection.
-`,an admin @user` toggles an antinuke administrator (server owner only). **In Veil, antinuke admins are also
+`,an admin @user` toggles an antinuke administrator (server owner or bot developer only). **In Veil, antinuke admins are also
 exempt**, and `,an trust` is a legacy alias for the whitelist, not Greed's separate admin command. Role-blacklist
 authorization is a different setting, but users in its `authorized` list are also treated as trusted by the
 current antinuke implementation. Review both settings before relying on enforcement.

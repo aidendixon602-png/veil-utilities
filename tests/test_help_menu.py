@@ -71,7 +71,7 @@ def test_category_buttons_only_list_categories_the_person_may_open():
     expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
                 4: {"Moderation", "Roles", "Server"},
                 6: {"Moderation", "Roles", "Server", "Permissions"},
-                7: {"Moderation", "Roles", "Server", "Permissions", "Antinuke"}}
+                7: {"Moderation", "Roles", "Server", "Permissions", "Security"}}
     for rank, staff in expected.items():
         assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
     assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
@@ -831,7 +831,7 @@ def test_helper_help_respects_actual_level_overrides_fakeperms_and_disabled_comm
         h = _help()
         h.context.author = author
         h.context.guild = SimpleNamespace(id=1, owner_id=99)
-        h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.all())
+        h.context.channel = SimpleNamespace(permissions_for=lambda member: discord.Permissions.none())
         h.context.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda guild, key: store.get(key, {})))
         h.context.bot.walk_commands = lambda: [tools, restricted, clear, public]
         access = await h.help_access(1)
@@ -941,7 +941,7 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                                     send=sent)
         h.is_owner_check = AsyncMock(return_value=False)
         levels = [("helper", 1), ("moderator", 2), ("admin", 3), ("headadmin", 4),
-                  ("overseer", 6), ("supremeleader", 7)]
+                  ("overseer", 5), ("bot_manager", 6), ("supremeleader", 7)]
         for key, rank in levels:
             store = {"permlevels": {"roles": {"900": key}}, "fakeperms": {}, "settings": {}}
             with patch.object(loaded_bot.db, "get_config", AsyncMock(side_effect=lambda gid, module: store.get(module, {}))):
@@ -954,8 +954,9 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                 assert {"warn", "timeout", "cases"} <= moderator
                 assert ("kick" in moderator) == (rank >= 2)
                 assert ("ban" in moderator) == (rank >= 3)
-                assert ("Permissions" in view.pages) == (rank >= 6)
-                assert ("Antinuke" in view.pages) == (rank >= 7)
+                assert ("Permissions" in view.pages) == (rank >= 5)
+                assert "Antinuke" not in view.pages
+                assert ("Security" in view.pages) == (rank >= 7)
 
         # The real server owner gets server-owner-only help, not the developer category.
         guild.owner_id = author.id
@@ -1008,10 +1009,10 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
 def test_home_button_layout_fits_all_current_categories():
     view = HelpView(_help(), ALL, is_owner=True, author_rank=10000)
     assert len(view.pages) == len(CATEGORIES) + 1
-    assert len(view.children) == len(view.pages) == 12
+    assert len(view.children) == len(view.pages) == 13
     assert _labels(view) == list(view.pages)
     for row in range(5):
-        assert sum(component.row == row for component in view.children) == (3 if row < 4 else 0)
+        assert sum(component.row == row for component in view.children) == (3 if row < 4 else 1)
     assert all(button.style == discord.ButtonStyle.secondary for button in view.children)
 
 
@@ -1043,9 +1044,12 @@ def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loa
 
     entries = category_commands(loaded_bot)["Antinuke"]
     names = {c.qualified_name for c in entries}
-    for root in (Antinuke.antinuke, Antinuke.antiraid, Antinuke.antialt):
-        assert root.qualified_name in names
-        assert {c.qualified_name for c in root.walk_commands() if not c.hidden} <= names
+    root = Antinuke.antinuke
+    assert root.qualified_name in names
+    assert {c.qualified_name for c in root.walk_commands() if not c.hidden} <= names
+    security = {c.qualified_name for c in category_commands(loaded_bot)["Security"]}
+    assert {"antiraid", "antialt"} <= security
+    assert not ({"antiraid", "antialt"} & names)
     assert "antinuke namemonitor" in names
     h = _help()
     pages = h.category_pages("Antinuke", page_order("Antinuke", entries))
@@ -1098,7 +1102,7 @@ def test_antinuke_compact_page_navigates_to_details_and_aliases(loaded_bot):
         view = HelpView(h, category_commands(loaded_bot), is_owner=True, start="Antinuke")
         assert len(view.books["Antinuke"]) == 1
         select = next(c for c in view.children if isinstance(c, CommandSelect))
-        assert {o.value for o in select.options} >= {"antinuke", "antiraid", "antialt"}
+        assert {o.value for o in select.options} == {"antinuke"}
         assert len(select.options) <= 25
         await view.show_command(_it(), "antinuke")
         assert view.selected.qualified_name == "antinuke"

@@ -24,6 +24,7 @@ def setup(store=None):
     cog.bot = SimpleNamespace(db=db)
     ctx = SimpleNamespace(guild=SimpleNamespace(id=1), author=SimpleNamespace(id=5, mention="<@5>"),
                           approve=AsyncMock(), warn=AsyncMock(), neutral=AsyncMock(), paginate=AsyncMock(),
+                          confirm=AsyncMock(return_value=True),
                           clean_prefix=",")
     role = SimpleNamespace(id=9, mention="<@&9>", is_default=lambda: False)
     return cog, ctx, role, store
@@ -74,3 +75,33 @@ def test_no_permissions_named_opens_a_picker():
     asyncio.run(view.picked(it))
     assert store["fakeperms"] == {"9": ["ban_members", "manage_roles"]}
     assert it.response.edit_message.await_args.kwargs["embed"].description.startswith("✅ <@5>: gave <@&9>")
+
+
+def test_role_filter_and_discord_permission_aliases():
+    assert parse_perms('view channel, use external emojis, manage_emojis') == (
+        ['read_messages', 'external_emojis', 'manage_expressions'], [])
+    cog, ctx, role, store = setup({'9': ['ban_members'], '10': ['kick_members']})
+    asyncio.run(Settings.fp_list.callback(cog, ctx, role=role))
+    page = ctx.paginate.await_args.args[0][0]
+    assert '<@&9>' in page.description and '<@&10>' not in page.description
+    role.id = 11
+    asyncio.run(Settings.fp_list.callback(cog, ctx, role=role))
+    assert 'has no fake permissions' in ctx.warn.await_args.args[0]
+    assert store['fakeperms'] == {'9': ['ban_members'], '10': ['kick_members']}
+
+
+def test_reset_cancel_and_concurrent_change_do_not_delete_data():
+    cog, ctx, role, store = setup({'9': ['ban_members']})
+    ctx.confirm.return_value = False
+    asyncio.run(Settings.fp_reset.callback(cog, ctx))
+    assert store['fakeperms'] == {'9': ['ban_members']}
+    cog.bot.db.set_config.assert_not_awaited()
+
+    async def change(*args):
+        store['fakeperms']['10'] = ['kick_members']
+        return True
+    ctx.confirm.side_effect = change
+    with pytest.raises(UserError, match='changed while confirming'):
+        asyncio.run(Settings.fp_reset.callback(cog, ctx))
+    assert store['fakeperms'] == {'9': ['ban_members'], '10': ['kick_members']}
+    cog.bot.db.set_config.assert_not_awaited()

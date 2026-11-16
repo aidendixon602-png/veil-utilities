@@ -151,7 +151,7 @@ def test_role_based_permlevels():
     user_with_roles = SimpleNamespace(id=999, roles=[role_mock1, role_mock2])
     name, source, rank = perms.member_level_info(cfg, user_with_roles)
     # Highest role should win (Server Manager rank 4 > Moderator rank 2)
-    assert name == "Server Manager"
+    assert name == "Head Admin"
     assert source == "<@&789>"
     assert rank == 4
 
@@ -172,7 +172,7 @@ def test_code_defined_permissions():
     try:
         u = SimpleNamespace(id=12345, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Owner"
+        assert name == "Supreme Leader"
         assert source == "Built-in"
         assert rank == 7
 

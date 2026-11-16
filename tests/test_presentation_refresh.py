@@ -23,7 +23,7 @@ def test_permission_assignment_pages_show_every_saved_entry_and_clear_scope():
         assert len(pages) == 3
         text = "\n".join(page.description for page in pages)
         assert text.count("Automatic access and fake permissions are not shown") == 3
-        assert "<@&77> — **Admin** · role" in text and "<@&78> — **Moderator** · role" in text
+        assert "<@&77> — **Admin** · role" in text and "<@&78> — **Mod** · role" in text
         for i in range(100, 115):
             assert text.count(f"<@{i}>") == 1
         assert all(page.footer.text == "15 members · 2 roles" for page in pages)

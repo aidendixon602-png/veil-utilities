@@ -6,13 +6,12 @@ needing dangerous native Discord permissions. Config lives per-guild under the "
 
     {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-The hierarchy, highest first: Developer, Server Owner, Owner, Co-Owner, Server Manager, Admin, Moderator,
-Helper. Developer (the bot's developers) and Server Owner (whoever owns the server) are automatic and can't be
-assigned.
+The hierarchy, highest first: Developer, Server Owner, Supreme Leader, Bot Manager, Overseer,
+Head Admin, Admin, Mod and Helper. Developer and Server Owner are automatic. Staff levels do not
+grant Antinuke or developer access; an explicit Antinuke admin appointment is separate.
 
-The level keys saved in the database never changed, only the names shown: `supremeleader` is Owner, `overseer` is
-Co-Owner and `headadmin` is Server Manager. Older names still work wherever a level is typed: Supreme Leader,
-Overseer, Head Admin, Mod, Bot Manager.
+Legacy `botmanager` assignments continue to resolve to Head Admin, as they did before this change.
+The newly assignable Bot Manager has a distinct saved key, `bot_manager`, to avoid silently promoting them.
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ import discord
 DEV_RANK = 10_000
 OWNER_RANK = 1_000
 ADMIN_RANK = 900  # a real Discord administrator with no assigned level
-COOWNER_RANK = 7  # the top assignable level, Owner (key `supremeleader`, Administrator)
+COOWNER_RANK = 7  # compatibility constant: Supreme Leader is the highest assignable level
 DEV_NAME = "Developer"
 OWNER_NAME = "Server Owner"
 
@@ -180,14 +179,15 @@ CODE_ROLES: dict[int | str, str] = {}
 # Ranks only order the levels (higher = more power); servers can change them with `permlevels rank`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
     "helper":        ("Helper", 1, []),
-    "moderator":     ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "moderator":     ("Mod", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
     "admin":         ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                     "manage_nicknames", "manage_roles", "manage_channels"]),
-    "headadmin":     ("Server Manager", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+    "headadmin":     ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
                                         "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
                                         "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "overseer":      ("Co-Owner", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
-    "supremeleader": ("Owner", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
+    "overseer":      ("Overseer", 5, [p for p in ALL_BOT_PERMS if p != "administrator"]),
+    "bot_manager":   ("Bot Manager", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
+    "supremeleader": ("Supreme Leader", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
 }
 
 # Old SAVED level keys -> the level that replaced them (saved assignments are migrated on startup).
@@ -200,13 +200,14 @@ LEGACY_KEYS: dict[str, str] = {
     "manager": "overseer",
 }
 
-# Old names people may still type -> the level they mean now. A typed name that's ambiguous goes to the LOWER
-# level ("manager" could be Server Manager or the old Manager, so it's Server Manager), so a typo never hands out
-# more than intended. The current display names (Owner, Co-Owner, Server Manager) are matched before these.
+# Legacy typed names continue to resolve safely. `botmanager` as a typed name is the new display
+# name; saved legacy `botmanager` keys still migrate to Head Admin instead of being promoted.
 TYPED_NAMES: dict[str, str] = {
     "mod": "moderator",
-    "botmanager": "headadmin",
+    "botmanager": "bot_manager",
     "manager": "headadmin",
+    "servermanager": "headadmin",
+    "coowner": "overseer",
     "headadmin": "headadmin",
     "overseer": "overseer",
     "supremeleader": "supremeleader",
@@ -224,11 +225,12 @@ RESERVED_ALIASES: dict[str, str] = {"serverowner": "owner", "guildowner": "owner
 HIERARCHY_ORDER: list[str] = [
     DEV_NAME,
     OWNER_NAME,
-    "Owner",
-    "Co-Owner",
-    "Server Manager",
+    "Supreme Leader",
+    "Bot Manager",
+    "Overseer",
+    "Head Admin",
     "Admin",
-    "Moderator",
+    "Mod",
     "Helper",
 ]
 
@@ -237,6 +239,7 @@ HIERARCHY_KEYS: list[str] = [
     "developer",
     "owner",
     "supremeleader",
+    "bot_manager",
     "overseer",
     "headadmin",
     "admin",
@@ -308,7 +311,7 @@ def resolve_key(cfg: dict, text: str) -> str | None:
     """Accept an assignable level's key or display name, in any spacing/case."""
     flat = _flat(text)
     for key, data in all_levels(cfg).items():
-        if flat == key or flat == _flat(data["name"]):
+        if flat == _flat(key) or flat == _flat(data["name"]):
             return key
     if flat in TYPED_NAMES:  # "supreme leader", "overseer", "head admin", "bot manager", "mod"
         return TYPED_NAMES[flat]
@@ -342,7 +345,7 @@ def member_level_info(cfg: dict, member: discord.Member, *, is_owner: bool = Fal
 
     Returns:
         (level_name, granted_by, rank)
-        e.g. ("Owner", "Permissions attached to user", 7)
+        e.g. ("Supreme Leader", "Permissions attached to user", 7)
              ("Admin", "@HR | Branch Management", 3)
              ("Helper", "@Office of Lilz", 1)
              ("Developer", "Built-in", 10000)

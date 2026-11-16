@@ -1,5 +1,7 @@
 # Changelog
 
+- Ordinary bot permission checks now accept effective Discord channel permissions and role-based fake grants alongside Veil levels. Independent Antinuke, developer and owner protections, assignment rank gates, helper limits and hierarchy remain in force. Private/staff-only mode now recognizes Discord staff permissions and appointed Antinuke admins. Review existing role and channel permissions before deployment. Fake-permission lists can be filtered by role, common Discord aliases are accepted, and bulk reset requires confirmation.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -17,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Python process.
 
 ### Changed
+
+- **Staff hierarchy and Antinuke access.** Restore Helper, Mod, Admin, Head Admin, Overseer, Bot Manager and
+  Supreme Leader as distinct levels; staff ranks no longer independently authorize Antinuke. The server owner,
+  developers and explicitly appointed Antinuke admins retain access. The new Bot Manager has a distinct saved key;
+  old Bot Manager assignments previously migrated to Head Admin are not silently promoted. See `docs/PERMISSIONS.md`.
 
 - **Dashboard workspace.** Refreshed the server and feature pages with a more compact information-first layout,
   clearer navigation icons, and a consistent dark-blue theme. Existing permissions and forms are unchanged.

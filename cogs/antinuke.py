@@ -393,6 +393,13 @@ class Antinuke(commands.Cog):
         self.test_runs: dict[int, TestRun] = {}  # guild -> a developer's ,testnuke in progress
         self.webhook_pings: dict[tuple[int, int], deque] = defaultdict(deque)  # (guild, webhook) -> @everyone sends
 
+    async def cog_check(self, ctx: Context) -> bool:
+        # The group and every nested command must verify explicit access, including read-only views.
+        root = getattr(ctx.command, "root_parent", None) or ctx.command
+        if getattr(root, "name", None) == "antinuke":
+            return await antinuke_admin(ctx)
+        return True
+
     async def cog_load(self):
         add = getattr(self.bot, "add_dynamic_items", None)
         if add:
@@ -2164,15 +2171,16 @@ class Antinuke(commands.Cog):
         await ctx.approve(f"set the default window to **{cfg['window']}s**")
 
     @antinuke.command(name="admin")
+    @is_server_owner()
     async def an_admin(self, ctx: Context, member: discord.Member):
-        """Add or remove an antinuke admin (server owner only)
+        """Add or remove an antinuke admin (server owner or developer only)
 
         Antinuke admins can change the antinuke's settings and are trusted by it.
         """
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if ctx.author.id != ctx.guild.owner_id:
-            raise UserError("Only the server owner can manage antinuke admins")
+        if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
+            raise UserError("Only the server owner or a bot developer can manage antinuke admins")
         cfg = await self.cfg(ctx.guild.id)
         if member.id in cfg["admins"]:
             cfg["admins"].remove(member.id); msg = f"removed {member.mention} as an antinuke admin"

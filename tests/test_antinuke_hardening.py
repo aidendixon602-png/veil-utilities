@@ -69,7 +69,7 @@ def _ctx(guild, user_id):
 
 
 def _admin_ok():
-    return patch("cogs.antinuke.antinuke_admin", AsyncMock(return_value=True))
+    return patch.dict(Antinuke.an_disable.callback.__globals__, {"antinuke_admin": AsyncMock(return_value=True)})
 
 
 def test_only_the_owner_can_turn_it_off_and_it_is_reported():

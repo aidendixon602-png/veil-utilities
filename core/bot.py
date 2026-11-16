@@ -516,6 +516,10 @@ class Veil(commands.AutoShardedBot):
         if await self.is_owner(ctx.author):
             return True
 
+        from core.utils import command_permission_requirements, has_native_staff_permission, native_permission_names, permissions_cover
+        if (has_native_staff_permission(ctx)
+                or permissions_cover(native_permission_names(ctx), command_permission_requirements(getattr(ctx, "command", None)))):
+            return True
         pl_cfg = await self.db.get_config(ctx.guild.id, "permlevels")
         if _perms.rank_of(pl_cfg, ctx.author) >= 1:
             return True
@@ -523,21 +527,33 @@ class Veil(commands.AutoShardedBot):
         if any(str(r.id) in fake_cfg and fake_cfg[str(r.id)] for r in getattr(ctx.author, "roles", [])):
             return True
 
-        return False
+        try:
+            antinuke = await self.db.get_config(ctx.guild.id, "antinuke") or {}
+            return str(ctx.author.id) in {str(uid) for uid in antinuke.get("admins", [])}
+        except Exception:
+            return False
 
     async def is_trusted(self, ctx: Context) -> bool:
-        """Private mode: a developer, the server owner, or someone given a permission level.
-
-        Stricter than `is_staff_member`: Discord's Administrator / Manage Server alone doesn't count."""
+        """Private mode admits owners, developers and staff with Veil, fake or real Discord permissions."""
         if not ctx.guild:
             return False
         if ctx.author.id == ctx.guild.owner_id or await self.is_owner(ctx.author):
             return True
         from core import perms as _perms
+        from core.utils import command_permission_requirements, has_native_staff_permission, native_permission_names, permissions_cover
+        if (has_native_staff_permission(ctx)
+                or permissions_cover(native_permission_names(ctx), command_permission_requirements(getattr(ctx, "command", None)))):
+            return True
         if _perms.rank_of(await self.db.get_config(ctx.guild.id, "permlevels"), ctx.author) >= 1:
             return True
         fake_cfg = await self.db.get_config(ctx.guild.id, "fakeperms")
-        return any(fake_cfg.get(str(r.id)) for r in getattr(ctx.author, "roles", []))
+        if any(fake_cfg.get(str(r.id)) for r in getattr(ctx.author, "roles", [])):
+            return True
+        try:
+            antinuke = await self.db.get_config(ctx.guild.id, "antinuke") or {}
+            return str(ctx.author.id) in {str(uid) for uid in antinuke.get("admins", [])}
+        except Exception:
+            return False
 
     # ------------------------------------------------------------- checks
     async def _global_check(self, ctx: Context) -> bool:
@@ -651,13 +667,13 @@ class Veil(commands.AutoShardedBot):
                 perms_list = error.missing_permissions
                 needed_rank = "Admin"
                 if "administrator" in perms_list:
-                    needed_rank = "Owner"
+                    needed_rank = "Supreme Leader"
                 elif any(p in perms_list for p in ("manage_guild", "manage_webhooks")):
-                    needed_rank = "Server Manager"
+                    needed_rank = "Head Admin"
                 elif any(p in perms_list for p in ("manage_roles", "ban_members", "manage_channels")):
                     needed_rank = "Admin"
                 elif any(p in perms_list for p in ("kick_members", "moderate_members", "manage_nicknames")):
-                    needed_rank = "Moderator"
+                    needed_rank = "Mod"
                 elif any(p in perms_list for p in ("manage_messages",)):
                     needed_rank = "Helper"
 
