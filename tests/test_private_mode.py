@@ -50,9 +50,8 @@ def test_strangers_are_ignored_without_a_word():
         _run(_bot(), _ctx())
 
 
-def test_discord_administrators_without_a_level_are_not_trusted():
-    with pytest.raises(Ignored):
-        _run(_bot(), _ctx(admin=True))
+def test_discord_administrators_without_a_level_are_trusted():
+    assert _run(_bot(), _ctx(admin=True)) is True
 
 
 def test_direct_messages_are_ignored_for_everyone_but_developers():

@@ -337,6 +337,10 @@ class Moderation(commands.Cog):
         cfg = await self.bot.db.get_config(ctx.guild.id, "permlevels")
         levels = perms_mod.all_levels(cfg)
         name, _, rank = perms_mod.member_level_info(cfg, ctx.author)
+        if rank == 0:
+            from core.utils import direct_command_permissions
+            if {"administrator", "moderate_members"} & await direct_command_permissions(ctx):
+                return False
         return name == levels["helper"]["name"] or rank < levels["moderator"]["rank"]
 
     # ================================================================ bans

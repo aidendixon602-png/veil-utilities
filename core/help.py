@@ -1,11 +1,12 @@
 """Prefix help with a Veil-branded home, category and command navigation, and permission-aware details."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import difflib
 import inspect
 import re
 import typing
+from types import SimpleNamespace
 
 import discord
 from discord.ext import commands
@@ -25,7 +26,8 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
                    "roleblacklist", "addpermall", "removepermall", "userperm"]),
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
-    ("Antinuke", ["Antinuke"], []),
+    ("Antinuke", [], ["antinuke"]),
+    ("Security", ["Antinuke"], []),
     ("Server", ["Config", "Settings"], []),
     ("VoiceMaster", ["VoiceMaster"], []),
     ("Community", ["Levels", "Giveaways", "Tickets", "Feeds", "Integrations"], []),
@@ -65,10 +67,11 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     # each level up opens one more staff category (inside each one, commands you can't run stay hidden)
     "Moderation": 1,    # Helper+; individual checks retain their existing access requirements
     "Roles": 3,         # Admin+
-    "Server": 4,        # Server Manager+
-    "Automod": 4,       # Server Manager+
-    "Permissions": 6,   # Co-Owner+
-    "Antinuke": 7,      # Owner+
+    "Server": 4,        # Head Admin+
+    "Automod": 4,       # Head Admin+
+    "Permissions": 5,   # Overseer+
+    "Antinuke": 7,      # Explicit appointment, server owner or developer (checked separately)
+    "Security": 7,      # Supreme Leader+ for existing Antiraid / Anti-Alt checks
     "Ghost Vanguard": 0,  # everyone can type ,gv: Ghost Vanguard checks its own ranks for each command
 }
 
@@ -89,6 +92,7 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Roles": "🏷️",
     "Permissions": "🔒",
     "Antinuke": "🚨",
+    "Security": "🛡️",
     "Ghost Vanguard": "👻",
     "Automod": "🤖",
     "Server": "⚙️",
@@ -106,7 +110,8 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Moderation": "Moderation and administration tools available to your permission level",
     "Roles": "Role management tools for your permission level",
     "Permissions": "Permission and access settings for your level",
-    "Antinuke": "Protection settings available to your permission level",
+    "Antinuke": "Antinuke controls for authorized operators",
+    "Security": "Antiraid and anti-alt security tools",
     "Ghost Vanguard": "Optional bridge to Ghost Vanguard commands",
     "Automod": "Message protection settings for your permission level",
     "Server": "Server configuration tools for your permission level",
@@ -315,8 +320,10 @@ class HelpAccess:
     config_available: bool
     role_ids: set[str]
     role_restrictions: dict | None
+    antinuke_admin: bool = False
+    direct_granted: set[str] = field(default_factory=set)
 
-    def permits(self, cmd: commands.Command) -> bool:
+    def permits(self, cmd: commands.Command, *, direct_override: bool = False) -> bool:
         from core import perms as _perms
 
         root = getattr(cmd, "root_parent", None) or cmd
@@ -335,7 +342,7 @@ class HelpAccess:
             return False
         for level in levels:
             target = _perms.all_levels(self.levels).get(_perms.canonical(level))
-            if self.rank < (target["rank"] if target else 1):
+            if self.rank < (target["rank"] if target else 1) and not direct_override:
                 return False
         if required:
             if "administrator" in self.granted:
@@ -353,7 +360,17 @@ def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | No
         return True
     if any(getattr(c, "hidden", False) or getattr(c, "cog_name", None) in HIDDEN_COGS for c in chain):
         return False
+    root = getattr(cmd, "root_parent", None) or cmd
+    is_antinuke = getattr(root, "name", "") == "antinuke" and getattr(root, "cog_name", None) == "Antinuke"
+    # An assigned staff rank (even Supreme Leader) is not an Antinuke appointment.
+    if is_antinuke and not (access and (access.bypass_permissions or access.antinuke_admin)):
+        return False
+    from core.utils import command_permission_requirements, permissions_cover, requires_explicit_rank
     for c in chain:
+        needed = command_permission_requirements(c)
+        direct_override = bool(access and not requires_explicit_rank(c) and needed
+                               and ("administrator" in access.direct_granted or needed & access.direct_granted)
+                               and permissions_cover(access.granted, needed))
         if access is None:
             if any(getattr(check, "__veil_owner_only__", False) for check in getattr(c, "checks", [])):
                 return False
@@ -365,9 +382,10 @@ def visible_command(cmd, bot, is_owner: bool, rank: int, access: HelpAccess | No
             if any(getattr(check, "__veil_owner_only__", False) for check in getattr(c, "checks", [])):
                 if not access.guild_available or not access.bypass_permissions:
                     return False
-            elif rank < command_category_gate(c, bot):
+            elif (rank < command_category_gate(c, bot) and not direct_override
+                  and not (is_antinuke and access.antinuke_admin)):
                 return False
-            if not access.permits(c):
+            if not access.permits(c, direct_override=direct_override):
                 return False
     return True
 
@@ -378,10 +396,27 @@ def allowed(cmds: typing.Iterable[commands.Command], bot, is_owner: bool, rank: 
     return [c for c in cmds if visible_command(c, bot, is_owner, rank, access)]
 
 
-def category_labels(categories: dict[str, list], is_owner: bool, rank: int) -> list[str]:
+def category_labels(categories: dict[str, list], is_owner: bool, rank: int,
+                    access: HelpAccess | None = None) -> list[str]:
     """Category names this person can open, in menu order."""
-    return [label for label, _, _ in CATEGORIES
-            if label in categories and (is_owner or rank >= CATEGORY_MIN_RANKS.get(label, 0))]
+    from core.utils import command_permission_requirements, permissions_cover
+
+    def direct_category(label: str) -> bool:
+        if not access or not access.direct_granted:
+            return False
+        for root in categories.get(label, []):
+            candidates = [root, *root.walk_commands()] if isinstance(root, commands.Group) else [root]
+            for cmd in candidates:
+                needed = command_permission_requirements(cmd)
+                if (needed and ("administrator" in access.direct_granted or needed & access.direct_granted)
+                        and permissions_cover(access.granted, needed)
+                        and visible_command(cmd, None, is_owner, rank, access)):
+                    return True
+        return False
+
+    return [label for label, _, _ in CATEGORIES if label in categories and (
+        (is_owner or bool(access and (access.bypass_permissions or access.antinuke_admin)))
+        if label == "Antinuke" else (is_owner or rank >= CATEGORY_MIN_RANKS.get(label, 0) or direct_category(label)))]
 
 
 # ---------------------------------------------------------------- text helpers
@@ -622,6 +657,15 @@ class HelpView(OwnedView):
                     or not owner_or_developer(it.user, guild, self.bot)):
                 await it.response.send_message("This menu is no longer available.", ephemeral=True)
                 return False
+        if self.access and self.access.antinuke_admin and original_guild:
+            from core.utils import antinuke_admin
+            try:
+                if not guild or guild.id != original_guild.id:
+                    raise ValueError("wrong guild")
+                await antinuke_admin(SimpleNamespace(guild=guild, author=it.user, bot=self.bot))
+            except Exception:
+                await it.response.send_message("This menu is no longer available.", ephemeral=True)
+                return False
         return True
 
     @property
@@ -629,7 +673,7 @@ class HelpView(OwnedView):
         return getattr(getattr(self.help_cmd, "context", None), "bot", None)
 
     def labels(self) -> list[str]:
-        names = category_labels(self.categories, self.is_owner, self.author_rank)
+        names = category_labels(self.categories, self.is_owner, self.author_rank, self.access)
         return (names + (["Developer"] if self.is_owner else []))[:24]
 
     def commands_in(self, label: str | None) -> list[commands.Command]:
@@ -830,7 +874,7 @@ class Help(commands.HelpCommand):
                 for cmd in cmds):
             return None  # use regular pages if roots cannot all be shown or a parent is missing
         prefix = self.context.clean_prefix
-        lines = ["Protection settings available to your permission level", "", "**Commands**"]
+        lines = ["Antinuke controls for authorized operators", "", "**Commands**"]
         for root in roots:
             name = root.qualified_name
             display = "an" if name == "antinuke" and "an" in getattr(root, "aliases", []) else name
@@ -925,7 +969,12 @@ class Help(commands.HelpCommand):
                         target = levels.get(key)
                         if target and target["rank"] > rank:
                             rank, display_rank = target["rank"], target["name"]
-        if display_rank:
+        root = getattr(cmd, "root_parent", None) or cmd
+        if getattr(root, "name", None) == "antinuke" and getattr(root, "cog_name", None) == "Antinuke":
+            owner_only = any(getattr(check, "__veil_owner_only__", False) for item in chain for check in item.checks)
+            needs.append("server owner or bot developer" if owner_only else
+                         "server owner, bot developer, or appointed Antinuke admin")
+        elif display_rank:
             needs.append(f"{display_rank} level")
         needs += [perm_label(x) for item in chain for x in perms_of(item) if not x.lower().startswith("uperm")]
         if needs:
@@ -1005,15 +1054,26 @@ class Help(commands.HelpCommand):
             fake = await db.get_config(guild.id, "fakeperms") or {}
             settings = await db.get_config(guild.id, "settings") or {}
             restrictions = await db.get_config(guild.id, "command_restrictions")
+            # A failure to read Antinuke appointments must hide that access, without hiding
+            # unrelated commands whose permission configuration loaded successfully.
+            try:
+                antinuke = await db.get_config(guild.id, "antinuke") or {}
+                appointed = author.id in antinuke.get("admins", [])
+            except Exception:
+                appointed = False
             granted = _perms.level_perms(cfg, author)
             fake_grants = {p for role in getattr(author, "roles", []) for p in fake.get(str(role.id), [])}
-            granted.update(fake_grants)
+            from core.utils import expand_permission_aliases, native_permission_names
+            direct = native_permission_names(self.context) | expand_permission_aliases(fake_grants)
             if "moderate_members" in fake_grants:
-                granted.update(_perms.MODERATION_ACTIONS)
+                direct.update(_perms.MODERATION_ACTIONS)
+            granted = expand_permission_aliases(granted)
+            granted.update(direct)
             disabled = set(settings.get("disabled", []))
             return HelpAccess(cfg, rank, granted, native, bool(cfg.get("users") or cfg.get("roles")),
                               disabled, bypass_disabled, author.id == getattr(guild, "owner_id", None), True, True,
-                              {str(role.id) for role in getattr(author, "roles", [])}, restrictions)
+                              {str(role.id) for role in getattr(author, "roles", [])}, restrictions,
+                              appointed, direct)
         except Exception:
             # An unavailable permission store must not make protected commands appear usable.
             return HelpAccess({}, rank, set(), native, True, set(), bypass_disabled,
@@ -1026,9 +1086,10 @@ class Help(commands.HelpCommand):
         rank = await self.get_author_rank()
         if (start or "").lower() in DEVELOPER_WORDS:
             start = "Developer" if is_owner else None
-        if start is not None and not is_owner and rank < CATEGORY_MIN_RANKS.get(start, 0):
-            return await self.send_error_message(f'No command or category called "{start}" found.')
         access = None if is_owner else await self.help_access(rank)
+        if (start is not None and start not in category_labels(categories, is_owner, rank, access)
+                and not (start == "Developer" and is_owner)):
+            return await self.send_error_message(f'No command or category called "{start}" found.')
         view = HelpView(self, categories, start, is_owner=is_owner, author_rank=rank, access=access)
         view.message = await self.context.send(embed=view.embed(), view=view)
 
@@ -1040,7 +1101,8 @@ class Help(commands.HelpCommand):
             rank = await self.get_author_rank()
             for label, _, _ in CATEGORIES:
                 if wanted == label.lower():
-                    if not is_owner and rank < CATEGORY_MIN_RANKS.get(label, 0):
+                    access = None if is_owner else await self.help_access(rank)
+                    if label not in category_labels(category_commands(self.context.bot), is_owner, rank, access):
                         return await self.send_error_message(f'No command or category called "{command}" found.')
                     if not ctx.bot.get_command(wanted):
                         await self.prepare_help_command(ctx, command)
@@ -1061,7 +1123,9 @@ class Help(commands.HelpCommand):
             return await self.send_error_message("No command or category called that")
         if label:
             is_owner = await self.is_owner_check()
-            if not is_owner and await self.get_author_rank() < CATEGORY_MIN_RANKS.get(label, 0):
+            rank = await self.get_author_rank()
+            access = None if is_owner else await self.help_access(rank)
+            if label not in category_labels(category_commands(self.context.bot), is_owner, rank, access):
                 return await self.send_error_message("No command or category called that")
         await self.open_menu(label)
 

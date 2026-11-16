@@ -53,11 +53,11 @@ def test_alias_and_real_command_checks_allow_admin_direct_and_via_role():
 
 
 @pytest.mark.parametrize('level', [None, 'helper', 'moderator'])
-def test_lower_levels_and_native_discord_administrator_are_denied(level):
+def test_lower_levels_without_permission_are_denied(level):
     async def go():
         bot = await make_bot()
         try:
-            ctx = make_ctx(bot, level=level, native=discord.Permissions(administrator=True))
+            ctx = make_ctx(bot, level=level)
             for name in ('perm list', 'perm roles'):
                 with pytest.raises(MissingRank, match='Admin'):
                     await bot.get_command(name).can_run(ctx)
@@ -71,7 +71,7 @@ def test_preserves_owner_developer_and_existing_fake_administrator_access():
     async def go():
         bot = await make_bot()
         try:
-            for kwargs in ({'author_id': 10}, {'author_id': 777}, {'fake': {'55': ['administrator']}}):
+            for kwargs in ({'author_id': 10}, {'author_id': 777}, {'fake': {'55': ['administrator']}}, {'native': discord.Permissions(administrator=True)}):
                 ctx = make_ctx(bot, **kwargs)
                 for name in ('perm list', 'perm roles'):
                     assert await bot.get_command(name).can_run(ctx)
@@ -89,9 +89,9 @@ def test_role_mutations_remain_at_prior_permissions_gate_with_fake_administrator
         try:
             for name in ('perm add', 'perm remove', 'perm remove deleted'):
                 command = bot.get_command(name)
-                assert command_category_gate(command, bot) == 6
+                assert command_category_gate(command, bot) == 5
                 ctx = make_ctx(bot, level='headadmin', fake={'55': ['administrator']})
-                with pytest.raises(MissingRank, match='Co-Owner'):
+                with pytest.raises(MissingRank, match='Overseer'):
                     await command.can_run(ctx)
             bot.db.set_config_committed.assert_not_awaited()
         finally:

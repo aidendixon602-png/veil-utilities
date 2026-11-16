@@ -39,8 +39,9 @@ def test_the_level_list_is_numbered_highest_first():
         pages = ctx.paginate.await_args.args[0]
         text = "\n".join(page.description for page in pages)
         order = [line.split("**")[1] for line in text.splitlines() if line.startswith("`") and "**" in line]
-        assert order == ["Developer", "Server Owner", "Owner (`supremeleader`)", "Co-Owner (`overseer`)",
-                         "Server Manager (`headadmin`)", "Admin (`admin`)", "Moderator (`moderator`)", "Helper (`helper`)"]
+        assert order == ["Developer", "Server Owner", "Supreme Leader (`supremeleader`)", "Bot Manager (`bot_manager`)",
+                         "Overseer (`overseer`)", "Head Admin (`headadmin`)", "Admin (`admin`)",
+                         "Mod (`moderator`)", "Helper (`helper`)"]
         assert "everything except Administrator\n-# 2 members" in text
         assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
     asyncio.run(go())

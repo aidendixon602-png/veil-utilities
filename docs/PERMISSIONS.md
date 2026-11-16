@@ -17,14 +17,37 @@ reviewed for each deployment.
 - **Server owner** is recognized from the Discord server. Bot developers are recognized from `OWNER_IDS` and
   the Discord application owner/team discovered at startup; developers have broad cross-server privileges.
 - **Veil levels** are assigned to users or roles and saved per server. They supply bot permissions and a rank
-  used by some checks. The current default levels, in ascending order, are Helper, Moderator, Admin, Server
-  Manager, Co-Owner and Owner. The assignable Veil Owner level is not the same thing as Discord's server owner.
+  used by some checks. The default levels, in ascending order, are Helper, Mod, Admin, Head Admin, Overseer,
+  Bot Manager and Supreme Leader. They do not confer developer or Antinuke access. Bot Manager and Overseer
+  currently have the same default standard bot permissions, but have different ranks. Server-specific overrides
+  and fake permissions remain in effect; `,permlevels` shows the configured levels.
 - **Fake permissions** are role-based grants used by Veil; they do not grant native Discord permissions to a
-  person or role. They are not a replacement for Discord access controls. Some commands also require a Veil
-  level and other checks, so a fake grant alone may not authorize them.
-- Shared Veil permission checks do not fall back to a member's native Discord Administrator or moderation
-  permissions. Bot-side Discord permissions and hierarchy still determine whether the bot can perform an action.
-  The audit of other authorization paths is not complete.
+  person or role. They are not a replacement for Discord access controls. Use `,fakepermissions add @role
+  ban_members`, `,fakepermissions list [@role]`, or `,fakepermissions remove @role ban_members`. Resetting all
+  fake permissions requires confirmation.
+- Ordinary Veil permission checks accept the member's **effective Discord permissions in the command channel**,
+  Veil level grants, and fake grants (including combinations). Real or fake `moderate_members` also grants the
+  bot-only warn, timeout and case actions. Administrator covers ordinary permission checks, but not independent
+  owner, developer or Antinuke checks. Level-assignment changes still require their explicit Veil rank.
+  Helper safety limits and target role/bot hierarchy checks still apply, as do the bot's own Discord permissions,
+  disabled commands, channel restrictions, and other command-specific checks. Ticket support and dashboard
+  access have separate policies. Existing roles with real Discord staff permissions may now use matching commands;
+  review these permissions and channel overwrites before deployment.
+
+Antinuke commands and panel interactions require the actual server owner, a recognized bot developer, or an
+explicitly appointed Antinuke admin. Appointed admins retain their existing limited controls: only the owner or
+developer may turn off protection or appoint admins. A staff level, fake Administrator, or native Discord
+Administrator alone is not an appointment. Existing Antinuke admins, whitelists, and protection settings are
+not removed or changed.
+
+**Existing assignments:** Supreme Leader, Overseer and Head Admin keep their saved keys but use their new
+display names; custom names and permission/rank overrides are retained. Overseer's default rank changes from 6
+to 5, while the permissions category threshold also changes from 6 to 5. Review custom rank overrides and
+hierarchy-sensitive assignments. Bot Manager is a new distinct key (`bot_manager`): older `botmanager` keys
+continue to migrate to Head Admin as before, avoiding an automatic promotion. Assignments that an earlier version
+already converted to Head Admin cannot be distinguished or automatically restored. Review `,perm list` and
+manually reassign them if appropriate. Earlier versions do not recognize `bot_manager`; before rollback, review
+and deliberately reassign any new Bot Manager entries, after taking a database backup.
 
 Automatic setup no longer creates level assignments from role names. Existing saved assignments are unchanged,
 including any created by an older version. Direct user and role assignments follow the current precedence rules
@@ -70,7 +93,7 @@ role whitelists, Discord staff permissions and role hierarchy for reaction/butto
 vanity rewards, level rewards, and VoiceMaster default roles. Checks run when configuring a new grant and
 again when granting it, including after an autorole delay. Policy read failures or malformed policy prevent
 new grants. Removing an existing self-role is still possible during a policy outage. These checks do not
-turn native Discord permissions into Veil authorization.
+grant a role or member any additional permissions.
 
 **Deployment impact:** Existing panels and automated rewards that use a newly disallowed role will stop
 assigning it; their saved configuration and existing role holders are not removed. Any Veil level on a role,

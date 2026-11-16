@@ -469,11 +469,99 @@ async def send_script(dest: discord.abc.Messageable, script: str, variables: dic
 
 
 # ---------------------------------------------------------------- checks
-async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
-    """Resolve bot permission checks without granting power from Discord permissions.
+def expand_permission_aliases(granted: typing.Iterable[str]) -> set[str]:
+    """Treat Discord names sharing a bit (e.g. view_channel/read_messages) as equivalent."""
+    names = set(granted)
+    flags = discord.Permissions.VALID_FLAGS
+    bits = {flags[name] for name in names if name in flags}
+    names.update(name for name, bit in flags.items() if bit in bits)
+    return names
 
-    Discord permissions are checked separately for the bot's API operations. Explicit
-    Veil grants remain distinct from native Discord permissions in every server.
+
+def native_permission_names(ctx: Context) -> set[str]:
+    """Use the member's effective channel permissions; fail closed if Discord cannot resolve them."""
+    if getattr(ctx, "guild", None) is None:
+        return set()
+    author = getattr(ctx, "author", None)
+    if author is None:
+        return set()
+    channel = getattr(ctx, "channel", None)
+    resolver = getattr(channel, "permissions_for", None)
+    try:
+        native = resolver(author) if callable(resolver) else getattr(author, "guild_permissions", None)
+    except Exception:
+        return set()
+    if not isinstance(native, discord.Permissions):
+        return set()
+    names = {name for name in discord.Permissions.VALID_FLAGS if getattr(native, name, False)}
+    if native.administrator or native.moderate_members:
+        from core.perms import MODERATION_ACTIONS
+        names.update(MODERATION_ACTIONS)
+    return names
+
+
+NATIVE_STAFF_PERMISSIONS = {
+    "administrator", "manage_guild", "manage_roles", "manage_channels", "manage_messages",
+    "manage_webhooks", "manage_nicknames", "manage_expressions", "manage_events", "manage_threads",
+    "ban_members", "kick_members", "moderate_members", "mute_members", "deafen_members", "move_members",
+}
+
+
+def has_native_staff_permission(ctx: Context) -> bool:
+    return bool(native_permission_names(ctx) & NATIVE_STAFF_PERMISSIONS)
+
+
+def command_permission_requirements(command) -> set[str]:
+    """Explicit permission checks on this command; a parent's check cannot replace its own rank gate."""
+    if command is None:
+        return set()
+    return {p for p in getattr(getattr(command, "callback", None), "__veil_perms__", [])
+            if isinstance(p, str) and not p.startswith("uperm:")}
+
+
+RANK_REQUIRED_COMMANDS = {"userperm add", "userperm remove", "userperm remove deleted"}
+
+
+def requires_explicit_rank(command) -> bool:
+    return getattr(command, "qualified_name", "") in RANK_REQUIRED_COMMANDS
+
+
+def permissions_cover(granted: set[str], needed: typing.Iterable[str]) -> bool:
+    needed = set(needed)
+    return bool(needed) and ("administrator" in granted or needed <= granted)
+
+
+async def direct_command_permissions(ctx: Context) -> set[str]:
+    """Permissions given directly by Discord or fake-role grants, excluding Veil rank presets."""
+    from core import perms as _perms
+    granted = native_permission_names(ctx)
+    bot, guild = getattr(ctx, "bot", None), getattr(ctx, "guild", None)
+    if bot and guild and getattr(bot, "db", None):
+        fake = await bot.db.get_config(guild.id, "fakeperms")
+        fake_grants = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
+        granted.update(expand_permission_aliases(fake_grants))
+        if "moderate_members" in fake_grants:
+            granted.update(_perms.MODERATION_ACTIONS)
+    return granted
+
+
+async def direct_access_covers(ctx: Context, needed: typing.Iterable[str]) -> bool:
+    """A direct grant must contribute, but other required permissions may come from a Veil level."""
+    from core import perms as _perms
+    needed = set(needed)
+    if not needed:
+        return False
+    direct = await direct_command_permissions(ctx)
+    if "administrator" not in direct and not needed.intersection(direct):
+        return False
+    cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels")
+    return permissions_cover(direct | expand_permission_aliases(_perms.level_perms(cfg, ctx.author)), needed)
+
+
+async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
+    """Resolve ordinary command permissions from Discord, fake grants and Veil levels.
+
+    Separate owner/developer/Antinuke checks, the bot's Discord permissions and hierarchy still apply.
     """
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
@@ -481,30 +569,16 @@ async def missing_perms(ctx: Context, **perms: bool) -> list[str]:
         return []
     if ctx.guild and ctx.author.id == ctx.guild.owner_id:
         return []
-
-    pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and ctx.bot) else {}
-    fake = await ctx.bot.db.get_config(ctx.guild.id, "fakeperms") if (ctx.guild and ctx.bot) else {}
-
-    granted: set[str] = set()
-    granted.update(_perms.level_perms(pl_cfg, ctx.author))
-    fake_grants = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
-    granted.update(fake_grants)
-    # Preserve existing fake moderate_members grants for the narrowly scoped actions.
-    if "moderate_members" in fake_grants:
-        granted.update(_perms.MODERATION_ACTIONS)
-
+    pl_cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and bot) else {}
+    granted = expand_permission_aliases(_perms.level_perms(pl_cfg, ctx.author))
+    granted.update(await direct_command_permissions(ctx))
     if "administrator" in granted:
         return []
-
     return [k for k, v in perms.items() if v and k not in granted]
 
 
-
 async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
-    """A member whose access comes from a permission level also needs the level that opens the command's ,help
-    category (Admin: Admin, Permissions: Co-Owner...), so what ,help shows each level is exactly what it can
-    run. Developers, the server owner, servers that don't use levels, members without a level, and permissions
-    given to a role with fakeperms are left as they were."""
+    """Keep category ranks for level-based access, but accept sufficient direct Discord/fake permissions."""
     from core import perms as _perms
     from core.help import command_category_gate, rank_name
     bot, guild, command = getattr(ctx, "bot", None), getattr(ctx, "guild", None), getattr(ctx, "command", None)
@@ -517,19 +591,14 @@ async def level_gate(ctx: Context, needed: typing.Iterable[str] = ()) -> None:
     rank = _perms.rank_of(pl_cfg, ctx.author)
     if rank == 0 or rank >= gate:
         return
-    needed = set(needed)
-    if needed:
-        fake = await bot.db.get_config(guild.id, "fakeperms")
-        given = {p for role in getattr(ctx.author, "roles", []) for p in fake.get(str(role.id), [])}
-        if "moderate_members" in given:
-            given.update(_perms.MODERATION_ACTIONS)
-        if "administrator" in given or needed <= given:
-            return
+    if not requires_explicit_rank(command) and await direct_access_covers(ctx, needed):
+        return
     raise MissingRank(rank_name(gate))
 
 
+
 def has_perms(**perms: bool):
-    """Like has_permissions, but strictly enforces bot permission ranks (uperm) and fakeperms."""
+    """Require the specified ordinary command permissions from Discord, fake grants or Veil levels."""
 
     async def predicate(ctx: Context) -> bool:
         if ctx.guild is None:
@@ -539,15 +608,15 @@ def has_perms(**perms: bool):
             needed_ranks = []
             for p in still:
                 if p == "administrator":
-                    needed_ranks.append(("Owner", 7))
+                    needed_ranks.append(("Supreme Leader", 7))
                 elif p in ("manage_guild", "manage_webhooks"):
-                    needed_ranks.append(("Server Manager", 4))
+                    needed_ranks.append(("Head Admin", 4))
                 elif p in ("manage_roles", "ban_members", "manage_channels"):
                     needed_ranks.append(("Admin", 3))
                 elif p in ("kick_members", "moderate_members", "manage_nicknames"):
-                    needed_ranks.append(("Moderator", 2))
+                    needed_ranks.append(("Mod", 2))
                 elif p in ("manage_messages",):
-                    needed_ranks.append(("Moderator", 2))
+                    needed_ranks.append(("Mod", 2))
                 elif p in ("veil_warn", "veil_timeout", "veil_cases"):
                     needed_ranks.append(("Helper", 1))
 
@@ -647,9 +716,12 @@ def requires_uperm(min_level_or_func="helper"):
             levels = _perms.all_levels(cfg)
             target_info = levels.get(_perms.canonical(min_level.lower()))
             min_rank = target_info["rank"] if target_info else 1
-            if author_rank < min_rank:
+            needed = command_permission_requirements(getattr(ctx, "command", None))
+            has_direct_access = (not requires_explicit_rank(getattr(ctx, "command", None))
+                                 and await direct_access_covers(ctx, needed))
+            if author_rank < min_rank and not has_direct_access:
                 raise MissingRank(target_info["name"] if target_info else min_level.title())
-            await level_gate(ctx)
+            await level_gate(ctx, needed if has_direct_access else ())
             return True
 
         pred = commands.check(predicate)
@@ -682,16 +754,12 @@ async def antinuke_admin(ctx: Context) -> bool:
         except Exception:
             pass
     db = getattr(bot, "db", None)
-    if not db:
-        return False
+    if db is None:
+        raise UserError("Cannot verify antinuke access right now")
     cfg = await db.get_config(ctx.guild.id, "antinuke")
     if ctx.author.id in cfg.get("admins", []):
         return True
-    pl_cfg = await db.get_config(ctx.guild.id, "permlevels")
-    name, source, rank = _perms.member_level_info(pl_cfg, ctx.author)
-    if name in (_perms.DEV_NAME, _perms.OWNER_NAME) or rank >= _perms.COOWNER_RANK:
-        return True
-    raise UserError("Only the **server owner**, someone with the **Owner** level, or an **antinuke admin** can use this")
+    raise UserError("Only the **server owner**, a **bot developer**, or an appointed **antinuke admin** can use this")
 
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:
@@ -894,9 +962,9 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
         if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= _perms.COOWNER_RANK):
-            raise UserError("🔒 Only the server owner, the bot's developers or someone with the **Owner** level can give out roles with Administrator.")
+            raise UserError("🔒 Only the server owner, the bot's developers or someone with the **Supreme Leader** level can give out roles with Administrator.")
         if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
-            raise UserError("🔒 Assigning roles with Server Management permissions requires the **Server Manager** level or higher.")
+            raise UserError("🔒 Assigning roles with Server Management permissions requires the **Head Admin** level or higher.")
         if (getattr(role.permissions, "manage_roles", False) or getattr(role.permissions, "ban_members", False)) and not (is_dev or is_owner or author_rank >= 3):
             raise UserError("🔒 Assigning roles with Moderation or Role management permissions requires bot permission rank Admin+ (uperm).")
     check_role(ctx, role)

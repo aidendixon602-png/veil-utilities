@@ -316,7 +316,7 @@ class Permissions(commands.Cog):
 
         def grants(key: str, info: dict) -> str:
             if "administrator" in info["perms"]:
-                return "every bot permission, including Administrator"
+                return "all standard bot permissions, including Administrator (not Antinuke or developer access)"
             if set(info["perms"]) >= {p for p in perms.ALL_BOT_PERMS if p != "administrator"}:
                 return "everything except Administrator"
             shown = {"manage_guild": "manage server", "moderate_members": "timeout members"}
@@ -336,7 +336,8 @@ class Permissions(commands.Cog):
         rows = [(perms.DEV_NAME, "automatic: the bot's developers"),
                 (perms.OWNER_NAME, "automatic: whoever owns the server")]
         rows += [(f"{info['name']} (`{key}`)", grants(key, info) + holders(key)) for key, info in levels]
-        intro = f"Highest to lowest · assign with `{ctx.clean_prefix}perm add <member|role> <level>`"
+        intro = (f"Highest to lowest · assign with `{ctx.clean_prefix}perm add <member|role> <level>`\n"
+                 "Staff levels do not grant Antinuke or developer access.")
         lines = [f"`{i:02}` **{name}**\n{text}" for i, (name, text) in enumerate(rows, 1)]
         pages = chunk_embeds("Permission levels", lines, per_page=6, numbered=False)
         for page in pages:

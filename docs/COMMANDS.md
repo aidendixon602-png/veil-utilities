@@ -32,7 +32,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `,antialt minage [days=0]` (age, days) | Set how old an account must be to join | administrator |
 | `,antialt whitelist <user>` (allow, trust) | Whitelist an alt account so it can join without being blocked | administrator |
 | `,antinuke` (an) | Show the antinuke's status and rules |  |
-| `,antinuke admin <member>` | Add or remove an antinuke admin (server owner only) |  |
+| `,antinuke admin <member>` | Add or remove an antinuke admin (server owner or developer only) | server owner or bot developer |
 | `,antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
 | `,antinuke approve <bot>` (approvebot) | Give a quarantined new bot its permissions back (server owner only) |  |
 | `,antinuke ban [count] [punishment] [timeframe] [flags]` | Configure ban rule |  |
@@ -490,7 +490,7 @@ _Configure how the bot behaves in your server_
 | `,enablecommand <command>` (enablecmd, ecmd) | Re-enable a disabled command | manage guild |
 | `,fakepermissions` (fp, fakeperms, fakeperm) | Give roles permissions that only work through the bot | server owner or bot developer |
 | `,fakepermissions add <role> [permissions]` (grant, give) | Give a role permissions in the bot | server owner or bot developer |
-| `,fakepermissions list` (show, view) | See which roles have fake permissions | server owner or bot developer |
+| `,fakepermissions list [role]` (show, view) | See fake permissions for every role, or a specified role | server owner or bot developer |
 | `,fakepermissions remove <role> [permissions=all]` (revoke, take, rm) | Take a role's bot permissions back | server owner or bot developer |
 | `,fakepermissions reset` (clear) | Remove every fake permission in the server | server owner or bot developer |
 | `,ignore <target>` | Toggle whether the bot ignores commands from a channel or member | manage guild |
