@@ -8,9 +8,30 @@ import discord
 from discord.ext import commands
 
 from core import perms
-from core.utils import Colors, Context, UserError, chunk_embeds, has_perms, human_join, is_server_owner, requires_uperm
+from core.utils import (Colors, Context, MissingRank, UserError, chunk_embeds, has_perms, human_join,
+                        is_server_owner, missing_perms, requires_uperm)
 
 log = logging.getLogger("veil.permissions")
+
+
+def can_view_assignments():
+    """Admin-level staff can read assignments; preserve existing bot Administrator grants."""
+    async def predicate(ctx: Context) -> bool:
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        if not await missing_perms(ctx, administrator=True):
+            return True
+        cfg = await ctx.bot.db.get_config(ctx.guild.id, "permlevels")
+        rank = perms.rank_of(cfg, ctx.author, has_admin=False)
+        if rank <= 0 or rank < perms.all_levels(cfg)["admin"]["rank"]:
+            raise MissingRank("Admin")
+        return True
+
+    def decorator(func):
+        func = commands.check(predicate)(func)
+        func.__veil_perms__ = [*getattr(func, "__veil_perms__", []), "uperm: admin"]
+        return func
+    return decorator
 
 
 def assignment_pages(title: str, members: list[tuple[str, str]], roles: list[tuple[str, str]], levels: dict) -> list[discord.Embed]:
@@ -212,7 +233,7 @@ class Permissions(commands.Cog):
         await ctx.approve(f"removed **{len(gone)}** permission level{'' if len(gone) == 1 else 's'} from members who left")
 
     @userperm.command(name="list", aliases=["all"])
-    @has_perms(administrator=True)
+    @can_view_assignments()
     async def up_list(self, ctx: Context):
         """List members and roles with a permission level"""
         cfg = await self.cfg(ctx.guild.id)
@@ -224,7 +245,7 @@ class Permissions(commands.Cog):
         await ctx.paginate(assignment_pages("Permission assignments", user_rows, role_rows, levels))
 
     @userperm.command(name="roles")
-    @has_perms(administrator=True)
+    @can_view_assignments()
     async def up_roles(self, ctx: Context):
         """List roles assigned a Veil permission level"""
         cfg = await self.cfg(ctx.guild.id)
