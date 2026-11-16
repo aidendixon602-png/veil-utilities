@@ -470,10 +470,10 @@ _Assign named permission levels to members_
 | `,userperm [target]` (perm, perms, uperm, ups, permission, permissions) | Manage members' and roles' permission levels |  |
 | `,userperm add <target> <level>` (set, give) | Assign a permission level to a member or a role | administrator, uperm: headadmin |
 | `,userperm check [target]` (view, info) | Check a member's or role's permission level |  |
-| `,userperm list` (all) | List members and roles with a permission level | administrator |
+| `,userperm list` (all) | List members and roles with a permission level | uperm: admin |
 | `,userperm remove <target>` (rem, delete, unset, clear) | Remove a member's or role's permission level | administrator, uperm: headadmin |
 | `,userperm remove deleted` | Purge permission levels for members who left the server | administrator, uperm: headadmin |
-| `,userperm roles` | List roles assigned a Veil permission level | administrator |
+| `,userperm roles` | List roles assigned a Veil permission level | uperm: admin |
 
 ## ⚙️ Settings
 _Configure how the bot behaves in your server_

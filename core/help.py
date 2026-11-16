@@ -22,7 +22,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Music", ["Music", "Spotify"], []),
     ("Moderation", ["Moderation", "Logging"], []),
     ("Roles", [], ["role", "autorole", "reactionrole", "buttonrole", "vanity", "stripstaff", "roles",
-                   "roleblacklist", "addpermall", "removepermall"]),
+                   "roleblacklist", "addpermall", "removepermall", "userperm"]),
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
     ("Antinuke", ["Antinuke"], []),
@@ -160,6 +160,10 @@ ADMIN_SPLIT = 3  # retain the former Admin category gate for higher-risk moderat
 def command_category_gate(cmd, bot=None) -> int:
     """Keep runtime rank gates independent of the visible help grouping."""
     root = getattr(cmd, "root_parent", None) or cmd
+    # Only the read-only assignment views moved down to Admin; retain the old
+    # Permissions category gate for every assignment-changing subcommand.
+    if getattr(cmd, "qualified_name", "") in {"userperm add", "userperm remove", "userperm remove deleted"}:
+        return CATEGORY_MIN_RANKS["Permissions"]
     category = category_for_command(cmd, bot)
     if category == "Moderation" and own_rank(root) >= ADMIN_SPLIT:
         return ADMIN_SPLIT

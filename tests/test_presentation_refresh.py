@@ -89,9 +89,10 @@ def test_paginator_still_restricts_interactions():
 
 def test_permission_commands_keep_their_authorization_checks():
     for command in (Permissions.up_list, Permissions.up_roles):
+        assert "uperm: admin" in command.callback.__veil_perms__
+        assert any("can_view_assignments" in check.__qualname__ for check in command.checks)
+    for command in (Permissions.up_add, Permissions.up_remove, Permissions.up_remove_deleted):
         assert "administrator" in command.callback.__veil_perms__
-    assert any("has_perms" in check.__qualname__ for check in Permissions.up_list.checks)
-    assert any("has_perms" in check.__qualname__ for check in Permissions.up_roles.checks)
 
 
 def test_fake_permissions_list_keeps_all_roles_across_pages():

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Permission assignment lists.** Admin-level Veil staff can use `,perm list` and `,perm roles` to view saved
+  assignments; assignment changes remain restricted. The command group is listed under Roles in help.
+
 - **Startup logging.** Veil's process entry point installs its stdout and rotating-file handlers even when
   another library or host has already configured Python's root logger. This cannot fix output capture outside
   the Python process.
