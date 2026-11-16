@@ -71,6 +71,30 @@ def viewadmins_pages(roles: list[discord.Role]) -> list[discord.Embed]:
     return pages
 
 
+def parse_real_role_permissions(text: str) -> tuple[list[str], list[str]]:
+    """Parse Discord permission names and aliases, accepting spaces, underscores and commas."""
+    text = re.sub(r"\bmanage[ _-]+server\b", "manage_guild", text, flags=re.I)
+    text = re.sub(r"\btimeout[ _-]+members\b", "moderate_members", text, flags=re.I)
+    text = re.sub(r"\bview[ _-]+channels\b", "view_channel", text, flags=re.I)
+    words = [w.replace("-", "_") for w in re.split(r"[\s,]+", text.lower().strip()) if w]
+    flags = discord.Permissions.VALID_FLAGS
+    found, unknown, seen = [], [], set()
+    i = 0
+    while i < len(words):
+        for size in range(min(6, len(words) - i), 0, -1):
+            name = "_".join(words[i:i + size])
+            if name in flags:
+                if flags[name] not in seen:
+                    found.append(name)
+                    seen.add(flags[name])
+                i += size
+                break
+        else:
+            unknown.append(words[i])
+            i += 1
+    return found, unknown
+
+
 # ==================================================================== role blacklist views
 class SingleMemberBledView(discord.ui.View):
     def __init__(self, cog, ctx: Context, target: discord.Member, roles_to_strip: list[discord.Role]):
@@ -1696,13 +1720,65 @@ class Moderation(commands.Cog):
                 lines.append(f"• `<@{tid}>` (`{tid}`)")
         await ctx.paginate(chunk_embeds("Authorized Bypasses", lines, numbered=False))
 
+    @commands.command(name="rpa", usage="<role> <permissions>",
+                      extras={"example": "@Staff manage messages, kick members"})
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    @commands.bot_has_guild_permissions(manage_roles=True)
+    @commands.max_concurrency(1, commands.BucketType.guild)
+    async def role_permission_add(self, ctx: Context, role: discord.Role, *, permissions: str):
+        """Give a role real Discord permissions
+
+        Example: `,rpa @Staff manage messages, kick members`
+        Accepts permission names with spaces or underscores. This changes Discord's role permissions,
+        not Veil fake permissions or channel overrides. The invoker and bot must have every permission
+        being granted, and the role must be below both their highest roles (server owner excepted).
+        Managed roles and @everyone cannot be changed with this command.
+        """
+        requested, unknown = parse_real_role_permissions(permissions)
+        if unknown or not requested:
+            raise UserError("Unknown permission name. Use names such as `manage messages`, `kick members`, "
+                            "or `administrator`; separate multiple permissions with commas.")
+        if role.is_default() or role.managed:
+            raise UserError("I can't change @everyone or an integration-managed role with this command.")
+        if role >= ctx.guild.me.top_role:
+            raise UserError(f"{role.mention} must be below my highest role.")
+        if ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role:
+            raise UserError(f"{role.mention} must be below your highest role.")
+
+        actor_perms = ctx.author.guild_permissions
+        bot_perms = ctx.guild.me.guild_permissions
+        actor_missing = [p for p in requested if not (actor_perms.administrator or getattr(actor_perms, p))]
+        bot_missing = [p for p in requested if not (bot_perms.administrator or getattr(bot_perms, p))]
+        if actor_missing:
+            raise UserError("You need the actual Discord permissions you are granting: "
+                            + ", ".join(f"`{p}`" for p in actor_missing))
+        if bot_missing:
+            raise UserError("I need the actual Discord permissions you are granting: "
+                            + ", ".join(f"`{p}`" for p in bot_missing))
+
+        updated = discord.Permissions(role.permissions.value)
+        added = [p for p in requested if not getattr(updated, p)]
+        if not added:
+            return await ctx.neutral(f"{role.mention} already has those Discord permissions.")
+        for permission in added:
+            setattr(updated, permission, True)
+        granted = discord.Permissions(updated.value & ~role.permissions.value)
+        await antinuke_guard(ctx, "permissions" if is_dangerous(granted) else "roleupdate")
+        try:
+            await role.edit(permissions=updated, reason=audit_reason(ctx.author, action="role permission add"))
+        except discord.Forbidden:
+            raise UserError("Discord rejected the role edit. Check my permissions and role position.")
+        await ctx.approve(f"added Discord permissions to {role.mention}: "
+                          + ", ".join(f"`{p}`" for p in added))
+
     # ================================================================ permissions across all roles
     def _eligible_roles(self, ctx: Context):
         owner = ctx.author.id == ctx.guild.owner_id
         return [r for r in ctx.guild.roles if not r.is_default() and not r.managed
                 and r < ctx.guild.me.top_role and (owner or r < ctx.author.top_role)]
 
-    @commands.command(aliases=["rpa"])
+    @commands.command()
     @has_perms(administrator=True)
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
@@ -1710,7 +1786,7 @@ class Moderation(commands.Cog):
         """Remove a permission from every role below the bot
 
         Useful straight after a raid.
-        Example: `,rpa administrator`
+        Example: `,removepermall administrator`
         """
         from cogs.settings import VALID_PERMS
         perm = permission.lower().replace(" ", "_")
