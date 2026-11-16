@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Real role permissions.** `,rpa @Role <permissions>` adds actual Discord role permission bits, with
+  real permission and hierarchy checks for the caller and bot. `,rpa` no longer aliases bulk removal;
+  use `,removepermall` for the existing bulk-removal command.
+
 - **Scoped Administrator dashboard access.** Discord Administrators can manage Automod, logging, leveling and
   tickets in authorized servers; sensitive security and authorization controls remain owner/developer only.
   Fresh Discord membership and role checks fail closed. Owners still require an authorized joined server.

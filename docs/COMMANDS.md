@@ -1,6 +1,6 @@
 # Command reference
 
-474 commands. Default prefix `,`. `<required>` `[optional]`.
+475 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -389,7 +389,7 @@ _Keep your server in line_
 | `,rblauth <target>` (roleblauth, bledauth, rblbypass) | Let a member or role hold blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
 | `,rblunauth <target>` (roleblunauth, bledunauth) | Stop a member or role from holding blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
 | `,reason <case> <reason>` | Change the reason on a case | moderate members |
-| `,removepermall <permission>` (rpa) | Remove a permission from every role below the bot | administrator, manage roles |
+| `,removepermall <permission>` | Remove a permission from every role below the bot | administrator, manage roles |
 | `,removerole <arg1> <arg2>` (takerole) | Remove a role from a member | manage roles, uperm: admin |
 | `,role <arg1> [arg2]` (r, changerole, cr) | Give a member a role, or take it if they have it | manage roles, uperm: admin |
 | `,role add <arg1> <arg2>` | Add a role to a member | manage roles, uperm: admin |
@@ -412,6 +412,7 @@ _Keep your server in line_
 | `,roleblacklist strip` (purge, clean) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
 | `,roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles, server owner or bot developer, uperm: headadmin |
 | `,roles` (rolelist) | List every role in the server, highest first |  |
+| `,rpa <role> <permissions>` | Give a role real Discord permissions | manage roles |
 | `,security` (secscan, auditsec, serveraudit) | Run a comprehensive security audit of this Discord server | manage guild, server owner or bot developer |
 | `,slowmode [delay=0] [channel]` (sm) | Set this channel's slowmode | manage channels, uperm: admin |
 | `,softban <member> [reason]` | Ban and immediately unban to wipe a member's recent messages | ban members, uperm: admin |
