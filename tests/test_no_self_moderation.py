@@ -2,6 +2,7 @@
 a plain user ID (ban by ID, the network bans), which used to skip the member-only hierarchy check."""
 import asyncio
 import contextlib
+from copy import deepcopy
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -100,19 +101,27 @@ def test_network_ban_skips_servers_the_target_owns():
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
     user = SimpleNamespace(id=OTHER, mention=f"<@{OTHER}>", name="raider")
-    seen = []  # the prompt's text at each edit (the same embed is edited in place)
-    ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    seen = []  # copy each state because the same embed is edited in place
+    ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(discord.Embed.from_dict(deepcopy(k["embed"].to_dict()))))
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, user))
     owned.ban.assert_not_called()
     other.ban.assert_awaited_once()
     assert other.ban.await_args.kwargs["reason"].startswith("genreban by ")  # the ban log credits who ran it
     ctx.warn.assert_awaited_once_with("Checking...")
-    asked, working, done = seen
-    assert asked.startswith("Genreban **raider** (`500`) from 1 server?") and "They own 1 server, which will be skipped" in asked
+    preview, working_card, done_card = seen
+    fields = {f.name: f.value for f in preview.fields}
+    assert preview.title == "⚠️ Network ban · confirmation"
+    assert fields["Target"] == "**raider** (`500`)"
+    assert fields["Scope"] == "1 eligible server" and fields["Skipped"] == "1 server owned by the target"
+    assert fields["Reason"] == "Genre ban across authorized servers"
+    assert "attempt to reban" in preview.description
+    assert "30 seconds" in preview.footer.text
+    working, done = working_card.description, done_card.description
+    assert not working_card.fields and not done_card.fields
     assert working.startswith("⏳ Genrebanning **raider** (`500`) in 1 server...")
     assert done == ("**raider** (`500`) is genrebanned.\n-# Banned in 1 server\n-# Skipped 1 server they own")
-    assert "(s)" not in asked + working + done
+    assert "(s)" not in str(fields) + working + done
 
 
 def test_someone_already_genrebanned_is_not_banned_again():
@@ -121,7 +130,7 @@ def test_someone_already_genrebanned_is_not_banned_again():
     ctx.bot.db.fetchone = AsyncMock(return_value={"user_id": OTHER, "mod_id": 7, "reason": "raid", "at": 1_700_000_000})
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
     other.ban.assert_not_called()
     ctx.bot.db.execute.assert_not_called()
@@ -160,7 +169,7 @@ def test_servers_where_they_are_already_banned_are_skipped_not_repeated():
     tools.bot = ctx.bot
     seen = []
     ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(k["embed"].description))
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="raider")))
     banned_by_other_bot.ban.assert_not_called()
     fresh.ban.assert_awaited_once()
@@ -188,7 +197,7 @@ def test_cancelling_a_network_ban_does_nothing():
     tools.bot = ctx.bot
     _Answer.answer = False
     try:
-        with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+        with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
             asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     finally:
         _Answer.answer = True
@@ -275,9 +284,9 @@ def test_antinuke_automod_and_anti_raid_leave_the_whitelisted_person_alone():
 
 
 def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
-    from core.utils import Confirm
+    from core.utils import DangerConfirm
 
-    class TimedOutConfirm(Confirm):
+    class TimedOutConfirm(DangerConfirm):
         async def wait(self):
             return True
 
@@ -286,11 +295,11 @@ def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
         ctx = make_ctx(guilds=[other])
         tools = DevTools.__new__(DevTools)
         tools.bot = ctx.bot
-        with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": TimedOutConfirm}):
+        with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": TimedOutConfirm}):
             await DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r"))
         view = ctx.prompt.edit.await_args_list[0].kwargs["view"]
         assert [(button.label, button.style) for button in view.children] == [
-            ("Confirm", discord.ButtonStyle.success), ("Cancel", discord.ButtonStyle.danger)]
+            ("Confirm", discord.ButtonStyle.danger), ("Cancel", discord.ButtonStyle.secondary)]
         stranger = SimpleNamespace(user=SimpleNamespace(id=DEV), response=SimpleNamespace(send_message=AsyncMock()))
         assert not await view.interaction_check(stranger)
         stranger.response.send_message.assert_awaited_once()
@@ -330,7 +339,7 @@ def test_network_ban_rechecks_prerequisite_after_confirmation_and_preserves_reco
     ctx.guild.fetch_ban.side_effect = [object(), discord.NotFound(MagicMock(status=404), "Unknown Ban")]
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     assert ctx.guild.fetch_ban.await_count == 2
     ctx.bot.db.execute.assert_not_called()
@@ -342,7 +351,7 @@ def test_network_ban_records_actor_reason_and_time_after_verification():
     ctx = make_ctx(guilds=[server(8, 999)])
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r"), reason="raid"))
     args = ctx.bot.db.execute.await_args.args
     assert "globalbans" in args[0]
@@ -356,7 +365,7 @@ def test_network_ban_concurrent_record_is_not_overwritten_or_repeated():
     ctx.bot.db.execute.return_value = SimpleNamespace(rowcount=0)
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     assert "INSERT OR IGNORE" in ctx.bot.db.execute.await_args.args[0]
     ctx.bot.guilds[0].ban.assert_not_called()
@@ -369,10 +378,10 @@ def test_network_ban_skips_servers_where_existing_ban_status_is_unknown():
     ctx = make_ctx(guilds=[unknown])
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with patch.dict(DevTools.genreban.callback.__globals__, {"Confirm": _Answer, "WORKING_FOR": 0}):
+    with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     unknown.ban.assert_not_called()
-    assert "Couldn't ban in 1 server" in ctx.prompt.edit.await_args.kwargs["embed"].description
+    assert "Ban not confirmed in 1 server" in ctx.prompt.edit.await_args.kwargs["embed"].description
 
 
 def test_network_ban_enforcement_does_not_assume_unknown_status_is_unbanned():
@@ -382,3 +391,43 @@ def test_network_ban_enforcement_does_not_assume_unknown_status_is_unbanned():
     guild.fetch_ban.side_effect = asyncio.TimeoutError()
     asyncio.run(tools._enforce(guild, OTHER, "they rejoined"))
     guild.ban.assert_not_called()
+
+
+def test_network_ban_preview_reason_is_bounded_and_escaped():
+    ctx = make_ctx(guilds=[server(8, 999)])
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    edits = []
+    ctx.prompt.edit = AsyncMock(side_effect=lambda **k: edits.append(deepcopy(k['embed'].to_dict())))
+    _Answer.answer = False
+    try:
+        with patch.dict(DevTools.genreban.callback.__globals__, {'DangerConfirm': _Answer, 'WORKING_FOR': 0}):
+            asyncio.run(DevTools.genreban.callback(
+                tools, ctx, SimpleNamespace(id=OTHER, mention='x', name='**intruder**'), reason='*' * 5000))
+    finally:
+        _Answer.answer = True
+    preview = discord.Embed.from_dict(edits[0])
+    fields = {f.name: f.value for f in preview.fields}
+    assert r'\*\*intruder\*\*' in fields['Target']
+    assert fields['Reason'].startswith(r'\*') and len(fields['Reason']) <= 1024
+    assert fields['Skipped'] == '0 servers owned by the target'
+    assert ctx.command_log_outcome == 'Network ban cancelled · nothing changed'
+    assert edits[-1]['title'] == 'Network ban · not applied' and not edits[-1].get('fields')
+    ctx.bot.db.execute.assert_not_awaited()
+
+
+def test_network_ban_partial_status_and_log_report_unknown_results():
+    known, unknown = server(8, 999), server(9, 999)
+    unknown.fetch_ban.side_effect = asyncio.TimeoutError()
+    ctx = make_ctx(guilds=[known, unknown])
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    with patch.dict(DevTools.genreban.callback.__globals__, {'DangerConfirm': _Answer, 'WORKING_FOR': 0}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention='x', name='r')))
+    result = ctx.prompt.edit.await_args.kwargs['embed']
+    assert result.title == '⚠️ Network ban · partially completed'
+    assert 'Ban not confirmed in 1 server' in result.description
+    assert '1 banned' in ctx.command_log_outcome and '1 not confirmed' in ctx.command_log_outcome
+    assert ctx.command_log_warning
+    known.ban.assert_awaited_once()
+    unknown.ban.assert_not_awaited()

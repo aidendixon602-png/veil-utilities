@@ -516,14 +516,17 @@ def test_a_command_gets_its_own_card():
     card = fmt.command_used(cmd_ctx(), "Admin", "@Staff", rank=3, ms=84.4)
     assert card.author.name and detail(card, "Command") == "`,ban @x spam`"
     assert card.title == "⌨️ Command used"
-    assert "<#5> · [Jump to command](https://discord.com/channels/10/5/900)" in card.description
-    assert detail(card, "Level") == "Admin · via @Staff" and detail(card, "Result") == "✅ done in 84 ms"
+    assert card.description == "👤 <@7>"
+    assert detail(card, "Channel") == "<#5> · [Jump to command](https://discord.com/channels/10/5/900)"
+    assert detail(card, "Permission level") == "Admin" and detail(card, "Granted by") == "@Staff"
+    assert detail(card, "Result") == "✅ done in 84 ms"
     assert card.footer.text == "User ID: 7" and card.color.value == Colors.approve
     assert "6.2s" in _card_text(fmt.command_used(cmd_ctx(), "None", "-", ms=6175))
     assert detail(fmt.command_used(cmd_ctx("a\nb"), "None", "-"), "Command") == "`a b`"
-    assert detail(fmt.command_used(cmd_ctx(), "None", "-"), "Level") == "no level"
+    assert detail(fmt.command_used(cmd_ctx(), "None", "-"), "Permission level") == "no level"
     direct = fmt.command_used(cmd_ctx(), "Owner", "Permissions attached to user")
-    assert detail(direct, "Level") == "Owner · given directly"
+    assert detail(direct, "Permission level") == "Owner"
+    assert detail(direct, "Granted by") == "Permissions attached to user"
 
 
 def test_a_failed_command_says_why_in_red():
@@ -1563,9 +1566,9 @@ def test_veil_stays_out_of_ghost_vanguards_log_channels():
 def test_command_log_long_inputs_leave_room_for_the_outcome():
     ctx = cmd_ctx(",say " + "x" * 8000)
     card = fmt.command_used(ctx, "L" * 8000, "R" * 8000, error="Unable to complete the action")
-    assert len(card.description) <= 4096
+    assert all(len(field.value) <= 1024 for field in card.fields)
     assert detail(card, "Result") == "❌ Unable to complete the action"
-    assert card.description.endswith("[Jump to command](https://discord.com/channels/10/5/900)")
+    assert detail(card, "Channel").endswith("[Jump to command](https://discord.com/channels/10/5/900)")
     assert card.timestamp is not None and card.footer.text == "User ID: 7"
 
 
@@ -1691,6 +1694,26 @@ def test_command_card_reports_partial_outcome_with_timing():
     ctx.command_log_outcome = "Updated 1 role(s) · 1 not confirmed"
     ctx.command_log_warning = True
     card = fmt.command_used(ctx, "Admin", "-", ms=1200)
-    assert "partially completed" in card.title
+    assert "needs attention" in card.title
     assert detail(card, "Result") == "Updated 1 role(s) · 1 not confirmed · 1.2s"
     assert card.colour.value == Colors.caution
+
+
+def test_command_card_shows_level_sources_and_cancelled_outcome_without_a_jump():
+    ctx = cmd_ctx()
+    ctx.message.jump_url = None
+    ctx.command_log_outcome = 'Network ban cancelled · nothing changed'
+    card = fmt.command_used(ctx, 'Developer', 'Built-in', ms=1200)
+    assert detail(card, 'Channel') == '<#5>'
+    assert detail(card, 'Permission level') == 'Developer'
+    assert detail(card, 'Granted by') == 'Built-in'
+    assert detail(card, 'Result') == 'Network ban cancelled · nothing changed · 1.2s'
+    assert card.footer.text == 'User ID: 7'
+    assert detail(fmt.command_used(ctx, 'None', '-'), 'Granted by') == 'Not assigned'
+
+
+def test_command_card_keeps_roles_clickable_without_ping_permissions():
+    card = fmt.command_used(cmd_ctx(), 'Moderator', '<@&123456789012345678>')
+    assert detail(card, 'Granted by') == '<@&123456789012345678>'
+    assert [field.name for field in card.fields] == ['Command', 'Channel', 'Permission level', 'Granted by', 'Result']
+    assert [field.inline for field in card.fields] == [False, True, True, True, False]

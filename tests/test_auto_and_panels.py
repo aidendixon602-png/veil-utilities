@@ -158,7 +158,7 @@ def test_the_log_line_names_the_button_and_points_at_the_panel():
     card = logembeds.command_used(ctx, "Admin", "-", ms=1200)
     fields = {field.name: field.value for field in card.fields}
     assert fields["Command"] == "`Lockdown (,admin panel)`"
-    assert "<#1> · [Jump to command](https://discord.com/x/panel)" in card.description
+    assert fields["Channel"] == "<#1> · [Jump to command](https://discord.com/x/panel)"
     assert fields["Result"] == "✅ done in 1.2s"
     failed = logembeds.command_used(ctx, "Admin", "-", error="Lockdown is already on")
     assert {field.name: field.value for field in failed.fields}["Result"] == "❌ Lockdown is already on"

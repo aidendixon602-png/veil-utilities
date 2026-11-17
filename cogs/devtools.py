@@ -15,7 +15,7 @@ from discord.ext import commands
 
 from core import logembeds as fmt
 from core import perms
-from core.utils import Colors, Confirm, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, role_protection_ids, shorten, ts
+from core.utils import Colors, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, role_protection_ids, shorten, ts
 
 A = discord.AuditLogAction
 
@@ -257,6 +257,7 @@ class DevTools(commands.Cog):
         check_target(ctx, user, "genreban")
         existing = await self._already(user)
         if existing:
+            ctx.command_log_outcome = "Network ban already recorded · nothing repeated"
             # Already in force: nothing to repeat, and a second confirmation and card would only be noise.
             since = ts(existing["at"], "R") if existing["at"] else "earlier"
             by = f" by <@{existing['mod_id']}>" if existing["mod_id"] else ""
@@ -272,33 +273,49 @@ class DevTools(commands.Cog):
         if not guilds:
             raise UserError(f"{user.mention} owns every server I'm in, so there's nowhere to ban them from")
         msg = await ctx.warn("Checking...")
-        lines = [f"Genreban {self._who(user)} from {plural(len(guilds), 'server')}?",
-                 f"**Reason:** {discord.utils.escape_markdown(shorten(reason, 300))}"]
-        if owned:
-            lines.append(f"-# They own {plural(len(owned), 'server')}, which will be skipped.")
-        embed = self._prompt("\n".join(lines))
-        view = Confirm(ctx.author.id, timeout=30)
+        embed = self._prompt("This attempts a ban across the bot's joined servers and records a network ban. "
+                             "Veil will attempt to reban on rejoin or unban; enforcement is not guaranteed.")
+        embed.title = "⚠️ Network ban · confirmation"
+        embed.color = Colors.deny
+        embed.add_field(name="Target", value=self._who(user), inline=False)
+        embed.add_field(name="Scope", value=f"{plural(len(guilds), 'eligible server')}", inline=True)
+        embed.add_field(name="Skipped", value=f"{plural(len(owned), 'server')} owned by the target", inline=True)
+        embed.add_field(name="Reason", value=discord.utils.escape_markdown(shorten(reason, 300)) or "Not provided", inline=False)
+        embed.set_footer(text="Only you can confirm · expires in 30 seconds")
+        view = DangerConfirm(ctx.author.id, timeout=30)
         await msg.edit(content=None, embed=embed, view=view)
         await view.wait()
+        embed.clear_fields()
+        embed.set_footer(text=f"Target ID: {user.id}")
         if view.value is not True:
             outcome = "timed out" if view.value is None else "cancelled"
+            embed.title = "Network ban · not applied"
             embed.description = f"Genreban of {self._who(user)} {outcome}. Nothing was changed."
+            ctx.command_log_outcome = f"Network ban {outcome} · nothing changed"
             embed.color = Colors.neutral
             return await msg.edit(embed=embed, view=None)
         if await self._already(user):  # someone else did it while this was waiting for Confirm
+            embed.title = "Network ban · already recorded"
+            ctx.command_log_outcome = "Already recorded · nothing repeated"
             embed.description = f"{self._who(user)} was genrebanned by someone else in the meantime. Nothing was repeated."
             return await msg.edit(embed=embed, view=None)
 
         if await self._banned_in(ctx.guild, user.id) is not True:
+            embed.title = "Network ban · not applied"
+            ctx.command_log_outcome = "Server ban could not be verified · nothing changed"
+            ctx.command_log_warning = True
             embed.description = "The required server ban could not be verified after confirmation. Nothing was changed."
             embed.color = Colors.deny
             return await msg.edit(embed=embed, view=None)
         inserted = await self.bot.db.execute(
             "INSERT OR IGNORE INTO globalbans VALUES(?,?,?,?)", user.id, ctx.author.id, reason, now())
         if inserted.rowcount == 0:
+            embed.title = "Network ban · already recorded"
+            ctx.command_log_outcome = "Already recorded · nothing repeated"
             embed.description = f"{self._who(user)} was genrebanned by someone else in the meantime. Nothing was repeated."
             return await msg.edit(embed=embed, view=None)
         banned, already, failed = 0, 0, []
+        embed.title = "⏳ Network ban · in progress"
         async with await self._working(ctx, msg, embed, f"Genrebanning {self._who(user)} in "
                                                         f"{plural(len(guilds), 'server')}..."):
             for g in guilds:
@@ -323,9 +340,13 @@ class DevTools(commands.Cog):
         if owned:
             lines.append(f"-# Skipped {plural(len(owned), 'server')} they own")
         if failed:
-            lines.append(f"-# Couldn't ban in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}")
+            lines.append(f"-# Ban not confirmed in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}")
         embed.description = "\n".join(lines)
-        embed.color = Colors.deny
+        embed.title = "⚠️ Network ban · partially completed" if failed else "✅ Network ban · recorded"
+        embed.color = Colors.caution if failed else Colors.approve
+        ctx.command_log_outcome = (f"Network ban recorded · {banned} banned · {already} already banned"
+                                   f" · {len(failed)} not confirmed · {len(owned)} skipped")
+        ctx.command_log_warning = bool(failed)
         embed.timestamp = discord.utils.utcnow()
         await msg.edit(embed=embed, view=None)
 
