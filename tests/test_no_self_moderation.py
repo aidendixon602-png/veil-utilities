@@ -284,7 +284,7 @@ def test_antinuke_automod_and_anti_raid_leave_the_whitelisted_person_alone():
 
 
 def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
-    from core.utils import DangerConfirm
+    from core.utils import Colors, DangerConfirm
 
     class TimedOutConfirm(DangerConfirm):
         async def wait(self):
@@ -308,8 +308,17 @@ def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
         other.ban.assert_not_called()
         ctx.bot.db.execute.assert_not_called()
         assert ctx.prompt.edit.await_args.kwargs["view"] is None
-        assert ctx.prompt.edit.await_args.kwargs["embed"].description == (
-            "Genreban of **r** (`500`) timed out. Nothing was changed.")
+        expired = ctx.prompt.edit.await_args.kwargs["embed"]
+        assert expired.title == "⌛ Network ban · confirmation expired"
+        assert expired.color.value == Colors.caution
+        assert "This attempt made no changes" in expired.description
+        assert "30 seconds" in expired.description
+        fields = {f.name: f.value for f in expired.fields}
+        assert fields["Target"] == "**r** (`500`)"
+        assert "run **genreban** again" in fields["Next step"]
+        assert "reason" in fields["Next step"] and "confirm the new prompt" in fields["Next step"]
+        assert expired.footer.text == "Target ID: 500" and expired.timestamp is not None
+        assert ctx.command_log_outcome == "Network ban timed out · nothing changed"
         view.stop()
 
     asyncio.run(run())
