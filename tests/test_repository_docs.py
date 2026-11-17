@@ -64,7 +64,7 @@ def test_command_reference_includes_prefix_and_permission_caveat():
 
 def test_developer_reference_is_separate_and_uses_prefix():
     text = (ROOT / "docs/DEVELOPER_COMMANDS.md").read_text(encoding="utf-8")
-    assert "`,authorize <guild_id>" in text
+    assert "`,authorize [guild_id]" in text and "authserver" in text
     assert "`,system`" in text
     assert "require developer/owner authorization" in text
 

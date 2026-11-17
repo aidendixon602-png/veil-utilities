@@ -720,12 +720,12 @@ class HelpView(OwnedView):
     def _build_items(self):
         self.clear_items()
         if self.current is None:
-            if len(self.pages) > 15:
+            if len(self.pages) > 20:
                 # Discord allows five button rows; use the existing select for a larger catalog.
                 self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
             else:
                 for index, label in enumerate(self.pages):
-                    self.add_item(CategoryButton(label, row=index // 3))
+                    self.add_item(CategoryButton(label, row=index // 4))
             return
         items = self.current_items()
         if items and self.selected is None:
@@ -835,17 +835,8 @@ class Help(commands.HelpCommand):
                    visible_categories: list[str] | None = None) -> discord.Embed:
         """Describe only categories already permitted by the menu's visibility checks."""
         p = self.context.clean_prefix
-        names = visible_categories if visible_categories is not None else category_labels(categories or {}, is_owner, author_rank)
-        lines = ["Your guide to Veil's commands. Select a category below to browse its commands and details.",
-                 "", f"**Prefix:** `{p}` · **Command help:** `{p}help <command>`"]
-        if names:
-            lines += ["", "**Explore categories**"]
-            for label in names:
-                emoji = CATEGORY_EMOJIS.get(label, "•")
-                desc = CATEGORY_DESCRIPTIONS.get(label, "Browse commands")
-                lines.append(f"{emoji} **{label}** — {desc}")
-        card = self._brand(discord.Embed(title="Command guide", color=HELP_COLOR,
-                                         description=shorten_md("\n".join(lines), 4000)))
+        lines = ["Select a category below to view its commands.", "", f"**Prefix:** `{p}` · **Command help:** `{p}help <command>`"]
+        card = self._brand(discord.Embed(color=HELP_COLOR, description="\n".join(lines)))
         if total is not None and sections is not None:
             card.set_footer(text=f"{count(total, 'command')} · {count(sections, 'category', 'categories')} visible · Permissions still apply")
         return card

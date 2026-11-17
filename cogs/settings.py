@@ -207,11 +207,13 @@ class Settings(commands.Cog):
     # ---------------------------------------------------------- disable
     @commands.group(aliases=["disablecmd", "dcmd"], invoke_without_command=True)
     @has_perms(manage_guild=True)
-    async def disablecommand(self, ctx: Context, *, command: str):
+    async def disablecommand(self, ctx: Context, *, command: str = None):
         """Disable a command for everyone except the owner and developers
 
-        `,dcmd list` shows what's off.
+        Run `,dcmd` or `,dcmd list` to see what's off.
         """
+        if command is None:
+            return await self._show_disabled(ctx)
         cmd = self.bot.get_command(command)
         if not cmd or cmd.cog_name in ("Settings", "Owner", "Authorization"):
             raise UserError("That command can't be disabled")
@@ -227,14 +229,18 @@ class Settings(commands.Cog):
     @has_perms(manage_guild=True)
     async def disable_list(self, ctx: Context):
         """List disabled commands"""
+        await self._show_disabled(ctx)
+
+    async def _show_disabled(self, ctx: Context):
         s = await self.bot.db.get_config(ctx.guild.id, "settings")
         disabled = sorted(s.get("disabled", []))
         if not disabled:
             return await ctx.warn("no commands are disabled")
-        embed = discord.Embed(title="Disabled Commands", color=Colors.main,
-                              description="\n".join(f"`{c}`" for c in disabled))
-        embed.set_footer(text=f"{len(disabled)} disabled")
-        await ctx.send(embed=embed)
+        lines = [f"`{discord.utils.escape_markdown(str(c)).replace('`', '')}`" for c in disabled]
+        pages = chunk_embeds("Disabled Commands", lines, per_page=20, color=Colors.orange, numbered=False)
+        for page in pages:
+            page.set_footer(text=f"{len(disabled)} disabled")
+        await ctx.paginate(pages)
 
     @commands.command(aliases=["enablecmd", "ecmd"])
     @has_perms(manage_guild=True)
