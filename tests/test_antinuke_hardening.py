@@ -262,3 +262,21 @@ def test_whitelist_role_lookup_fetches_uncached_member_and_observes_removal():
     assert asyncio.run(cog._trusted(guild, cfg, holder.id))
     holder.roles = []
     assert not asyncio.run(cog._trusted(guild, cfg, holder.id))
+
+
+def test_scoped_admin_role_granter_still_caught_for_direct_bans_and_role_grants():
+    from test_antinuke_undo import ATTACKER, make_role
+
+    cog, guild, attacker = setup()
+    cog.bot.db.store['admin_role_granters'] = {str(ATTACKER): True}
+    feed(cog, *(entry(guild, A.ban, SimpleNamespace(id=100 + i, name=f'v{i}')) for i in range(3)))
+    attacker.ban.assert_awaited_once()
+
+    cog, guild, attacker = setup({'permissions': {'on': True, 'punishment': 'strip'}})
+    cog.bot.db.store['admin_role_granters'] = {str(ATTACKER): True}
+    victim = member(guild, 6, 'victim')
+    role = make_role(guild, 77, 'Administrator', 9, administrator=True)
+    feed(cog, entry(guild, A.member_role_update, victim, before=SimpleNamespace(roles=[]),
+                    after=SimpleNamespace(roles=[role])))
+    victim.remove_roles.assert_awaited_once()
+    attacker.remove_roles.assert_awaited()

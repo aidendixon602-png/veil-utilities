@@ -937,7 +937,7 @@ def has_legacy_role_assignment_auth(member, guild, bot, cfg: dict) -> bool:
             or any(getattr(role, "id", None) in authorized for role in getattr(member, "roles", [])))
 
 
-async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
+async def check_role_assignable(ctx: Context, role: discord.Role, *, scoped_admin_grant: bool = False) -> None:
     """Validate that a role can be assigned: checks roleblacklist (BLED), hierarchy, and manageability.
 
     Devs, server owner, and authorized staff can give out blacklisted roles.
@@ -950,14 +950,15 @@ async def check_role_assignable(ctx: Context, role: discord.Role) -> None:
     if role.id in cfg.get("hard_roles", []) and not is_dev:
         raise UserError(f"{role.mention} is hard-blacklisted; only a bot developer can assign it.")
     is_auth = has_legacy_role_assignment_auth(ctx.author, ctx.guild, bot, cfg) or has_soft_role_bypass(ctx.author, cfg)
-    if not is_auth:
+    scoped_admin_grant = scoped_admin_grant and bool(getattr(role.permissions, "administrator", False))
+    if not is_auth and not scoped_admin_grant:
         if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")
     if is_dangerous(role.permissions):
         db = getattr(bot, "db", None)
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
-        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or author_rank >= _perms.COOWNER_RANK):
+        if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or scoped_admin_grant or author_rank >= _perms.COOWNER_RANK):
             raise UserError("🔒 Only the server owner, the bot's developers or someone with the **Supreme Leader** level can give out roles with Administrator.")
         if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
             raise UserError("🔒 Assigning roles with Server Management permissions requires the **Head Admin** level or higher.")
