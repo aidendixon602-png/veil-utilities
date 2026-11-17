@@ -1,6 +1,6 @@
 # Command reference
 
-484 commands. Default prefix `,`. `<required>` `[optional]`.
+485 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -351,10 +351,11 @@ _Keep your server in line_
 | `,addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
 | `,addrole <arg1> <arg2>` (giverole) | Add a role to a member | manage roles, uperm: admin |
 | `,adminrolegrant` | Manage Administrator-role grant permissions | server owner or bot developer |
-| `,adminrolegrant add <member>` | Authorize a member to give Administrator roles | server owner or bot developer |
+| `,adminrolegrant add <target>` | Authorize a member or role to give Administrator roles | server owner or bot developer |
 | `,adminrolegrant list` | List authorized Administrator-role granters | server owner or bot developer |
-| `,adminrolegrant remove <member>` | Revoke one member's Administrator-role authorization | server owner or bot developer |
+| `,adminrolegrant remove <target>` | Revoke a member or role's Administrator-role authorization | server owner or bot developer |
 | `,adminrolegrant removeid <member_id>` | Revoke authorization by ID even if the member is gone | server owner or bot developer |
+| `,adminrolegrant removeroleid <role_id>` | Revoke authorization by ID even if the role is gone | server owner or bot developer |
 | `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `,bypass` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
