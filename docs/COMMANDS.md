@@ -330,18 +330,18 @@ _Log server events to channels_
 |---|---|---|
 | `,cleanuplogs` (cleanuplogchannels, purgeduplicatelogs) | List possible duplicate log channels without deleting anything | manage guild, server owner or bot developer |
 | `,logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild, server owner or bot developer |
-| `,logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild, server owner or bot developer |
-| `,logs cleanup [delete]` (clean, purgeduplicates, cleanupchannels) | List leftover log channels and delete them only when you ask | manage guild, server owner or bot developer |
-| `,logs coexist` | Show a read-only checklist for running Veil alongside Ghost Vanguard | server owner or bot developer |
+| `,logs auto <category>` (reset) | Use an approved shared route if available | manage guild, server owner or bot developer |
+| `,logs cleanup [delete]` (clean, purgeduplicates, cleanupchannels) | Explain safe manual cleanup without deleting channels | manage guild, server owner or bot developer |
+| `,logs coexist` | Review routing when multiple logging tools are in use | server owner or bot developer |
 | `,logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore add <target>` | Ignore a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild, server owner or bot developer |
 | `,logs list` (show, status) | Show where every log category goes, without opening the panel | manage guild, server owner or bot developer |
 | `,logs off <category>` (disable) | Stop logging a category | manage guild, server owner or bot developer |
 | `,logs set <category> [channel]` | Send a log category to a channel | manage guild, server owner or bot developer |
-| `,logs setup [mode]` (init, default, defaults, create) | Create one private log channel per category, together under VEIL LOGS | manage guild, server owner or bot developer |
+| `,logs setup [mode]` (init, default, defaults, create) | Preview and confirm creation of channels for unset log categories | manage guild, server owner or bot developer |
 | `,logs test` | Send a test line to every log channel | manage guild, server owner or bot developer |
-| `,setuplogs` (setupchannels, autologs) | Make a private channel for every log category | manage guild, server owner or bot developer |
+| `,setuplogs` (setupchannels, autologs) | Preview and confirm creation of missing log destinations | manage guild, server owner or bot developer |
 
 ## 🔨 Moderation
 _Keep your server in line_

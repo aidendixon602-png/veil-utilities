@@ -281,18 +281,18 @@ async def features_page(server, request: web.Request) -> web.Response:
         grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "admin-grants")
     antinuke_section += grant_section
 
-    from cogs.logging import KINDS, other_bots_channel
+    from cogs.logging import KINDS
     from core.dashboard_security_views import log_routes
     logs = await server.bot.db.get_config(guild.id, "logs") or {}
     form = _form_start(server, guild, user, "logging", "logs", logs)
-    form += '<div class="note">Auto uses normal routing. Off disables the direct route; some events use other routes as fallbacks.</div>'
+    form += '<div class="note">Unset routes may share explicitly approved destinations. Off disables the category. Review existing routes and channel privacy before confirming.</div>'
     form += log_routes(guild, logs) + '<div class="form-grid">'
-    channels = sorted((ch for ch in getattr(guild, "text_channels", []) if not other_bots_channel(ch)),
+    channels = sorted(getattr(guild, "text_channels", []),
                       key=lambda ch: (ch.position, ch.id))
     for field, key in LOG_FIELDS:
         current = logs.get(key)
         value = str(current) if current is not None else ""
-        choices = [("", "Auto"), ("-1", "Off")] + [(str(ch.id), f"#{ch.name}") for ch in channels]
+        choices = [("", "Shared if available"), ("-1", "Off")] + [(str(ch.id), f"#{ch.name}") for ch in channels]
         if value and value not in {v for v, _ in choices}:
             choices.append((value, f"Unavailable or excluded channel ({value})"))
         form += _select(field, KINDS[key].label, value, choices)
@@ -302,7 +302,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                               ("log_ignore_users", "Ignored user IDs", "users")):
         value = ", ".join(str(v) for v in ignore.get(key, []))
         form += f'<div class="form-group"><label for="{field}">{label}</label><input id="{field}" name="{field}" value="{_esc(value)}"><span class="hint">Comma-separated Discord IDs.</span></div>'
-    form += '</div><button class="btn" type="submit">Save logging</button></form>'
+    form += '</div><label class="confirm-choice"><input type="checkbox" name="confirm_logs" value="yes"> I reviewed these logging destinations and their access permissions.</label><button class="btn" type="submit">Save logging</button></form>'
     logging_section = _section("Logging", "03", "Configure log destinations and exclusions.", form, "logging")
 
     saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
@@ -502,7 +502,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
             cfg["disabled"] = disabled
         elif feature == "logging":
             # This independent form never writes role blacklist or antinuke fields.
-            from cogs.logging import other_bots_channel
+            from cogs.logging import can_post
             for field, key in LOG_FIELDS:
                 if field not in data:
                     raise InvalidSetting("Missing log route; refresh the page")
@@ -514,8 +514,18 @@ async def save_feature(server, request: web.Request) -> web.Response:
                 else:
                     cfg[key] = _channel(guild, data, field, discord.TextChannel, old.get(key))
                     target = guild.get_channel(cfg[key])
-                    if cfg[key] != old.get(key) and target and other_bots_channel(target):
-                        raise InvalidSetting("Choose a Veil log channel, not a Vanguard channel")
+                    if (cfg[key] != old.get(key) or data.get("confirm_logs") == "yes") and target and not can_post(target):
+                        raise InvalidSetting("Veil needs View Channel, Send Messages and Embed Links in selected destinations")
+                if cfg[key] != old.get(key) and data.get("confirm_logs") != "yes":
+                    raise InvalidSetting("Review and confirm logging destinations")
+                if not isinstance(cfg.get("approved_routes"), dict):
+                    cfg["approved_routes"] = {}
+                approvals = cfg["approved_routes"]
+                if data.get("confirm_logs") == "yes" and isinstance(cfg[key], int) and cfg[key] > 0:
+                    if isinstance(guild.get_channel(cfg[key]), discord.TextChannel):
+                        approvals[key] = cfg[key]
+                elif cfg[key] is None or cfg[key] == -1:
+                    approvals.pop(key, None)
             if not isinstance(cfg.get("ignore", {}), dict):
                 raise InvalidSetting("Log exclusions have an unexpected format")
             ignore = cfg.setdefault("ignore", {})

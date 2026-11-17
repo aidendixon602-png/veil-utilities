@@ -806,16 +806,16 @@ class DashboardServer:
             f'<option value="{p}"{" selected" if p == current else ""}>{p}</option>' for p in PUNISHMENTS)
         saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
 
-        from cogs.logging import KINDS, other_bots_channel
+        from cogs.logging import KINDS
         from core.dashboard_security_views import log_routes
         routes_preview = log_routes(guild, logs_cfg)
-        channels = sorted((ch for ch in getattr(guild, "text_channels", []) if not other_bots_channel(ch)),
+        channels = sorted(getattr(guild, "text_channels", []),
                           key=lambda ch: (ch.position, ch.id))
         log_forms = []
         for field, key in LOG_FIELDS:
             current_log = logs_cfg.get(key)
             value = str(current_log) if current_log is not None else ""
-            choices = [("", "Auto"), ("-1", "Off")]
+            choices = [("", "Shared if available"), ("-1", "Off")]
             choices.extend((str(ch.id), f"#{ch.name}") for ch in channels)
             if value and value not in {v for v, _ in choices}:
                 choices.append((value, f"Unavailable or excluded channel ({value})"))
@@ -854,8 +854,9 @@ class DashboardServer:
 {rbl_form}
   <section class="card" id="logging"><div class="card-head"><span class="section-icon" aria-hidden="true">02</span>
     <div><h2>Logging channels</h2><p>Choose where each type of activity is sent.</p></div></div>
-    <div class="note">Auto uses Veil's normal routing. Off disables that direct route; some events can still use other categories as fallbacks. Select a channel to override it.</div>
+    <div class="note">Unset routes may use explicitly approved shared destinations; Off disables the category. Existing IDs require review before logging resumes. Check channel privacy and access.</div>
     {routes_preview}<div class="form-grid">{logs_form}</div>
+    <label class="confirm-choice"><input type="checkbox" name="confirm_logs" value="yes"> I reviewed these logging destinations and their access permissions.</label>
   </section>
   <section class="card" id="exclusions"><div class="card-head"><span class="section-icon" aria-hidden="true">03</span>
     <div><h2>Log exclusions</h2><p>Exclude activity from specific channels or users when the event supports it.</p></div></div>
@@ -1078,9 +1079,11 @@ class DashboardServer:
                     channel = get_channel(int(value)) if callable(get_channel) else None
                     if int(value) != logs_cfg.get(key) and not isinstance(channel, discord.TextChannel):
                         return self._message("Invalid settings", f"{field}: choose a text channel in this server. Nothing was saved.", 400, user)
-                    from cogs.logging import other_bots_channel
-                    if int(value) != logs_cfg.get(key) and other_bots_channel(channel):
-                        return self._message("Invalid settings", f"{field}: choose a Veil log channel, not a Vanguard channel. Nothing was saved.", 400, user)
+                    from cogs.logging import can_post
+                    if data.get("confirm_logs") == "yes" and isinstance(channel, discord.TextChannel) and not can_post(channel):
+                        return self._message("Invalid settings", f"{field}: Veil needs View Channel, Send Messages and Embed Links. Nothing was saved.", 400, user)
+                    if int(value) != logs_cfg.get(key) and not can_post(channel):
+                        return self._message("Invalid settings", f"{field}: Veil cannot post there. Nothing was saved.", 400, user)
 
         if "log_ignore_channels" in lists:
             old_ignore = logs_cfg.get("ignore") or {}
@@ -1133,10 +1136,19 @@ class DashboardServer:
             if field not in data:
                 continue
             value = str(data[field]).strip()
-            if not value:
-                logs_cfg[key] = None  # same as `log set <type>` with no channel: back to auto
-            else:
-                logs_cfg[key] = int(value)
+            new_value = int(value) if value else None
+            if new_value != logs_cfg.get(key) and data.get("confirm_logs") != "yes":
+                return self._message("Confirmation required", "Review and confirm logging destinations. Nothing was saved.", 400, user)
+            logs_cfg[key] = new_value
+            if not isinstance(logs_cfg.get("approved_routes"), dict):
+                logs_cfg["approved_routes"] = {}
+            approvals = logs_cfg["approved_routes"]
+            if data.get("confirm_logs") == "yes" and isinstance(new_value, int) and new_value > 0:
+                channel = guild.get_channel(new_value)
+                if isinstance(channel, discord.TextChannel):
+                    approvals[key] = new_value
+            elif new_value is None or new_value == -1:
+                approvals.pop(key, None)
         if "rbl_reply_mode" in data:
             logs_cfg["rbl_dm"] = data["rbl_reply_mode"] == "dm"
         for field, key in (("log_ignore_channels", "channels"), ("log_ignore_users", "users")):
