@@ -56,15 +56,9 @@ def antinuke_health(bot, guild, raw: dict) -> str:
 
 
 def log_routes(guild, cfg: dict) -> str:
-    from cogs.logging import KINDS, OFF, _channel_for, _shared_home
+    from cogs.logging import KINDS, OFF, _channel_for
 
-    destinations = {}
-    for key in KINDS:
-        direct = _channel_for(guild, cfg, key)
-        # Timeout events use the moderation/member stream when their own route is unavailable,
-        # including when the direct timeout route is off (see Logging.timeout_channel).
-        fallback = _shared_home(guild, cfg, key) if key == "timeouts" and not direct else None
-        destinations[key] = (direct, fallback)
+    destinations = {key: (_channel_for(guild, cfg, key), None) for key in KINDS}
     counts = Counter(ch.id for direct, fallback in destinations.values() if (ch := direct or fallback))
     rows = []
     for key, kind in KINDS.items():
@@ -76,13 +70,13 @@ def log_routes(guild, cfg: dict) -> str:
         elif setting == OFF:
             mode = "Off"
         elif direct is None:
-            mode = "No route found"
+            mode = "Review required or channel unavailable" if isinstance(setting, int) and setting > 0 else "Not set"
         elif setting == direct.id:
             mode = "Selected"
         else:
-            mode = "Automatic"
+            mode = "Shared approved route"
         if isinstance(setting, int) and not isinstance(setting, bool) and setting > 0 and (not direct or direct.id != setting):
-            mode += " · selected channel unavailable or excluded"
+            mode += " · selected channel unavailable or not reviewed"
         if ch:
             label = f"#{ch.name}"
             if counts[ch.id] > 1:

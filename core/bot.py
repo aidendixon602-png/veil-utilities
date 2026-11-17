@@ -300,13 +300,8 @@ class Veil(commands.AutoShardedBot):
                  self.user, len(self.guilds), commands_total, self.default_prefix)
         await self.update_dynamic_status()
         await self.check_restart_notification()
-        if not self._dev_channels_ready:  # on_ready fires again after every reconnect
-            self._dev_channels_ready = True
-            try:
-                from core import devchannels
-                await devchannels.ensure(self)
-            except Exception:
-                log.exception("Setting up the developer channels failed")
+        # Developer alert destinations are configured explicitly; startup must not create,
+        # reuse or move channels without an operator's confirmation.
 
     async def check_restart_notification(self):
         state_file = ".restart_state.json"

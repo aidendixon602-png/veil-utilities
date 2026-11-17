@@ -20,7 +20,7 @@ async def create_case(bot, guild: discord.Guild, action: str, target: discord.ab
     if channel:
         embed = fmt.case_card(num, action, target, moderator, reason)
         try:
-            await channel.send(embed=embed)
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException:
             pass
     return num

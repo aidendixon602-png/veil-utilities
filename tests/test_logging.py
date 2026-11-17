@@ -69,7 +69,13 @@ def make_guild(channels=(), *, manage_channels=True, view_audit_log=False, gid=1
 
 
 def make_cog(cfg=None):
-    store = {"logs": dict(cfg or {})}
+    initial = dict(cfg or {})
+    # Most listener tests model explicitly reviewed destinations; migration tests
+    # exercise legacy, unreviewed documents separately.
+    if cfg and "approved_routes" not in initial:
+        initial["approved_routes"] = {k: v for k, v in initial.items()
+                                      if k in L.KINDS and isinstance(v, int) and not isinstance(v, bool) and v > 0}
+    store = {"logs": initial}
 
     async def get_config(gid, module, default=None):
         return store.setdefault(module, {})
@@ -906,7 +912,7 @@ def test_failed_commands_get_a_line_with_the_reason():
         result = lambda: detail(channel.send.await_args.kwargs["embed"], "Result")  # noqa: E731
         assert result() == "❌ that member is above you"
         await cog.on_command_error(ctx, commands.CommandInvokeError(ValueError("boom")))
-        assert result() == "❌ ValueError: boom" and channel.send.await_count == 2  # a card per command
+        assert result() == "❌ ValueError: details withheld" and channel.send.await_count == 2  # a card per command
         await cog.on_command_error(ctx, commands.MissingRequiredArgument(SimpleNamespace(name="member",
                                                                                          displayed_name="member")))
         assert channel.send.await_count == 2  # a usage slip: no card
