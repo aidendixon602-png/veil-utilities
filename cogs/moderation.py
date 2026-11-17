@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import time
 import re
 from copy import deepcopy
 from datetime import timedelta
@@ -347,6 +349,7 @@ class Moderation(commands.Cog):
         self.bot = bot
         self._role_exception_locks: dict[int, asyncio.Lock] = {}
         self._bulk_permission_locks: dict[int, asyncio.Lock] = {}
+        self._admin_role_grant_locks: dict[int, asyncio.Lock] = {}
 
     def _exception_lock(self, guild_id: int) -> asyncio.Lock:
         return self._role_exception_locks.setdefault(guild_id, asyncio.Lock())
@@ -1098,8 +1101,8 @@ class Moderation(commands.Cog):
         ctx.compact_action = action
         ctx.compact_role = role
 
-    async def _authorize_bled_target(self, ctx: Context, member: discord.Member, role: discord.Role) -> bool:
-        """Create only a role-specific exception for an owner/developer's explicit bot command."""
+    async def _authorize_bled_target(self, ctx: Context, member: discord.Member, role: discord.Role, *, scoped_admin_grant=False) -> bool:
+        """Create a role-specific exception for an owner/developer or scoped grant."""
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         if role.id not in cfg.get("roles", []):
             return False
@@ -1107,32 +1110,134 @@ class Moderation(commands.Cog):
             raise UserError("This role appears on both blacklists; remove one entry before assigning it")
         if self._is_role_authorized(ctx.guild, member, cfg):
             return False
-        if (has_soft_role_bypass(ctx.author, cfg)
+        if (not scoped_admin_grant and has_soft_role_bypass(ctx.author, cfg)
                 and not has_legacy_role_assignment_auth(ctx.author, ctx.guild, self.bot, cfg)):
             raise UserError("A soft bypass only permits assigning a blacklisted role to someone who already has a bypass")
-        if not owner_or_developer(ctx.author, ctx.guild, self.bot):
+        if not scoped_admin_grant and not owner_or_developer(ctx.author, ctx.guild, self.bot):
             raise UserError("Only the server owner or a bot developer may make a role-specific exception")
         return await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=True)
 
-    async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
-        self._role_target(ctx, f"add {role.mention} to {member.mention}", role)
-        await check_role_assignable(ctx, role)
+    def _admin_grant_lock(self, guild_id: int) -> asyncio.Lock:
+        return self._admin_role_grant_locks.setdefault(guild_id, asyncio.Lock())
+
+    async def _admin_grants(self, guild_id: int) -> dict:
+        cfg = await self.bot.db.get_config(guild_id, "admin_role_granters")
+        if not isinstance(cfg, dict) or any(not isinstance(k, str) or not k.isdigit() or v is not True
+                                            for k, v in cfg.items()):
+            raise UserError("Administrator-role grants could not be verified")
+        return cfg
+
+    async def _verify_scoped_admin_actor(self, ctx: Context, actor_id: int) -> dict:
+        """Scoped grant holders must not inherit a pre-existing Antinuke exemption."""
+        antinuke = self.bot.get_cog("Antinuke")
+        if antinuke is None:
+            raise UserError("Cannot verify Antinuke protection right now; no role was assigned")
+        try:
+            config = await self.bot.db.get_config(ctx.guild.id, "antinuke")
+            if not isinstance(config, dict):
+                raise ValueError("invalid Antinuke configuration")
+            trusted = await antinuke._trusted(ctx.guild, config, actor_id)
+        except Exception as exc:
+            raise UserError("Cannot verify Antinuke protection right now; no role was assigned") from exc
+        if trusted:
+            raise UserError("This user already has Antinuke trust or an exemption. Review existing Antinuke and role-blacklist trust first.")
+        if not config.get("enabled"):
+            raise UserError("Antinuke is off; scoped Administrator-role grants require it to be enabled. No settings were changed.")
+        return config
+
+    async def _claim_admin_grant_slot(self, guild_id: int, actor_id: int) -> None:
+        """Persist a per-actor cooldown before the Discord request, including uncertain failures.
+
+        The caller holds the per-guild grant lock. No other actions or Antinuke rules are exempted.
+        """
+        cfg = await self.bot.db.get_config(guild_id, "admin_role_grant_cooldowns")
+        if not isinstance(cfg, dict) or any(not isinstance(k, str) or not k.isdigit()
+                or isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                for k, v in cfg.items()):
+            raise UserError("Administrator-role rate limit could not be verified")
+        current = time.time()
+        last = cfg.get(str(actor_id))
+        if last is not None and current - last < 60:
+            remaining = max(1, math.ceil(60 - (current - last)))
+            raise UserError(f"Scoped Administrator-role grants are limited to one per 60 seconds; try again in {remaining}s")
+        updated = deepcopy(cfg)
+        updated[str(actor_id)] = current
+        await self.bot.db.set_config_committed(guild_id, "admin_role_grant_cooldowns", updated)
+
+    async def _apply_single_role(self, ctx: Context, member: discord.Member, role: discord.Role, *, scoped=False):
         await check_hierarchy_async(ctx, member, "modify roles on")
         if role in member.roles:
             raise UserError("they already have it")
-        if is_dangerous(role.permissions):
+        if scoped:
+            if not role.permissions.administrator:
+                raise UserError("This role no longer has Administrator; no role was assigned")
+            await check_role_assignable(ctx, role, scoped_admin_grant=True)
+            cfg = await self._verify_scoped_admin_actor(ctx, ctx.author.id)
+            await self._verify_scoped_admin_actor(ctx, member.id)
+            if role.id in cfg.get("whitelist_roles", []):
+                raise UserError("This role is Antinuke-whitelisted; scoped grants cannot give it")
+        elif is_dangerous(role.permissions):
             await antinuke_guard(ctx, "permissions")
-        # Persist before the Discord call so its gateway event sees the exception; roll back on failure.
+        # The scoped branch is an owner-authorized exception for this exact call only; it does not alter
+        # Antinuke trust, counters, rules, other commands, bulk operations or direct Discord actions.
         async with self._exception_lock(ctx.guild.id):
-            newly_allowed = await self._authorize_bled_target(ctx, member, role)
+            newly_allowed = await self._authorize_bled_target(ctx, member, role, scoped_admin_grant=scoped)
             try:
-                await member.add_roles(role, reason=audit_reason(ctx.author))
+                await member.add_roles(role, reason=audit_reason(ctx.author, "owner-authorized scoped Administrator grant" if scoped else None))
             except Exception:
                 if newly_allowed:
                     await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
                 raise
         note = " · allowed to hold this role only (no Antinuke trust)" if newly_allowed else ""
         await ctx.done(f"added {role.mention} to {member.mention}{note}")
+
+    async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
+        self._role_target(ctx, f"add {role.mention} to {member.mention}", role)
+        ordinary_error = None
+        try:
+            await check_role_assignable(ctx, role)
+        except UserError as exc:
+            ordinary_error = exc
+
+        scoped = False
+        if getattr(role.permissions, "administrator", False) and not owner_or_developer(ctx.author, ctx.guild, self.bot):
+            grants = await self._admin_grants(ctx.guild.id)
+            scoped = grants.get(str(ctx.author.id)) is True
+            if scoped and ordinary_error is None:
+                # Preserve pre-existing trusted/disabled-Antinuke behavior for users who already qualify
+                # independently. Untrusted scoped users still use the scoped limit even if their rank is high.
+                antinuke = self.bot.get_cog("Antinuke")
+                if antinuke is None:
+                    raise UserError("Cannot verify Antinuke protection right now; no role was assigned")
+                try:
+                    cfg = await self.bot.db.get_config(ctx.guild.id, "antinuke")
+                    if not isinstance(cfg, dict):
+                        raise ValueError("invalid Antinuke configuration")
+                    trusted = await antinuke._trusted(ctx.guild, cfg, ctx.author.id)
+                except Exception as exc:
+                    raise UserError("Cannot verify Antinuke protection right now; no role was assigned") from exc
+                if trusted or not cfg.get("enabled"):
+                    scoped = False
+        if not scoped:
+            if ordinary_error is not None:
+                raise ordinary_error
+            return await self._apply_single_role(ctx, member, role)
+
+        async with self._admin_grant_lock(ctx.guild.id):
+            # Recheck under the same lock used to revoke the authorization before acting.
+            grants = await self._admin_grants(ctx.guild.id)
+            if grants.get(str(ctx.author.id)) is not True:
+                raise UserError("The Administrator-role authorization was revoked; no role was assigned")
+            await self._verify_scoped_admin_actor(ctx, ctx.author.id)
+            cfg = await self._verify_scoped_admin_actor(ctx, member.id)
+            if role.id in cfg.get("whitelist_roles", []):
+                raise UserError("This role is Antinuke-whitelisted; scoped grants cannot give it")
+            await check_role_assignable(ctx, role, scoped_admin_grant=True)
+            await check_hierarchy_async(ctx, member, "modify roles on")
+            if role in member.roles:
+                raise UserError("they already have it")
+            await self._claim_admin_grant_slot(ctx.guild.id, ctx.author.id)
+            return await self._apply_single_role(ctx, member, role, scoped=True)
 
     async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"remove {role.mention} from {member.mention}", role)
@@ -1144,6 +1249,74 @@ class Moderation(commands.Cog):
             await member.remove_roles(role, reason=audit_reason(ctx.author))
             await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
         await ctx.done(f"removed {role.mention} from {member.mention}")
+
+    @commands.group(name="adminrolegrant", invoke_without_command=True)
+    @commands.guild_only()
+    @is_server_owner()
+    async def admin_role_grant(self, ctx: Context):
+        """Manage Administrator-role grant permissions
+
+        Use add/remove with a member, or list. Existing role-command access, hierarchy and Antinuke
+        protections remain. Single grants are rate-limited and excepted from Permission Grant without
+        creating Antinuke trust.
+        """
+        await ctx.neutral(f"Use `{ctx.clean_prefix}adminrolegrant add @member`, `remove @member`, "
+                          "`removeid <member ID>`, or `list`.")
+
+    @admin_role_grant.command(name="add")
+    @commands.guild_only()
+    @is_server_owner()
+    async def admin_role_grant_add(self, ctx: Context, member: discord.Member):
+        """Authorize a member to give Administrator roles"""
+        if member.bot:
+            raise UserError("Only human members can receive this grant")
+        async with self._admin_grant_lock(ctx.guild.id):
+            await self._verify_scoped_admin_actor(ctx, member.id)
+            grants = deepcopy(await self._admin_grants(ctx.guild.id))
+            if grants.get(str(member.id)) is True:
+                return await ctx.neutral("that member is already authorized")
+            grants[str(member.id)] = True
+            await self.bot.db.set_config_committed(ctx.guild.id, "admin_role_granters", grants)
+        await ctx.approve(f"authorized {member.mention} to give Administrator roles individually · "
+                          "one per 60 seconds · no Antinuke trust granted. Eligible ordinary blacklisted "
+                          "roles create a recipient-specific exception. Other protections are best effort.")
+
+    async def _remove_admin_role_grant(self, ctx: Context, member_id: int):
+        async with self._admin_grant_lock(ctx.guild.id):
+            cfg = deepcopy(await self._admin_grants(ctx.guild.id))
+            key = str(member_id)
+            if key not in cfg:
+                return await ctx.neutral("that authorization was not present")
+            del cfg[key]
+            await self.bot.db.set_config_committed(ctx.guild.id, "admin_role_granters", cfg)
+        await ctx.approve(f"revoked <@{member_id}>'s Administrator-role authorization; existing roles remain")
+
+    @admin_role_grant.command(name="remove")
+    @commands.guild_only()
+    @is_server_owner()
+    async def admin_role_grant_remove(self, ctx: Context, member: discord.Member):
+        """Revoke one member's Administrator-role authorization"""
+        await self._remove_admin_role_grant(ctx, member.id)
+
+    @admin_role_grant.command(name="removeid")
+    @commands.guild_only()
+    @is_server_owner()
+    async def admin_role_grant_remove_id(self, ctx: Context, member_id: int):
+        """Revoke authorization by ID even if the member is gone"""
+        if member_id <= 0:
+            raise UserError("Use a positive member ID")
+        await self._remove_admin_role_grant(ctx, member_id)
+
+    @admin_role_grant.command(name="list")
+    @commands.guild_only()
+    @is_server_owner()
+    async def admin_role_grant_list(self, ctx: Context):
+        """List authorized Administrator-role granters"""
+        grants = await self._admin_grants(ctx.guild.id)
+        lines = [f"<@{uid}> (`{uid}`)" for uid in grants]
+        if not lines:
+            return await ctx.neutral("no Administrator-role granters are configured")
+        await ctx.paginate(chunk_embeds("Administrator-role granters", lines, per_page=10, numbered=False))
 
     @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True,
                     usage="<member> <role>", extras={"compact": True, "example": "@user @role"})

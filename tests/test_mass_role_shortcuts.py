@@ -210,3 +210,20 @@ def test_real_command_checks_are_revalidated_after_confirmation():
         human.add_roles.assert_not_awaited()
         await bot.close()
     asyncio.run(go())
+
+
+def test_scoped_admin_role_authorization_does_not_enable_bulk_grants():
+    async def go():
+        bot, ctx, role, human, bot_member, store = await setup()
+        actor = _mock_member(300)
+        ctx.author = actor
+        role.permissions.administrator = True
+        store['admin_role_granters'] = {str(actor.id): True}
+        store['permlevels'] = {'users': {str(actor.id): 'admin'}}
+        with pytest.raises(UserError, match='Supreme Leader'):
+            await invoke(bot, ctx, 'humans', '"Cool Team"')
+        ctx.confirm.assert_not_awaited()
+        human.add_roles.assert_not_awaited()
+        bot_member.add_roles.assert_not_awaited()
+        await bot.close()
+    asyncio.run(go())

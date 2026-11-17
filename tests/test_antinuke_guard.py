@@ -155,3 +155,16 @@ def test_role_trust_unknown_blocks_bot_action_without_punishment():
             await cog.guard(make_ctx(MOD, guild), "ban")
         guild.ban.assert_not_awaited()
     run(_run)
+
+
+def test_scoped_admin_role_granter_does_not_skip_command_guard():
+    async def _run():
+        db, cog, guild = await setup({})
+        await db.set_config_committed(guild.id, 'admin_role_granters', {str(MOD): True})
+        ctx = make_ctx(MOD, guild)
+        await cog.guard(ctx, 'ban')
+        await cog.guard(ctx, 'ban')
+        with pytest.raises(UserError, match='Antinuke blocked'):
+            await cog.guard(ctx, 'ban')
+        guild.ban.assert_awaited_once()
+    run(_run)

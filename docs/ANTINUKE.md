@@ -91,6 +91,40 @@ exempt**, and `,an trust` is a legacy alias for the whitelist, not Greed's separ
 authorization is a different setting, but users in its `authorized` list are also treated as trusted by the
 current antinuke implementation. Review both settings before relying on enforcement.
 
+### Scoped Administrator role grants
+
+The actual Discord server owner or a bot developer can authorize a member to give eligible Administrator roles:
+
+```text
+,adminrolegrant add @member
+,adminrolegrant list
+,adminrolegrant remove @member
+,adminrolegrant removeid <member_id>
+```
+
+Once authorized, the human can directly give any eligible Administrator role to an individual with
+`,r @recipient @AdministratorRole` (no approval for each grant). This covers eligible Administrator roles
+created or changed in the future, not just roles present when the member was authorized. Scoped grants are limited to one per
+person per server every 60 seconds, across roles and recipients; the limit survives restarts. The slot is
+recorded before the Discord request, so a failed or uncertain request can still consume it. These individual
+assignments are excepted from Antinuke's Permission Grant **command guard**, including when that rule is on.
+This exception means Antinuke does not block a rapid grant that falls within this limit; choose delegates
+carefully. Other guarded actions and direct Discord actions are not exempt, and the authorization does not
+appoint an Antinuke admin or add anyone to a whitelist. Bulk role commands cannot use this authorization.
+A Discord Administrator role gives its recipient full Discord permissions; review the recipient carefully.
+Antinuke remains best effort, not a guarantee against raids or nukes.
+
+The requester still needs ordinary role-command access and must pass Discord/bot hierarchy, target, role
+and dangerous-permission rank checks (including extra requirements for roles with Manage Server or Manage
+Roles bits). Antinuke must be enabled for this scoped path, and both requester and recipient must be
+verifiably untrusted by existing Antinuke rules. Roles whitelisted for Antinuke and hard-blacklisted roles
+cannot be delegated. An ordinary blacklisted role receives a persistent exception **only for the specific
+recipient and role** when assigned; revoking the grant does not remove the role or that separate exception.
+Review and revoke such exceptions with the role blacklist commands if needed. Existing Antinuke admins and
+legacy role-blacklist `authorized` users are already trusted; this feature does not change or remove their
+exemptions. Rules that are off do not protect against those actions. The cooldown and grant locks are local
+to one bot process; multiple instances sharing a database can race and must not be relied on for this limit.
+
 Detection and rollback are best-effort, not a guarantee. Audit events must reach Veil; the bot needs the relevant
 Discord permissions and a high enough role to punish or restore changes. Some events cannot be undone. Veil
 intentionally ignores some routine actions by other bots. Veil works independently of Ghost Vanguard, including when

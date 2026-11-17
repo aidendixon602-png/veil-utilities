@@ -256,3 +256,14 @@ and test DM delivery and denial paths in a disposable server. Deploy the reviewe
 previous tested revision without altering the database; older revisions may restore the former
 RBL access, audit-based automatic authorization, and public replies. Review those risks before
 resuming service. This change is not a live Discord or Wispbyte deployment verification.
+
+## Scoped Administrator-role delegation
+
+The Discord server owner or bot developer can authorize a human to grant eligible Administrator roles with
+`,adminrolegrant add @member`, and list or revoke it with `,adminrolegrant list`,
+`,adminrolegrant remove @member`, or `,adminrolegrant removeid <member_id>`. This covers eligible
+Administrator roles added in the future as well.
+The authorized person can use `,r` directly without further approval, limited to one individual scoped grant
+per 60 seconds. Those grants are excepted from the Permission Grant command guard; other actions are not.
+Command access, hierarchy, mixed dangerous-permission rank gates and blacklists still apply; no Antinuke
+trust is conferred. See [Antinuke](ANTINUKE.md#scoped-administrator-role-grants) for restrictions and limits.

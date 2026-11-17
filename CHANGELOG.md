@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Scoped Administrator role delegation.** Owners and developers can authorize a human to grant eligible
+  Administrator roles with `,adminrolegrant add @member`. Individual grants need no further approval, have a 60-second per-person cooldown and
+  are excepted from Antinuke's Permission Grant command guard. Other protections remain best effort.
+
 - **Bulk role shortcuts.** `,r humans "Role Name"`, `,r bots "Role Name"` and `,r all "Role Name"` add roles
   after confirmation; explicit add/remove syntax remains. These commands use cached members and may miss others.
   Mass grants now reject hard-blacklisted roles too, and report unconfirmed edits in replies and command logs.
