@@ -23,8 +23,8 @@ log = logging.getLogger("veil.antinuke")
 class TrustLookupError(Exception):
     """Trust could not be verified; do not punish on an uncertain exemption."""
 
-OVERLAP_NOTE = ("⚠️ Ghost Vanguard is present. If both bots protect this server, disable overlapping rules "
-                "in one bot to avoid duplicate actions.")
+OVERLAP_NOTE = ("⚠️ Ghost Vanguard is present. For Veil-first protection, disable matching rules in Ghost "
+                "Vanguard yourself to avoid duplicate actions. Veil cannot read or change Ghost Vanguard's settings.")
 
 # verbs for the "that would … at once" message
 VERBS = {"ban": "ban", "kick": "kick", "channeldelete": "delete channels for", "roledelete": "delete roles for",

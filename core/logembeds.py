@@ -217,7 +217,7 @@ async def audit_actor(guild, action: discord.AuditLogAction, target_id: int, *,
 #
 # A card (bans, joins, roles, channels...): the person's avatar and name on top, one bold sentence that says what
 # happened with clickable mentions, then labelled lines (**Reason:** ...), IDs in the footer and Discord's own time.
-# A line (commands, edits, voice): one short text line in the log channel, like Discord's own audit log; the cog
+# A line (commands and voice): one short text line in the log channel, like Discord's own audit log; the cog
 # gathers lines that arrive close together into one message.
 
 def entry_card(color: int, sentence: str, *, subject=None, icon: str | None = None,
@@ -313,24 +313,35 @@ def _attachments(m) -> str:
     return shown + (f" +{len(files) - 5} more" if len(files) > 5 else "")
 
 
+def _message_content(text: str | None) -> str:
+    """Compact quoted content that fits safely within a Discord embed field."""
+    if not text:
+        return "*No text*"
+    return quote(text, limit=700)
+
+
 def message_deleted(m: discord.Message, actor=None) -> discord.Embed:
+    """A compact event summary and readable details rather than a dense paragraph."""
     deleter = actor if actor is not None and actor.id != m.author.id else None
     sent = getattr(m, "created_at", None)
-    return entry_card(Colors.error, f"Message sent by {m.author.mention} deleted in {m.channel.mention}",
-                      subject=m.author, quoted=m.content or "[no text: embed or attachments only]", details=[
-                          ("Deleted by", deleter.mention if deleter else ""),
-                          ("Sent", ts(sent, "R") if sent else ""),
-                          ("Attachments", _attachments(m)),
+    return field_card(Colors.error, "🗑️ Message deleted", subject=m.author,
+                      lead=f"{m.author.mention} · {m.channel.mention}", fields=[
+                          ("Message", _message_content(m.content), False),
+                          ("Deleted by", deleter.mention if deleter else None, True),
+                          ("Sent", ts(sent, "R") if sent else None, True),
+                          ("Attachments", _attachments(m), False),
                       ], ids=[("User ID", m.author.id), ("Message ID", m.id)])
 
 
-def message_edited(before: discord.Message, after: discord.Message) -> str:
-    """A feed line: who edited what where, before → after (short), and a jump link."""
-    def cut(text):
-        text = (text or "").replace("\n", " ").replace("`", "'")
-        return f"`{shorten(text, 80)}`" if text else "*empty*"
-    return feed_line("✏️", f"{after.author.mention} edited a message in {after.channel.mention}: "
-                           f"{cut(before.content)} → {cut(after.content)} · [jump]({after.jump_url})")
+def message_edited(before: discord.Message, after: discord.Message) -> discord.Embed:
+    """A consistent edit card with before/after context, a jump link and identifiers."""
+    sent = getattr(after, "created_at", None)
+    return field_card(Colors.blurple, "✏️ Message edited", subject=after.author,
+                      lead=f"{after.author.mention} · {after.channel.mention} · [Jump to message]({after.jump_url})",
+                      fields=[("Before", _message_content(before.content), False),
+                              ("After", _message_content(after.content), False),
+                              ("Sent", ts(sent, "R") if sent else None, True)],
+                      ids=[("User ID", after.author.id), ("Message ID", after.id)])
 
 
 def bulk_deleted(messages: list[discord.Message]) -> discord.Embed:
@@ -341,12 +352,13 @@ def bulk_deleted(messages: list[discord.Message]) -> discord.Embed:
     top = sorted(counts.values(), key=lambda pair: -pair[1])
     authors = ", ".join(f"{a.mention} ×{n}" for a, n in top[:8]) + (f" +{len(top) - 8} more" if len(top) > 8 else "")
     times = [m.created_at for m in messages if getattr(m, "created_at", None)]
-    return entry_card(Colors.error, f"{plural(len(messages), 'message')} deleted in {channel.mention}",
-                      header=f"#{getattr(channel, 'name', '?')}", icon=_icon(getattr(channel, "guild", None)),
-                      details=[("From", authors),
-                               ("Sent", f"{ts(min(times), 'f')} – {ts(max(times), 't')}" if times else ""),
-                               ("Transcript", "attached")],
-                      ids=[("Channel ID", channel.id)])
+    return field_card(Colors.error, "🗑️ Messages deleted", header=f"#{getattr(channel, 'name', '?')}",
+                      icon=_icon(getattr(channel, "guild", None)),
+                      lead=f"**{plural(len(messages), 'message')}** · {channel.mention}",
+                      fields=[("Authors", authors, False),
+                              ("Sent", f"{ts(min(times), 'f')} – {ts(max(times), 't')}" if times else None, True),
+                              ("Transcript", "Attached", True)], ids=[("Channel ID", channel.id)])
+
 
 
 def transcript(messages: list[discord.Message]) -> str:

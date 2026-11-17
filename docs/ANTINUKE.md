@@ -94,10 +94,10 @@ current antinuke implementation. Review both settings before relying on enforcem
 Detection and rollback are best-effort, not a guarantee. Audit events must reach Veil; the bot needs the relevant
 Discord permissions and a high enough role to punish or restore changes. Some events cannot be undone. Veil
 intentionally ignores some routine actions by other bots. Veil works independently of Ghost Vanguard, including when
-both bots are present. **Disable overlapping protection in one bot** to avoid duplicate punishment or rollback.
+both bots are present. For Veil-first protection, disable the matching rules in Ghost Vanguard yourself to avoid duplicate punishment or rollback. Veil cannot read, change or verify Ghost Vanguard's settings.
 Existing Veil settings are preserved: if antinuke is off, explicitly enable it with `,an toggle on`; check raid
 settings with `,antiraid`. Veil still treats Ghost Vanguard as a built-in trusted bot; `,gv` is an optional bridge,
-not a protection requirement. A separate built-in global person exemption also exists. See
+not a protection requirement. The server owner or a developer may disable the explicit bridge with `,gvbridge off` without affecting either bot's protection or logs; `,gvbridge on` restores it. A separate built-in global person exemption also exists. See
 [built-in exemptions](PERMISSIONS.md#built-in-exemptions), `,an status` and `,an health`, and test in a disposable
 server first. The current server-update rule filters for vanity changes; do not assume all server settings changes
 are detected. See the [staged audit](MASTER_AUDIT.md) for outstanding work.

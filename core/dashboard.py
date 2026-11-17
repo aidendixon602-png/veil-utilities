@@ -1076,10 +1076,11 @@ class DashboardServer:
             f'<option value="{p}"{" selected" if p == current else ""}>{p}</option>' for p in PUNISHMENTS)
         saved = ('<div class="note ok">Settings saved.</div>' if request.query.get("saved") else "")
 
-        from cogs.logging import KINDS
+        from cogs.logging import KINDS, other_bots_channel
         from core.dashboard_security_views import log_routes
         routes_preview = log_routes(guild, logs_cfg)
-        channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
+        channels = sorted((ch for ch in getattr(guild, "text_channels", []) if not other_bots_channel(ch)),
+                          key=lambda ch: (ch.position, ch.id))
         log_forms = []
         for field, key in LOG_FIELDS:
             current_log = logs_cfg.get(key)
@@ -1087,7 +1088,7 @@ class DashboardServer:
             choices = [("", "Auto"), ("-1", "Off")]
             choices.extend((str(ch.id), f"#{ch.name}") for ch in channels)
             if value and value not in {v for v, _ in choices}:
-                choices.append((value, f"Unavailable channel ({value})"))
+                choices.append((value, f"Unavailable or excluded channel ({value})"))
             options_html = "".join(f'<option value="{_esc(v)}"{" selected" if v == value else ""}>{_esc(label)}</option>'
                                    for v, label in choices)
             log_forms.append(f'<div class="form-group"><label for="{field}">{_esc(KINDS[key].label)}</label>'
@@ -1320,6 +1321,9 @@ class DashboardServer:
                     channel = get_channel(int(value)) if callable(get_channel) else None
                     if int(value) != logs_cfg.get(key) and not isinstance(channel, discord.TextChannel):
                         return self._message("Invalid settings", f"{field}: choose a text channel in this server. Nothing was saved.", 400, user)
+                    from cogs.logging import other_bots_channel
+                    if int(value) != logs_cfg.get(key) and other_bots_channel(channel):
+                        return self._message("Invalid settings", f"{field}: choose a Veil log channel, not a Vanguard channel. Nothing was saved.", 400, user)
 
         if rbl_fields:
             rbl = deepcopy(await self.bot.db.get_config(gid, "roleblacklist") or {})

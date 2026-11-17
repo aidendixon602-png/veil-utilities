@@ -52,6 +52,25 @@ Veil rank even when a fake permission is present. Explicit denies, temporary gra
 permissions and the requested Helper preset's limited timeout do not yet exist. Other authorization paths and
 legacy trusted/exempt accounts remain under review. See [the staged audit](MASTER_AUDIT.md).
 
+### Veil and Ghost Vanguard together
+
+For a Veil-first setup, run `,logs coexist` as the server owner for a read-only checklist. Keep the Veil
+logging and protection rules you want, then **manually disable matching logs and protection rules in Ghost
+Vanguard** using that bot's own controls. Veil cannot read or change Ghost Vanguard's configuration and cannot
+verify that overlap has been removed; duplicate logs, punishments or rollbacks remain possible until you check
+both bots. Presence detection uses the member cache and may miss the bot when member data is unavailable.
+
+Veil avoids log channels and categories it recognizes as belonging to Vanguard and does not move or delete
+them during setup or cleanup. Recognition is name-based, not proof of ownership; review custom-named channels
+and destinations with `,logs list`. Existing saved settings, channels and protections are not automatically
+changed. `,gv` is an explicit optional command handoff and does not run by itself. The owner or developer may use
+`,gvbridge off` to disable it, and `,gvbridge on` to restore it; this never changes either bot's protections.
+
+New message-delete, edit and bulk-delete logs use compact titled cards with details and IDs. Edit cards now
+include up to 700 characters each from the old and new text instead of only short 80-character previews, so
+review log-channel access and exclusions. Mentions in log posts do not ping. Existing log messages are not
+changed, and message contents still depend on Discord delivering cached messages and the required intents.
+
 ### Optional command role restrictions
 
 The server owner or a bot developer can add an additional role requirement with `,restrict add <command>, @role`,

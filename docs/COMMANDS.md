@@ -1,6 +1,6 @@
 # Command reference
 
-477 commands. Default prefix `,`. `<required>` `[optional]`.
+479 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -332,6 +332,7 @@ _Log server events to channels_
 | `,logs` (log) | Open the logging panel: see and change where each kind of log goes | manage guild, server owner or bot developer |
 | `,logs auto <category>` (reset) | Go back to finding a category's channel by name | manage guild, server owner or bot developer |
 | `,logs cleanup [delete]` (clean, purgeduplicates, cleanupchannels) | List leftover log channels and delete them only when you ask | manage guild, server owner or bot developer |
+| `,logs coexist` | Show a read-only checklist for running Veil alongside Ghost Vanguard | server owner or bot developer |
 | `,logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore add <target>` | Ignore a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild, server owner or bot developer |
@@ -585,6 +586,7 @@ _Ghost Vanguard's commands: `,gv help` lists them_
 | Command | Description | Permission |
 |---|---|---|
 | `,gv [command]` (vanguard, ghost) | Run a Ghost Vanguard command |  |
+| `,gvbridge [state]` | Check or switch the optional Ghost Vanguard handoff | server owner or bot developer |
 
 ## 🎙️ VoiceMaster
 _Temporary personal voice channels_

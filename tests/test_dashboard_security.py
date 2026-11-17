@@ -1320,7 +1320,7 @@ def test_log_preview_uses_saved_routing_and_timeout_event_fallback():
         assert 'Roles</span><strong>No destination</strong><small>Off' in html
         assert 'Messages</span><strong>#midtown-utilities-logging</strong><small>Automatic' in html
         assert 'Commands</span><strong>No destination</strong><small>No route found' in html
-        assert 'Unavailable channel (999)' in html and not bot.db.writes
+        assert 'Unavailable or excluded channel (999)' in html and not bot.db.writes
 
     run(server, scenario)
 
@@ -1527,4 +1527,36 @@ def test_dashboard_workspace_refresh_keeps_real_links_and_safe_static_icons():
         assert f'href="/servers/{GUILD_ID}#logging"' in overview
         assert f'href="/servers/{GUILD_ID}/features?section=rules"' in overview
         assert bot.db.writes == []
+    run(server, scenario)
+
+
+def test_dashboard_logging_rejects_new_vanguard_routes_without_changing_existing_settings():
+    from core.dashboard import LOG_FIELDS
+    bot = make_bot()
+    guild = bot.guilds[0]
+    ghost = MagicMock(spec=discord.TextChannel)
+    ghost.id, ghost.name, ghost.position = 88, 'message-logs', 1
+    ghost.category = SimpleNamespace(name='Ghost Vanguard Logs')
+    guild.text_channels = [ghost]
+    guild.get_channel = lambda cid: ghost if cid == 88 else None
+    bot.db.store[(GUILD_ID, 'logs')] = {'messages': None}
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    path = f'/servers/{GUILD_ID}'
+
+    async def scenario(client):
+        html = await (await client.get(f'{path}/features?section=logging', headers=headers)).text()
+        assert '#message-logs' not in html
+        revision = _feature_revision(html, GUILD_ID, 'logging')
+        data = {field: '' for field, _ in LOG_FIELDS}
+        data.update({'csrf': csrf_of(server, token), 'revision': revision, 'log_messages': '88',
+                     'log_ignore_channels': '', 'log_ignore_users': ''})
+        response = await client.post(f'{path}/features/logging', headers=headers, data=data)
+        assert response.status == 400
+        assert 'Vanguard' in await response.text()
+        response = await client.post(f'/api/guilds/{GUILD_ID}/config', headers=headers,
+                                     data={'csrf': csrf_of(server, token), 'log_messages': '88'})
+        assert response.status == 400
+        assert bot.db.store[(GUILD_ID, 'logs')] == {'messages': None}
+        assert not bot.db.writes
     run(server, scenario)

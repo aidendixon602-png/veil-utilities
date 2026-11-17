@@ -190,14 +190,19 @@ OTHER_BOT_CHANNELS = {"bans", "ghost-vanguard-logging", "midtown-vanguard-loggin
 
 
 def other_bots_channel(channel) -> bool:
-    if getattr(channel, "name", "").lower() in OTHER_BOT_CHANNELS:
+    name = getattr(channel, "name", "")
+    if not isinstance(name, str):
+        return False
+    if name.lower() in OTHER_BOT_CHANNELS:
         return True
     category = getattr(channel, "category", None)
     category_name = getattr(category, "name", "")
-    if not isinstance(category_name, str):
-        return False
-    normalized = re.sub(r"[^a-z0-9]+", " ", category_name.lower()).strip()
-    return "ghost vanguard" in normalized or "midtown vanguard" in normalized
+    for value in (name, category_name):
+        if isinstance(value, str):
+            normalized = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+            if "vanguard" in normalized.split():
+                return True
+    return False
 
 
 # Where a category goes when it has no channel of its own. The order is the point: a channel named after the
@@ -307,7 +312,7 @@ def describe(guild, cfg: dict, kind: str) -> str:
     if cfg.get(kind) == OFF:
         return "`off`"
     explicit = guild.get_channel(cfg.get(kind) or 0)
-    if isinstance(explicit, discord.TextChannel):
+    if isinstance(explicit, discord.TextChannel) and not other_bots_channel(explicit):
         return explicit.mention
     found = _channel_for(guild, cfg, kind)
     if found:
@@ -465,6 +470,9 @@ class LogPanel(OwnedView):
             lines.append(f"{mark}{kind.emoji} **{kind.label}** — {describe(self.guild, self.cfg, kind.key)}")
         where = "DM'd" if self.cfg.get(DM_KEY) else "in the channel"
         lines += ["", f"🔐 **Role blacklist replies** — {where}"]
+        from core.perms import ghost_guards
+        if ghost_guards(self.guild):
+            lines += ["", "-# Ghost Vanguard detected · use `logs coexist` for a Veil-first checklist."]
         e = discord.Embed(title="Logging", color=Colors.main, description="\n".join(lines))
         e.set_footer(text=(f"Now choose where {KINDS[self.selected].label} logs go · " if self.selected else
                            "Pick a category, then a channel · ") + "`auto` finds channels by name")
@@ -496,6 +504,8 @@ class LogPanel(OwnedView):
         channel = self.guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             return await it.response.send_message("Pick a text channel.", ephemeral=True)
+        if other_bots_channel(channel):
+            return await it.response.send_message("That channel belongs to another bot; choose a Veil log channel.", ephemeral=True)
         if not can_post(channel):
             return await it.response.send_message(
                 f"I need **View Channel**, **Send Messages** and **Embed Links** in {channel.mention}.", ephemeral=True)
@@ -630,7 +640,7 @@ class Logging(commands.Cog):
 
     # ------------------------------------------------------------ the feed: one line per small event
     def post_line(self, channel: discord.TextChannel, line: str) -> asyncio.Task:
-        """Add a feed line (a command, an edit, a voice move). Lines that arrive close together go out as one
+        """Add a feed line (a command or a voice move). Lines that arrive close together go out as one
         message, and that message keeps growing for a minute while it has room, like an audit log."""
         feed = self._feeds.setdefault(channel.id, _Feed())
         feed.pending.append(line)
@@ -959,6 +969,8 @@ class Logging(commands.Cog):
             value, shown = None, "auto"
         else:
             target = await commands.TextChannelConverter().convert(ctx, channel)
+            if other_bots_channel(target):
+                raise UserError("That channel is reserved for another bot; choose a Veil log channel.")
             if not can_post(target):
                 raise UserError(f"I need View Channel, Send Messages and Embed Links in {target.mention}.")
             value, shown = target.id, target.mention
@@ -1070,6 +1082,28 @@ class Logging(commands.Cog):
         lines.append("-# `auto` is a channel found by its name · `shared` is a channel other categories ride in")
         await ctx.send(embed=discord.Embed(title="Where logs go", color=Colors.main, description="\n".join(lines)))
 
+    @logs.command(name="coexist")
+    @is_server_owner()
+    async def logs_coexist(self, ctx: Context):
+        """Show a read-only checklist for running Veil alongside Ghost Vanguard"""
+        from core.perms import ghost_guards
+        detected = ghost_guards(ctx.guild)
+        cfg = await self.config(ctx.guild)
+        configured = sum(_channel_for(ctx.guild, cfg, key) is not None for key in KINDS)
+        description = (
+            f"**Ghost Vanguard:** {'detected in member cache' if detected else 'not detected in member cache'}\n"
+            f"**Veil log routes:** {configured}/{len(KINDS)} currently resolve to a channel\n\n"
+            "**1 · Choose Veil first**\nKeep the Veil logs and protections you want enabled. "
+            "In Ghost Vanguard, manually turn off the matching log categories and protection rules.\n\n"
+            "**2 · Separate the channels**\nVeil avoids recognized Vanguard channels and categories. "
+            "Use `logs list` to review its destinations; no channels or settings are changed here.\n\n"
+            "**3 · Separate commands**\nUse each bot's own commands. `gv` is an optional explicit handoff; "
+            "the owner can disable it with `gvbridge off`.\n\n"
+            "-# Veil cannot read or control Ghost Vanguard's settings or verify that duplication is gone. "
+            "Check both bots and test safely before relying on the setup."
+        )
+        await ctx.send(embed=discord.Embed(title="Veil + Ghost Vanguard", description=description, color=Colors.main))
+
     @logs.command(name="test")
     @has_perms(manage_guild=True)
     @is_server_owner()
@@ -1148,6 +1182,8 @@ class Logging(commands.Cog):
         """
         groups: dict[str, list] = {}
         for channel in getattr(ctx.guild, "text_channels", []):
+            if other_bots_channel(channel):
+                continue
             name = channel.name.lower()
             if name in SETUP_NAMES:
                 groups.setdefault(name, []).append(channel)
@@ -1275,7 +1311,7 @@ class Logging(commands.Cog):
             return
         channel = await self.route(after.guild, "messages", channel_id=after.channel.id, user_id=after.author.id)
         if channel:
-            await self.post_line(channel, fmt.message_edited(before, after))
+            await self.post(channel, fmt.message_edited(before, after))
 
     # ------------------------------------------------------------ joins, leaves, bans
     @commands.Cog.listener()

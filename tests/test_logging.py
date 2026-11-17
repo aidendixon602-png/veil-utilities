@@ -281,17 +281,18 @@ def detail(e: discord.Embed, label: str) -> str | None:
     return next((line[len(prefix):] for line in body(e) if line.startswith(prefix)), None)
 
 
-def test_a_card_is_the_person_a_bold_sentence_and_labelled_lines():
+def test_deleted_message_has_clear_compact_card_and_details():
     deleted = fmt.message_deleted(message(content="line one\nline two", attachments=[
         SimpleNamespace(filename="cat.png", url="https://cdn/cat.png")]))
+    fields = {field.name: field.value for field in deleted.fields}
     assert deleted.color.value == Colors.error
+    assert deleted.title == "🗑️ Message deleted"
     assert deleted.author.name == "ham" and deleted.author.icon_url == "https://cdn.example/a.png"
-    assert body(deleted)[0] == "**Message sent by <@7> deleted in <#30>**"
-    assert "> line one\n> line two" in deleted.description
-    assert detail(deleted, "Attachments") == "[cat.png](https://cdn/cat.png)" and detail(deleted, "Sent").startswith("<t:")
-    assert deleted.title is None and not deleted.fields and deleted.thumbnail.url is None
+    assert deleted.description == "<@7> · <#30>"
+    assert fields["Message"] == "> line one\n> line two"
+    assert fields["Attachments"] == "[cat.png](https://cdn/cat.png)" and fields["Sent"].startswith("<t:")
     assert deleted.footer.text == "User ID: 7 · Message ID: 500"
-    assert deleted.timestamp is not None and "Today at" not in deleted.footer.text  # one time, shown by Discord
+    assert deleted.timestamp is not None
 
 
 def test_empty_details_are_left_out():
@@ -301,17 +302,22 @@ def test_empty_details_are_left_out():
 
 
 def test_deleted_by_a_moderator_says_so_but_self_deletes_do_not():
-    assert detail(fmt.message_deleted(message(), actor=member(9, "mod")), "Deleted by") == "<@9>"
-    assert detail(fmt.message_deleted(message(), actor=message().author), "Deleted by") is None
-    assert detail(fmt.message_deleted(message()), "Deleted by") is None
+    def fields(card):
+        return {f.name: f.value for f in card.fields}
+    assert fields(fmt.message_deleted(message(), actor=member(9, "mod")))["Deleted by"] == "<@9>"
+    assert "Deleted by" not in fields(fmt.message_deleted(message(), actor=message().author))
+    assert "Deleted by" not in fields(fmt.message_deleted(message()))
 
 
-def test_an_edit_is_one_feed_line_with_before_and_after():
-    line = fmt.message_edited(message(content="old text"), message(content="new text"))
-    assert line.startswith("<t:") and ":t> ✏️ <@7> edited a message in <#30>: `old text` → `new text`" in line
-    assert line.endswith("· [jump](https://discord.com/channels/10/30/500)")
+def test_edit_card_shows_before_after_jump_and_ids():
+    card = fmt.message_edited(message(content="old text"), message(content="new text"))
+    fields = {f.name: f.value for f in card.fields}
+    assert card.title == "✏️ Message edited"
+    assert fields["Before"] == "> old text" and fields["After"] == "> new text"
+    assert "[Jump to message](https://discord.com/channels/10/30/500)" in card.description
+    assert card.footer.text == "User ID: 7 · Message ID: 500"
     long = fmt.message_edited(message(content="x" * 5000), message(content="y\n" * 3000))
-    assert len(long) <= 1900 and "\n" not in long
+    assert all(len(f.value) <= 1024 for f in long.fields)
 
 
 def test_long_content_is_cut_to_fit_discords_limits():
@@ -531,8 +537,10 @@ def test_bulk_delete_transcript_is_oldest_first():
     lines = fmt.transcript([second, first]).splitlines()
     assert lines[0].endswith("ham: one") and lines[1].endswith("ham: two")
     card = fmt.bulk_deleted([first, second])
-    assert card.author.name == "#general" and body(card)[0] == "**2 messages deleted in <#30>**"
-    assert detail(card, "From") == "<@7> ×2" and detail(card, "Transcript") == "attached"
+    assert card.author.name == "#general" and card.title == "🗑️ Messages deleted"
+    assert body(card)[0] == "**2 messages** · <#30>"
+    fields = {f.name: f.value for f in card.fields}
+    assert fields["Authors"] == "<@7> ×2" and fields["Transcript"] == "Attached"
     assert card.footer.text == "Channel ID: 30"
 
 
@@ -611,7 +619,8 @@ def test_deleted_message_is_posted_to_the_message_channel_only_when_there_is_one
         m.guild = guild
         await cog.on_message_delete(m)
         embed = channel.send.await_args.kwargs["embed"]
-        assert embed.author.name == "ham" and body(embed)[0] == "**Message sent by <@7> deleted in <#30>**"
+        assert embed.author.name == "ham" and embed.title == "🗑️ Message deleted"
+        assert embed.description == "<@7> · <#30>"
 
         empty_cog, _ = make_cog({})
         guild_without = make_guild([])
@@ -1605,4 +1614,72 @@ def test_join_logging_waits_for_developer_approval(monkeypatch):
         approval.set()
         await asyncio.wait_for(task, timeout=1)
         cog.organize.assert_awaited_once_with(guild)
+    asyncio.run(go())
+
+
+def test_message_edit_posts_quiet_detailed_card_and_respects_ignores():
+    async def go():
+        channel = text_channel(1, 'message-logs')
+        guild = make_guild([channel])
+        cog, store = make_cog({'messages': 1})
+        before, after = message(content='old'), message(content='new')
+        before.guild = after.guild = guild
+        await cog.on_message_edit(before, after)
+        kwargs = channel.send.await_args.kwargs
+        assert kwargs['embed'].title == '✏️ Message edited'
+        assert {f.name: f.value for f in kwargs['embed'].fields}['Before'] == '> old'
+        assert kwargs['allowed_mentions'].everyone is False and kwargs['allowed_mentions'].users is False
+        channel.send.reset_mock()
+        store['logs']['ignore'] = {'channels': [after.channel.id]}
+        await cog.on_message_edit(before, after)
+        channel.send.assert_not_awaited()
+    asyncio.run(go())
+
+
+def test_vanguard_destinations_are_skipped_and_rejected_by_log_panel():
+    async def go():
+        other = text_channel(10, 'vanguard-security')
+        ghost_parent = text_channel(11, 'message-logs')
+        ghost_parent.category = SimpleNamespace(id=99, name='👻 Ghost Vanguard Logs')
+        own = text_channel(12, 'message-logs')
+        guild = make_guild([other, ghost_parent, own])
+        cog, store = make_cog({'messages': 11})
+        assert L.other_bots_channel(other) and L.other_bots_channel(ghost_parent)
+        assert L._channel_for(guild, store['logs'], 'messages') is own
+        assert describe(guild, store['logs'], 'messages') == '<#12> *(auto)*'
+        panel = LogPanel(cog, guild, 100, dict(store['logs']))
+        panel.selected = 'messages'
+        it = SimpleNamespace(response=SimpleNamespace(send_message=AsyncMock()))
+        await panel.assign(it, ghost_parent.id)
+        it.response.send_message.assert_awaited_once()
+        assert store['logs']['messages'] == 11  # legacy setting was not rewritten
+    asyncio.run(go())
+
+
+def test_cleanup_report_never_lists_vanguard_duplicate_channel():
+    async def go():
+        other = text_channel(10, 'message-logs')
+        other.category = SimpleNamespace(id=99, name='Ghost Vanguard Logs')
+        own = text_channel(12, 'message-logs')
+        guild = make_guild([other, own])
+        cog, _ = make_cog({'messages': own.id})
+        ctx = SimpleNamespace(guild=guild, neutral=AsyncMock(), paginate=AsyncMock(), clean_prefix=',')
+        await Logging.logs_cleanup.callback(cog, ctx)
+        other.delete.assert_not_awaited()
+        assert not ctx.paginate.await_count or '<#10>' not in str(ctx.paginate.await_args)
+    asyncio.run(go())
+
+
+def test_coexist_checklist_is_read_only_and_does_not_claim_to_control_ghost():
+    async def go():
+        channel = text_channel(1, 'message-logs')
+        guild = make_guild([channel])
+        cog, store = make_cog({'messages': 1})
+        ctx = SimpleNamespace(guild=guild, send=AsyncMock())
+        original = dict(store['logs'])
+        await Logging.logs_coexist.callback(cog, ctx)
+        text = ctx.send.await_args.kwargs['embed'].description
+        assert 'manually turn off' in text and 'cannot read or control' in text
+        assert store['logs'] == original
+        cog.bot.db.set_config.assert_not_awaited()
     asyncio.run(go())
