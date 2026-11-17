@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from copy import deepcopy
 import sqlite3
 import time
 
+import aiohttp
 import discord
 from discord.ext import commands
 
@@ -81,16 +83,56 @@ class DevTools(commands.Cog):
     async def strip(self, ctx: Context, member: discord.Member):
         """Remove every role from a member and log the strip
 
-        The roles are saved, so `,unstrip` can put them back.
+        Saved roles can be restored with `,unstrip` subject to hierarchy and blacklist checks.
         """
-        check_target(ctx, member, "strip")
+        is_self = member.id == ctx.author.id
+        if not is_self:
+            check_target(ctx, member, "strip")
+        else:
+            # A developer can opt to strip their own roles, but not if they are the actual guild owner
+            # or an explicitly protected person. No other moderation command inherits this exception.
+            if not await self.bot.is_owner(ctx.author):
+                raise UserError("Only a bot developer can strip their own roles")
+            if member.id == ctx.guild.owner_id or perms.is_whitelisted_person(member.id):
+                raise UserError("The server owner and explicitly protected people cannot be stripped")
         removable = [r for r in member.roles if not r.is_default() and not r.managed and r < ctx.guild.me.top_role]
         if not removable:
             raise UserError(f"I can't remove any of {member.mention}'s roles")
         cfg = await self.bot.db.get_config(ctx.guild.id, "strips")
-        cfg[str(member.id)] = [r.id for r in removable]
-        await self.bot.db.set_config(ctx.guild.id, "strips", cfg)
-        await member.remove_roles(*removable, reason=f"strip by {ctx.author}")
+        if is_self:
+            before = deepcopy(cfg)
+            if str(member.id) in before:
+                raise UserError("You already have a saved strip; restore or review it before stripping again")
+            role_snapshot = [(r.id, r.position) for r in removable]
+            if not await ctx.confirm(f"Strip **{len(removable)}** of your own roles? This can remove your access. "
+                                     "Some roles may not be restorable due to blacklist or hierarchy checks. Continue?"):
+                ctx.command_log_outcome = "Self-strip cancelled · nothing changed"
+                return await ctx.neutral("self-strip cancelled; no roles changed")
+            current = ctx.guild.get_member(member.id)
+            fresh = await self.bot.db.get_config(ctx.guild.id, "strips")
+            if (not await self.bot.is_owner(ctx.author) or current is None or ctx.author.id != member.id
+                    or ctx.guild.owner_id == member.id or perms.is_whitelisted_person(member.id) or fresh != before):
+                raise UserError("Access, membership or saved roles changed during confirmation; nothing was changed")
+            now_removable = [r for r in current.roles if not r.is_default() and not r.managed and r < ctx.guild.me.top_role]
+            if [(r.id, r.position) for r in now_removable] != role_snapshot:
+                raise UserError("Your roles or hierarchy changed during confirmation; nothing was changed")
+            member, removable = current, now_removable
+            cfg = deepcopy(fresh)
+            cfg[str(member.id)] = [r.id for r in removable]
+            # Persist first: Discord's role edits may be partial or have an uncertain result.
+            await self.bot.db.set_config_committed(ctx.guild.id, "strips", cfg)
+        else:
+            cfg[str(member.id)] = [r.id for r in removable]
+            await self.bot.db.set_config(ctx.guild.id, "strips", cfg)
+        try:
+            await member.remove_roles(*removable, reason=f"strip by {ctx.author}")
+        except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
+            if not is_self:
+                raise
+            ctx.command_log_outcome = "Self-strip not confirmed · saved role snapshot retained"
+            ctx.command_log_warning = True
+            return await ctx.warn("The self-strip could not be confirmed; some roles may have been removed. "
+                                  f"Your saved role snapshot was retained. Check your roles before using `{ctx.clean_prefix}unstrip`.")
         await ctx.send(embed=await self._strip_card(ctx, member, removable))
 
     @commands.command(hidden=True, aliases=["restore"])
@@ -247,10 +289,9 @@ class DevTools(commands.Cog):
 
     @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
     async def genreban(self, ctx: Context, user: discord.User, *, reason: str = "Genre ban across authorized servers"):
-        """Attempt a cross-server genreban after a server ban
+        """Attempt a cross-server genreban after confirmation
 
-        The invoking server ban is checked again after confirmation.
-        Provide a user mention or ID and confirm before any action. Some failures may be reported; API
+        A prior server ban is not required. Provide a user mention or ID and confirm before any action. Some failures may be reported; API
         errors can interrupt the operation. Veil attempts to reban on rejoin or unban, but cannot guarantee it.
         """
         # never yourself, the bot, a bot developer, the server owner or a whitelisted person, whoever runs it
@@ -264,9 +305,7 @@ class DevTools(commands.Cog):
             return await ctx.warn(f"{self._who(user)} is already genrebanned (since {since}{by}). "
                                   "They're banned again automatically if they rejoin or are unbanned.")
         if ctx.guild is None:
-            raise UserError("Use this command in the server where the user is already banned")
-        if await self._banned_in(ctx.guild, user.id) is not True:
-            raise UserError("A standard ban in this server is required and must be verifiable before a genreban or hardban")
+            raise UserError("Use this command in a server")
         guilds = list(self.bot.guilds)
         owned = [g for g in guilds if g.owner_id == user.id]  # an owner can't be banned from their own server
         guilds = [g for g in guilds if g.owner_id != user.id]
@@ -303,17 +342,40 @@ class DevTools(commands.Cog):
             ctx.command_log_outcome = f"Network ban {outcome} · nothing changed"
             embed.color = Colors.caution if view.value is None else Colors.neutral
             return await msg.edit(embed=embed, view=None)
+        if not await self.bot.is_owner(ctx.author):
+            embed.title = "Network ban · not applied"
+            ctx.command_log_outcome = "Developer access changed · nothing changed"
+            ctx.command_log_warning = True
+            embed.description = "Developer access could not be verified after confirmation. Nothing was changed."
+            embed.color = Colors.deny
+            return await msg.edit(embed=embed, view=None)
         if await self._already(user):  # someone else did it while this was waiting for Confirm
             embed.title = "Network ban · already recorded"
             ctx.command_log_outcome = "Already recorded · nothing repeated"
             embed.description = f"{self._who(user)} was genrebanned by someone else in the meantime. Nothing was repeated."
             return await msg.edit(embed=embed, view=None)
 
-        if await self._banned_in(ctx.guild, user.id) is not True:
+        try:
+            check_target(ctx, user, "genreban")
+        except UserError:
             embed.title = "Network ban · not applied"
-            ctx.command_log_outcome = "Server ban could not be verified · nothing changed"
+            ctx.command_log_outcome = "Target became protected · nothing changed"
             ctx.command_log_warning = True
-            embed.description = "The required server ban could not be verified after confirmation. Nothing was changed."
+            embed.description = "The target became protected during confirmation. Nothing was changed."
+            embed.color = Colors.deny
+            return await msg.edit(embed=embed, view=None)
+        # Only use still-joined servers from the original preview; never silently expand scope.
+        joined = {g.id: g for g in self.bot.guilds}
+        departed = sum(g.id not in joined for g in guilds)
+        guilds = [joined[g.id] for g in guilds if g.id in joined]
+        newly_owned = [g for g in guilds if g.owner_id == user.id]
+        guilds = [g for g in guilds if g.owner_id != user.id]
+        owned.extend(newly_owned)
+        if not guilds:
+            embed.title = "Network ban · not applied"
+            ctx.command_log_outcome = "No eligible servers remain · nothing changed"
+            ctx.command_log_warning = True
+            embed.description = "No eligible servers remain after confirmation. Nothing was changed."
             embed.color = Colors.deny
             return await msg.edit(embed=embed, view=None)
         inserted = await self.bot.db.execute(
@@ -328,6 +390,9 @@ class DevTools(commands.Cog):
         async with await self._working(ctx, msg, embed, f"Genrebanning {self._who(user)} in "
                                                         f"{plural(len(guilds), 'server')}..."):
             for g in guilds:
+                if g.owner_id == user.id:
+                    owned.append(g)
+                    continue
                 status = await self._banned_in(g, user.id)
                 if status is True:
                     already += 1  # banned there already (by staff or another bot): no second ban, no second log
@@ -348,6 +413,8 @@ class DevTools(commands.Cog):
             lines.append("-# " + (", ".join(done)).capitalize())
         if owned:
             lines.append(f"-# Skipped {plural(len(owned), 'server')} they own")
+        if departed:
+            lines.append(f"-# Skipped {plural(departed, 'server')} no longer joined")
         if failed:
             lines.append(f"-# Ban not confirmed in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}")
         embed.description = "\n".join(lines)

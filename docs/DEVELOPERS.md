@@ -24,13 +24,16 @@ Other developer commands can execute arbitrary code or shell commands, query dat
 
 Developer-channel errors and the unauthorized-server/antinuke notification outbox have different delivery and persistence behavior; see [developer notifications](OPERATIONS.md#developer-notifications). Full incident management, complete event coverage and automated recovery are not yet implemented.
 
-### Network genreban prerequisite
+### Network bans and self-strip
 
 `genreban`, `hardban`, `reban`, `globalban`, and `hb` are aliases for the same developer-only
-cross-server operation. Before a new network ban, the target must already have a standard Discord
-ban in the server where the command is invoked. Veil checks the ban via Discord before prompting
-and again after confirmation; missing server context, an unbanned target, insufficient permission,
-or an API failure prevents the operation. A later unban may race the final check. Veil records the
-user, moderator, reason and time in `globalbans`, preserving an existing record. The cross-server
-loop is best effort and may partially fail; enforcement on later unbans/rejoins is not guaranteed.
-This does not change or lift existing network bans.
+cross-server operation. No prior Discord ban is required, but a server context and confirmation
+are required. Veil rechecks developer access, protected targets and the previewed eligible servers
+after confirmation. It records the user, moderator, reason and time in `globalbans`, preserving an
+existing record. Per-server ban status that cannot be verified is skipped; the cross-server loop is
+best effort and may partially fail. Enforcement on later unbans/rejoins is not guaranteed.
+
+A developer may confirm a self-strip of removable roles, except for the server owner or a globally
+whitelisted person. A role snapshot is saved before Discord is contacted; Discord failures may be
+partial or uncertain. `unstrip` still enforces its normal protections, hierarchy and blacklist rules,
+so some roles might need manual restoration. An existing saved strip must be handled first.
