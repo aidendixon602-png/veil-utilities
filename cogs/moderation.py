@@ -1711,18 +1711,21 @@ class Moderation(commands.Cog):
             return True
         return include_soft and has_soft_role_bypass(member, cfg)
 
-    @commands.group(invoke_without_command=True)
+    @commands.group(invoke_without_command=True, usage="[member or role]")
     @commands.guild_only()
     @is_server_owner()
-    async def bypass(self, ctx: Context):
-        """Manage separate soft role-blacklist bypasses (not antinuke trust)"""
-        await ctx.send_help(ctx.command)
+    async def bypass(self, ctx: Context, *, target: Optional[AdminGrantTarget] = None):
+        """Manage separate soft role-blacklist bypasses (not antinuke trust)
 
-    @bypass.command(name="add")
-    @commands.guild_only()
-    @is_server_owner()
-    async def bypass_add(self, ctx: Context, *, target: discord.Member | discord.Role):
-        """Allow a member or role to bypass the ordinary role blacklist"""
+        `,bypass @member` and `,bypass @role` add a bypass. Use remove to revoke it.
+        This bypass does not grant Antinuke trust or waive role and target checks.
+        """
+        if target is None:
+            return await ctx.send_help(ctx.command)
+        await self._add_soft_bypass(ctx, target)
+
+    async def _add_soft_bypass(self, ctx: Context, target: discord.Member | discord.Role):
+        """The explicit and shorthand forms share every authorization and persistence check."""
         is_role = isinstance(target, discord.Role)
         if is_role and (target.is_default() or target.managed):
             raise UserError("The everyone role and managed roles cannot receive a bypass")
@@ -1733,12 +1736,36 @@ class Moderation(commands.Cog):
             raise UserError(f"{target.mention} already has a soft role-blacklist bypass")
         entries.append(target.id)
         await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
-        await ctx.approve(f"added a soft role-blacklist bypass for {target.mention} · this does not bypass antinuke")
+        subject = f"Members with {target.mention}" if is_role else target.mention
+        embed = discord.Embed(
+            description=(f"{subject} can now assign soft-blacklisted roles **to recipients already allowed to hold them**.\n\n"
+                         "-# No Antinuke exemption. Command permissions, hierarchy and other checks still apply."),
+            color=Colors.caution, timestamp=discord.utils.utcnow())
+        me = getattr(ctx.guild, "me", None)
+        name = getattr(me, "display_name", None) or getattr(self.bot.user, "name", None) or "Veil Utilities"
+        avatar = getattr(getattr(me, "display_avatar", None), "url", None)
+        embed.set_author(name=str(name), icon_url=str(avatar) if avatar else None)
+        command_name = getattr(getattr(ctx, "command", None), "qualified_name", "bypass")
+        if not isinstance(command_name, str):
+            command_name = "bypass"
+        embed.set_footer(text=f"{ctx.clean_prefix}{command_name}")
+        try:
+            await ctx.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            await ctx.approve(f"soft role-blacklist bypass added for {target.mention}; no Antinuke exemption",
+                              allowed_mentions=discord.AllowedMentions.none())
+
+    @bypass.command(name="add")
+    @commands.guild_only()
+    @is_server_owner()
+    async def bypass_add(self, ctx: Context, *, target: AdminGrantTarget):
+        """Allow a member or role to bypass the ordinary role blacklist"""
+        await self._add_soft_bypass(ctx, target)
 
     @bypass.command(name="remove", aliases=["delete"])
     @commands.guild_only()
     @is_server_owner()
-    async def bypass_remove(self, ctx: Context, *, target: discord.Member | discord.Role):
+    async def bypass_remove(self, ctx: Context, *, target: AdminGrantTarget):
         """Remove a member's or role's soft role-blacklist bypass"""
         cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
         bypass = cfg.setdefault("soft_bypass", {})

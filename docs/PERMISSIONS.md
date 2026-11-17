@@ -201,8 +201,10 @@ role grants remain blocked for blacklisted roles, and mass role assignment canno
 
 ## Soft bypasses and hard role blacklist (initial increment)
 
-The server owner or a bot developer may use `,bypass add @member` / `,bypass add @role`,
-`,bypass remove ...`, and `,bypass list`. These are **separate** soft role-blacklist bypasses,
+The server owner or a bot developer may use `,bypass @member` / `,bypass @role` as shortcuts for
+`,bypass add @member` / `,bypass add @role`. The shortcut **adds only**: using it again does not remove
+an existing bypass. Use `,bypass remove @member` / `@role` to revoke one, or `,bypass list` to review them.
+A role bypass covers its current and future holders. These are **separate** soft role-blacklist bypasses,
 not antinuke trust, fake permissions, or general command authority. They do not waive Discord
 permissions, hierarchy or other command checks. A staff member relying only on this bypass can
 assign an ordinary blacklisted role through Veil only to a recipient who already has a soft bypass;

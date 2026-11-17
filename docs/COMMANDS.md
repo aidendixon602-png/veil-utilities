@@ -358,7 +358,7 @@ _Keep your server in line_
 | `,adminrolegrant removeroleid <role_id>` | Revoke authorization by ID even if the role is gone | server owner or bot developer |
 | `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
-| `,bypass` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
+| `,bypass [target]` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
 | `,bypass add <target>` | Allow a member or role to bypass the ordinary role blacklist | server owner or bot developer |
 | `,bypass list` | List separate soft role-blacklist bypasses | server owner or bot developer |
 | `,bypass remove <target>` (delete) | Remove a member's or role's soft role-blacklist bypass | server owner or bot developer |

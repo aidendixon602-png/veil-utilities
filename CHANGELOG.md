@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Soft bypass shortcut and reply.** Owners and developers can use `,bypass @member` or `,bypass @role`
+  to add a soft role-blacklist bypass. The reply shows its limited scope; it does not grant Antinuke trust.
+  Existing add, remove and list commands remain unchanged.
+
 - **Administrator-role granter roles and dashboard.** Owners and developers can authorize a role with
   `,adminrolegrant add @role`, covering its current and future human holders without granting Antinuke trust.
   Dashboard Antinuke settings now include owner/developer management for these role and member authorizations.
