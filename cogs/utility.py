@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import logging
 import operator
 import platform
@@ -10,6 +11,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 
@@ -298,7 +300,11 @@ class Utility(commands.Cog):
     async def userinfo(self, ctx: Context, user: discord.Member | discord.User = None):
         """Info about a user"""
         user = user or ctx.author
-        fetched = await self.bot.fetch_user(user.id)
+        try:
+            fetched = await self.bot.fetch_user(user.id)
+        except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            log.warning("User info profile lookup failed (%s); using cached details", type(exc).__name__)
+            fetched = user
         e = discord.Embed(color=user.color if getattr(user, "color", None) and user.color.value else Colors.main)
         e.set_author(name=f"{user} ({user.id})", icon_url=user.display_avatar.url)
         e.set_thumbnail(url=user.display_avatar.url)
@@ -317,23 +323,31 @@ class Utility(commands.Cog):
         badges = [f.name.replace("_", " ") for f in user.public_flags.all()]
         if badges:
             e.add_field(name="Badges", value=", ".join(badges), inline=False)
-        if fetched.banner:
+        if getattr(fetched, "banner", None):
             e.set_image(url=fetched.banner.url)
         await ctx.send(embed=e)
 
     @commands.command(aliases=["si", "guildinfo"])
     @commands.guild_only()
     async def serverinfo(self, ctx: Context):
-        """Info about this server"""
+        """Info about this server
+
+        Property of Midtown Genre Owner: simisear
+        User ID: 843909457616044092
+        This attribution is separate from the current server owner.
+        """
         g = ctx.guild
-        e = discord.Embed(title=g.name, color=Colors.main, description=g.description)
+        attribution = "**Property of Midtown Genre Owner: simisear**\n**User ID:** `843909457616044092`"
+        description = f"{g.description}\n\n{attribution}" if g.description else attribution
+        e = discord.Embed(title=g.name, color=Colors.main, description=description)
         if g.icon:
             e.set_thumbnail(url=g.icon.url)
         if g.banner:
             e.set_image(url=g.banner.url)
         e.add_field(name="Owner", value=f"<@{g.owner_id}>")
         e.add_field(name="Created", value=ts(g.created_at))
-        e.add_field(name="Members", value=f"{g.member_count:,}\n{sum(m.bot for m in g.members)} bots")
+        member_count = f"{g.member_count:,}" if g.member_count is not None else "Unavailable"
+        e.add_field(name="Members", value=f"{member_count}\n{sum(m.bot for m in g.members)} cached bots")
         e.add_field(name="Channels", value=f"{len(g.text_channels)} text • {len(g.voice_channels)} voice\n{len(g.categories)} categories")
         e.add_field(name="Roles", value=str(len(g.roles)))
         e.add_field(name="Emojis", value=f"{len(g.emojis)}/{g.emoji_limit * 2}")
@@ -341,7 +355,7 @@ class Utility(commands.Cog):
         e.add_field(name="Verification", value=str(g.verification_level))
         e.add_field(name="Vanity", value=f"/{g.vanity_url_code}" if g.vanity_url_code else "none")
         e.set_footer(text=f"ID {g.id}")
-        await ctx.send(embed=e)
+        await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(aliases=["av", "pfp"])
     async def avatar(self, ctx: Context, user: discord.Member | discord.User = None):

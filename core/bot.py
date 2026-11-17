@@ -718,7 +718,7 @@ class Veil(commands.AutoShardedBot):
             if isinstance(error, discord.HTTPException):
                 return await ctx.fail(f"failed: Discord rejected that (`{error.text or error.status}`)")
             tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-            log.error("Unhandled error in %s:\n%s", ctx.command, tb)  # the host console keeps everything
+            log.error("Unhandled error in %s:\n%s", ctx.command, redact.scrub(tb))
             self._error_seq += 1
             # what is remembered and posted is scrubbed: server admins can read the channels and commands that show it
             record = {"id": self._error_seq, "command": ctx.command.qualified_name if ctx.command else "?",
@@ -748,4 +748,5 @@ class Veil(commands.AutoShardedBot):
                 except discord.HTTPException:
                     pass
         except Exception as handler_err:
-            log.exception("Error inside on_command_error for %s: %s", getattr(ctx, "command", None), handler_err)
+            detail = "".join(traceback.format_exception(type(handler_err), handler_err, handler_err.__traceback__))
+            log.error("Error inside on_command_error for %s:\n%s", getattr(ctx, "command", None), redact.scrub(detail))

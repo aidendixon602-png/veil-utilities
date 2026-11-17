@@ -89,3 +89,13 @@ def test_proxy_setting_is_parsed():
     assert Settings.from_env({"HTTPS_PROXY": "http://proxy.host:8080"}).proxy == "http://proxy.host:8080"
 
 
+
+
+def test_summary_masks_credentials_in_proxy_and_configured_urls():
+    secret = "url-password-12345"
+    s = Settings.from_env({"DISCORD_PROXY": f"http://user:{secret}@proxy:8080",
+                           "AI_BASE_URL": f"https://user:{secret}@example.com/v1",
+                           "LAVALINK_URI": f"https://user:{secret}@example.com"})
+    summary = s.summary()
+    assert secret not in summary
+    assert "proxy=set" in summary and "ai_base_url=set" in summary and "lavalink_uri=set" in summary

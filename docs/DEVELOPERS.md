@@ -12,6 +12,7 @@ Veil's hidden developer commands are not part of the public [command reference](
 | `,errors`, `,error [id]`, `,traceback` | Inspect recent command errors recorded since startup. Treat diagnostics as sensitive. |
 | `,botlogs [lines]` | Attach the end of the local log with known secrets scrubbed. Review the destination: redaction is not a guarantee that all private data is removed. |
 | `,backup` | DM a compressed SQLite backup, subject to upload size and DM availability; it does not back up PostgreSQL. |
+| `,midtown servers` | Privately scan the bot’s current joined-server cache for names containing Midtown; DM-only results with paging and refresh. Requires bot developer identity, not server ownership or administrator status. |
 | `,authorize [server-id]` (also `,authserver`), `,unauthorize <server-id>`, `,authorized` | Manage and list server authorization. Omit the ID to authorize the current server; DMs require an ID. Revocation may cause the bot to leave. |
 | `,maintenance on [duration] [reason]`, `,maintenance off` | Control maintenance mode. |
 | `,killswitch <command>`, `,killswitch list` | Toggle a command globally or list disabled commands. |
@@ -40,3 +41,20 @@ so some roles might need manual restoration. Unstrip lists roles Discord accepte
 review, and retains the snapshot when a Discord request has an uncertain outcome. The role calls are not
 atomic; check the member's roles before retrying. Concurrent changes to saved snapshots may still race, especially
 across bot instances. An existing saved strip must be handled first.
+
+### Private Midtown inventory
+
+Use `,midtown servers` (or the configured guild, personal or mention prefix). Results are delivered
+only to the requesting developer's DMs: enable DMs from the bot before use. The command never searches
+servers the bot has not joined. Matching is case-insensitive; exact means the entire name equals
+`Midtown`, otherwise a substring match is partial. Missing owner IDs or member counts are shown as
+unavailable. Inaccessible cache entries may make totals incomplete; member counts and names are cached
+and may be stale. Long names are truncated for display. Refresh takes a new cache snapshot, not a Discord-wide search or forced API refresh.
+
+Navigation and refresh are restricted to the original requester and recheck the bot's developer
+identity at each interaction. This uses the bot's existing in-process owner/developer identity model;
+application/team discovery is performed at startup, so external membership revocation is not necessarily
+visible until the bot refreshes that identity or restarts. Menus expire after three minutes; re-run
+the command for a new scan. The command and refresh have short per-process rate limits. Server names,
+IDs and counts remain visible in the recipient's DM history and should be treated as sensitive. If
+DM delivery fails, the invoking channel receives only a generic failure message.
