@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Expired network-ban confirmation.** The timeout card now clearly says this attempt made no changes,
+  identifies the target and explains how to start a new confirmation; existing safeguards remain in place.
+
 - **Network-ban confirmation and command logs.** The genreban confirmation now highlights its target, scope,
   skipped owner servers, reason and continuing enforcement, with a red confirmation button. Its completion card
   and command log distinguish cancellation and partial results. Command cards show channel, permission level and

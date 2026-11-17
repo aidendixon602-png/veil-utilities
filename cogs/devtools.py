@@ -289,10 +289,19 @@ class DevTools(commands.Cog):
         embed.set_footer(text=f"Target ID: {user.id}")
         if view.value is not True:
             outcome = "timed out" if view.value is None else "cancelled"
-            embed.title = "Network ban · not applied"
-            embed.description = f"Genreban of {self._who(user)} {outcome}. Nothing was changed."
+            if view.value is None:
+                embed.title = "⌛ Network ban · confirmation expired"
+                embed.description = ("**This attempt made no changes.**\n"
+                                     "No confirmation was received within 30 seconds.")
+                embed.add_field(name="Target", value=self._who(user), inline=False)
+                embed.add_field(name="Next step", value="If still needed, run **genreban** again with the target ID "
+                                "and your reason, then confirm the new prompt.", inline=False)
+                embed.timestamp = discord.utils.utcnow()
+            else:
+                embed.title = "Network ban · not applied"
+                embed.description = f"Genreban of {self._who(user)} {outcome}. Nothing was changed."
             ctx.command_log_outcome = f"Network ban {outcome} · nothing changed"
-            embed.color = Colors.neutral
+            embed.color = Colors.caution if view.value is None else Colors.neutral
             return await msg.edit(embed=embed, view=None)
         if await self._already(user):  # someone else did it while this was waiting for Confirm
             embed.title = "Network ban · already recorded"
