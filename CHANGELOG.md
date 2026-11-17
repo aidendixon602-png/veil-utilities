@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Help category cleanup.** Removed the requested moderation, role and permission entries from browsable help
+  categories for all users. Commands, aliases, direct command help and authorization checks remain unchanged.
+
 - **Blacklisted role levels and requester-only controls.** Server owners and developers can assign a Veil level to an
   ordinary blacklisted role after confirmation; hard-blacklisted roles require a developer. The blacklist stays
   active and the level can apply to all role holders, subject to assignment precedence. Temporary command menus are now limited to the user who

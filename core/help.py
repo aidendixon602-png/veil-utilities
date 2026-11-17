@@ -17,6 +17,14 @@ HIDDEN_COGS = {"Owner", "Events", "Authorization", "DevTools"}
 # Hide these from help only; command registration and runtime permission gates are unchanged.
 HELP_EXCLUDED_COGS = {"Vanguard", "Automod"}
 
+# Omit these from browsable category menus only. Direct command help, registration,
+# aliases and all runtime permission checks remain unchanged.
+CATEGORY_MENU_EXCLUDED_COMMANDS = {
+    "softban", "lock", "unlock", "lockdown", "unlockdown", "botclear", "forcenickname", "hide", "unhide",
+    "viewadmins", "addpermall", "autorole", "buttonrole", "reactionrole", "removepermall", "role", "vanity",
+    "botchannels", "disablecommand", "enablecommand", "ignore", "modlog", "permlevels",
+}
+
 # (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Utility", ["Utility"], []),
@@ -286,7 +294,8 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
             cog = bot.get_cog(cog_name)
             if cog:
                 cmds += [c for c in cog.get_commands() if c.name not in pulled]
-        cmds = sorted({c.qualified_name: c for c in cmds if c and not c.hidden}.values(), key=lambda c: c.name)
+        cmds = sorted({c.qualified_name: c for c in cmds if c and not c.hidden
+                       and c.name not in CATEGORY_MENU_EXCLUDED_COMMANDS}.values(), key=lambda c: c.name)
         if label == "Antinuke":
             # A complete browsable security reference, including nested commands. Visibility
             # still checks every command and its parents before a page is built.
@@ -299,7 +308,7 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
             del out[label]
     # anything new that isn't mapped still shows up in Community
     leftovers = [c for c in bot.commands if not c.hidden and c.qualified_name not in placed
-                 and c.cog is not None and c.cog_name not in HIDDEN_COGS | HELP_EXCLUDED_COGS]
+                 and c.name not in CATEGORY_MENU_EXCLUDED_COMMANDS and c.cog is not None and c.cog_name not in HIDDEN_COGS | HELP_EXCLUDED_COGS]
     if leftovers:
         out.setdefault("Community", []).extend(sorted(leftovers, key=lambda c: c.name))
     return out
