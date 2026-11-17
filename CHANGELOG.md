@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Bulk role shortcuts.** `,r humans "Role Name"`, `,r bots "Role Name"` and `,r all "Role Name"` add roles
+  after confirmation; explicit add/remove syntax remains. These commands use cached members and may miss others.
+  Mass grants now reject hard-blacklisted roles too, and report unconfirmed edits in replies and command logs.
+
 - **Help category cleanup.** Removed the requested moderation, role and permission entries from browsable help
   categories for all users. Commands, aliases, direct command help and authorization checks remain unchanged.
 

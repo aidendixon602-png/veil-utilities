@@ -15,6 +15,20 @@ controls. Permission assignment lists show **direct saved grants**, not a comple
 permissions. Some commands are omitted from category menus; use `,help <command>` for direct help if authorized.
 Presentation and help visibility do not replace the checks that run when a command is used.
 
+## Bulk role shortcuts
+
+Use `,r humans "Role Name"`, `,r bots "Role Name"`, or `,r all "Role Name"` to **add** a role to matching
+cached members after confirmation. Role mentions and IDs also work; use a mention or ID for a role named `add`
+or `remove`. The existing explicit forms, for example `,r humans add @Role` and `,r bots remove @Role`, remain
+available and do not use the new shorthand confirmation. Existing rank and permission checks still apply; neither
+ordinary nor hard-blacklisted roles can be mass-assigned. Dangerous Discord permission grants via the new
+shorthand are checked by Antinuke.
+
+Bulk role commands use Discord's cached member list, which can be incomplete, and do not affect future joins.
+Review role Discord permissions, Veil levels and fake permissions before confirming. Permissions and the target
+list are rechecked after confirmation, but Discord edits are separate requests and can race other changes. A failed
+or timed-out edit may have succeeded; review the reported results and actual roles before retrying.
+
 ## Permissions and server authorization
 
 The actual Discord server owner or a recognized bot developer is required for `,security`, `,logs` and its
