@@ -97,3 +97,27 @@ def test_hidden_command_failure_keeps_arguments_private_and_reason_scrubbed(monk
     assert "private_argument" not in text and "secret-value-abc123" not in text
     assert "arguments hidden" in text and "❌ Failed:" in text
     assert card.title == "⚠️ Command failed"
+
+
+def test_unhandled_command_traceback_is_scrubbed_in_host_logs(monkeypatch, caplog):
+    import asyncio
+    import logging
+    from unittest.mock import AsyncMock
+    from core.bot import Veil
+
+    secret = 'test-command-secret-value-12345'
+    monkeypatch.setenv('SERVICE_API_KEY', secret)
+    async def go():
+        bot = Veil()
+        ctx = SimpleNamespace(guild=None, author=SimpleNamespace(id=5),
+                              command=SimpleNamespace(qualified_name='example'),
+                              message=SimpleNamespace(content=',example'), send=AsyncMock())
+        async with bot:
+            try:
+                raise ValueError(f'failure {secret}')
+            except ValueError as exc:
+                await bot.on_command_error(ctx, exc)
+            assert secret not in bot.recent_errors[0]['traceback']
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(go())
+    assert 'Unhandled error' in caplog.text and secret not in caplog.text and '[hidden]' in caplog.text
