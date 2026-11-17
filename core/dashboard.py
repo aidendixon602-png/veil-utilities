@@ -76,6 +76,7 @@ def _esc(value: Any) -> str:
 # Fixed inline icons avoid external resources, font-glyph gaps and user-controlled markup.
 _ICON_PATHS = {
     "overview": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    "access": '<path d="M5 11h14v10H5z"/><path d="M8 11V8a4 4 0 0 1 8 0v3m-4 4v2"/>',
     "general": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',
     "rules": '<path d="M12 2 20 5v6c0 5-3 8-8 11-5-3-8-6-8-11V5l8-3Z"/><path d="m9 12 2 2 4-5"/>',
     "automod": '<path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/>',
@@ -430,6 +431,73 @@ input,select,textarea { background:#0c1522; border-color:#425670; }
 """
 
 
+# Workspace refresh: a restrained, high-contrast management interface. Forms and routes
+# remain server rendered so the existing CSP and authorization model stay intact.
+CSS += """
+:root { --bg:#101116; --surface:#191b22; --surface2:#20232c; --border:#343741;
+        --text:#f6f4f4; --muted:#c1bdc3; --subtle:#a6a2aa; --accent:#f0abb6; }
+body { background:#101116; font-size:14px; }
+.shell { grid-template-columns:242px minmax(0,1fr); }
+.sidebar { background:#15161c; border-color:#2c2e36; padding:28px 16px; gap:34px; }
+.brand { padding:0 8px; gap:12px; }
+.brand-mark { background:#822f41; border-color:#b55b70; border-radius:12px; }
+.brand-caption { color:#a7a2aa; }
+.nav-label { color:#99949d; letter-spacing:.12em; padding-top:16px; }
+.nav-link { background:transparent; border:1px solid transparent; color:#c9c6cb; padding:10px 12px; }
+.nav-link:hover { background:#24242d; border-color:#33343e; }
+.nav-link.active { background:#342229; border-color:#68404a; color:#fff4f5; }
+.nav-icon,.nav-link svg { color:#d4a4ae; }
+.server-switch { background:#202027; border-color:#37363f; }
+.side-note { background:#1d1c23; border-color:#38343b; }
+header { background:#15161c; border-color:#2c2e36; height:72px; }
+.account-dot { background:#4b3039; color:#ffe4e8; }
+.container { max-width:1500px; padding:42px 44px 76px; }
+.eyebrow { color:#e1a5b0; letter-spacing:.14em; font-size:10px; }
+.welcome-panel,.server-hero { background:#251d24; border:1px solid #55343e; border-radius:16px; box-shadow:none; }
+.welcome-panel { padding:38px 40px; }
+.welcome-panel h1 { font-size:clamp(30px,3.2vw,42px); letter-spacing:-.045em; }
+.welcome-panel p,.hero-copy { color:#d1c3c9; }
+.welcome-kicker { background:#39252d; border-color:#69404b; color:#f6c8d0; }
+.kicker-dot { background:#e8a0ae; }
+.welcome-actions .btn,.btn { background:#a84358; border-color:#c46578; color:#fff; }
+.welcome-actions .btn:hover,.btn:hover { background:#bd5369; border-color:#df8495; }
+.btn-plain { background:#26262e; border-color:#45434d; }
+.btn-plain:hover { background:#33313a; border-color:#665d68; }
+.hero-action { color:#f4b6c1; }
+.workspace-symbol,.tile-icon,.feature-tile:nth-child(n) .tile-icon,.section-icon { background:#35262e; border-color:#62404a; color:#f2bdc6; }
+.welcome-aside { color:#d8b5bd; }
+.welcome-aside small { color:#b99ba3; }
+.activity-bar { background:#191b22; border-color:#343741; }
+.activity-bar > div + div { border-color:#343741; }
+.card,.guild-card,.feature-tile { background:#1a1c23; border-color:#35363e; box-shadow:none; border-radius:14px; }
+.guild-card:hover,.feature-tile:hover { border-color:#a96777; transform:translateY(-2px); }
+.guild-card,.feature-tile { transition:border-color .15s ease,transform .15s ease; }
+.card-head,.guild-facts { border-color:#38363e; }
+.guild-open { background:#34252e; border-color:#70434e; color:#ffced6; }
+.guild-open:hover { background:#4b303a; border-color:#a26473; }
+.guild-access { background:#28362f; border-color:#496555; color:#c1ead1; }
+.tile-status { color:#e9a9b6; }
+.server-search input,.filter-row,input,select,textarea { background:#121319; border-color:#4b4851; }
+input:focus,select:focus,textarea:focus { border-color:#e49baa; }
+.section-nav { background:#1a1c23; border-color:#35363e; }
+.section-nav a:hover,.section-nav a:focus { background:#35262e; }
+.note { background:#28242a; border-color:#59434b; color:#eadce0; }
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline-color:#ffbdc9; }
+.workspace-grid { display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:26px; align-items:start; }
+.workspace-grid .feature-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.workspace-summary { border:1px solid var(--border); background:#191b22; border-radius:14px; padding:22px; }
+.workspace-summary h2 { font-size:17px; margin:0; letter-spacing:-.02em; }
+.workspace-summary > p:not(.eyebrow) { color:var(--muted); font-size:12px; }
+.summary-row { display:flex; justify-content:space-between; gap:12px; padding:14px 0; border-top:1px solid var(--border); font-size:12px; }
+.summary-row span { color:var(--muted); } .summary-row strong { color:var(--text); text-align:right; }
+.workspace-summary .summary-note { margin-top:10px; line-height:1.6; color:var(--subtle); }
+@media (max-width:1050px) { .shell { grid-template-columns:76px minmax(0,1fr); } .workspace-grid { grid-template-columns:1fr; } }
+@media (max-width:760px) { .shell { display:block; } .container { padding:26px 20px 44px; } .welcome-panel { padding:26px; } }
+@media (max-width:480px) { .container { padding:22px 15px 36px; } .welcome-panel { padding:22px; } .workspace-grid .feature-grid { grid-template-columns:1fr; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; } }
+"""
+
+
 class DashboardServer:
     def __init__(
         self,
@@ -688,7 +756,8 @@ class DashboardServer:
         base = f"/servers/{guild.id}"
         groups = (
             ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),
-                           ("general", "Server settings", f"{base}/features?section=general", "⚙"))),
+                           ("general", "Server settings", f"{base}/features?section=general", "⚙"),
+                           ("access", "Command access", f"{base}/features?section=general#command-access", "⚙"))),
             ("SECURITY", (("rules", "Antinuke", f"{base}/features?section=rules", "◇"),
                           ("automod", "Automod", f"{base}/features?section=automod", "✦"),
                           ("logging", "Logging & security", base, "≡"))),
@@ -1016,7 +1085,7 @@ class DashboardServer:
         level_state = "on" if levels.get("enabled") else "off"
         base = f"/servers/{guild.id}"
         cards = [
-            ("00", "Server settings", "Set the command prefix used in this server.", f"{base}/features?section=general", "Manage prefix"),
+            ("00", "Server settings", "Configure the prefix, command access and disabled commands.", f"{base}/features?section=general", "Manage command access"),
             ("01", "Antinuke", "Protection rules, thresholds and responses.", f"{base}/features?section=rules", f"Protection {state}"),
             ("02", "Automod", "Message filters and moderation actions.", f"{base}/features?section=automod", "Configure filters"),
             ("03", "Logging channels", "Choose where each category of activity is sent.", f"{base}#logging", f"{count} explicit log {'route' if count == 1 else 'routes'}"),
@@ -1041,15 +1110,23 @@ class DashboardServer:
             for _icon, name, desc, href, status in cards)
         overview_description = ('Everything you need, organized by feature.' if limited else
                                 'Everything you need, organized by feature. Logging, trust, and blacklist links open a shared settings form.')
+        security_summary = (f'<div class="summary-row"><span>Antinuke</span><strong>{_esc(state.title())}</strong></div>'
+                            if not limited else "")
         body = (f'<div class="server-hero"><div><p class="eyebrow">YOUR SERVER WORKSPACE</p>'
                 f'<div class="hero-server">{_server_avatar(guild)}<div><h1>{_esc(guild.name)}</h1>'
                 f'<p>Server ID · {_esc(guild.id)}</p></div></div>'
                 '<p class="hero-copy">Your tools for a safer, better organized community. Choose a feature below to get started.</p></div>'
-                '</div>'
+                '</div><div class="workspace-grid"><div>'
                 '<div class="overview-heading"><div><p class="eyebrow">YOUR TOOLKIT</p><h2>Manage your server</h2>'
                 f'<p>{overview_description}</p></div></div>'
                 f'<div class="feature-grid">{tiles}</div>'
-                '<p class="overview-note">Log route counts show explicitly selected categories, not automatic routing.</p>')
+                '<p class="overview-note">Log route counts show explicitly selected categories, not automatic routing.</p></div>'
+                '<aside class="workspace-summary" aria-label="Workspace summary"><p class="eyebrow">AT A GLANCE</p>'
+                '<h2>Workspace overview</h2><p>A quick view of your saved configuration.</p>'
+                f'<div class="summary-row"><span>Access</span><strong>{"Administrator" if limited else "Owner / developer"}</strong></div>'
+                f'{security_summary}<div class="summary-row"><span>Leveling</span><strong>{_esc(level_state.title())}</strong></div>'
+                f'<div class="summary-row"><span>Explicit log routes</span><strong>{count}</strong></div>'
+                '<p class="summary-note">Settings are a snapshot, not a guarantee of Discord permissions or delivery.</p></aside></div>')
         return self._page("Server overview", body, user, guild=guild, active="overview", limited=limited)
 
     async def handle_server(self, request: web.Request) -> web.Response:
