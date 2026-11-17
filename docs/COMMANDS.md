@@ -394,13 +394,13 @@ _Keep your server in line_
 | `,removerole <arg1> <arg2>` (takerole) | Remove a role from a member | manage roles, uperm: admin |
 | `,role <arg1> [arg2]` (r, changerole, cr) | Give a member a role, or take it if they have it | manage roles, uperm: admin |
 | `,role add <arg1> <arg2>` | Add a role to a member | manage roles, uperm: admin |
-| `,role all <action> <role>` | Add or remove a role for everyone | administrator, manage roles, uperm: headadmin |
-| `,role bots <action> <role>` | Add/remove a role for all bots | administrator, manage roles, uperm: headadmin |
+| `,role all <action_or_role> [role]` | Add or remove a role for everyone | administrator, manage roles, uperm: headadmin |
+| `,role bots <action_or_role> [role]` | Add/remove a role for bots; shorthand adds after confirmation | administrator, manage roles, uperm: headadmin |
 | `,role color <role> <color>` (colour) | Change a role's color | manage roles, uperm: admin |
 | `,role create <name>` | Create a role | manage roles, uperm: admin |
 | `,role delete <role>` | Delete a role | manage roles, uperm: admin |
 | `,role hoist <role>` | Toggle showing a role separately | manage roles, uperm: admin |
-| `,role humans <action> <role>` | Add/remove a role for all humans | administrator, manage roles, uperm: headadmin |
+| `,role humans <action_or_role> [role]` | Add/remove a role for humans; shorthand adds after confirmation | administrator, manage roles, uperm: headadmin |
 | `,role remove <arg1> <arg2>` (rem, del) | Remove a role from a member | manage roles, uperm: admin |
 | `,role rename <role> <name>` | Rename a role | manage roles, uperm: admin |
 | `,roleblacklist` (rbl, rolebl) | Blacklist roles so the bot refuses to assign them | manage roles, server owner or bot developer, uperm: admin |

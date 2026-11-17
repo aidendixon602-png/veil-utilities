@@ -11,6 +11,7 @@ from typing import Optional
 import aiohttp
 import discord
 from discord.ext import commands
+from discord.ext.commands.view import StringView
 
 from core import logembeds as fmt
 from core.modlog import case_line, create_case, dm_target
@@ -1274,7 +1275,7 @@ class Moderation(commands.Cog):
         await role.edit(hoist=not role.hoist)
         await ctx.done(f"{role.mention} is {'now' if not role.hoist else 'no longer'} shown separately")
 
-    async def _mass_role(self, ctx: Context, action: str, role: discord.Role, which, who: str):
+    async def _mass_role(self, ctx: Context, action: str, role: discord.Role, which, who: str, *, confirm_add: bool = False):
         action = action.lower()
         if action not in ("add", "remove"):
             raise UserError(f"use `add` or `remove`, e.g. `{ctx.clean_prefix}r {ctx.command.name} add @Role`")
@@ -1283,7 +1284,7 @@ class Moderation(commands.Cog):
         if add:
             await check_role_assignable(ctx, role)
             cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if role.id in cfg.get("roles", []):
+            if role.id in role_protection_ids(cfg):
                 raise UserError("Cannot mass-assign blacklisted roles; use the role command for each recipient")
         else:
             check_role(ctx, role)
@@ -1291,54 +1292,117 @@ class Moderation(commands.Cog):
                    and (add or not perms_mod.is_whitelisted_person(m))]  # roles are never taken from whitelisted people
         if not targets:
             raise UserError("nobody to update")
+        if confirm_add:
+            target_ids = {m.id for m in targets}
+            permissions = role.permissions.value
+            level_cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "permlevels"))
+            fake_cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "fakeperms"))
+            confirmed = await ctx.confirm(f"Add {role.mention} to **{len(targets)}** cached {who}? "
+                                          "The member cache may be incomplete. This changes Discord roles; "
+                                          "review their Discord permissions, Veil levels and fake permissions before confirming.")
+            if not confirmed:
+                ctx.command_log_outcome = "Mass role assignment cancelled · nothing changed"
+                return await ctx.neutral("cancelled; no roles were changed")
+            if not await ctx.command.can_run(ctx):
+                raise UserError("Your access changed during confirmation; nothing was changed.")
+            current_role = ctx.guild.get_role(role.id)
+            if (current_role is None or current_role.permissions.value != permissions
+                    or await self.bot.db.get_config(ctx.guild.id, "permlevels") != level_cfg
+                    or await self.bot.db.get_config(ctx.guild.id, "fakeperms") != fake_cfg):
+                raise UserError("The role or its permissions changed during confirmation; nothing was changed. Try again.")
+            await check_role_assignable(ctx, current_role)
+            cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+            if current_role.id in role_protection_ids(cfg):
+                raise UserError("The role is now blacklisted; nothing was changed.")
+            current = [m for m in ctx.guild.members if which(m) and current_role not in m.roles]
+            if {m.id for m in current} != target_ids:
+                raise UserError("The target list changed during confirmation; nothing was changed. Try again.")
+            role, targets = current_role, current
+            if is_dangerous(role.permissions):
+                await antinuke_guard(ctx, "permissions", amount=len(targets))
         msg = await ctx.compact(Colors.neutral, f"⏳ updating **{len(targets)}** members…")
         done = 0
         for m in targets:
             try:
                 await (m.add_roles if add else m.remove_roles)(role, reason=audit_reason(ctx.author, action="mass role"))
                 done += 1
-            except discord.HTTPException:
+            except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
                 pass
         skipped = len(targets) - done
+        ctx.command_log_outcome = f"Role {'added to' if add else 'removed from'} {done} member(s) · {skipped} not confirmed"
+        ctx.command_log_warning = bool(skipped)
         text = f"{'added' if add else 'removed'} {role.mention} {'to' if add else 'from'} **{done}** members"
         if skipped:
-            text += f" (couldn't update **{skipped}**)"
-        embed = discord.Embed(color=Colors.success if done else Colors.error,
-                              description=text if done else f"failed to {action} {role.mention}: couldn't update anyone")
+            text += f" (**{skipped}** updates not confirmed; check roles before retrying)"
+        embed = discord.Embed(color=(Colors.caution if skipped else Colors.success) if done else Colors.error,
+                              description=text if done else f"failed to {action} {role.mention}: no updates confirmed; check roles before retrying")
         try:
             await msg.edit(embed=embed)
         except (AttributeError, discord.HTTPException):
             await (ctx.done(text) if done else ctx.fail(embed.description))
 
-    @role.command(name="all")
+    async def _mass_role_arguments(self, ctx: Context, action: str, role: str | discord.Role | None):
+        """Resolve both the legacy action form and the shorthand that adds a role."""
+        explicit = action.lower() in {"add", "remove"}
+        if explicit and role is None:
+            raise UserError(f"Specify a role: `{ctx.clean_prefix}r {ctx.command.name} {action} @Role`")
+        if isinstance(role, discord.Role):
+            return action.lower(), role, False
+        if explicit:
+            role_text = role.strip()
+        else:
+            role_text = f"{action} {role}".strip() if role else action
+        if role_text.startswith(('"', "'")):
+            view = StringView(role_text)
+            role_text = view.get_quoted_word()
+            view.skip_ws()
+            if not view.eof:
+                raise UserError("Use one role name, mention or ID.")
+        try:
+            target = await commands.RoleConverter().convert(ctx, role_text)
+        except commands.BadArgument:
+            raise UserError("Role not found. Use a role name, mention or ID.") from None
+        return (action.lower() if explicit else "add"), target, not explicit
+
+    @role.command(name="all", usage="[add|remove] <role>")
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
-    async def role_all(self, ctx: Context, action: str, *, role: discord.Role):
+    async def role_all(self, ctx: Context, action_or_role: str, *, role: str = None):
         """Add or remove a role for everyone
 
-        Example: `,role all add @Role`
+        `,r all @Role` previews and confirms an add; `,r all add/remove @Role` remains available.
+        Bulk actions use the cached member list, which may be incomplete.
         """
-        await self._mass_role(ctx, action, role, lambda m: True, "everyone")
+        action, role, shorthand = await self._mass_role_arguments(ctx, action_or_role, role)
+        await self._mass_role(ctx, action, role, lambda m: True, "members", confirm_add=shorthand)
 
-    @role.command(name="humans")
+    @role.command(name="humans", usage="[add|remove] <role>")
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
-    async def role_humans(self, ctx: Context, action: str, *, role: discord.Role):
-        """Add/remove a role for all humans"""
-        await self._mass_role(ctx, action, role, lambda m: not m.bot, "all humans")
+    async def role_humans(self, ctx: Context, action_or_role: str, *, role: str = None):
+        """Add/remove a role for humans; shorthand adds after confirmation
 
-    @role.command(name="bots")
+        Example: `,r humans "Role Name"` or `,r humans remove @Role`. Uses cached members, which may be incomplete.
+        """
+        action, role, shorthand = await self._mass_role_arguments(ctx, action_or_role, role)
+        await self._mass_role(ctx, action, role, lambda m: not m.bot, "humans", confirm_add=shorthand)
+
+    @role.command(name="bots", usage="[add|remove] <role>")
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
-    async def role_bots(self, ctx: Context, action: str, *, role: discord.Role):
-        """Add/remove a role for all bots"""
-        await self._mass_role(ctx, action, role, lambda m: m.bot, "all bots")
+    async def role_bots(self, ctx: Context, action_or_role: str, *, role: str = None):
+        """Add/remove a role for bots; shorthand adds after confirmation
+
+        Example: `,r bots "Role Name"` or `,r bots remove @Role`. Uses cached members, which may be incomplete.
+        """
+        action, role, shorthand = await self._mass_role_arguments(ctx, action_or_role, role)
+        await self._mass_role(ctx, action, role, lambda m: m.bot, "bots", confirm_add=shorthand)
 
     @commands.command()
     @requires_uperm("headadmin")
