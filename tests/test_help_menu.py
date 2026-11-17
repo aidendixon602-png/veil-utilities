@@ -103,16 +103,16 @@ def test_the_home_card():
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
-    assert card.title == "Command guide" and "3 commands · 2 categories visible" in card.footer.text
+    assert card.title is None and "3 commands · 2 categories visible" in card.footer.text
     assert "**Prefix:** `,`" in card.description
     assert "Select a category" in card.description
-    assert "**Utility**" in card.description and "**Music**" in card.description
-    assert "**Antinuke**" not in card.description
+    assert "**Utility**" not in card.description and "Explore categories" not in card.description
+    assert _labels(view) == ["Utility", "Music"]
 
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title == "Command guide" and card.author.name is None
+    assert card.title is None and card.author.name is None
 
 
 # ------------------------------------------------------------------ picking categories
@@ -1012,24 +1012,24 @@ def test_home_button_layout_fits_all_current_categories():
     assert len(view.children) == len(view.pages) == 13
     assert _labels(view) == list(view.pages)
     for row in range(5):
-        assert sum(component.row == row for component in view.children) == (3 if row < 4 else 1)
+        assert sum(component.row == row for component in view.children) == (4 if row < 3 else 1 if row == 3 else 0)
     assert all(button.style == discord.ButtonStyle.secondary for button in view.children)
 
 
 def test_home_falls_back_to_select_if_category_catalog_grows():
     import core.help as help_module
 
-    extra = [("Extra One", [], []), ("Extra Two", [], []), ("Extra Three", [], []), ("Extra Four", [], [])]
+    extra = [(f"Extra {i}", [], []) for i in range(8)]
     with patch.object(help_module, "CATEGORIES", help_module.CATEGORIES + extra):
         categories = {label: [] for label, _, _ in help_module.CATEGORIES}
         view = HelpView(_help(), categories, is_owner=True)
         assert len(view.children) == 1 and isinstance(view.children[0], CategorySelect)
         assert _labels(view) == list(view.pages)
         select = view.children[0]
-        select._values = ["Extra Two"]
+        select._values = ["Extra 2"]
         it = _it()
         asyncio.run(select.callback(it))
-        assert view.current == "Extra Two"
+        assert view.current == "Extra 2"
         it.response.edit_message.assert_awaited_once()
 
 
@@ -1158,14 +1158,14 @@ def test_compact_antinuke_overview_never_shows_owner_only_commands_to_assigned_o
     asyncio.run(go())
 
 
-def test_home_descriptions_follow_the_same_visibility_as_the_buttons():
+def test_compact_home_keeps_visibility_checks_on_buttons():
     public = HelpView(_help(), ALL, author_rank=0)
-    assert "**Utility**" in public.home.description
-    assert "**Antinuke**" not in public.home.description and "**Developer**" not in public.home.description
+    assert "Utility" in _labels(public)
+    assert "Antinuke" not in _labels(public) and "Developer" not in _labels(public)
     owner = HelpView(_help(), ALL, is_owner=True)
-    assert "**Antinuke**" in owner.home.description and "**Developer**" in owner.home.description
+    assert "Antinuke" in _labels(owner) and "Developer" in _labels(owner)
     assert all(item.emoji is not None for item in public.children if isinstance(item, CategoryButton))
-    assert len(owner.home.description) < 4096
+    assert "Explore categories" not in owner.home.description
 
 
 def test_requested_commands_are_absent_from_category_menus_but_remain_registered(loaded_bot):

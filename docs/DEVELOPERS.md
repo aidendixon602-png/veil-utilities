@@ -12,7 +12,7 @@ Veil's hidden developer commands are not part of the public [command reference](
 | `,errors`, `,error [id]`, `,traceback` | Inspect recent command errors recorded since startup. Treat diagnostics as sensitive. |
 | `,botlogs [lines]` | Attach the end of the local log with known secrets scrubbed. Review the destination: redaction is not a guarantee that all private data is removed. |
 | `,backup` | DM a compressed SQLite backup, subject to upload size and DM availability; it does not back up PostgreSQL. |
-| `,authorize <server-id>`, `,unauthorize <server-id>`, `,authorized` | Manage and list server authorization. Revocation may cause the bot to leave. |
+| `,authorize [server-id]` (also `,authserver`), `,unauthorize <server-id>`, `,authorized` | Manage and list server authorization. Omit the ID to authorize the current server; DMs require an ID. Revocation may cause the bot to leave. |
 | `,maintenance on [duration] [reason]`, `,maintenance off` | Control maintenance mode. |
 | `,killswitch <command>`, `,killswitch list` | Toggle a command globally or list disabled commands. |
 | `,reload [extensions...]` | Reload extensions. Test in a safe environment; reload does not guarantee all state can be restored. |
@@ -36,4 +36,7 @@ best effort and may partially fail. Enforcement on later unbans/rejoins is not g
 A developer may confirm a self-strip of removable roles, except for the server owner or a globally
 whitelisted person. A role snapshot is saved before Discord is contacted; Discord failures may be
 partial or uncertain. `unstrip` still enforces its normal protections, hierarchy and blacklist rules,
-so some roles might need manual restoration. An existing saved strip must be handled first.
+so some roles might need manual restoration. Unstrip lists roles Discord accepted, retains skipped roles for
+review, and retains the snapshot when a Discord request has an uncertain outcome. The role calls are not
+atomic; check the member's roles before retrying. Concurrent changes to saved snapshots may still race, especially
+across bot instances. An existing saved strip must be handled first.

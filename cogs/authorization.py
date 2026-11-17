@@ -357,12 +357,23 @@ class Authorization(commands.Cog):
         self.swept = True
 
     # ------------------------------------------------------------ commands
-    @commands.command(name="authorize", hidden=True, aliases=["auth", "whitelistserver"])
-    async def authorize_server(self, ctx: Context, guild_id: int, *, note: str = None):
-        """Authorize a server ID to use the bot"""
+    @commands.command(name="authorize", hidden=True, aliases=["auth", "authserver", "whitelistserver"])
+    async def authorize_server(self, ctx: Context, guild_id: int = None, *, note: str = None):
+        """Authorize this server or a server ID to use the bot
+
+        Omit the ID to authorize the current server; in DMs, provide an ID.
+        """
+        if guild_id is None:
+            if ctx.guild is None:
+                raise UserError("Provide a server ID when using this command in DMs")
+            guild_id = ctx.guild.id
+        if guild_id <= 0:
+            raise UserError("Provide a valid server ID")
+        guild = self.bot.get_guild(guild_id)
+        name = f"**{discord.utils.escape_markdown(discord.utils.escape_mentions(guild.name))}** (`{guild_id}`)" if guild else f"`{guild_id}`"
         if not await self.authorize(guild_id, ctx.author.id, note):
-            raise UserError(f"`{guild_id}` is already authorized")
-        await ctx.approve(f"authorized `{guild_id}` · if the bot has already left, invite it again")
+            return await ctx.warn(f"{name} is already authorized")
+        await ctx.approve(f"authorized {name} · if the bot has already left, invite it again")
 
     @commands.command(name="unauthorize", hidden=True, aliases=["deauth", "unauth"])
     async def unauthorize_server(self, ctx: Context, guild_id: int):

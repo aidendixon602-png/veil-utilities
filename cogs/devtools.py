@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from copy import deepcopy
 import sqlite3
 import time
@@ -18,6 +19,8 @@ from discord.ext import commands
 from core import logembeds as fmt
 from core import perms
 from core.utils import Colors, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, role_protection_ids, shorten, ts
+
+log = logging.getLogger("veil.devtools")
 
 A = discord.AuditLogAction
 
@@ -141,16 +144,65 @@ class DevTools(commands.Cog):
     async def unstrip(self, ctx: Context, member: discord.Member):
         """Give back the roles a strip removed"""
         cfg = await self.bot.db.get_config(ctx.guild.id, "strips")
-        saved = cfg.pop(str(member.id), None)
+        saved = list(cfg.get(str(member.id), []))
         if not saved:
             raise UserError(f"{member.mention} wasn't stripped")
         b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = role_protection_ids(b_cfg)
-        roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and not r.managed and r.id not in b_roles]
-        if roles:
+        roles, skipped = [], []
+        for rid in saved:
+            role = ctx.guild.get_role(rid)
+            if role and not role.is_default() and role < ctx.guild.me.top_role and not role.managed and role.id not in b_roles:
+                roles.append(role)
+            else:
+                skipped.append(rid)
+        if not roles:
+            ctx.command_log_outcome = "No saved roles eligible · snapshot retained"
+            ctx.command_log_warning = True
+            return await ctx.warn("No saved roles can be restored: they may be deleted, managed, blacklisted or above my role. "
+                                  "The saved snapshot was retained for review.")
+        try:
             await member.add_roles(*roles, reason=f"unstrip by {ctx.author}")
-        await self.bot.db.set_config(ctx.guild.id, "strips", cfg)
-        await ctx.approve(f"restored **{len(roles)}** role{'' if len(roles) == 1 else 's'} to {member.mention}")
+        except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
+            ctx.command_log_outcome = "Role restoration not confirmed · snapshot retained"
+            ctx.command_log_warning = True
+            return await ctx.warn("Role restoration could not be confirmed; some roles may already have been restored. "
+                                  "The saved snapshot was retained. Check the member's roles before retrying.")
+        try:
+            fresh = await self.bot.db.get_config(ctx.guild.id, "strips")
+            snapshot_changed = fresh.get(str(member.id)) != saved
+            if not snapshot_changed:
+                updated = deepcopy(fresh)
+                if skipped:
+                    updated[str(member.id)] = skipped
+                else:
+                    updated.pop(str(member.id), None)
+                await self.bot.db.set_config_committed(ctx.guild.id, "strips", updated)
+        except Exception:
+            log.exception("Failed to update saved strip after restoring roles in guild %s", ctx.guild.id)
+            ctx.command_log_outcome = f"Restored {len(roles)} role(s) · saved snapshot update not confirmed"
+            ctx.command_log_warning = True
+            return await ctx.warn(f"Discord accepted **{len(roles)}** role restoration(s), but updating the saved snapshot "
+                                  "failed or could not be confirmed. Check the member's roles and saved strip before retrying.")
+        names = [discord.utils.escape_markdown(discord.utils.escape_mentions(role.name)) for role in roles]
+        # Stay below Discord's description limit without cutting a role name in half.
+        shown = []
+        for name in names:
+            if len(", ".join([*shown, name])) > 3400:
+                break
+            shown.append(name)
+        role_text = ", ".join(shown) + (f" … (+{len(names) - len(shown)} more)" if len(shown) < len(names) else "")
+        description = f"Unstrip complete for {member.mention}.\n\n**Restored ({len(roles)})**\n{role_text}"
+        if skipped:
+            description += f"\n\n⚠️ **{len(skipped)}** saved role(s) could not be restored."
+            if not snapshot_changed:
+                description += " They remain saved for review."
+        if snapshot_changed:
+            description += "\n\n⚠️ The saved snapshot changed during restoration and was not modified. Review it before retrying."
+        ctx.command_log_outcome = f"Restored {len(roles)} role(s) · {len(skipped)} skipped"
+        ctx.command_log_warning = bool(skipped or snapshot_changed)
+        await ctx.send(embed=discord.Embed(description=description, color=Colors.caution if skipped or snapshot_changed else Colors.approve),
+                       allowed_mentions=discord.AllowedMentions.none())
 
     # ================================================================ massunrole
     @commands.command(hidden=True)

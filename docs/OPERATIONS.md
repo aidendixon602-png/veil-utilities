@@ -116,7 +116,7 @@ use the link, and must have Manage Server in the destination. Veil's server auth
 The command does not enable Public Bot or alter Discord's install-link setting.
 
 With `AUTH_REQUIRED=true`, developer-owned servers are automatically authorized. An unauthorized join gets a
-120-second window from the Discord join time for a developer to use `,authorize <server-id>`, the dashboard or
+120-second window from the Discord join time for a developer to use `,authorize <server-id>` (or `,authserver` in the server), the dashboard or
 the alert's authorization button. A prompt is attempted in the server and developers are alerted during the window;
 delivery depends on Discord and permissions. If approved in time, the bot stays. If not, it attempts to leave;
 authorizing after it leaves requires a re-invite. The window is not renewed by a restart when Discord supplies the

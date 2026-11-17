@@ -10,7 +10,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 
 | Command | Description |
 |---|---|
-| `,authorize <guild_id> [note]` (auth, whitelistserver) | Authorize a server ID to use the bot |
+| `,authorize [guild_id] [note]` (auth, authserver, whitelistserver) | Authorize this server or a server ID to use the bot |
 | `,authorized` (authlist, authorizedservers) | List authorized servers |
 | `,unauthorize <guild_id>` (deauth, unauth) | Revoke a server's authorization (the bot leaves it) |
 
