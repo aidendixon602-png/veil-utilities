@@ -132,8 +132,8 @@ async def announce(bot, guild, done: list[str], *, dm_owner: bool = False, prefi
         + f"\n\n-# staff access is assigned separately with `{prefix}perm`"))
     from core.perms import ghost_guards
     if ghost_guards(guild) and any("antinuke" in line or "raid detection" in line for line in done):
-        e.description += ("\n\n⚠️ Ghost Vanguard is also present. Disable overlapping protection in one bot "
-                          "to avoid duplicate actions.")
+        e.description += ("\n\n⚠️ Ghost Vanguard is also present. For Veil-first protection, disable matching "
+                          "rules in Ghost Vanguard yourself. Veil cannot check or change its settings.")
     name = getattr(guild, "name", None)
     if name:  # at the top, so a DM says which server it's about before anything else
         icon = getattr(getattr(guild, "icon", None), "url", None)

@@ -230,19 +230,20 @@ async def features_page(server, request: web.Request) -> web.Response:
     from core.dashboard_security_views import antinuke_health
     antinuke_section = antinuke_health(server.bot, guild, antinuke_raw) + _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
-    from cogs.logging import KINDS
+    from cogs.logging import KINDS, other_bots_channel
     from core.dashboard_security_views import log_routes
     logs = await server.bot.db.get_config(guild.id, "logs") or {}
     form = _form_start(server, guild, user, "logging", "logs", logs)
     form += '<div class="note">Auto uses normal routing. Off disables the direct route; some events use other routes as fallbacks.</div>'
     form += log_routes(guild, logs) + '<div class="form-grid">'
-    channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
+    channels = sorted((ch for ch in getattr(guild, "text_channels", []) if not other_bots_channel(ch)),
+                      key=lambda ch: (ch.position, ch.id))
     for field, key in LOG_FIELDS:
         current = logs.get(key)
         value = str(current) if current is not None else ""
         choices = [("", "Auto"), ("-1", "Off")] + [(str(ch.id), f"#{ch.name}") for ch in channels]
         if value and value not in {v for v, _ in choices}:
-            choices.append((value, f"Unavailable channel ({value})"))
+            choices.append((value, f"Unavailable or excluded channel ({value})"))
         form += _select(field, KINDS[key].label, value, choices)
     ignore = logs.get("ignore") or {}
     form += '</div><div class="form-grid">'
@@ -357,6 +358,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
             cfg["prefix"] = prefix
         elif feature == "logging":
             # This independent form never writes role blacklist or antinuke fields.
+            from cogs.logging import other_bots_channel
             for field, key in LOG_FIELDS:
                 if field not in data:
                     raise InvalidSetting("Missing log route; refresh the page")
@@ -367,6 +369,9 @@ async def save_feature(server, request: web.Request) -> web.Response:
                     cfg[key] = -1
                 else:
                     cfg[key] = _channel(guild, data, field, discord.TextChannel, old.get(key))
+                    target = guild.get_channel(cfg[key])
+                    if cfg[key] != old.get(key) and target and other_bots_channel(target):
+                        raise InvalidSetting("Choose a Veil log channel, not a Vanguard channel")
             if not isinstance(cfg.get("ignore", {}), dict):
                 raise InvalidSetting("Log exclusions have an unexpected format")
             ignore = cfg.setdefault("ignore", {})

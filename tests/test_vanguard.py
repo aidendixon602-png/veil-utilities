@@ -30,19 +30,23 @@ def _gv_ctx(g, react=None):
     return SimpleNamespace(guild=g, message=message)
 
 
+def bridge_bot(cfg=None):
+    return SimpleNamespace(db=SimpleNamespace(get_config=AsyncMock(return_value=cfg or {})))
+
+
 def test_gv_hands_the_message_over_with_the_shield():
     ctx = _gv_ctx(guild())
-    asyncio.run(Vanguard.gv.callback(Vanguard(None), ctx, command="raid mode on"))
+    asyncio.run(Vanguard.gv.callback(Vanguard(bridge_bot()), ctx, command="raid mode on"))
     ctx.message.add_reaction.assert_awaited_once_with(HANDOFF_EMOJI)
     assert HANDOFF_EMOJI == "🛡️"  # must match Ghost Vanguard's HANDOFF_EMOJI
 
 
 def test_gv_says_so_when_ghost_vanguard_is_not_here_or_cant_be_reached():
     with pytest.raises(UserError, match="isn't in this server"):
-        asyncio.run(Vanguard.gv.callback(Vanguard(None), _gv_ctx(guild(False)), command="help"))
+        asyncio.run(Vanguard.gv.callback(Vanguard(bridge_bot()), _gv_ctx(guild(False)), command="help"))
     forbidden = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "no"))
     with pytest.raises(UserError, match="Add Reactions"):
-        asyncio.run(Vanguard.gv.callback(Vanguard(None), _gv_ctx(guild(), forbidden), command="help"))
+        asyncio.run(Vanguard.gv.callback(Vanguard(bridge_bot()), _gv_ctx(guild(), forbidden), command="help"))
 
 
 def _antinuke():
@@ -153,3 +157,38 @@ def test_webhook_guard_runs_with_ghost_present():
         asyncio.run(an.webhook_spam(msg))
     hook.delete.assert_awaited_once()
     assert all(msg.delete.await_count == 1 for msg in messages)
+
+
+def test_owner_can_disable_handoff_without_touching_security_or_logs():
+    async def go():
+        store = {'vanguard_bridge': {}, 'antinuke': {'enabled': True}, 'logs': {'messages': 7}}
+        async def get_config(gid, module):
+            return store[module]
+        async def set_config(gid, module, cfg):
+            store[module] = cfg
+        bot = SimpleNamespace(db=SimpleNamespace(get_config=AsyncMock(side_effect=get_config),
+                                                 set_config_committed=AsyncMock(side_effect=set_config)))
+        cog = Vanguard(bot)
+        ctx = _gv_ctx(guild())
+        ctx.neutral, ctx.approve = AsyncMock(), AsyncMock()
+        await Vanguard.gvbridge.callback(cog, ctx, state='off')
+        assert store['vanguard_bridge'] == {'enabled': False}
+        assert store['antinuke'] == {'enabled': True} and store['logs'] == {'messages': 7}
+        with pytest.raises(UserError, match='bridge is off'):
+            await Vanguard.gv.callback(cog, ctx, command='help')
+        ctx.message.add_reaction.assert_not_awaited()
+        await Vanguard.gvbridge.callback(cog, ctx, state='on')
+        await Vanguard.gv.callback(cog, ctx, command='help')
+        ctx.message.add_reaction.assert_awaited_once_with(HANDOFF_EMOJI)
+    asyncio.run(go())
+
+
+def test_gvbridge_control_is_owner_or_developer_only():
+    from core.utils import UserError
+    check = next(c for c in Vanguard.gvbridge.checks if getattr(c, '__veil_owner_only__', False))
+    ctx = SimpleNamespace(author=SimpleNamespace(id=9), guild=SimpleNamespace(owner_id=2),
+                          bot=SimpleNamespace(owner_ids={3}, owner_id=None))
+    with pytest.raises(UserError):
+        asyncio.run(check(ctx))
+    ctx.author.id = 2
+    assert asyncio.run(check(ctx))

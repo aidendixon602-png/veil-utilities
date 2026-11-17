@@ -7,11 +7,13 @@ Vanguard then runs the command with its own ranks, permissions and confirmations
 """
 from __future__ import annotations
 
+from copy import deepcopy
+
 import discord
 from discord.ext import commands
 
 from core import perms
-from core.utils import Context, UserError
+from core.utils import Context, UserError, is_server_owner
 
 HANDOFF_EMOJI = "🛡️"  # Ghost Vanguard only acts on this reaction, and only from Veil's account
 
@@ -32,6 +34,9 @@ class Vanguard(commands.Cog):
         `,gv help` lists them all.
         Example: `,gv raid mode on`
         """
+        cfg = await self.bot.db.get_config(ctx.guild.id, "vanguard_bridge")
+        if cfg.get("enabled", True) is not True:
+            raise UserError("The Ghost Vanguard bridge is off here. Use Ghost Vanguard directly, or the server owner can enable it with `gvbridge on`.")
         if not perms.ghost_guards(ctx.guild):
             raise UserError("Ghost Vanguard isn't in this server, so there's nothing to hand this to")
         try:
@@ -40,6 +45,25 @@ class Vanguard(commands.Cog):
             raise UserError("I need **Add Reactions** in this channel to hand commands to Ghost Vanguard")
         except discord.HTTPException:
             raise UserError("Discord didn't let me hand that over, try again in a moment")
+
+
+    @commands.command(name="gvbridge")
+    @commands.guild_only()
+    @is_server_owner()
+    async def gvbridge(self, ctx: Context, state: str = None):
+        """Check or switch the optional Ghost Vanguard handoff"""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "vanguard_bridge")
+        if state is None:
+            enabled = cfg.get("enabled", True) is True
+            return await ctx.neutral(f"Ghost Vanguard command handoff is **{'on' if enabled else 'off'}**. "
+                                     "It only runs when someone uses `gv`; neither bot's protection settings change.")
+        state = state.lower()
+        if state not in ("on", "off"):
+            raise UserError("Use `gvbridge on` or `gvbridge off`.")
+        cfg = deepcopy(cfg)
+        cfg["enabled"] = state == "on"
+        await self.bot.db.set_config_committed(ctx.guild.id, "vanguard_bridge", cfg)
+        await ctx.approve(f"Ghost Vanguard command handoff is **{state}**; protection and logging settings were not changed")
 
 
 async def setup(bot):
