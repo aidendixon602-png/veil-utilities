@@ -56,12 +56,12 @@ Network-dependent integrations can fail or change independently of Veil; no prov
 
 ## Optional dashboard
 
-The dashboard remains disabled until you configure a public HTTPS origin and Discord OAuth. It will not start an unauthenticated local listener. Discord server owners can manage only authorized servers they own; recognized bot developers can access all joined servers and manage the explicit server authorization list. Access is checked again on every request. The bot must be running, and a correctly configured HTTPS reverse proxy or hosting provider must route traffic to it.
+The dashboard remains disabled until you configure a public HTTPS origin and Discord OAuth. It will not start an unauthenticated local listener. Discord server owners can manage only authorized servers they own; recognized bot developers can access all joined servers and manage the explicit server authorization list. Access is checked again on every request. Discord Administrators, staff and Veil/fake permissions no longer grant dashboard access; this does not change bot command permissions. Server-owner checks call Discord and deny access if they cannot be verified. Veil's existing in-process developer identity model is used; Discord-discovered developers must also pass a fresh application owner/team check on requests. Explicit developer IDs remain authoritative until local configuration changes. The bot must be running, and a correctly configured HTTPS reverse proxy or hosting provider must route traffic to it.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DASHBOARD_ENABLED` | `false` | Start the dashboard. |
-| `DASHBOARD_HOST` | `127.0.0.1` | Backend bind address. Use a private interface for the TLS proxy; never expose the backend HTTP port publicly. |
+| `DASHBOARD_HOST` | `127.0.0.1` | Backend bind address; must be loopback. Run the TLS proxy on the same host or network namespace. Non-loopback listeners are refused. |
 | `DASHBOARD_PORT` | `PORT`, or `8080` | Listening port (1–65535). |
 | `DASHBOARD_URL` | unset | Public HTTPS origin, with no path, query or credentials. Configure its `/callback` as a Discord OAuth redirect. |
 | `DISCORD_CLIENT_ID` | detected from bot | Optional OAuth client ID override. |
