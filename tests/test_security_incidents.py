@@ -124,3 +124,20 @@ def test_deferred_incident_recovers_with_unknown_outcome_after_crash(tmp_path, m
         assert row["state"] == "containing"
         await db.close()
     asyncio.run(go())
+
+
+def test_antinuke_unknown_member_card_distinguishes_action_from_rollback():
+    manager = IncidentManager(SimpleNamespace(db=None))
+    row = {'incident_id': 'abc', 'severity': 'critical', 'guild_id': '123', 'actor_id': '456',
+           'kind': 'antinuke', 'created_at': 1, 'summary': 'Antinuke threshold reached: Permission Grant.',
+           'action': '⚠️ Strip incomplete: member not found, remaining roles not attempted',
+           'details': json.dumps({'Restored': 'revoked their bot permission level', 'Problems': 'None reported'})}
+    embed = manager._embed(row)
+    fields = {f.name: f.value for f in embed.fields}
+    assert 'Strip incomplete' in fields['Action']
+    assert 'Rollback issues: None reported' in fields['Details']
+    assert 'not confirmed stripped' in fields['Next step']
+    assert '`123`' in embed.description and '`456`' in embed.description
+    row['action'] = '⚠️ Strip incomplete: role not found; Discord 404'
+    fields = {f.name: f.value for f in manager._embed(row).fields}
+    assert 'Next step' not in fields

@@ -14,7 +14,7 @@ from discord.ext import commands
 from core.antinukepanel import AntinukePanel, home_embed
 from core.config import settings
 from core.nukerestore import Snapshots, collapse, display, restore_channels, restore_roles
-from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous, is_server_owner
+from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous, is_server_owner, shorten
 from core import perms as _perms
 
 log = logging.getLogger("veil.antinuke")
@@ -773,6 +773,7 @@ class Antinuke(commands.Cog):
         current = guild.get_member(member.id) or member
         if await self._explicit_whitelist(guild, cfg, member.id, member=current):
             return
+        member = current
         adder = None
         try:
             async for e in guild.audit_logs(limit=5, action=A.bot_add):
@@ -793,6 +794,7 @@ class Antinuke(commands.Cog):
                     lines.append(f"⚠️ @{display(role)} is above my role, so I couldn't change it")
                     continue
             except Exception:
+                lines.append(f"⚠️ couldn't verify whether @{display(role)} is manageable; check manually")
                 continue
             try:
                 if getattr(role, "managed", False):  # the bot's own role: take the permissions off it
@@ -807,18 +809,25 @@ class Antinuke(commands.Cog):
                     lines.append(f"removed @{display(role)} from it")
             except discord.HTTPException as e:
                 lines.append(f"⚠️ couldn't change @{display(role)} (Discord said {e.status})")
-        if not record["roles"] and not record["removed"]:
-            return  # nothing dangerous to hold back
-        cfg.setdefault("quarantined_bots", {})[str(member.id)] = record
-        await self.save(guild.id, cfg)
-        e = discord.Embed(title="Antinuke · New bot quarantined", color=Colors.warn, timestamp=discord.utils.utcnow(),
-                          description=f"{member.mention} joined"
-                                      + (f", added by {adder.mention}" if adder is not None else "")
-                                      + ". It keeps working, but without dangerous permissions until the server "
-                                        "owner approves it.")
-        e.add_field(name="What I did", value="\n".join(f"• {x}" for x in lines), inline=False)
-        e.set_footer(text=f"{guild.name} · approve with the button or ,an approve @bot")
-        view = discord.ui.View(timeout=None).add_item(ApproveBotButton(guild.id, member.id))
+        changed = bool(record["roles"] or record["removed"])
+        if not changed and not lines:
+            return  # no dangerous roles were found
+        if changed:
+            cfg.setdefault("quarantined_bots", {})[str(member.id)] = record
+            await self.save(guild.id, cfg)
+        partial = any(line.startswith("⚠️") for line in lines)
+        title = "Antinuke · New bot quarantined" if changed else "Antinuke · Bot quarantine failed"
+        description = (f"{member.mention} joined"
+                       + (f", added by {adder.mention}" if adder is not None else "") + ".\n\n"
+                       + ("**Action required:** some changes failed; the bot may retain dangerous permissions."
+                          if partial else "Dangerous permissions were reduced on the roles listed below. "
+                          "Review its remaining permissions before approval."))
+        e = discord.Embed(title=title, color=Colors.warn if changed and not partial else Colors.error,
+                          timestamp=discord.utils.utcnow(), description=description)
+        e.add_field(name="Response", value=shorten("\n".join(f"• {x}" for x in lines), 1024), inline=False)
+        e.set_footer(text=(f"{guild.name} · approve with the button or ,an approve @bot" if changed
+                           else f"{guild.name} · review the bot and role hierarchy manually"))
+        view = discord.ui.View(timeout=None).add_item(ApproveBotButton(guild.id, member.id)) if changed else None
         for dest in (await self._log_channel(guild, cfg), getattr(guild, "owner", None)):
             if dest is None:
                 continue
@@ -1443,7 +1452,8 @@ class Antinuke(commands.Cog):
                     stripped[actor.id] = (actor, names, "actor")
                 if failed:
                     prefix = f"removed {len(names)} staff role(s); " if names else ""
-                    note = "; member not found, remaining roles not attempted" if missing_member else ""
+                    note = ("; member not found, remaining roles not attempted. Discord reports the member is "
+                            "not in this server; verify membership and review any rejoin" if missing_member else "")
                     return f"⚠️ Strip incomplete: {prefix}couldn't remove {', '.join(failed)}{note}"
                 if names:
                     return f"Stripped {len(names)} staff role(s)"
@@ -1512,7 +1522,7 @@ class Antinuke(commands.Cog):
                                      action=inc.result,
                                      details={"Server": guild.name, "Threshold": f"{inc.threshold} in {inc.window}s",
                                               "Restored": ", ".join(inc.undone) or "None reported",
-                                              "Problems": ", ".join(inc.problems) or "None reported"},
+                                              "Rollback issues": ", ".join(inc.problems) or "None reported"},
                                      notify=settings.antinuke_dev_alerts)
                 if settings.antinuke_dev_alerts:
                     from core.incidents import recipients

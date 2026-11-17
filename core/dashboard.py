@@ -1108,7 +1108,7 @@ class DashboardServer:
       <select id="rbl_reply_mode" name="rbl_reply_mode">
         <option value="channel"{' selected' if not logs_cfg.get('rbl_dm') else ''}>In the channel</option>
         <option value="dm"{' selected' if logs_cfg.get('rbl_dm') else ''}>Direct message</option>
-      </select><span class="hint">Controls role-blacklist replies; direct messages can fail if the recipient has DMs closed.</span></div>
+      </select><span class="hint">Controls role-blacklist replies except rbl list, which always appears in the invoking channel; direct messages can fail if the recipient has DMs closed.</span></div>
   </section>''' if can_rbl else ""
         body = f"""<div class="page-heading"><div><p class="eyebrow">Servers / Settings</p>
   <h1>{_esc(guild.name)}</h1><p>Manage the blacklist, logging, and antinuke settings for this server.</p></div>

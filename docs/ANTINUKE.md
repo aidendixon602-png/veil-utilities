@@ -137,6 +137,12 @@ legacy role-blacklist `authorized` users are already trusted; this feature does 
 exemptions. Rules that are off do not protect against those actions. The cooldown and grant locks are local
 to one bot process; multiple instances sharing a database can race and must not be relied on for this limit.
 
+New-bot quarantine alerts report only the changes actually made. If some or all role changes fail, the
+alert says the bot may retain dangerous permissions and requires manual review; approval controls appear
+only if a reversible quarantine change was saved. A Discord “Unknown Member” during a strip means the
+remaining roles were not attempted, not that they were removed. Check membership and review any rejoin.
+Incident DMs label rollback issues separately from the punishment outcome.
+
 Detection and rollback are best-effort, not a guarantee. Audit events must reach Veil; the bot needs the relevant
 Discord permissions and a high enough role to punish or restore changes. Some events cannot be undone. Veil
 intentionally ignores some routine actions by other bots. Veil works independently of Ghost Vanguard, including when

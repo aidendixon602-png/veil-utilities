@@ -415,7 +415,7 @@ _Keep your server in line_
 | `,roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles, server owner or bot developer |
 | `,roleblacklist check [target]` (scan, audit, search) | Check for members holding blacklisted roles | server owner or bot developer |
 | `,roleblacklist exceptions` | List individual role exceptions (these do not grant Antinuke trust) | server owner or bot developer |
-| `,roleblacklist list` | View blacklisted roles | manage roles, server owner or bot developer |
+| `,roleblacklist list` | View blacklisted roles in the current channel | manage roles, server owner or bot developer |
 | `,roleblacklist remove <role>` (rem, delete) | Take a role off the role blacklist | manage roles, server owner or bot developer, uperm: admin |
 | `,roleblacklist strip` (purge, clean) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
 | `,roleblacklist unallow <member> <role>` | Remove one role-specific exception without removing the Discord role | server owner or bot developer |
