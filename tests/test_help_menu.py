@@ -41,10 +41,9 @@ def _cmd(name: str, doc: str = "Does a thing", aliases=(), sig: str = ""):
 
 
 def _labels(view: HelpView) -> list[str]:
+    buttons = [c.category for c in view.children if isinstance(c, CategoryButton)]
     select = next((c for c in view.children if isinstance(c, CategorySelect)), None)
-    if select:
-        return [o.label for o in select.options]
-    return [c.category for c in view.children if isinstance(c, CategoryButton)]
+    return buttons + ([o.label for o in select.options] if select else [])
 
 
 def _pick(view: HelpView, value: str):
@@ -90,9 +89,10 @@ def test_inside_a_category_commands_above_your_level_are_hidden():
 
 def test_the_home_buttons_list_categories_in_order():
     view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": [_cmd("play")]}, is_owner=True)
-    assert _labels(view) == ["Utility", "Music", "Developer"]
-    assert all(isinstance(c, CategoryButton) and c.style == discord.ButtonStyle.secondary for c in view.children)
-    assert [c.row for c in view.children] == [0, 0, 0]
+    assert _labels(view) == ["Utility", "Music", "Developer", "Secret"]
+    assert all(isinstance(c, CategoryButton) for c in view.children)
+    assert view.children[-1].style == discord.ButtonStyle.danger
+    assert [c.row for c in view.children] == [0, 0, 0, 0]
 
 
 def test_the_home_card():
@@ -103,8 +103,8 @@ def test_the_home_card():
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
-    assert card.title is None and "3 commands · 2 categories visible" in card.footer.text
-    assert "**Prefix:** `,`" in card.description
+    assert card.title is None and card.footer.text is None
+    assert "**prefix:** `,`" in card.description
     assert "Select a category" in card.description
     assert "**Utility**" not in card.description and "Explore categories" not in card.description
     assert _labels(view) == ["Utility", "Music"]
@@ -429,7 +429,8 @@ def test_dev_and_secret_open_the_developer_category(loaded_bot):
         return sent
     for word in ("dev", "secret", "tokens"):
         sent = asyncio.run(go(word, True))
-        assert sent["embed"].title == "Developer commands" and sent["view"].current == "Developer"
+        expected = "Developer" if word == "dev" else "Secret"
+        assert sent["embed"].title == f"{expected} commands" and sent["view"].current == expected
     stranger = asyncio.run(go("secret", False))
     assert stranger["view"].current is None and "Developer" not in _labels(stranger["view"])  # just the home card
 
@@ -1008,24 +1009,24 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
 
 def test_home_button_layout_fits_all_current_categories():
     view = HelpView(_help(), ALL, is_owner=True, author_rank=10000)
-    assert len(view.pages) == len(CATEGORIES) + 1
-    assert len(view.children) == len(view.pages) == 13
-    assert _labels(view) == list(view.pages)
-    for row in range(5):
-        assert sum(component.row == row for component in view.children) == (4 if row < 3 else 1 if row == 3 else 0)
-    assert all(button.style == discord.ButtonStyle.secondary for button in view.children)
+    assert len(view.pages) == len(CATEGORIES) + 2
+    buttons = [c for c in view.children if isinstance(c, CategoryButton)]
+    assert [c.category for c in buttons] == ["Utility", "Music", "Moderation", "Roles", "Permissions", "Antinuke", "Developer", "Secret"]
+    assert [c.row for c in buttons] == [0, 0, 0, 0, 0, 1, 1, 1]
+    assert buttons[-1].style == discord.ButtonStyle.danger
+    assert set(_labels(view)) == set(view.pages)
+    assert len(view.children) == 9
 
 
-def test_home_falls_back_to_select_if_category_catalog_grows():
+def test_home_more_select_keeps_other_categories_available():
     import core.help as help_module
 
     extra = [(f"Extra {i}", [], []) for i in range(8)]
     with patch.object(help_module, "CATEGORIES", help_module.CATEGORIES + extra):
         categories = {label: [] for label, _, _ in help_module.CATEGORIES}
         view = HelpView(_help(), categories, is_owner=True)
-        assert len(view.children) == 1 and isinstance(view.children[0], CategorySelect)
-        assert _labels(view) == list(view.pages)
-        select = view.children[0]
+        select = next(c for c in view.children if isinstance(c, CategorySelect))
+        assert set(_labels(view)) == set(view.pages)
         select._values = ["Extra 2"]
         it = _it()
         asyncio.run(select.callback(it))
@@ -1035,7 +1036,7 @@ def test_home_falls_back_to_select_if_category_catalog_grows():
 
 def test_home_card_uses_the_configured_prefix():
     card = _help("!").home_embed()
-    assert "**Prefix:** `!`" in card.description and "`!help <command>`" in card.description
+    assert "**prefix:** `!`" in card.description
 
 
 def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loaded_bot):
@@ -1164,7 +1165,7 @@ def test_compact_home_keeps_visibility_checks_on_buttons():
     assert "Antinuke" not in _labels(public) and "Developer" not in _labels(public)
     owner = HelpView(_help(), ALL, is_owner=True)
     assert "Antinuke" in _labels(owner) and "Developer" in _labels(owner)
-    assert all(item.emoji is not None for item in public.children if isinstance(item, CategoryButton))
+    assert all(item.emoji is None for item in public.children if isinstance(item, CategoryButton))
     assert "Explore categories" not in owner.home.description
 
 
@@ -1237,4 +1238,28 @@ def test_direct_help_and_aliases_still_work_for_removed_menu_entries(loaded_bot)
         assert command_category_gate(loaded_bot.get_command('role'), loaded_bot) == 3
         assert visible_command(loaded_bot.get_command('role'), loaded_bot, False, 3)
         assert not visible_command(loaded_bot.get_command('role'), loaded_bot, False, 0)
+    asyncio.run(go())
+
+
+def test_secret_category_contains_devtools_without_opening_it_to_others(loaded_bot):
+    h = Help()
+    h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
+    owner = HelpView(h, {}, is_owner=True)
+    secret = owner.commands_in('Secret')
+    assert secret and all(command.cog_name == 'DevTools' for command in secret)
+    assert {'strip', 'unstrip', 'genreban'} <= {command.name for command in secret}
+    public = HelpView(h, {}, is_owner=False)
+    assert 'Secret' not in public.pages and public.commands_in('Secret') == []
+
+
+def test_developer_help_menu_rechecks_developer_access():
+    async def go():
+        help_cmd = _help()
+        view = HelpView(help_cmd, {'Utility': []}, is_owner=True)
+        it = _it()
+        assert not await view.interaction_check(it)
+        it.response.send_message.assert_awaited_once()
+        help_cmd.context.bot.is_owner.return_value = True
+        it = _it()
+        assert await view.interaction_check(it)
     asyncio.run(go())

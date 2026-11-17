@@ -1710,3 +1710,76 @@ def test_dashboard_admin_grant_revision_detects_discord_command_change():
         assert bot.db.store[(GUILD_ID, 'admin_role_granter_roles')] == {str(role.id): True}
         assert bot.db.store[(GUILD_ID, 'admin_role_granters')] == {}
     run(server, scenario)
+
+
+def test_command_access_controls_validate_permissions_and_stale_changes():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, 'settings')] = {'prefix': '!', 'bot_channels': [999], 'other': 'preserved'}
+    server = login_server(bot)
+    token, owner = cookie(server, GUILD_OWNER)
+    admin_token, admin = cookie(server, STRANGER)
+    guild = bot.guilds[0]
+    guild.fetch_member = AsyncMock(return_value=SimpleNamespace(id=STRANGER, _roles=[42]))
+    guild.fetch_roles = AsyncMock(return_value=[SimpleNamespace(id=42, permissions=discord.Permissions(administrator=True))])
+    path = f'/servers/{GUILD_ID}/features'
+
+    async def scenario(client):
+        html = await (await client.get(f'{path}?section=general', headers=owner)).text()
+        assert 'Command access' in html and 'staff_only' in html and 'bot_channels' in html
+        revision = _feature_revision(html, GUILD_ID, 'command-access')
+        base = {'csrf': csrf_of(server, token), 'revision': revision, 'staff_only': 'on',
+                'bot_channels': '44, 999', 'return_section': 'general'}
+        assert (await client.post(f'{path}/command-access', headers=owner, data={**base, 'csrf': 'bad'})).status == 403
+        assert (await client.post(f'{path}/command-access', headers={**owner, 'Origin': 'https://evil.example'}, data=base)).status == 403
+        assert (await client.post(f'{path}/command-access', headers=admin,
+                                  data={**base, 'csrf': csrf_of(server, admin_token)})).status == 403
+        assert (await client.post(f'{path}/command-access', headers=owner, data={**base, 'bot_channels': '12345'})).status == 400
+        assert (await client.post(f'{path}/command-access', headers=owner, data={**base, 'staff_only': 'maybe'})).status == 400
+        assert not bot.db.writes
+        response = await client.post(f'{path}/command-access', headers=owner, data=base, allow_redirects=False)
+        assert response.status == 302
+        assert bot.db.store[(GUILD_ID, 'settings')] == {'prefix': '!', 'staff_only': True,
+                                                       'bot_channels': [44, 999], 'other': 'preserved'}
+        assert (await client.post(f'{path}/command-access', headers=owner, data=base)).status == 409
+        html = await (await client.get(f'{path}?section=general', headers=owner)).text()
+        revision = _feature_revision(html, GUILD_ID, 'command-access')
+        response = await client.post(f'{path}/command-access', headers=owner,
+                                     data={**base, 'revision': revision, 'staff_only': 'off', 'bot_channels': ''},
+                                     allow_redirects=False)
+        assert response.status == 302
+        assert bot.db.store[(GUILD_ID, 'settings')]['bot_channels'] == []
+        assert bot.db.store[(GUILD_ID, 'settings')]['staff_only'] is False
+    run(server, scenario)
+
+
+def test_command_control_preserves_other_fields_and_never_disables_settings():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, 'settings')] = {'prefix': '?', 'disabled': ['old command'], 'staff_only': True}
+    commands = {'ban': SimpleNamespace(qualified_name='ban', cog_name='Moderation'),
+                'b': SimpleNamespace(qualified_name='ban', cog_name='Moderation'),
+                'dcmd': SimpleNamespace(qualified_name='disablecommand', cog_name='Settings')}
+    bot.get_command = commands.get
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    path = f'/servers/{GUILD_ID}/features'
+
+    async def scenario(client):
+        html = await (await client.get(f'{path}?section=general', headers=headers)).text()
+        assert 'Disabled commands' in html and 'old command' in html
+        revision = _feature_revision(html, GUILD_ID, 'command-control')
+        base = {'csrf': csrf_of(server, token), 'revision': revision, 'command_action': 'disable', 'command_name': 'b'}
+        assert (await client.post(f'{path}/command-control', headers=headers, data={**base, 'command_name': 'dcmd'})).status == 400
+        assert (await client.post(f'{path}/command-control', headers=headers, data={**base, 'command_name': 'unknown'})).status == 400
+        assert (await client.post(f'{path}/command-control', headers=headers, data={**base, 'command_action': 'bogus'})).status == 400
+        assert not bot.db.writes
+        assert (await client.post(f'{path}/command-control', headers=headers, data=base, allow_redirects=False)).status == 302
+        cfg = bot.db.store[(GUILD_ID, 'settings')]
+        assert cfg == {'prefix': '?', 'disabled': ['old command', 'ban'], 'staff_only': True}
+        assert (await client.post(f'{path}/command-control', headers=headers, data=base)).status == 409
+        html = await (await client.get(f'{path}?section=general', headers=headers)).text()
+        revision = _feature_revision(html, GUILD_ID, 'command-control')
+        assert (await client.post(f'{path}/command-control', headers=headers,
+                                  data={**base, 'revision': revision, 'command_action': 'enable'},
+                                  allow_redirects=False)).status == 302
+        assert bot.db.store[(GUILD_ID, 'settings')]['disabled'] == ['old command']
+    run(server, scenario)

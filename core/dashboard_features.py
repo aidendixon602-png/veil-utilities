@@ -114,6 +114,34 @@ async def features_page(server, request: web.Request) -> web.Response:
              '<button class="btn" type="submit">Save prefix</button></form>')
     general_section = _section("Server prefix", "00", "Choose how members start Veil commands in this server.", form, "general")
 
+    access_form = _form_start(server, guild, user, "command-access", "settings", settings)
+    access_form += ('<div class="note">These restrictions affect non-staff command users. Staff, server owners and bot developers can bypass them. '
+                    'The bot private mode and all command permission checks still apply.</div><div class="form-grid">')
+    access_form += _select("staff_only", "Staff-only mode", _on_off(settings.get("staff_only")), on_off,
+                           "When enabled, non-staff members cannot run commands.")
+    channels_value = ", ".join(str(cid) for cid in settings.get("bot_channels", []))
+    available_channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
+    channel_reference = "".join(f'<li>#{_esc(ch.name)} · <code>{_esc(ch.id)}</code></li>' for ch in available_channels)
+    access_form += ('<div class="form-group"><label for="bot_channels">Allowed command channel IDs</label>'
+                    f'<input id="bot_channels" name="bot_channels" value="{_esc(channels_value)}" placeholder="e.g. 123456789012345678">'
+                    '<span class="hint">Comma-separated text channel IDs. Leave empty to allow all channels. '
+                    'Staff can use commands outside the listed channels.</span></div></div>')
+    if channel_reference:
+        access_form += f'<details class="channel-reference"><summary>Available text channel IDs</summary><ul>{channel_reference}</ul></details>'
+    access_form += '<button class="btn" type="submit">Save command access</button></form>'
+    general_section += _section("Command access", "01", "Choose where non-staff members can use commands.", access_form, "command-access")
+
+    disabled = settings.get("disabled", [])
+    disabled_names = ", ".join(str(name) for name in disabled) if disabled else "None"
+    command_form = _form_start(server, guild, user, "command-control", "settings", settings)
+    command_form += (f'<p class="hint">Currently disabled: <strong>{_esc(disabled_names)}</strong></p>'
+                     '<div class="form-grid"><div class="form-group"><label for="command_name">Command name</label>'
+                     '<input id="command_name" name="command_name" maxlength="100" required placeholder="e.g. ban">'
+                     '<span class="hint">Use a command or alias, without the prefix. Owners and developers bypass disabled commands.</span></div>')
+    command_form += _select("command_action", "Action", "disable", (("disable", "Disable"), ("enable", "Enable")))
+    command_form += '</div><button class="btn" type="submit">Update command</button></form>'
+    general_section += _section("Disabled commands", "02", "Disable or re-enable individual commands for this server.", command_form, "command-control")
+
     form = _form_start(server, guild, user, "automod", "filters", filters)
     form += '<div class="note">These filters can delete messages and apply timeouts. Members with Manage Messages are exempt.</div><div class="form-grid">'
     for key, label in (("invites", "Block invites"), ("links", "Block links"), ("zalgo", "Block zalgo text"),
@@ -416,7 +444,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
-    modules = {"logging": ("logs", {}), "general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
+    modules = {"logging": ("logs", {}), "general": ("settings", {}), "command-access": ("settings", {}), "command-control": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
                "automod-exempt": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
                "tickets": ("tickets", TICKET_DEFAULT), "protection": ("antinuke", AN_DEFAULT),
                "rule": ("antinuke", AN_DEFAULT)}
@@ -439,6 +467,39 @@ async def save_feature(server, request: web.Request) -> web.Response:
             if not 1 <= len(prefix) <= 10 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in prefix):
                 raise InvalidSetting("Prefix must be 1–10 characters without spaces or control characters")
             cfg["prefix"] = prefix
+        elif feature == "command-access":
+            staff_only = _choice(data, "staff_only", {"on", "off"})
+            if "bot_channels" not in data:
+                raise InvalidSetting("Missing command channels; refresh the page")
+            channels = _parse_ids(str(data["bot_channels"]))
+            previous = set(old.get("bot_channels", []))
+            for cid in channels:
+                if cid not in previous and not isinstance(guild.get_channel(cid), discord.TextChannel):
+                    raise InvalidSetting("Command channels must be text channels in this server")
+            cfg["staff_only"] = staff_only == "on"
+            cfg["bot_channels"] = channels
+        elif feature == "command-control":
+            action = _choice(data, "command_action", {"enable", "disable"})
+            name = str(data.get("command_name", "")).strip()
+            if not name or len(name) > 100 or any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+                raise InvalidSetting("Enter a valid command name without the prefix")
+            get_command = getattr(server.bot, "get_command", None)
+            command = get_command(name) if callable(get_command) else None
+            disabled = cfg.get("disabled", [])
+            if not isinstance(disabled, list) or any(not isinstance(item, str) for item in disabled):
+                raise InvalidSetting("Saved disabled commands are invalid; review them in Discord")
+            canonical = command.qualified_name if command else name
+            if action == "disable":
+                if not command or command.cog_name in ("Settings", "Owner", "Authorization"):
+                    raise InvalidSetting("That command cannot be disabled")
+                if canonical in disabled:
+                    raise InvalidSetting("That command is already disabled")
+                disabled.append(canonical)
+            else:
+                if canonical not in disabled:
+                    raise InvalidSetting("That command is not disabled")
+                disabled.remove(canonical)
+            cfg["disabled"] = disabled
         elif feature == "logging":
             # This independent form never writes role blacklist or antinuke fields.
             from cogs.logging import other_bots_channel
@@ -620,6 +681,6 @@ async def save_feature(server, request: web.Request) -> web.Response:
             pass  # security notices are best effort, as in the Discord commands
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s updated %s for guild %s", user["uid"], feature, guild.id)
-    anchor = {"logging": "logging", "general": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
+    anchor = {"logging": "logging", "general": "general", "command-access": "general", "command-control": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
     section = f"&section={anchor}" if data.get("return_section") == anchor else ""
     return server._redirect(f"/servers/{guild.id}/features?saved=1{section}#{anchor}")
