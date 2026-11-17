@@ -278,7 +278,8 @@ def body(e: discord.Embed) -> list[str]:
 def detail(e: discord.Embed, label: str) -> str | None:
     """The value of a `**Label:** value` line on a card."""
     prefix = f"**{label}:** "
-    return next((line[len(prefix):] for line in body(e) if line.startswith(prefix)), None)
+    return next((line[len(prefix):] for line in body(e) if line.startswith(prefix)),
+                next((f.value for f in e.fields if f.name == label), None))
 
 
 def test_deleted_message_has_clear_compact_card_and_details():
@@ -514,8 +515,8 @@ def _card_text(card) -> str:
 def test_a_command_gets_its_own_card():
     card = fmt.command_used(cmd_ctx(), "Admin", "@Staff", rank=3, ms=84.4)
     assert card.author.name and detail(card, "Command") == "`,ban @x spam`"
-    assert not card.fields
-    assert detail(card, "Channel") == "<#5> · [jump](https://discord.com/channels/10/5/900)"
+    assert card.title == "⌨️ Command used"
+    assert "<#5> · [Jump to command](https://discord.com/channels/10/5/900)" in card.description
     assert detail(card, "Level") == "Admin · via @Staff" and detail(card, "Result") == "✅ done in 84 ms"
     assert card.footer.text == "User ID: 7" and card.color.value == Colors.approve
     assert "6.2s" in _card_text(fmt.command_used(cmd_ctx(), "None", "-", ms=6175))
@@ -1564,7 +1565,7 @@ def test_command_log_long_inputs_leave_room_for_the_outcome():
     card = fmt.command_used(ctx, "L" * 8000, "R" * 8000, error="Unable to complete the action")
     assert len(card.description) <= 4096
     assert detail(card, "Result") == "❌ Unable to complete the action"
-    assert detail(card, "Channel").endswith("[jump](https://discord.com/channels/10/5/900)")
+    assert card.description.endswith("[Jump to command](https://discord.com/channels/10/5/900)")
     assert card.timestamp is not None and card.footer.text == "User ID: 7"
 
 
@@ -1683,3 +1684,13 @@ def test_coexist_checklist_is_read_only_and_does_not_claim_to_control_ghost():
         assert store['logs'] == original
         cog.bot.db.set_config.assert_not_awaited()
     asyncio.run(go())
+
+
+def test_command_card_reports_partial_outcome_with_timing():
+    ctx = cmd_ctx()
+    ctx.command_log_outcome = "Updated 1 role(s) · 1 not confirmed"
+    ctx.command_log_warning = True
+    card = fmt.command_used(ctx, "Admin", "-", ms=1200)
+    assert "partially completed" in card.title
+    assert detail(card, "Result") == "Updated 1 role(s) · 1 not confirmed · 1.2s"
+    assert card.colour.value == Colors.caution

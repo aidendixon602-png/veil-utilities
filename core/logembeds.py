@@ -768,7 +768,7 @@ def _command_text(ctx) -> str:
 
 def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = None, ms: float | None = None,
                  error: str | None = None) -> discord.Embed:
-    """Compact command audit card; keep outcomes and permission provenance visible."""
+    """A clear audit card with a compact summary and separate command, outcome and access details."""
     jump = getattr(ctx, "panel_jump", None) if getattr(ctx, "panel_action", None) else None
     jump = jump or getattr(ctx.message, "jump_url", None)
     failed = error is not None
@@ -781,17 +781,20 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
         via = f" · via {grant}" if grant and grant not in ("-", "Built-in") else ""
     if failed:
         result = "❌ " + shorten(redact.scrub(error).replace("\n", " "), 300)
+    elif getattr(ctx, "command_log_outcome", None):
+        result = shorten(redact.scrub(str(ctx.command_log_outcome)).replace("\n", " "), 300)
+        took = _took(ms)
+        result += f" · {took}" if took else ""
     else:
         took = _took(ms)
         result = "✅ done" + (f" in {took}" if took else "")
-    channel = shorten(ctx.channel.mention, 100) + (f" · [jump]({shorten(str(jump), 500)})" if jump else "")
-    lines = [f"**Command:** `{command}`", "", f"**Channel:** {channel}",
-             f"**Level:** {level}{via}", f"**Result:** {result}"]
-    embed = discord.Embed(color=Colors.deny if failed else Colors.approve,
-                          description=shorten_md("\n".join(lines), 4000), timestamp=discord.utils.utcnow())
-    embed.set_author(name=shorten(name_of(ctx.author), 256), icon_url=avatar_of(ctx.author))
-    embed.set_footer(text=f"User ID: {ctx.author.id}")
-    return embed
+    channel = shorten(ctx.channel.mention, 100) + (f" · [Jump to command]({shorten(str(jump), 500)})" if jump else "")
+    warning = bool(getattr(ctx, "command_log_warning", False))
+    return field_card(Colors.deny if failed else Colors.caution if warning else Colors.approve,
+                      "⚠️ Command failed" if failed else "⚠️ Command partially completed" if warning else "⌨️ Command used", subject=ctx.author,
+                      lead=f"{ctx.author.mention} · {channel}",
+                      fields=[("Command", f"`{command}`", False), ("Result", result, True),
+                              ("Level", f"{level}{via}", True)], ids=[("User ID", ctx.author.id)])
 
 
 # ---------------------------------------------------------------- moderation cases

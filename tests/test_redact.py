@@ -95,5 +95,5 @@ def test_hidden_command_failure_keeps_arguments_private_and_reason_scrubbed(monk
     card = logembeds.command_used(ctx, "Developer", "Built-in", error="Failed: secret-value-abc123")
     text = _text(card)
     assert "private_argument" not in text and "secret-value-abc123" not in text
-    assert "arguments hidden" in text and "**Result:** ❌ Failed:" in text
-    assert not card.fields
+    assert "arguments hidden" in text and "❌ Failed:" in text
+    assert card.title == "⚠️ Command failed"

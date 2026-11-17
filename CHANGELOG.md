@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Role permission tools and command logs.** `,rpa` retains its single-role Discord permission grant and now
+  also previews and confirms bulk removal with `,rpa <permission> [skip role]`; `,removepermall` uses the same
+  workflow. Bulk removal requires actual Discord Administrator, excludes @everyone, managed and unmanageable
+  roles, and reports unconfirmed edits. `,rpa help` groups supported permissions. Command logs use structured
+  cards and distinguish cancellation and partial updates. These are real Discord permissions, not fake grants.
+
 - **Staff hierarchy and Antinuke access.** Restore Helper, Mod, Admin, Head Admin, Overseer, Bot Manager and
   Supreme Leader as distinct levels; staff ranks no longer independently authorize Antinuke. The server owner,
   developers and explicitly appointed Antinuke admins retain access. The new Bot Manager has a distinct saved key;
@@ -48,8 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Real role permissions.** `,rpa @Role <permissions>` adds actual Discord role permission bits, with
-  real permission and hierarchy checks for the caller and bot. `,rpa` no longer aliases bulk removal;
-  use `,removepermall` for the existing bulk-removal command.
+  real permission and hierarchy checks for the caller and bot. Bulk removal is a separate action and also remains
+  available through `,removepermall`.
 
 - **Scoped Administrator dashboard access.** Discord Administrators can manage Automod, logging, leveling and
   tickets in authorized servers; sensitive security and authorization controls remain owner/developer only.
