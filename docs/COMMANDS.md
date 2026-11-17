@@ -1,6 +1,6 @@
 # Command reference
 
-475 commands. Default prefix `,`. `<required>` `[optional]`.
+477 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -407,9 +407,11 @@ _Keep your server in line_
 | `,roleblacklist authorize <target>` (auth, whitelist, allow) | Let a member or role hold blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
 | `,roleblacklist authorized` (allowed) | View members and roles authorized to bypass the role blacklist | manage roles, server owner or bot developer |
 | `,roleblacklist check [target]` (scan, audit, search) | Check for members holding blacklisted roles | server owner or bot developer |
+| `,roleblacklist exceptions` | List individual role exceptions (these do not grant Antinuke trust) | server owner or bot developer |
 | `,roleblacklist list` | View blacklisted roles | manage roles, server owner or bot developer |
 | `,roleblacklist remove <role>` (rem, delete) | Take a role off the role blacklist | manage roles, server owner or bot developer, uperm: admin |
 | `,roleblacklist strip` (purge, clean) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
+| `,roleblacklist unallow <member> <role>` | Remove one role-specific exception without removing the Discord role | server owner or bot developer |
 | `,roleblacklist unauthorize <target>` (unauth, unwhitelist) | Revoke a member's or role's authorization to bypass the role blacklist | manage roles, server owner or bot developer, uperm: headadmin |
 | `,roles` (rolelist) | List every role in the server, highest first |  |
 | `,rpa <role> <permissions>` | Give a role real Discord permissions | manage roles |

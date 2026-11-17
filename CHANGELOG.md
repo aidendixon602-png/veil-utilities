@@ -1,5 +1,7 @@
 # Changelog
 
+- Owners can give ordinary blacklisted roles through Veil without granting recipients broad role-blacklist authorization or Antinuke trust. Direct Discord owner grants use best-effort audit attribution and require View Audit Log; unverified grants can still be stripped. Scoped exceptions can be listed or revoked.
+
 - Ordinary bot permission checks now accept effective Discord channel permissions and role-based fake grants alongside Veil levels. Independent Antinuke, developer and owner protections, assignment rank gates, helper limits and hierarchy remain in force. Private/staff-only mode now recognizes Discord staff permissions and appointed Antinuke admins. Review existing role and channel permissions before deployment. Fake-permission lists can be filtered by role, common Discord aliases are accepted, and bulk reset requires confirmation.
 
 All notable changes to this project will be documented in this file.

@@ -1,6 +1,8 @@
 """Moderation: bans, timeouts, warns, purge, locks, roles, jail, cases."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from copy import deepcopy
 from datetime import timedelta
@@ -22,7 +24,7 @@ if not hasattr(_cu, "check_role_assignable"):
 from core import perms as perms_mod
 from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
-                        check_role, check_role_assignable, is_role_blacklisted, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
+                        check_role, check_role_assignable, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
                         has_soft_role_bypass, role_protection_ids)
 
@@ -145,7 +147,10 @@ class SingleMemberBledView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
         top_pos = getattr(getattr(self.ctx.guild.me, "top_role", None), "position", 999999)
-        valid = [r for r in self.roles_to_strip if getattr(r, "position", 0) < top_pos]
+        cfg = await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist")
+        exceptions = await self.cog._role_exceptions(self.ctx.guild.id)
+        denied = self.cog._unauthorized_bled_roles(self.ctx.guild, self.target, cfg, exceptions, self.roles_to_strip)
+        valid = [r for r in denied if getattr(r, "position", 0) < top_pos]
         if not valid:
             embed.color = Colors.error
             embed.description = "⚠️ Cannot strip roles — they are above my highest role."
@@ -243,7 +248,10 @@ class GuildBledView(discord.ui.View):
         for m, roles in self.unauthorized:
             if _perms.is_bot_developer(m, self.cog.bot):
                 continue
-            valid = [r for r in roles if getattr(r, "position", 0) < top_pos]
+            cfg = await self.cog.bot.db.get_config(self.ctx.guild.id, "roleblacklist")
+            exceptions = await self.cog._role_exceptions(self.ctx.guild.id)
+            denied = self.cog._unauthorized_bled_roles(self.ctx.guild, m, cfg, exceptions, roles)
+            valid = [r for r in denied if getattr(r, "position", 0) < top_pos]
             if valid:
                 try:
                     await m.remove_roles(*valid, reason=audit_reason(interaction.user, action="Veil: BLED role purge"))
@@ -287,6 +295,107 @@ class Moderation(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._role_exception_locks: dict[int, asyncio.Lock] = {}
+
+    def _exception_lock(self, guild_id: int) -> asyncio.Lock:
+        return self._role_exception_locks.setdefault(guild_id, asyncio.Lock())
+
+    async def _role_exceptions(self, guild_id: int) -> dict:
+        exceptions = await self.bot.db.get_config(guild_id, "rbl_role_exceptions")
+        if not isinstance(exceptions, dict) or any(not isinstance(v, list) for v in exceptions.values()):
+            raise UserError("Role blacklist exceptions could not be verified")
+        return exceptions
+
+    async def _change_role_exceptions(self, guild_id: int, member_id: int, role_ids, *, add: bool) -> bool:
+        """Called with the per-guild exception lock held; do not touch legacy trust grants."""
+        exceptions = deepcopy(await self._role_exceptions(guild_id))
+        key = str(member_id)
+        current = exceptions.get(key, [])
+        updated = list(current)
+        for rid in role_ids:
+            if add and rid not in updated:
+                updated.append(rid)
+            elif not add:
+                updated = [existing for existing in updated if existing != rid]
+        if updated == current:
+            return False
+        if updated:
+            exceptions[key] = updated
+        else:
+            exceptions.pop(key, None)
+        await self.bot.db.set_config_committed(guild_id, "rbl_role_exceptions", exceptions)
+        return True
+
+    async def _owner_audit_role_additions(self, member, roles, observed_at) -> dict[int, int]:
+        """Match recent, unambiguous Discord role-add audit entries; never guess on missing data.
+
+        Discord does not attach the actor to gateway updates, so this is a best-effort correlation,
+        not a cryptographic guarantee. The receipt prevents reusing an audit entry for later events.
+        """
+        guild = member.guild
+        if not getattr(getattr(guild.me, "guild_permissions", None), "view_audit_log", False):
+            return {}
+        try:
+            receipts = await self.bot.db.get_config(guild.id, "rbl_audit_receipts")
+            if not isinstance(receipts, dict) or not isinstance(receipts.get("ids", []), list):
+                return {}
+            consumed = set(receipts.get("ids", []))
+            matches: dict[int, list] = {}
+            for _ in range(3):
+                await asyncio.sleep(0.6)  # Audit entries may appear after the gateway event.
+                matches = {role.id: [] for role in roles}
+                count = 0
+                async with asyncio.timeout(3):
+                    async for entry in guild.audit_logs(limit=100, action=discord.AuditLogAction.member_role_update,
+                                                        after=observed_at - timedelta(seconds=3), oldest_first=False):
+                        count += 1
+                        if count >= 100:
+                            return {}  # A truncated result could hide an ambiguous role change.
+                        if getattr(getattr(entry, "target", None), "id", None) != member.id:
+                            continue
+                        created = entry.created_at
+                        age = (observed_at - created).total_seconds()
+                        if age < -2 or age > 3:
+                            continue
+                        added = {getattr(r, "id", None) for r in getattr(entry.after, "roles", [])}
+                        removed = {getattr(r, "id", None) for r in getattr(entry.before, "roles", [])}
+                        for rid in matches:
+                            if rid in added or rid in removed:
+                                matches[rid].append((entry, rid in added and rid not in removed))
+                if all(matches.values()):
+                    break
+            verified = {}
+            for rid, candidates in matches.items():
+                if len(candidates) != 1:
+                    continue  # multiple changes in the window cannot be safely attributed
+                entry, is_add = candidates[0]
+                entry_id = getattr(entry, "id", None)
+                if (is_add and isinstance(entry_id, int) and entry_id not in consumed
+                        and getattr(getattr(entry, "user", None), "id", None) == guild.owner_id):
+                    verified[rid] = entry_id
+            return verified
+        except Exception:
+            return {}
+
+    async def _record_owner_audit_exceptions(self, member, verified: dict[int, int]) -> None:
+        if not verified:
+            return
+        guild_id = member.guild.id
+        # Persist receipts first: a partial failure can deny access, but cannot replay an owner entry.
+        receipts = deepcopy(await self.bot.db.get_config(guild_id, "rbl_audit_receipts"))
+        if not isinstance(receipts, dict) or not isinstance(receipts.get("ids", []), list):
+            raise UserError("Role audit receipts could not be verified")
+        used = receipts.get("ids", [])
+        receipts["ids"] = list(dict.fromkeys([*used, *verified.values()]))[-1000:]
+        await self.bot.db.set_config_committed(guild_id, "rbl_audit_receipts", receipts)
+        await self._change_role_exceptions(guild_id, member.id, verified.keys(), add=True)
+
+    def _unauthorized_bled_roles(self, guild, member, cfg, exceptions, roles):
+        if self._is_role_authorized(guild, member, cfg):
+            return []
+        allowed = exceptions.get(str(member.id), [])
+        return [role for role in roles if role.id in cfg.get("roles", [])
+                and (role.id not in allowed or role.id in cfg.get("hard_roles", []))]
 
     async def cog_before_invoke(self, ctx: Context):
         from core.help import is_rbl_command
@@ -939,28 +1048,20 @@ class Moderation(commands.Cog):
         ctx.compact_role = role
 
     async def _authorize_bled_target(self, ctx: Context, member: discord.Member, role: discord.Role) -> bool:
-        """Giving someone a blacklisted role (allowed for authorized staff) also authorizes them to hold it.
-        Returns True if they were newly authorized."""
-        if not await is_role_blacklisted(ctx.guild.id, role.id, self.bot.db):
+        """Create only a role-specific exception for an owner/developer's explicit bot command."""
+        cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+        if role.id not in cfg.get("roles", []):
             return False
-        rbl_cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
-        if role.id in rbl_cfg.get("hard_roles", []):
+        if role.id in cfg.get("hard_roles", []):
             raise UserError("This role appears on both blacklists; remove one entry before assigning it")
-        # Soft bypasses must never be silently promoted into legacy authorizations,
-        # which are also used by antinuke as a trust exemption.
-        if has_soft_role_bypass(member, rbl_cfg):
+        if self._is_role_authorized(ctx.guild, member, cfg):
             return False
-        if (has_soft_role_bypass(ctx.author, rbl_cfg)
-                and not has_legacy_role_assignment_auth(ctx.author, ctx.guild, self.bot, rbl_cfg)):
+        if (has_soft_role_bypass(ctx.author, cfg)
+                and not has_legacy_role_assignment_auth(ctx.author, ctx.guild, self.bot, cfg)):
             raise UserError("A soft bypass only permits assigning a blacklisted role to someone who already has a bypass")
-        auth = rbl_cfg.setdefault("authorized", [])
-        if member.id in auth:
-            return False
         if not owner_or_developer(ctx.author, ctx.guild, self.bot):
-            raise UserError("Only the server owner or a bot developer may authorize someone for a blacklisted role")
-        auth.append(member.id)
-        await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", rbl_cfg)
-        return True
+            raise UserError("Only the server owner or a bot developer may make a role-specific exception")
+        return await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=True)
 
     async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"add {role.mention} to {member.mention}", role)
@@ -970,9 +1071,16 @@ class Moderation(commands.Cog):
             raise UserError("they already have it")
         if is_dangerous(role.permissions):
             await antinuke_guard(ctx, "permissions")
-        newly_authorized = await self._authorize_bled_target(ctx, member, role)
-        await member.add_roles(role, reason=audit_reason(ctx.author))
-        note = " · they're now authorized to hold this blacklisted role" if newly_authorized else ""
+        # Persist before the Discord call so its gateway event sees the exception; roll back on failure.
+        async with self._exception_lock(ctx.guild.id):
+            newly_allowed = await self._authorize_bled_target(ctx, member, role)
+            try:
+                await member.add_roles(role, reason=audit_reason(ctx.author))
+            except Exception:
+                if newly_allowed:
+                    await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
+                raise
+        note = " · allowed to hold this role only (no Antinuke trust)" if newly_allowed else ""
         await ctx.done(f"added {role.mention} to {member.mention}{note}")
 
     async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
@@ -981,7 +1089,9 @@ class Moderation(commands.Cog):
         await check_hierarchy_async(ctx, member, "modify roles on")
         if role not in member.roles:
             raise UserError("they don't have it")
-        await member.remove_roles(role, reason=audit_reason(ctx.author))
+        async with self._exception_lock(ctx.guild.id):
+            await member.remove_roles(role, reason=audit_reason(ctx.author))
+            await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
         await ctx.done(f"removed {role.mention} from {member.mention}")
 
     @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True,
@@ -1123,9 +1233,8 @@ class Moderation(commands.Cog):
         if add:
             await check_role_assignable(ctx, role)
             cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if (role.id in cfg.get("roles", []) and has_soft_role_bypass(ctx.author, cfg)
-                    and not has_legacy_role_assignment_auth(ctx.author, ctx.guild, self.bot, cfg)):
-                raise UserError("A soft bypass cannot mass-assign blacklisted roles")
+            if role.id in cfg.get("roles", []):
+                raise UserError("Cannot mass-assign blacklisted roles; use the role command for each recipient")
         else:
             check_role(ctx, role)
         targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))
@@ -1359,6 +1468,26 @@ class Moderation(commands.Cog):
         """Blacklist roles so the bot refuses to assign them"""
         await ctx.send_help(ctx.command)
 
+    @roleblacklist.command(name="exceptions")
+    @is_server_owner()
+    async def rbl_exceptions(self, ctx: Context):
+        """List individual role exceptions (these do not grant Antinuke trust)"""
+        exceptions = await self._role_exceptions(ctx.guild.id)
+        lines = [f"<@{uid}> · <@&{rid}> (`{rid}`)" for uid, roles in exceptions.items() for rid in roles]
+        if not lines:
+            return await ctx.neutral("There are no role-specific blacklist exceptions.")
+        await ctx.paginate(chunk_embeds("Role-specific blacklist exceptions", lines, numbered=False))
+
+    @roleblacklist.command(name="unallow")
+    @is_server_owner()
+    async def rbl_unallow(self, ctx: Context, member: discord.Member, role: discord.Role):
+        """Remove one role-specific exception without removing the Discord role"""
+        async with self._exception_lock(ctx.guild.id):
+            changed = await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
+        if not changed:
+            return await ctx.warn(f"{member.mention} has no exception for {role.mention}")
+        await ctx.approve(f"removed {member.mention}'s exception for {role.mention}; their role was not removed")
+
     @roleblacklist.command(name="add")
     @requires_uperm("admin")
     @has_perms(manage_roles=True)
@@ -1375,10 +1504,11 @@ class Moderation(commands.Cog):
         await self.bot.db.set_config_committed(ctx.guild.id, "roleblacklist", cfg)
 
         # Strip from current members if any currently hold it (skipping authorized members & devs)
+        exceptions = await self._role_exceptions(ctx.guild.id)
         top_pos = getattr(getattr(ctx.guild.me, "top_role", None), "position", 999999)
         if ctx.guild.me.guild_permissions.manage_roles and getattr(role, "position", 0) < top_pos:
             for member in list(ctx.guild.members):
-                if self._is_role_authorized(ctx.guild, member, cfg):
+                if not self._unauthorized_bled_roles(ctx.guild, member, cfg, exceptions, [role]):
                     continue
                 if role in getattr(member, "roles", []):
                     try:
@@ -1457,15 +1587,17 @@ class Moderation(commands.Cog):
 
         unauthorized = []
         authorized_with_roles = []
+        exceptions = await self._role_exceptions(ctx.guild.id)
         for m in list(ctx.guild.members):
             if getattr(m, "id", None) == getattr(ctx.guild.me, "id", None):
                 continue
             held = [r for r in getattr(m, "roles", []) if r.id in b_roles]
             if held:
-                if self._is_role_authorized(ctx.guild, m, cfg):
-                    authorized_with_roles.append((m, held))
-                else:
-                    unauthorized.append((m, held))
+                denied = self._unauthorized_bled_roles(ctx.guild, m, cfg, exceptions, held)
+                if denied:
+                    unauthorized.append((m, denied))
+                if len(denied) < len(held):
+                    authorized_with_roles.append((m, [r for r in held if r not in denied]))
 
         if not unauthorized:
             embed = discord.Embed(
@@ -1528,7 +1660,8 @@ class Moderation(commands.Cog):
             raise UserError(f"couldn't find a member matching `{target}`, run `{ctx.clean_prefix}checkbled` without arguments to scan the whole server")
 
         held = [r for r in getattr(member, "roles", []) if r.id in b_roles]
-        is_auth = self._is_role_authorized(ctx.guild, member, cfg)
+        exceptions = await self._role_exceptions(ctx.guild.id)
+        denied = self._unauthorized_bled_roles(ctx.guild, member, cfg, exceptions, held)
 
         if not b_roles or not held:
             embed = discord.Embed(
@@ -1541,7 +1674,7 @@ class Moderation(commands.Cog):
             embed.timestamp = discord.utils.utcnow()
             return await ctx.send(embed=embed)
 
-        if is_auth:
+        if not denied:
             embed = discord.Embed(
                 title="Role Blacklist Check",
                 color=Colors.mint,
@@ -1553,7 +1686,8 @@ class Moderation(commands.Cog):
             embed.timestamp = discord.utils.utcnow()
             return await ctx.send(embed=embed)
 
-        # Target holds blacklisted roles and is NOT authorized
+        # Report and offer to strip only roles for which this member lacks an exception.
+        held = denied
         embed = discord.Embed(
             title="Role Blacklist Check",
             color=Colors.error,
@@ -1596,10 +1730,10 @@ class Moderation(commands.Cog):
         done = 0
         removed_count = 0
 
+        exceptions = await self._role_exceptions(ctx.guild.id)
         for m in list(ctx.guild.members):
-            if self._is_role_authorized(ctx.guild, m, cfg):
-                continue
-            to_remove = [r for r in getattr(m, "roles", []) if r.id in b_roles and getattr(r, "position", 0) < top_pos]
+            denied = self._unauthorized_bled_roles(ctx.guild, m, cfg, exceptions, getattr(m, "roles", []))
+            to_remove = [r for r in denied if getattr(r, "position", 0) < top_pos]
             if to_remove:
                 try:
                     await m.remove_roles(*to_remove, reason=audit_reason(ctx.author, action="Veil: BLED role purge"))
@@ -1878,17 +2012,30 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     pass
 
-        # Role blacklist enforcement: immediately strip forbidden roles if assigned
+        # Exceptions are scoped to one holding; a removed role no longer has an exception.
         if before.roles != after.roles:
+            observed_at = discord.utils.utcnow()
             added = [r for r in after.roles if r not in before.roles]
-            if added:
-                cfg = await self.bot.db.get_config(after.guild.id, "roleblacklist")
-                b_ids = set(cfg.get("roles", []))
-                has_bled = any(r.id in b_ids for r in added)
-
-                if has_bled and not self._is_role_authorized(after.guild, after, cfg):
+            removed = [r for r in before.roles if r not in after.roles]
+            async with self._exception_lock(after.guild.id):
+                if removed:
+                    await self._change_role_exceptions(after.guild.id, after.id, [r.id for r in removed], add=False)
+                if added:
+                    cfg = await self.bot.db.get_config(after.guild.id, "roleblacklist")
+                    exceptions = await self._role_exceptions(after.guild.id)
+                    denied = self._unauthorized_bled_roles(after.guild, after, cfg, exceptions, added)
+                    if denied:
+                        auditable = [r for r in denied if r.id not in cfg.get("hard_roles", [])]
+                        verified = await self._owner_audit_role_additions(after, auditable, observed_at) if auditable else {}
+                        if verified:
+                            try:
+                                await self._record_owner_audit_exceptions(after, verified)
+                                exceptions = await self._role_exceptions(after.guild.id)
+                                denied = self._unauthorized_bled_roles(after.guild, after, cfg, exceptions, added)
+                            except Exception:
+                                logging.getLogger("veil").exception("Could not save role-specific owner exception for guild %s", after.guild.id)
                     top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
-                    to_strip = [r for r in added if r.id in b_ids and getattr(r, "position", 0) < top_pos]
+                    to_strip = [r for r in denied if getattr(r, "position", 0) < top_pos]
                     if to_strip and after.guild.me.guild_permissions.manage_roles:
                         try:
                             await after.remove_roles(*to_strip, reason="Veil: Role is blacklisted")
@@ -1992,18 +2139,26 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     pass
 
+        # Drop stale exceptions for roles no longer held when a member returns.
+        async with self._exception_lock(member.guild.id):
+            exceptions = await self._role_exceptions(member.guild.id)
+            held_ids = {r.id for r in getattr(member, "roles", [])}
+            missing = [rid for rid in exceptions.get(str(member.id), []) if rid not in held_ids]
+            if missing:
+                await self._change_role_exceptions(member.guild.id, member.id, missing, add=False)
+
         # strip any blacklisted roles if member rejoins or has them
         rbl = await self._cfg(member.guild.id, "roleblacklist")
-        if not self._is_role_authorized(member.guild, member, rbl):
-            b_roles = set(rbl.get("roles", []))
-            top_pos = getattr(getattr(member.guild.me, "top_role", None), "position", 999999)
-            if b_roles and member.guild.me.guild_permissions.manage_roles:
-                to_remove = [r for r in getattr(member, "roles", []) if r.id in b_roles and getattr(r, "position", 0) < top_pos]
-                if to_remove:
-                    try:
-                        await member.remove_roles(*to_remove, reason="Veil: Role is blacklisted")
-                    except discord.HTTPException:
-                        pass
+        exceptions = await self._role_exceptions(member.guild.id)
+        denied = self._unauthorized_bled_roles(member.guild, member, rbl, exceptions, getattr(member, "roles", []))
+        top_pos = getattr(getattr(member.guild.me, "top_role", None), "position", 999999)
+        if denied and member.guild.me.guild_permissions.manage_roles:
+            to_remove = [r for r in denied if getattr(r, "position", 0) < top_pos]
+            if to_remove:
+                try:
+                    await member.remove_roles(*to_remove, reason="Veil: Role is blacklisted")
+                except discord.HTTPException:
+                    pass
 
         # re-apply quarantine if member rejoins
         q_cfg = await self._cfg(member.guild.id, "quarantine")
@@ -2134,10 +2289,10 @@ class Moderation(commands.Cog):
         rbl_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = rbl_cfg.get("roles", [])
         if b_roles:
+            exceptions = await self._role_exceptions(ctx.guild.id)
             unauth_holders = [
                 m for m in ctx.guild.members
-                if not self._is_role_authorized(ctx.guild, m, rbl_cfg)
-                and any(r.id in b_roles for r in getattr(m, "roles", []))
+                if self._unauthorized_bled_roles(ctx.guild, m, rbl_cfg, exceptions, getattr(m, "roles", []))
             ]
             if unauth_holders:
                 score -= 15

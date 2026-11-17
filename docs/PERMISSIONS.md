@@ -150,6 +150,28 @@ and timeout will again require Moderator. Do not assume the old code enforces th
 and back up the database; verify schema compatibility and access before resuming service. See
 [hosting and updates](HOSTING.md#updating) for general backup and rollback guidance.
 
+## Owner-assigned blacklisted roles
+
+For the ordinary blacklist, the server owner or a bot developer can use `,role @member @role` to give
+one blacklisted role without `,rbl auth`. Veil stores an exception for **that member and that role only**;
+it does not add them to the legacy authorized list or grant Antinuke trust. Existing broad authorizations
+are left unchanged. Discord's role hierarchy, bot permissions, and the hard blacklist still apply.
+
+When the server owner grants an ordinary blacklisted role directly in Discord, Veil attempts to match a
+recent, unambiguous Discord audit-log role addition to that owner and records the same scoped exception.
+The bot needs **View Audit Log** as well as Manage Roles, and must receive member-update events (Server Members Intent). If the audit log is delayed, missing, inaccessible,
+ambiguous, or the write fails, Veil cannot verify the owner and may remove the role; use the Veil command
+instead. Audit-log correlation is best effort, not proof: rapid concurrent role changes and Discord event
+or audit delays can cause incorrect attribution. Restrict Manage Roles and do not treat this as a complete
+security boundary. Developer direct-Discord assignments are not automatically excepted.
+
+Use `,rbl exceptions` to review individual exceptions and `,rbl unallow @member @role` to revoke one.
+Revoking an exception does not itself remove the Discord role; a later blacklist scan/strip, role update, or
+rejoin can enforce the blacklist. Veil clears the exception when it observes that role being removed, but
+can miss changes while offline; review exceptions after downtime. Saved exceptions can remain when a role
+is removed from and later re-added to the blacklist; review and revoke them if needed. Automatic/self-service
+role grants remain blocked for blacklisted roles, and mass role assignment cannot grant them.
+
 ## Soft bypasses and hard role blacklist (initial increment)
 
 The server owner or a bot developer may use `,bypass add @member` / `,bypass add @role`,

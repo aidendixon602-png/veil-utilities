@@ -66,7 +66,7 @@ def test_soft_bypass_roles_are_separate_and_do_not_create_legacy_authorizations(
         with pytest.raises(UserError, match="already has a bypass"):
             await cog._authorize_bled_target(ctx, stranger, protected)
         assert cfg["authorized"] == []
-        with pytest.raises(UserError, match="cannot mass-assign"):
+        with pytest.raises(UserError, match="Cannot mass-assign"):
             await cog._mass_role(ctx, "add", protected, lambda m: True, "everyone")
 
     asyncio.run(run())
@@ -229,7 +229,7 @@ def test_soft_bypass_does_not_promote_a_globally_trusted_actor_to_legacy_grant(r
         cog = Moderation(bot)
         with pytest.raises(UserError, match="already has a bypass"):
             await cog._authorize_bled_target(ctx, target, protected)
-        with pytest.raises(UserError, match="cannot mass-assign"):
+        with pytest.raises(UserError, match="Cannot mass-assign"):
             await cog._mass_role(ctx, "add", protected, lambda m: True, "everyone")
         assert cfg["authorized"] == []
     asyncio.run(run())
