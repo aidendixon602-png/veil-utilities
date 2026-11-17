@@ -1166,3 +1166,75 @@ def test_home_descriptions_follow_the_same_visibility_as_the_buttons():
     assert "**Antinuke**" in owner.home.description and "**Developer**" in owner.home.description
     assert all(item.emoji is not None for item in public.children if isinstance(item, CategoryButton))
     assert len(owner.home.description) < 4096
+
+
+def test_requested_commands_are_absent_from_category_menus_but_remain_registered(loaded_bot):
+    from core.help import CATEGORY_MENU_EXCLUDED_COMMANDS, CommandSelect, category_commands
+
+    requested = {
+        'softban', 'lock', 'unlock', 'lockdown', 'unlockdown', 'botclear', 'forcenickname', 'hide', 'viewadmins',
+        'unhide', 'addpermall', 'autorole', 'buttonrole', 'reactionrole', 'removepermall', 'role', 'vanity',
+        'botchannels', 'disablecommand', 'enablecommand', 'ignore', 'modlog', 'permlevels',
+    }
+    assert CATEGORY_MENU_EXCLUDED_COMMANDS == requested
+    categories = category_commands(loaded_bot)
+    assert all(loaded_bot.get_command(name) is not None for name in requested)
+    assert not requested.intersection(c.qualified_name for entries in categories.values() for c in entries)
+    assert {'warn', 'kick', 'ban', 'purge'} <= {c.name for c in categories['Moderation']}
+    assert {'userperm', 'roles'} <= {c.name for c in categories['Roles']}
+    assert {'fakepermissions', 'staffonly'} <= {c.name for c in categories['Permissions']}
+
+    for owner, rank in [(True, 10000), (False, 3), (False, 7)]:
+        h = _help()
+        h.context.bot = loaded_bot
+        view = HelpView(h, categories, is_owner=owner, author_rank=rank)
+        for label, entries in view.items.items():
+            assert not requested.intersection(c.name for c in entries), label
+            assert view.sizes[label] == len(view.commands_in(label))
+            for page in view.books[label]:
+                _fits(page)
+                for name in requested:
+                    assert f'`,{name}`' not in (page.description or ''), (label, name)
+        for label in view.pages:
+            view.current = label
+            for page in range(len(view.books[label])):
+                view.page = page
+                view._build_items()
+                for child in view.children:
+                    if isinstance(child, CommandSelect):
+                        assert not requested.intersection(option.value for option in child.options)
+        view.stop()
+
+
+def test_direct_help_and_aliases_still_work_for_removed_menu_entries(loaded_bot):
+    from core.help import CATEGORY_MENU_EXCLUDED_COMMANDS, command_category_gate, visible_command
+
+    async def go():
+        h = _help()
+        h.context.bot = loaded_bot
+        h.context.send = AsyncMock()
+        h.is_owner_check = AsyncMock(return_value=True)
+        h.get_author_rank = AsyncMock(return_value=10000)
+        for name in CATEGORY_MENU_EXCLUDED_COMMANDS:
+            cmd = loaded_bot.get_command(name)
+            assert visible_command(cmd, loaded_bot, True, 10000)
+            h.context.send.reset_mock()
+            if isinstance(cmd, commands.Group):
+                await h.send_group_help(cmd)
+            else:
+                await h.send_command_help(cmd)
+            assert h.context.send.await_count == 1, name
+            assert h.context.send.await_args.kwargs['embed'] is not None
+        assert loaded_bot.get_command('bc') is loaded_bot.get_command('botclear')
+        assert loaded_bot.get_command('reveal') is loaded_bot.get_command('unhide')
+        assert loaded_bot.get_command('apa') is loaded_bot.get_command('addpermall')
+        assert loaded_bot.get_command('rr') is loaded_bot.get_command('reactionrole')
+        assert loaded_bot.get_command('r') is loaded_bot.get_command('role')
+        assert loaded_bot.get_command('dcmd') is loaded_bot.get_command('disablecommand')
+        h.context.send.reset_mock()
+        await h.send_command_help(loaded_bot.get_command('role add'))
+        assert h.context.send.await_count == 1
+        assert command_category_gate(loaded_bot.get_command('role'), loaded_bot) == 3
+        assert visible_command(loaded_bot.get_command('role'), loaded_bot, False, 3)
+        assert not visible_command(loaded_bot.get_command('role'), loaded_bot, False, 0)
+    asyncio.run(go())

@@ -12,7 +12,8 @@ Antinuke and blacklist menus also check their original user's current authorizat
 can still read messages in channels they can access, and shared panels (such as tickets, giveaways, VoiceMaster,
 and role buttons) remain shared according to their own access rules. Server and user info cards have no interactive
 controls. Permission assignment lists show **direct saved grants**, not a complete view of automatic or fake
-permissions. Presentation and help visibility do not replace the checks that run when a command is used.
+permissions. Some commands are omitted from category menus; use `,help <command>` for direct help if authorized.
+Presentation and help visibility do not replace the checks that run when a command is used.
 
 ## Permissions and server authorization
 
