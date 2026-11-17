@@ -493,10 +493,11 @@ def test_authorized_author_can_assign_blacklisted_role(bot, monkeypatch):
         cog._resolve_member_role = AsyncMock(return_value=(target, r_bled))
         ctx = _mock_context(bot, guild, dev_author)
 
-        # Authorized dev assigning blacklisted role should SUCCEED and auto-authorize target!
+        # A developer can give this role without broadly authorizing the target.
         await Moderation.role.callback(cog, ctx, "666", arg2="888")
         target.add_roles.assert_called_once()
-        assert 666 in bot._storage[(123, "roleblacklist")]["authorized"]
+        assert bot._storage[(123, "roleblacklist")]["authorized"] == []
+        assert bot._storage[(123, "rbl_role_exceptions")] == {"666": [888]}
 
     asyncio.run(_run())
 

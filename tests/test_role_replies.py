@@ -228,7 +228,7 @@ def test_failure_end_to_end_with_real_context(bot):
     asyncio.run(go())
 
 
-def test_giving_a_blacklisted_role_says_the_member_was_authorized(bot):
+def test_giving_a_blacklisted_role_says_it_is_role_specific(bot):
     async def go():
         guild = _mock_guild(1)
         author = _mock_member(guild.owner_id)
@@ -240,7 +240,7 @@ def test_giving_a_blacklisted_role_says_the_member_was_authorized(bot):
         ctx = real_ctx(bot, guild, author, Moderation.role)
         await Moderation.role.callback(cog, ctx, "50", arg2="60")
         assert sent_embed(ctx).description == (
-            "✅ <@11111> · added <@&60> to <@50> · they're now authorized to hold this blacklisted role")
+            "✅ <@11111> · added <@&60> to <@50> · allowed to hold this role only (no Antinuke trust)")
     asyncio.run(go())
 
 
