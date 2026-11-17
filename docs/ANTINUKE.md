@@ -93,18 +93,30 @@ current antinuke implementation. Review both settings before relying on enforcem
 
 ### Scoped Administrator role grants
 
-The actual Discord server owner or a bot developer can authorize a member to give eligible Administrator roles:
+The actual Discord server owner or a bot developer can authorize a member or role to give eligible Administrator roles:
 
 ```text
 ,adminrolegrant add @member
+,adminrolegrant add @role
 ,adminrolegrant list
 ,adminrolegrant remove @member
+,adminrolegrant remove @role
 ,adminrolegrant removeid <member_id>
+,adminrolegrant removeroleid <role_id>
 ```
 
-Once authorized, the human can directly give any eligible Administrator role to an individual with
+Authorizing a role covers **all its current and future human holders** while they have it, not just
+members present at setup. It does not grant Antinuke whitelist status. The everyone role, managed roles,
+and roles explicitly whitelisted in Antinuke cannot be authorized. If an authorized role later becomes
+Antinuke-whitelisted, its holders are trusted under the pre-existing Antinuke settings: review and remove
+that trust separately. Do not authorize a role that members can easily give themselves. A member can also
+be authorized directly; removing one authorization does not remove their other authorizations. Server owners
+and developers can manage these authorizations under **Antinuke → Administrator-role granters** in the
+Discord-login dashboard. The dashboard uses member or role IDs, and requires confirmation of role scope.
+
+Once authorized, a human holder can directly give any eligible Administrator role to an individual with
 `,r @recipient @AdministratorRole` (no approval for each grant). This covers eligible Administrator roles
-created or changed in the future, not just roles present when the member was authorized. Scoped grants are limited to one per
+created or changed in the future, not just roles present when they were authorized. Scoped grants are limited to one per
 person per server every 60 seconds, across roles and recipients; the limit survives restarts. The slot is
 recorded before the Discord request, so a failed or uncertain request can still consume it. These individual
 assignments are excepted from Antinuke's Permission Grant **command guard**, including when that rule is on.

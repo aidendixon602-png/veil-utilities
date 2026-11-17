@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Administrator-role granter roles and dashboard.** Owners and developers can authorize a role with
+  `,adminrolegrant add @role`, covering its current and future human holders without granting Antinuke trust.
+  Dashboard Antinuke settings now include owner/developer management for these role and member authorizations.
+
 - **Scoped Administrator role delegation.** Owners and developers can authorize a human to grant eligible
   Administrator roles with `,adminrolegrant add @member`. Individual grants need no further approval, have a 60-second per-person cooldown and
   are excepted from Antinuke's Permission Grant command guard. Other protections remain best effort.

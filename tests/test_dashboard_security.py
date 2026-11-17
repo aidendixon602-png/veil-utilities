@@ -1560,3 +1560,153 @@ def test_dashboard_logging_rejects_new_vanguard_routes_without_changing_existing
         assert bot.db.store[(GUILD_ID, 'logs')] == {'messages': None}
         assert not bot.db.writes
     run(server, scenario)
+
+
+def test_dashboard_admin_grants_are_owner_only_and_share_command_store():
+    from cogs.moderation import Moderation
+    from test_roleblacklist_enforcement import _mock_member, _mock_role
+
+    bot = make_bot()
+    guild = bot.guilds[0]
+    member = _mock_member(300)
+    role = _mock_role(400, 'Role granters')
+    guild.get_member = lambda uid: member if uid == member.id else None
+    guild.get_role = lambda rid: role if rid == role.id else None
+    bot.db.store[(GUILD_ID, 'antinuke')] = {'enabled': True, 'modules': {}, 'whitelist_roles': []}
+    antinuke = SimpleNamespace(_trusted=AsyncMock(return_value=False))
+    cog = Moderation(bot)
+    bot.get_cog = lambda name: {'Moderation': cog, 'Antinuke': antinuke}.get(name)
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    _, stranger_headers = cookie(server, STRANGER)
+    csrf = csrf_of(server, token)
+
+    async def scenario(client):
+        page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
+        html = await page.text()
+        assert 'Administrator-role granters' in html
+        assert 'all current and future human holders' in html
+        rev = _feature_revision(html, GUILD_ID, 'admin-grant')
+        url = f'/servers/{GUILD_ID}/features/admin-grant'
+        data = {'csrf': csrf, 'revision': rev, 'target_id': str(member.id), 'grant_kind': 'member', 'operation': 'add'}
+        denied = await client.post(url, headers=stranger_headers, data=data)
+        assert denied.status in (403, 404)
+        assert not bot.db.writes
+        bad_csrf = await client.post(url, headers=headers, data={**data, 'csrf': 'bad'})
+        assert bad_csrf.status == 403 and not bot.db.writes
+        added = await client.post(url, headers=headers, data=data, allow_redirects=False)
+        assert added.status == 302
+        assert bot.db.store[(GUILD_ID, 'admin_role_granters')] == {str(member.id): True}
+        assert await cog._has_admin_role_grant(GUILD_ID, member)
+        stale = await client.post(url, headers=headers, data={**data, 'operation': 'remove'})
+        assert stale.status == 409
+        page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
+        html = await page.text()
+        assert str(member.id) in html
+        rev = _feature_revision(html, GUILD_ID, 'admin-grant')
+        role_data = {**data, 'revision': rev, 'target_id': str(role.id), 'grant_kind': 'role'}
+        missing_confirmation = await client.post(url, headers=headers, data=role_data)
+        assert missing_confirmation.status == 400
+        added = await client.post(url, headers=headers, data={**role_data, 'confirm_role': 'yes'}, allow_redirects=False)
+        assert added.status == 302
+        assert bot.db.store[(GUILD_ID, 'admin_role_granter_roles')] == {str(role.id): True}
+        assert bot.db.store[(GUILD_ID, 'antinuke')]['whitelist_roles'] == []
+        member.roles = [role]
+        page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
+        rev = _feature_revision(await page.text(), GUILD_ID, 'admin-grant')
+        revoked = await client.post(url, headers=headers,
+                                    data={**role_data, 'revision': rev, 'operation': 'remove'}, allow_redirects=False)
+        assert revoked.status == 302
+        assert bot.db.store[(GUILD_ID, 'admin_role_granter_roles')] == {}
+        assert bot.db.store[(GUILD_ID, 'admin_role_granters')] == {str(member.id): True}
+    run(server, scenario)
+
+
+def test_dashboard_admin_grants_validate_targets_and_fail_closed():
+    from cogs.moderation import Moderation
+    from test_roleblacklist_enforcement import _mock_member, _mock_role
+
+    bot = make_bot()
+    guild = bot.guilds[0]
+    member = _mock_member(300)
+    role = _mock_role(400, 'Staff')
+    guild.get_member = lambda uid: member if uid == member.id else None
+    guild.get_role = lambda rid: role if rid == role.id else None
+    bot.db.store[(GUILD_ID, 'antinuke')] = {'enabled': True, 'modules': {}, 'whitelist_roles': []}
+    antinuke = SimpleNamespace(_trusted=AsyncMock(return_value=False))
+    cog = Moderation(bot)
+    bot.get_cog = lambda name: {'Moderation': cog, 'Antinuke': antinuke}.get(name)
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+
+    async def scenario(client):
+        page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
+        rev = _feature_revision(await page.text(), GUILD_ID, 'admin-grant')
+        base = {'csrf': csrf_of(server, token), 'revision': rev, 'target_id': str(role.id),
+                'grant_kind': 'role', 'operation': 'add', 'confirm_role': 'yes'}
+        url = f'/servers/{GUILD_ID}/features/admin-grant'
+        role.is_default.return_value = True
+        assert (await client.post(url, headers=headers, data=base)).status == 400
+        role.is_default.return_value = False
+        role.managed = True
+        assert (await client.post(url, headers=headers, data=base)).status == 400
+        role.managed = False
+        bot.db.store[(GUILD_ID, 'antinuke')]['whitelist_roles'] = [role.id]
+        assert (await client.post(url, headers=headers, data=base)).status == 400
+        antinuke._trusted.return_value = True
+        assert (await client.post(url, headers=headers,
+                                  data={**base, 'grant_kind': 'member', 'target_id': str(member.id)})).status == 400
+        assert (await client.post(url, headers=headers, data={**base, 'target_id': 'garbage'})).status == 400
+        assert not bot.db.writes
+        bot.get_cog = lambda _: None
+        assert (await client.post(url, headers=headers, data=base)).status == 503
+    run(server, scenario)
+
+
+def test_discord_administrator_cannot_manage_admin_role_grants():
+    from cogs.moderation import Moderation
+
+    bot = make_bot()
+    bot.get_cog = lambda name: Moderation(bot) if name == 'Moderation' else None
+    server = login_server(bot)
+    server._is_discord_admin = AsyncMock(return_value=True)
+    token, headers = cookie(server, STRANGER)
+    async def scenario(client):
+        page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
+        assert page.status == 403
+        result = await client.post(f'/servers/{GUILD_ID}/features/admin-grant', headers=headers,
+                                   data={'csrf': csrf_of(server, token), 'operation': 'add', 'grant_kind': 'member',
+                                         'target_id': '333', 'revision': 'bad'})
+        assert result.status == 403
+        assert not bot.db.writes
+    run(server, scenario)
+
+
+def test_dashboard_admin_grant_revision_detects_discord_command_change():
+    from cogs.moderation import Moderation
+    from test_roleblacklist_enforcement import _mock_context, _mock_member, _mock_role
+
+    bot = make_bot()
+    guild = bot.guilds[0]
+    role = _mock_role(400, 'Staff')
+    member = _mock_member(300)
+    guild.get_member = lambda uid: member if uid == member.id else None
+    guild.get_role = lambda rid: role if rid == role.id else None
+    bot.db.store[(GUILD_ID, 'antinuke')] = {'enabled': True, 'modules': {}, 'whitelist_roles': []}
+    an = SimpleNamespace(_trusted=AsyncMock(return_value=False))
+    cog = Moderation(bot)
+    bot.get_cog = lambda name: {'Moderation': cog, 'Antinuke': an}.get(name)
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
+        rev = _feature_revision(await page.text(), GUILD_ID, 'admin-grant')
+        ctx = _mock_context(bot, guild, _mock_member(GUILD_OWNER))
+        await Moderation.admin_role_grant_add.callback(cog, ctx, role)
+        result = await client.post(f'/servers/{GUILD_ID}/features/admin-grant', headers=headers,
+                                   data={'csrf': csrf_of(server, token), 'operation': 'add', 'grant_kind': 'member',
+                                         'target_id': str(member.id), 'revision': rev})
+        assert result.status == 409
+        assert bot.db.store[(GUILD_ID, 'admin_role_granter_roles')] == {str(role.id): True}
+        assert bot.db.store[(GUILD_ID, 'admin_role_granters')] == {}
+    run(server, scenario)

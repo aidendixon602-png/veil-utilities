@@ -135,7 +135,8 @@ def test_scope_add_rejects_bots_and_existing_trust(role_bot):  # noqa: F811
 
 def test_owner_gates_apply_to_every_management_subcommand():
     for command in (Moderation.admin_role_grant, Moderation.admin_role_grant_add,
-                    Moderation.admin_role_grant_remove, Moderation.admin_role_grant_remove_id, Moderation.admin_role_grant_list):
+                    Moderation.admin_role_grant_remove, Moderation.admin_role_grant_remove_id, Moderation.admin_role_grant_remove_role_id,
+                    Moderation.admin_role_grant_list):
         assert any(getattr(check, '__veil_owner_only__', False) for check in command.checks)
 
 
@@ -317,6 +318,94 @@ def test_corrupt_or_old_per_role_config_fails_closed(role_bot):  # noqa: F811
 
 
 def test_management_commands_take_only_member_or_id():
-    assert list(Moderation.admin_role_grant_add.clean_params) == ['member']
-    assert list(Moderation.admin_role_grant_remove.clean_params) == ['member']
+    assert list(Moderation.admin_role_grant_add.clean_params) == ['target']
+    assert list(Moderation.admin_role_grant_remove.clean_params) == ['target']
     assert list(Moderation.admin_role_grant_remove_id.clean_params) == ['member_id']
+
+
+def test_role_authorization_applies_to_current_holders_without_antinuke_trust(role_bot, monkeypatch):  # noqa: F811
+    async def go():
+        cog, ctx, actor, target, role, _, config = setup(role_bot)
+        staff_role = _mock_role(222, 'Staff', pos=70)
+        actor.roles = [staff_role]
+        await Moderation.admin_role_grant_add.callback(cog, ctx, staff_role)
+        assert role_bot._storage[(123, 'admin_role_granter_roles')] == {str(staff_role.id): True}
+        ctx.author = actor
+        config['modules']['permissions'] = {'on': True}
+        guard = AsyncMock()
+        monkeypatch.setattr('cogs.moderation.antinuke_guard', guard)
+        await cog._give_role(ctx, target, role)
+        target.add_roles.assert_awaited_once()
+        guard.assert_not_awaited()
+        real_an = Antinuke(SimpleNamespace(user=SimpleNamespace(id=99999), owner_ids=set(), db=role_bot.db))
+        assert not await real_an._trusted(ctx.guild, config, actor.id)
+        assert not await real_an._trusted(ctx.guild, config, target.id)
+        assert not config['whitelist_roles']
+        actor.roles = []
+        other = _mock_member(10003)
+        other.top_role = _mock_role(10, 'target top', pos=20)
+        with pytest.raises(UserError):
+            await cog._give_role(ctx, other, role)
+        other.add_roles.assert_not_awaited()
+    run(go())
+
+
+def test_role_granter_revocation_and_invalid_roles(role_bot):  # noqa: F811
+    async def go():
+        cog, ctx, actor, target, role, _, config = setup(role_bot)
+        staff = _mock_role(222, 'Staff', pos=70)
+        for invalid in ('everyone', 'managed', 'whitelisted'):
+            staff.is_default.return_value = invalid == 'everyone'
+            staff.managed = invalid == 'managed'
+            config['whitelist_roles'] = [staff.id] if invalid == 'whitelisted' else []
+            with pytest.raises(UserError):
+                await Moderation.admin_role_grant_add.callback(cog, ctx, staff)
+        config['whitelist_roles'] = []
+        staff.managed = False
+        staff.is_default.return_value = False
+        await Moderation.admin_role_grant_add.callback(cog, ctx, staff)
+        actor.roles = [staff]
+        await Moderation.admin_role_grant_remove_role_id.callback(cog, ctx, staff.id)
+        assert role_bot._storage[(123, 'admin_role_granter_roles')] == {}
+        ctx.author = actor
+        with pytest.raises(UserError):
+            await cog._give_role(ctx, target, role)
+        target.add_roles.assert_not_awaited()
+    run(go())
+
+
+def test_authorized_role_cannot_exempt_bots_or_existing_antinuke_trust(role_bot):  # noqa: F811
+    async def go():
+        cog, ctx, actor, target, role, an, _ = setup(role_bot)
+        staff = _mock_role(222, 'Staff', pos=70)
+        await Moderation.admin_role_grant_add.callback(cog, ctx, staff)
+        actor.roles = [staff]
+        ctx.author = actor
+        actor.bot = True
+        with pytest.raises(UserError, match='human'):
+            await cog._give_role(ctx, target, role)
+        actor.bot = False
+        an._trusted.return_value = True
+        with pytest.raises(UserError, match='Antinuke trust'):
+            await cog._give_role(ctx, target, role)
+        target.add_roles.assert_not_awaited()
+    run(go())
+
+
+def test_role_mention_parses_for_adminrolegrant(role_bot):  # noqa: F811
+    from discord.ext.commands.view import StringView
+
+    async def go():
+        cog, ctx, _, _, _, _, _ = setup(role_bot)
+        staff = _mock_role(123456789012345678, 'Staff')
+        ctx.guild.get_role.side_effect = lambda rid: staff if rid == staff.id else None
+        ctx.message.role_mentions = [staff]
+        ctx.view = StringView(f'<@&{staff.id}>')
+        ctx.command = cog.admin_role_grant_add
+        ctx.args = []
+        ctx.kwargs = {}
+        await cog.admin_role_grant_add._parse_arguments(ctx)
+        assert ctx.args[-1] is staff
+        await cog.admin_role_grant_add.callback(cog, ctx, ctx.args[-1])
+        assert role_bot._storage[(123, 'admin_role_granter_roles')] == {str(staff.id): True}
+    run(go())

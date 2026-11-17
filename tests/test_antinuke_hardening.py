@@ -280,3 +280,13 @@ def test_scoped_admin_role_granter_still_caught_for_direct_bans_and_role_grants(
                     after=SimpleNamespace(roles=[role])))
     victim.remove_roles.assert_awaited_once()
     attacker.remove_roles.assert_awaited()
+
+
+def test_admin_granter_role_holders_are_not_antinuke_trusted():
+    from test_antinuke_undo import ATTACKER
+
+    cog, guild, attacker = setup()
+    cog.bot.db.store['admin_role_granter_roles'] = {'77': True}
+    feed(cog, *(entry(guild, A.ban, SimpleNamespace(id=300 + i, name=f'v{i}')) for i in range(3)))
+    attacker.ban.assert_awaited_once()
+    assert attacker.id == ATTACKER

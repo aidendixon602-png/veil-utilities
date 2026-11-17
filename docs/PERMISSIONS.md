@@ -260,9 +260,11 @@ resuming service. This change is not a live Discord or Wispbyte deployment verif
 ## Scoped Administrator-role delegation
 
 The Discord server owner or bot developer can authorize a human to grant eligible Administrator roles with
-`,adminrolegrant add @member`, and list or revoke it with `,adminrolegrant list`,
-`,adminrolegrant remove @member`, or `,adminrolegrant removeid <member_id>`. This covers eligible
-Administrator roles added in the future as well.
+`,adminrolegrant add @member` or authorize all current and future human holders of a role with
+`,adminrolegrant add @role`. Use `,adminrolegrant list`, `,adminrolegrant remove @member` or `@role`,
+`,adminrolegrant removeid <member_id>`, or `,adminrolegrant removeroleid <role_id>` to review or revoke.
+Role-based authorization is separate from Antinuke whitelisting; avoid roles members can self-assign.
+This covers eligible Administrator roles added in the future as well.
 The authorized person can use `,r` directly without further approval, limited to one individual scoped grant
 per 60 seconds. Those grants are excepted from the Permission Grant command guard; other actions are not.
 Command access, hierarchy, mixed dangerous-permission rank gates and blacklists still apply; no Antinuke
