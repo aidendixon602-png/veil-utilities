@@ -41,7 +41,10 @@ reviewed for each deployment.
 - **Fake permissions** are role-based grants used by Veil; they do not grant native Discord permissions to a
   person or role. They are not a replacement for Discord access controls. Use `,fakepermissions add @role
   ban_members`, `,fakepermissions list [@role]`, or `,fakepermissions remove @role ban_members`. Resetting all
-  fake permissions requires confirmation.
+  fake permissions requires confirmation. `,apa all @role` is an owner/developer-only, confirmed shortcut
+  granting all bot-only permissions to one role (never @everyone). It does not change Discord permissions;
+  owner, developer and Antinuke checks still apply. The existing `,apa <permission>` instead adds one
+  non-dangerous **Discord** permission across eligible roles.
 - Ordinary Veil permission checks accept the member's **effective Discord permissions in the command channel**,
   Veil level grants, and fake grants (including combinations). Real or fake `moderate_members` also grants the
   bot-only warn, timeout and case actions. Administrator covers ordinary permission checks, but not independent

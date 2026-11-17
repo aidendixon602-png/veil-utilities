@@ -348,7 +348,7 @@ _Keep your server in line_
 
 | Command | Description | Permission |
 |---|---|---|
-| `,addpermall <permission>` (apa) | Add a (non-dangerous) permission to every role below me | administrator, manage roles |
+| `,addpermall <permission>` (apa) | Grant a Discord permission across roles or bot permissions to one role | administrator, manage roles |
 | `,addrole <arg1> <arg2>` (giverole) | Add a role to a member | manage roles, uperm: admin |
 | `,adminrolegrant` | Manage Administrator-role grant permissions | server owner or bot developer |
 | `,adminrolegrant add <target>` | Authorize a member or role to give Administrator roles | server owner or bot developer |

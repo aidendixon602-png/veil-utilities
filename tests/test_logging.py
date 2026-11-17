@@ -1717,3 +1717,22 @@ def test_command_card_keeps_roles_clickable_without_ping_permissions():
     assert detail(card, 'Granted by') == '<@&123456789012345678>'
     assert [field.name for field in card.fields] == ['Command', 'Channel', 'Permission level', 'Granted by', 'Result']
     assert [field.inline for field in card.fields] == [False, True, True, True, False]
+
+
+@pytest.mark.parametrize("cfg,channels,expected", [
+    ({}, [(1, "join-logs"), (2, "member-logs")], 2),
+    ({"members": 3}, [(1, "join-logs"), (2, "member-logs"), (3, "custom")], 3),
+    ({}, [(1, "join-logs")], 1),
+    ({"members": OFF}, [(1, "join-logs"), (2, "member-logs")], None),
+    ({"joinleave": OFF}, [(1, "join-logs"), (2, "member-logs")], 2),
+])
+def test_nickname_update_routes_to_members_or_allowed_fallback(cfg, channels, expected):
+    async def go():
+        guild = make_guild([text_channel(cid, name) for cid, name in channels])
+        cog, _ = make_cog(cfg)
+        before, after = member(), member()
+        before.guild = after.guild = guild
+        before.nick, after.nick = "old", "new"
+        await cog.on_member_update(before, after)
+        assert [ch.id for ch in guild.text_channels if ch.send.await_count] == ([expected] if expected else [])
+    asyncio.run(go())

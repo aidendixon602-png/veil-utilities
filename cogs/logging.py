@@ -84,7 +84,7 @@ KINDS: dict[str, Kind] = {k.key: k for k in (
     Kind("antinuke", "Antinuke", "🚨", "Antinuke alerts and what the bot did about them", "antinuke-logs",
          ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging")),
     Kind("messages", "Messages", "💬", "Deleted, edited and bulk-deleted messages", None, ("message-logs", "msg-logs")),
-    Kind("members", "Members", "👥", "Nicknames; joins and leaves ride with the join log", None,
+    Kind("members", "Members", "👥", "Nicknames; joins and leaves use the join log when available", None,
          ("member-logs", "members")),
     Kind("roles", "Roles", "🏷️", "Roles created, edited, deleted, given or taken", "role-logs", ("role-logs", "roles")),
     Kind("channels", "Channels", "📁", "Channels and categories created, edited, deleted", "channel-logs",
@@ -1392,7 +1392,7 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if before.nick != after.nick:
-            channel = await self.member_stream_channel(after.guild)
+            channel = await self.route(after.guild, "members")
             if channel:
                 actor, _ = await fmt.audit_actor(after.guild, discord.AuditLogAction.member_update, after.id)
                 await self.post(channel, fmt.nickname_changed(after, before.nick, after.nick, actor))

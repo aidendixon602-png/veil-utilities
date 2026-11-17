@@ -214,3 +214,54 @@ def test_timeout_is_reported_as_unconfirmed():
     run(Moderation(ctx.bot)._remove_permission_across_roles(ctx, 'manage_guild'))
     assert 'not confirmed' in ctx.warn.await_args.args[0]
     assert 'Check their current permissions' in ctx.warn.await_args.args[0]
+
+
+def apa_setup(monkeypatch):
+    ctx, role, *_ = setup()
+    ctx.guild.owner_id = ctx.author.id
+    ctx.guild.get_role = lambda rid: role if rid == role.id else None
+    store = {}
+    async def save(gid, key, data):
+        store[key] = data
+    ctx.bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda *a: store.get('fakeperms', {})),
+                                 set_config_committed=AsyncMock(side_effect=save))
+    monkeypatch.setattr(commands.RoleConverter, 'convert', AsyncMock(return_value=role))
+    return ctx, role, store
+
+
+def test_apa_all_grants_only_bot_permissions_to_one_role(monkeypatch):
+    from cogs.settings import VALID_PERMS
+    ctx, role, store = apa_setup(monkeypatch)
+    run(Moderation.addpermall.callback(Moderation(ctx.bot), ctx, permission='all <@&101>'))
+    assert store['fakeperms'] == {str(role.id): VALID_PERMS}
+    ctx.confirm.assert_awaited_once()
+    role.edit.assert_not_awaited()
+    assert 'no Discord permissions changed' in ctx.approve.await_args.args[0]
+
+
+@pytest.mark.parametrize('case', ['not_owner', 'everyone', 'cancel', 'deleted', 'changed_config', 'lost_owner'])
+def test_apa_all_is_restricted_and_rechecks(case, monkeypatch):
+    ctx, role, store = apa_setup(monkeypatch)
+    if case == 'not_owner':
+        ctx.guild.owner_id = 123
+    elif case == 'everyone':
+        role.default = True
+    elif case == 'cancel':
+        ctx.confirm.return_value = False
+    elif case in ('deleted', 'changed_config', 'lost_owner'):
+        async def confirm(*args):
+            if case == 'deleted':
+                ctx.guild.get_role = lambda rid: None
+            elif case == 'changed_config':
+                store['fakeperms'] = {'99': ['kick_members']}
+            else:
+                ctx.guild.owner_id = 123
+            return True
+        ctx.confirm.side_effect = confirm
+    if case == 'cancel':
+        run(Moderation.addpermall.callback(Moderation(ctx.bot), ctx, permission='all role'))
+    else:
+        with pytest.raises(UserError):
+            run(Moderation.addpermall.callback(Moderation(ctx.bot), ctx, permission='all role'))
+    ctx.bot.db.set_config_committed.assert_not_awaited()
+    role.edit.assert_not_awaited()

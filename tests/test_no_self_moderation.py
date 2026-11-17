@@ -1,4 +1,4 @@
-"""Nobody moderates themselves, the server owner, a bot developer or the bot, including through commands that take
+"""Moderation protects self, the server owner, developers and the bot, including commands that take
 a plain user ID (ban by ID, the network bans), which used to skip the member-only hierarchy check."""
 import asyncio
 import contextlib
@@ -20,7 +20,8 @@ AUTHOR, OWNER, BOT, DEV, OTHER = 100, 200, 300, 400, 500
 
 def make_ctx(author=AUTHOR, owner=OWNER, guilds=()):
     db = SimpleNamespace(execute=AsyncMock(), fetchone=AsyncMock(return_value=None))
-    bot = SimpleNamespace(user=SimpleNamespace(id=BOT), owner_ids=set(), owner_id=None, db=db, guilds=list(guilds))
+    bot = SimpleNamespace(user=SimpleNamespace(id=BOT), owner_ids=set(), owner_id=None, db=db, guilds=list(guilds),
+                          is_owner=AsyncMock(return_value=True))
     guild = MagicMock()
     guild.id, guild.owner_id, guild.me = 1, owner, SimpleNamespace(id=BOT)
     guild.ban = AsyncMock()
@@ -323,37 +324,30 @@ def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
 
     asyncio.run(run())
 
-@pytest.mark.parametrize("failure", ["missing", "not_banned", "forbidden", "timeout"])
-def test_network_ban_requires_a_verifiable_invoking_server_ban(failure):
+def test_network_ban_still_requires_server_context():
     ctx = make_ctx(guilds=[server(8, 999)])
-    if failure == "missing":
-        ctx.guild = None
-    elif failure == "not_banned":
-        ctx.guild.fetch_ban.side_effect = discord.NotFound(MagicMock(status=404), "Unknown Ban")
-    elif failure == "forbidden":
-        ctx.guild.fetch_ban.side_effect = discord.Forbidden(MagicMock(status=403), "Forbidden")
-    else:
-        ctx.guild.fetch_ban.side_effect = asyncio.TimeoutError()
+    ctx.guild = None
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
-    with pytest.raises(UserError, match="server|ban"):
+    with pytest.raises(UserError, match="server"):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
     ctx.bot.db.execute.assert_not_called()
     ctx.warn.assert_not_called()
-    ctx.bot.guilds[0].ban.assert_not_called()
 
 
-def test_network_ban_rechecks_prerequisite_after_confirmation_and_preserves_records():
-    ctx = make_ctx(guilds=[server(8, 999)])
-    ctx.guild.fetch_ban.side_effect = [object(), discord.NotFound(MagicMock(status=404), "Unknown Ban")]
+@pytest.mark.parametrize("state", ["not_banned", "unknown"])
+def test_network_ban_requires_no_existing_invoking_server_ban(state):
+    target = server(8, 999)
+    ctx = make_ctx(guilds=[target])
+    ctx.guild.fetch_ban.side_effect = (discord.NotFound(MagicMock(status=404), "Unknown Ban")
+                                       if state == "not_banned" else asyncio.TimeoutError())
     tools = DevTools.__new__(DevTools)
     tools.bot = ctx.bot
     with patch.dict(DevTools.genreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
         asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention="x", name="r")))
-    assert ctx.guild.fetch_ban.await_count == 2
-    ctx.bot.db.execute.assert_not_called()
-    ctx.bot.guilds[0].ban.assert_not_called()
-    assert "Nothing was changed" in ctx.prompt.edit.await_args.kwargs["embed"].description
+    ctx.guild.fetch_ban.assert_not_awaited()
+    target.ban.assert_awaited_once()
+    ctx.bot.db.execute.assert_awaited_once()
 
 
 def test_network_ban_records_actor_reason_and_time_after_verification():
@@ -366,7 +360,7 @@ def test_network_ban_records_actor_reason_and_time_after_verification():
     assert "globalbans" in args[0]
     assert args[1:4] == (OTHER, AUTHOR, "raid")
     assert isinstance(args[4], (int, float))
-    assert ctx.guild.fetch_ban.await_count == 2
+    ctx.guild.fetch_ban.assert_not_awaited()
 
 
 def test_network_ban_concurrent_record_is_not_overwritten_or_repeated():
@@ -440,3 +434,47 @@ def test_network_ban_partial_status_and_log_report_unknown_results():
     assert ctx.command_log_warning
     known.ban.assert_awaited_once()
     unknown.ban.assert_not_awaited()
+
+
+def test_network_ban_rechecks_protected_target_after_confirmation():
+    ctx = make_ctx(guilds=[server(8, 999)])
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    class ChangesOwner(_Answer):
+        async def wait(self):
+            ctx.guild.owner_id = OTHER
+            self.value = True
+    with patch.dict(DevTools.genreban.callback.__globals__, {'DangerConfirm': ChangesOwner, 'WORKING_FOR': 0}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention='x', name='r')))
+    ctx.bot.db.execute.assert_not_awaited()
+    ctx.bot.guilds[0].ban.assert_not_awaited()
+    assert 'target became protected' in ctx.prompt.edit.await_args.kwargs['embed'].description.lower()
+
+
+def test_network_ban_rechecks_developer_access_after_confirmation():
+    ctx = make_ctx(guilds=[server(8, 999)])
+    ctx.bot.is_owner.return_value = False
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    with patch.dict(DevTools.genreban.callback.__globals__, {'DangerConfirm': _Answer, 'WORKING_FOR': 0}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention='x', name='r')))
+    ctx.bot.db.execute.assert_not_awaited()
+    ctx.bot.guilds[0].ban.assert_not_awaited()
+    assert 'access could not be verified' in ctx.prompt.edit.await_args.kwargs['embed'].description.lower()
+
+
+def test_network_ban_uses_only_still_joined_previewed_servers():
+    gone, remains, added = server(7, 999), server(8, 999), server(9, 999)
+    ctx = make_ctx(guilds=[gone, remains])
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    class ChangedGuilds(_Answer):
+        async def wait(self):
+            ctx.bot.guilds = [remains, added]
+            self.value = True
+    with patch.dict(DevTools.genreban.callback.__globals__, {'DangerConfirm': ChangedGuilds, 'WORKING_FOR': 0}):
+        asyncio.run(DevTools.genreban.callback(tools, ctx, SimpleNamespace(id=OTHER, mention='x', name='r')))
+    gone.ban.assert_not_awaited()
+    added.ban.assert_not_awaited()
+    remains.ban.assert_awaited_once()
+    assert 'no longer joined' in ctx.prompt.edit.await_args.kwargs['embed'].description

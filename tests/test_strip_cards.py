@@ -309,3 +309,76 @@ def test_stripstaff_still_works_when_logging_is_unavailable(monkeypatch):
         ctx.approve.assert_awaited_once()
 
     asyncio.run(run())
+
+
+def self_strip_setup():
+    from cogs.devtools import DevTools
+
+    ctx = strip_ctx()
+    ctx.author = member(7, "developer")
+    ctx.author.roles = [guild_role(1, "@everyone", 0), guild_role(10, "Staff", 1)]
+    ctx.author.remove_roles = AsyncMock()
+    ctx.guild.get_member = lambda uid: ctx.author if uid == ctx.author.id else None
+    ctx.confirm, ctx.neutral = AsyncMock(return_value=True), AsyncMock()
+    store = {}
+    async def save(gid, key, data):
+        store[key] = data
+    bot = SimpleNamespace(is_owner=AsyncMock(return_value=True),
+                          db=SimpleNamespace(get_config=AsyncMock(side_effect=lambda *args: store.get("strips", {})),
+                                             set_config_committed=AsyncMock(side_effect=save)))
+    return DevTools(bot), ctx, store
+
+
+def test_self_strip_confirms_and_persists_before_discord_call():
+    async def go():
+        cog, ctx, store = self_strip_setup()
+        async def remove(*args, **kwargs):
+            assert store["strips"] == {"7": [10]}
+        ctx.author.remove_roles.side_effect = remove
+        await cog.strip.callback(cog, ctx, ctx.author)
+        ctx.confirm.assert_awaited_once()
+        ctx.author.remove_roles.assert_awaited_once()
+        assert ctx.send.await_args.kwargs["embed"].title == "Member Stripped"
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("case", ["cancel", "owner", "whitelist", "lost_developer", "changed_roles", "existing"])
+def test_self_strip_fails_closed(case, monkeypatch):
+    from core import perms
+    from core.utils import UserError
+    async def go():
+        cog, ctx, store = self_strip_setup()
+        if case == "cancel":
+            ctx.confirm.return_value = False
+        elif case == "owner":
+            ctx.guild.owner_id = ctx.author.id
+        elif case == "whitelist":
+            monkeypatch.setattr(perms, "WHITELISTED_PEOPLE", {ctx.author.id: "protected"})
+        elif case == "lost_developer":
+            cog.bot.is_owner.side_effect = [True, False]
+        elif case == "changed_roles":
+            async def confirm(*args):
+                ctx.author.roles.append(guild_role(11, "new", 2))
+                return True
+            ctx.confirm.side_effect = confirm
+        elif case == "existing":
+            store["strips"] = {"7": [12]}
+        if case == "cancel":
+            await cog.strip.callback(cog, ctx, ctx.author)
+        else:
+            with pytest.raises(UserError):
+                await cog.strip.callback(cog, ctx, ctx.author)
+        ctx.author.remove_roles.assert_not_awaited()
+        cog.bot.db.set_config_committed.assert_not_awaited()
+    asyncio.run(go())
+
+
+def test_self_strip_uncertain_discord_failure_keeps_snapshot():
+    async def go():
+        cog, ctx, store = self_strip_setup()
+        ctx.warn = AsyncMock()
+        ctx.author.remove_roles.side_effect = asyncio.TimeoutError()
+        await cog.strip.callback(cog, ctx, ctx.author)
+        assert store['strips'] == {'7': [10]}
+        assert 'some roles may have been removed' in ctx.warn.await_args.args[0]
+    asyncio.run(go())

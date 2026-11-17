@@ -2433,8 +2433,34 @@ class Moderation(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def addpermall(self, ctx: Context, *, permission: str):
-        """Add a (non-dangerous) permission to every role below me"""
+        """Grant a Discord permission across roles or bot permissions to one role
+
+        `apa <permission>` adds one non-dangerous Discord permission across eligible roles.
+        `apa all <role>` grants bot-only permissions and is restricted to the server owner or developer.
+        """
         from cogs.settings import VALID_PERMS
+        parts = permission.strip().split(maxsplit=1)
+        if len(parts) == 2 and parts[0].lower() == "all":
+            if not owner_or_developer(ctx.author, ctx.guild, self.bot):
+                raise UserError("Only the server owner or a bot developer can grant all bot permissions")
+            role = await commands.RoleConverter().convert(ctx, parts[1])
+            if role.is_default():
+                raise UserError("You can't grant all bot permissions to @everyone")
+            before = deepcopy(await self.bot.db.get_config(ctx.guild.id, "fakeperms"))
+            if not await ctx.confirm(f"Grant **all bot-only permissions** to {role.mention}? "
+                                     "This includes administrator-level bot access, but not Discord permissions. "
+                                     "Owner, developer and Antinuke checks still apply. Continue?"):
+                return await ctx.neutral("bot permission grant cancelled; nothing changed")
+            current = ctx.guild.get_role(role.id)
+            fresh = await self.bot.db.get_config(ctx.guild.id, "fakeperms")
+            if (not owner_or_developer(ctx.author, ctx.guild, self.bot) or current is None
+                    or current.is_default() or fresh != before):
+                raise UserError("Access, the role or bot permissions changed during confirmation; nothing was changed")
+            updated = deepcopy(fresh)
+            updated[str(current.id)] = list(VALID_PERMS)
+            await self.bot.db.set_config_committed(ctx.guild.id, "fakeperms", updated)
+            return await ctx.approve(f"gave all bot-only permissions to {current.mention}"
+                                     "\n-# Owner, developer and Antinuke checks still apply; no Discord permissions changed.")
         perm = permission.lower().replace(" ", "_")
         if perm not in VALID_PERMS:
             raise UserError(f"`{perm}` isn't a valid permission")
