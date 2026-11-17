@@ -4,10 +4,11 @@ from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import discord
 import pytest
 
 from cogs.moderation import Moderation
-from core.utils import UserError, check_role_assignable, has_soft_role_bypass
+from core.utils import Colors, UserError, check_role_assignable, has_soft_role_bypass
 from test_roleblacklist_enforcement import _mock_context, _mock_guild, _mock_member, _mock_role, bot as role_bot  # noqa: F401
 
 
@@ -263,4 +264,139 @@ def test_rbl_write_failure_does_not_publish_cached_changes(role_bot):  # noqa: F
             await Moderation.rbl_add.callback(Moderation(bot), ctx, role=_mock_role(889, "new"))
         assert bot._storage[(123, "roleblacklist")] == original
         ctx.approve.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_bypass_success_card_is_accurate_and_avoids_pings(role_bot):  # noqa: F811
+    async def run():
+        guild = _mock_guild(123)
+        guild.me.display_name = 'Veil Utilities'
+        guild.me.display_avatar.url = 'https://cdn.example.test/veil.png'
+        ctx = _mock_context(role_bot, guild, _mock_member(guild.owner_id))
+        ctx.command.qualified_name = 'bypass'
+        member = _mock_member(555)
+        await Moderation.bypass.callback(Moderation(role_bot), ctx, target=member)
+        embed = ctx.send.await_args.kwargs['embed']
+        assert embed.author.name == 'Veil Utilities'
+        assert embed.color.value == Colors.caution
+        assert member.mention in embed.description
+        assert 'recipients already allowed to hold them' in embed.description
+        assert 'No Antinuke exemption' in embed.description
+        assert embed.footer.text == ',bypass' and embed.timestamp is not None
+        assert ctx.send.await_args.kwargs['allowed_mentions'].to_dict() == discord.AllowedMentions.none().to_dict()
+    asyncio.run(run())
+
+
+def test_bypass_shorthand_parsing_and_explicit_subcommands(role_bot):  # noqa: F811
+    from discord.ext import commands
+    from discord.ext.commands.view import StringView
+
+    async def run():
+        guild = _mock_guild(123)
+        member = _mock_member(123456789012345678)
+        role = _mock_role(223456789012345678, 'Bypass staff')
+        guild.get_member.side_effect = lambda uid: member if uid == member.id else None
+        guild.get_role.side_effect = lambda rid: role if rid == role.id else None
+        owner = _mock_member(guild.owner_id)
+        bot = commands.Bot(command_prefix=',', intents=discord.Intents.none())
+        bot.owner_ids = set()
+        bot.db = role_bot.db
+        await bot.add_cog(Moderation(bot))
+        root = bot.get_command('bypass')
+        async def invoke(text):
+            ctx = _mock_context(bot, guild, owner)
+            ctx.send_help = AsyncMock()
+            ctx.paginate = AsyncMock()
+            ctx.message.mentions = [member]
+            ctx.message.role_mentions = [role]
+            ctx.invoked_parents = []
+            ctx.invoked_with = 'bypass'
+            ctx.command = root
+            ctx.view = StringView(text)
+            await root.invoke(ctx)
+            return ctx
+        try:
+            member_ctx = await invoke(f'<@{member.id}>')
+            assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['users'] == [member.id]
+            assert member_ctx.send.await_count == 1
+            role_ctx = await invoke(f'<@&{role.id}>')
+            assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['roles'] == [role.id]
+            assert 'Members with' in role_ctx.send.await_args.kwargs['embed'].description
+            with pytest.raises(UserError, match='already has'):
+                await invoke(f'<@{member.id}>')
+            assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['users'] == [member.id]
+            await invoke(f'remove <@{member.id}>')
+            assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['users'] == []
+            await invoke(f'add <@{member.id}>')
+            assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['users'] == [member.id]
+            await invoke(f'remove <@&{role.id}>')
+            assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['roles'] == []
+            help_ctx = await invoke('')
+            help_ctx.send_help.assert_awaited_once()
+            list_ctx = await invoke('list')
+            list_ctx.paginate.assert_awaited_once()
+        finally:
+            await bot.close()
+    asyncio.run(run())
+
+
+def test_shorthand_rejects_default_managed_roles_and_failed_saves(role_bot):  # noqa: F811
+    async def run():
+        guild = _mock_guild(123)
+        ctx = _mock_context(role_bot, guild, _mock_member(guild.owner_id))
+        cog = Moderation(role_bot)
+        role = _mock_role(600, 'role')
+        for invalid in ('default', 'managed'):
+            role.is_default.return_value = invalid == 'default'
+            role.managed = invalid == 'managed'
+            with pytest.raises(UserError, match='everyone role and managed'):
+                await Moderation.bypass.callback(cog, ctx, target=role)
+        assert (123, 'roleblacklist') not in role_bot._storage
+        role.is_default.return_value = False
+        role.managed = False
+        role_bot.db.set_config_committed.side_effect = RuntimeError('database unavailable')
+        with pytest.raises(RuntimeError, match='database unavailable'):
+            await Moderation.bypass.callback(cog, ctx, target=role)
+        assert (123, 'roleblacklist') not in role_bot._storage
+        ctx.send.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_shorthand_is_owner_or_developer_only_on_actual_invoke(role_bot):  # noqa: F811
+    from discord.ext import commands
+    from discord.ext.commands.view import StringView
+
+    async def run():
+        guild = _mock_guild(123)
+        member = _mock_member(123456789012345678)
+        guild.get_member.side_effect = lambda uid: member if uid == member.id else None
+        bot = commands.Bot(command_prefix=',', intents=discord.Intents.none())
+        bot.owner_ids = set()
+        bot.db = role_bot.db
+        await bot.add_cog(Moderation(bot))
+        ctx = _mock_context(bot, guild, _mock_member(98765))
+        ctx.message.mentions = [member]
+        ctx.invoked_parents = []
+        ctx.invoked_with = 'bypass'
+        ctx.command = bot.get_command('bypass')
+        ctx.view = StringView(f'<@{member.id}>')
+        try:
+            with pytest.raises(UserError, match='server owner'):
+                await ctx.command.invoke(ctx)
+            assert (123, 'roleblacklist') not in role_bot._storage
+        finally:
+            await bot.close()
+    asyncio.run(run())
+
+
+def test_embed_send_failure_reports_success_with_fallback(role_bot):  # noqa: F811
+    async def run():
+        guild = _mock_guild(123)
+        member = _mock_member(555)
+        ctx = _mock_context(role_bot, guild, _mock_member(guild.owner_id))
+        ctx.send.side_effect = discord.HTTPException(SimpleNamespace(status=500, reason='error'), 'send failed')
+        await Moderation.bypass.callback(Moderation(role_bot), ctx, target=member)
+        assert role_bot._storage[(123, 'roleblacklist')]['soft_bypass']['users'] == [555]
+        ctx.approve.assert_awaited_once()
+        assert 'bypass added' in ctx.approve.await_args.args[0]
     asyncio.run(run())
