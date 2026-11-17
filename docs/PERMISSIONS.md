@@ -167,6 +167,16 @@ and timeout will again require Moderator. Do not assume the old code enforces th
 and back up the database; verify schema compatibility and access before resuming service. See
 [hosting and updates](HOSTING.md#updating) for general backup and rollback guidance.
 
+## Permission levels on blacklisted roles
+
+The server owner or a bot developer can use `,perm add @Role admin` for an ordinary blacklisted role after
+confirming the warning, even if they hold the role themselves. **Current and future role holders can receive
+that Veil level**, subject to assignment precedence, so review the holders and level before confirming. This does not grant real Discord permissions,
+Antinuke trust or an exception to the role blacklist, and does not disable blacklist enforcement. The role and
+saved policies are rechecked after confirmation, but concurrent changes can still race a write. Only bot developers
+can assign a level to a hard-blacklisted role, also after confirmation. Others remain blocked, and nobody can
+assign levels to @everyone or managed roles. Existing saved assignments are not automatically removed.
+
 ## Owner-assigned blacklisted roles
 
 For the ordinary blacklist, the server owner or a bot developer can use `,role @member @role` to give

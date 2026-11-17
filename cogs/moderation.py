@@ -150,6 +150,9 @@ class SingleMemberBledView(discord.ui.View):
         self.roles_to_strip = roles_to_strip
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
+        if it.user.id != self.ctx.author.id:
+            await it.response.send_message("Only the person who opened this menu can use it. Run the command yourself.", ephemeral=True)
+            return False
         guild = getattr(it, "guild", None)
         origin_id = getattr(self.ctx.guild, "id", None)
         if guild is None and origin_id is not None:
@@ -250,6 +253,9 @@ class GuildBledView(discord.ui.View):
         self.unauthorized = unauthorized
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
+        if it.user.id != self.ctx.author.id:
+            await it.response.send_message("Only the person who opened this menu can use it. Run the command yourself.", ephemeral=True)
+            return False
         guild = getattr(it, "guild", None)
         origin_id = getattr(self.ctx.guild, "id", None)
         if guild is None and origin_id is not None:
