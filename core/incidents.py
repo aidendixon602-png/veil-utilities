@@ -83,17 +83,25 @@ class IncidentManager:
         self._wake.set()
 
     def _embed(self, row):
-        description = (f"{row['summary']}\n\n"
+        description = (f"**{row['summary']}**\n\n"
                        f"**Incident:** `{row['incident_id']}` · {row['severity']}\n"
                        f"**Server ID:** `{row['guild_id'] or 'unknown'}`\n"
                        f"**User ID:** `{row['actor_id'] or 'unknown'}`")
         embed = discord.Embed(title="Security · Incident", color=Colors.error, description=description,
                               timestamp=datetime.fromtimestamp(row["created_at"], timezone.utc))
-        embed.add_field(name="Action", value=row["action"] or "Unknown", inline=False)
+        action = row["action"] or "Unknown"
+        embed.add_field(name="Action", value=action[:1024], inline=False)
         details = json.loads(row["details"])
         if details:
-            text = "\n".join(f"{k}: {v}" for k, v in details.items())
+            # Older records called rollback issues simply "Problems", which could misleadingly imply
+            # a failed punishment had no problems. Preserve the stored data; clarify its display label.
+            text = "\n".join(f"{'Rollback issues' if row['kind'] == 'antinuke' and k == 'Problems' else k}: {v}"
+                             for k, v in details.items())
             embed.add_field(name="Details", value=text[:1024], inline=False)
+        if row["kind"] == "antinuke" and ("member not found" in action.lower() or "no longer a member" in action.lower()):
+            embed.add_field(name="Next step", value="Verify the member's status and review any rejoin. "
+                            "Roles that could not be removed were not confirmed stripped.", inline=False)
+        embed.set_footer(text="Veil Utilities · Review action and rollback separately")
         return embed
 
     async def _send(self, uid, row):

@@ -936,22 +936,21 @@ class Help(commands.HelpCommand):
         p = self.context.clean_prefix
         bot = getattr(self.context, "bot", None)
         if cmd.qualified_name == "roleblacklist":
-            e = self._brand(discord.Embed(title=f"{p}rbl · Role blacklist management", color=HELP_COLOR,
+            e = self._brand(discord.Embed(title="Role blacklist · Control center", color=Colors.caution,
                 description=(
                     f"**Usage** `{p}rbl`\n"
-                    "Only the server owner and bot developers can manage these settings.\n\n"
-                    f"**Ordinary blacklist**\n`{p}rbl add <role>` · `{p}rbl remove <role>` · `{p}rbl list`\n"
+                    "Keep sensitive roles protected. Only the server owner and bot developers can manage these settings.\n\n"
+                    f"**◈  Ordinary blacklist**\n`{p}rbl list` · `{p}rbl add <role>` · `{p}rbl remove <role>`\n"
                     f"`{p}rbl check [member]` · `{p}rbl strip`\n"
                     f"`{p}rbl authorize <member or role>` · `{p}rbl unauthorize <member or role>`\n"
-                    f"`{p}rbl authorized`\n"
-                    f"`{p}rbl exceptions` · `{p}rbl unallow <member> <role>`\n"
-                    "Individual role exceptions do not grant Antinuke trust.\n\n"
-                    f"**Soft bypass**\n`{p}bypass add <member or role>` · `{p}bypass remove <member or role>` · `{p}bypass list`\n"
-                    "Soft bypass does not bypass hard blacklist or antinuke.\n\n"
-                    f"**Hard blacklist**\n`{p}hardbl add <role>` · `{p}hardbl remove <role>` · `{p}hardbl list`\n"
-                    "Only bot developers can assign hard-blacklisted roles. Discord-side enforcement is limited."
+                    f"`{p}rbl authorized` · `{p}rbl exceptions` · `{p}rbl unallow <member> <role>`\n"
+                    "-# The list appears in this channel. Individual role exceptions do not grant Antinuke trust.\n\n"
+                    f"**◇  Soft bypass**\n`{p}bypass <member or role>` · `{p}bypass remove <member or role>` · `{p}bypass list`\n"
+                    "-# Does not bypass the hard blacklist or Antinuke.\n\n"
+                    f"**◆  Hard blacklist**\n`{p}hardbl add <role>` · `{p}hardbl remove <role>` · `{p}hardbl list`\n"
+                    "-# Only bot developers can assign hard-blacklisted roles. Discord-side enforcement is limited."
                 )))
-            e.set_footer(text="Use help with an individual command for details")
+            e.set_footer(text="Veil Utilities · Use help with an individual command for details")
             return e
         about = (cmd.help or cmd.short_doc or "").strip() or "No description yet."
         # an "Example: `...`" line in the description is the command's own example: it goes in the Example slot

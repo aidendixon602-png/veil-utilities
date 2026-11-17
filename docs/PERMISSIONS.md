@@ -235,11 +235,14 @@ production-database testing has been performed for this increment.
 Run `,rbl` in a server for a single management card covering ordinary blacklists, soft
 bypasses and hard blacklists. Only the actual server owner or a recognized bot developer
 can use these commands and their aliases; an assigned Owner rank, fake permission or Discord
-Administrator permission is not enough. RBL command output is sent to the invoking user by DM;
-allow DMs from server members. Messages you type in a server, old bot messages, screenshots,
-and information the recipient shares cannot be made private retroactively. If a DM cannot be
-sent, there is no public fallback; changes already made before a failed reply may have completed.
-Interactive RBL action buttons check the current server owner/developer again when clicked.
+Administrator permission is not enough. `,rbl list` **always posts in the invoking channel**, including
+when other RBL replies are configured for DMs; everyone who can view the channel can see the listed roles
+and IDs. Use a private staff channel if needed. List navigation is restricted to the requester and rechecks
+owner/developer access. Other RBL command replies follow the `,logs` role-blacklist reply setting (channel
+by default or DM when enabled); direct RBL help remains private. If a DM cannot be sent, there is no public
+fallback; changes already made before a failed reply may have completed. Messages you type, old bot messages,
+screenshots and information shared by recipients cannot be made private retroactively. Interactive RBL action
+buttons check the current server owner/developer again when clicked.
 The dashboard remains an additional settings interface with its own server-side checks and requires
 Discord login; it no longer starts an unauthenticated local listener.
 

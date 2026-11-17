@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Role blacklist and security cards.** `,rbl list` now displays a requester-controlled paginated card in
+  the invoking channel, even when other RBL replies use DMs; channel viewers can see the listed roles.
+  Refreshed RBL help, invite, quarantine and incident cards; quarantine failures are now alerted rather
+  than silently skipped, and an unknown-member strip reports the unconfirmed outcome and review guidance.
+
 - **Soft bypass shortcut and reply.** Owners and developers can use `,bypass @member` or `,bypass @role`
   to add a soft role-blacklist bypass. The reply shows its limited scope; it does not grant Antinuke trust.
   Existing add, remove and list commands remain unchanged.

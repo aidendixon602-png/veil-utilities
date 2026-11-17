@@ -176,16 +176,16 @@ class Owner(commands.Cog):
         view.add_item(discord.ui.Button(label="Invite with basic access", url=basic))
         prefix = ctx.clean_prefix
         embed = discord.Embed(title="🔗 Invite Veil Utilities", color=Colors.main, description=(
-            "Choose an install link and select a server where you have **Manage Server**.\n\n"
-            f"**[Management invite]({management})** · For moderation, antinuke and server management. "
+            "**Choose your access level**\nSelect a server where you have **Manage Server**, then review the requested permissions.\n\n"
+            f"**[Management invite]({management})**\nModeration, Antinuke and server management. "
             "Requests powerful permissions including bans, roles, channels and server management; "
-            "review them carefully. It does not request Administrator.\n\n"
-            f"**[Basic invite]({basic})** · Messaging permissions only. Moderation, antinuke and other features "
-            "will need additional permissions.\n\n"
-            "If **Public Bot** is off, Discord only allows the application owner to add the bot. "
+            "it does **not** request Administrator.\n\n"
+            f"**[Basic invite]({basic})**\nMessaging permissions only. Moderation, Antinuke and other features "
+            "need additional permissions.\n\n"
+            "**Before you install**\nIf **Public Bot** is off, only the application owner can add the bot. "
             f"Veil may also require server approval: `{prefix}authorize <server-id>`."
         ))
-        embed.set_footer(text="Discord role hierarchy and server permissions still apply")
+        embed.set_footer(text="Veil Utilities · Discord role hierarchy and server permissions still apply")
         if ctx.guild is None:
             return await ctx.send(embed=embed, view=view)
         try:

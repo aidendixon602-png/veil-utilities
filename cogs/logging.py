@@ -106,7 +106,7 @@ ALIASES = {
     "command": "commands", "cmd": "commands", "cmds": "commands", "security": "antinuke",
 }
 NO_SERVER_FALLBACK = ("commands", "bans", "joinleave", "timeouts")  # these never spill into the general server log
-DM_KEY = "rbl_dm"  # `,logs` → "Replies: DM": role-blacklist answers go to the person's DMs, not the channel
+DM_KEY = "rbl_dm"  # `,logs` → "Replies: DM": RBL answers use DMs, except the in-channel role list
 BANS_ONLY = {"bans", "banlogs", "banlog", "ban"}  # a moderation channel with one of these names only gets bans
 
 
@@ -469,7 +469,8 @@ class LogPanel(OwnedView):
             mark = "▸ " if kind.key == self.selected else ""
             lines.append(f"{mark}{kind.emoji} **{kind.label}** — {describe(self.guild, self.cfg, kind.key)}")
         where = "DM'd" if self.cfg.get(DM_KEY) else "in the channel"
-        lines += ["", f"🔐 **Role blacklist replies** — {where}"]
+        lines += ["", f"🔐 **Role blacklist replies** — {where}",
+                  "-# `rbl list` is always visible in the invoking channel."]
         from core.perms import ghost_guards
         if ghost_guards(self.guild):
             lines += ["", "-# Ghost Vanguard detected · use `logs coexist` for a Veil-first checklist."]
@@ -536,7 +537,7 @@ class LogPanel(OwnedView):
         await self.refresh(it)
 
     async def do_toggle_dm(self, it: discord.Interaction):
-        """Role-blacklist replies follow this person's own choice: in the channel, or privately by DM."""
+        """Choose channel or DM for RBL replies other than the always-in-channel list."""
         self.cfg[DM_KEY] = not self.cfg.get(DM_KEY)
         await self.cog.save(self.guild, self.cfg)
         await self.refresh(it)

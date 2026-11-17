@@ -26,7 +26,7 @@ if not hasattr(_cu, "check_role_assignable"):
         pass
 
 from core import perms as perms_mod
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, UserError, antinuke_guard, audit_reason,
+from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, Paginator, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
                         check_role, check_role_assignable, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
@@ -355,6 +355,27 @@ class AdminGrantTarget(commands.Converter):
             return await commands.RoleConverter().convert(ctx, argument)
 
 
+class BlacklistPaginator(Paginator):
+    """Requester-only, bounded navigation for a visible role-blacklist list."""
+
+    def __init__(self, author_id: int, guild_id: int, pages: list[discord.Embed]):
+        super().__init__(author_id, pages, guild_id=guild_id)
+        self.prev.emoji = None
+        self.prev.label = "‹ Prev"
+        self.next.emoji = None
+        self.next.label = "Next ›"
+        self.prev.disabled = True
+        self.next.disabled = len(pages) <= 1
+
+    async def _go(self, it: discord.Interaction, i: int):
+        self.index = max(0, min(i, len(self.embeds) - 1))
+        self.page_indicator.label = f"{self.index + 1} / {len(self.embeds)}"
+        self.prev.disabled = self.index == 0
+        self.next.disabled = self.index == len(self.embeds) - 1
+        await it.response.edit_message(embed=self.embeds[self.index], view=self,
+                                       allowed_mentions=discord.AllowedMentions.none())
+
+
 class Moderation(commands.Cog):
     """Keep your server in line"""
     emoji = "🔨"
@@ -470,7 +491,8 @@ class Moderation(commands.Cog):
         if is_rbl_command(ctx.command):
             # Which way a role-blacklist command answers is the server's choice (`,logs` → "Replies: DM"), not a
             # surprise: most owners want it where they ran it, so the channel is the default.
-            ctx._private_rbl = await self._rbl_dm_only(ctx)
+            ctx._private_rbl = (ctx.command.qualified_name != "roleblacklist list"
+                                and await self._rbl_dm_only(ctx))
 
     async def _rbl_dm_only(self, ctx: Context) -> bool:
         logging_cog = self.bot.get_cog("Logging") if hasattr(self.bot, "get_cog") else None
@@ -1942,16 +1964,31 @@ class Moderation(commands.Cog):
     @has_perms(manage_roles=True)
     @is_server_owner()
     async def rbl_list(self, ctx: Context):
-        """View blacklisted roles"""
+        """View blacklisted roles in the current channel"""
+        # The list is intentionally visible in the invoking channel, even when other RBL replies use DMs.
+        ctx._private_rbl = False
         cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         roles = cfg.get("roles", [])
         if not roles:
             return await ctx.warn("no roles are blacklisted")
-        lines = [self._role_entry(ctx.guild, rid) for rid in roles]
         gone = sum(1 for rid in roles if ctx.guild.get_role(rid) is None)
-        if gone:
-            lines.append(f"-# {gone} of these no longer exist: `{ctx.clean_prefix}rbl remove deleted` clears them")
-        await ctx.paginate(chunk_embeds(f"Blacklisted roles ({len(roles)})", lines, numbered=False))
+        lines = [self._role_entry(ctx.guild, rid) for rid in roles]
+        pages = chunk_embeds("Role blacklist", lines, per_page=10, color=Colors.caution, numbered=False)
+        me = getattr(ctx.guild, "me", None)
+        name = getattr(me, "display_name", None) or "Veil Utilities"
+        avatar = getattr(getattr(me, "display_avatar", None), "url", None)
+        timestamp = discord.utils.utcnow()
+        for i, page in enumerate(pages, 1):
+            if gone:
+                page.description += f"\n\n-# {gone} deleted · `{ctx.clean_prefix}rbl remove deleted` to clean up"
+            page.set_author(name=str(name), icon_url=str(avatar) if avatar else None)
+            page.set_footer(text=f"Page {i}/{len(pages)} · {len(roles)} blacklisted roles · Visible in this channel")
+            page.timestamp = timestamp
+        if len(pages) == 1:
+            return await ctx.send(embed=pages[0], allowed_mentions=discord.AllowedMentions.none())
+        view = BlacklistPaginator(ctx.author.id, ctx.guild.id, pages)
+        view.message = await ctx.send(embed=pages[0], view=view, allowed_mentions=discord.AllowedMentions.none())
+        return view.message
 
     async def _scan_guild_bled(self, ctx: Context, cfg: dict, b_roles: set[int]):
         if not b_roles:

@@ -290,3 +290,40 @@ def test_admin_granter_role_holders_are_not_antinuke_trusted():
     feed(cog, *(entry(guild, A.ban, SimpleNamespace(id=300 + i, name=f'v{i}')) for i in range(3)))
     attacker.ban.assert_awaited_once()
     assert attacker.id == ATTACKER
+
+
+def test_quarantine_reports_total_failure_without_approval_button(monkeypatch):
+    monkeypatch.setattr('cogs.antinuke.asyncio.sleep', AsyncMock())
+    cog, guild, _ = setup()
+    high = _role(70, 'Above Veil', 60, discord.Permissions(administrator=True).value, managed=True)
+    _guild(cog, guild, [high])
+    log = SimpleNamespace(send=AsyncMock())
+    cog._log_channel = AsyncMock(return_value=log)
+    bot = _new_bot(guild, 77, [high])
+    asyncio.run(cog.quarantine_new_bot(bot))
+    alert = log.send.await_args.kwargs
+    assert alert['embed'].title == 'Antinuke · Bot quarantine failed'
+    assert 'may retain dangerous permissions' in alert['embed'].description
+    assert 'couldn\'t change' in alert['embed'].fields[0].value
+    assert alert['view'] is None
+    assert not cog.bot.db.store['antinuke'].get('quarantined_bots')
+    guild.owner.send.assert_awaited_once()
+
+
+def test_partial_bot_quarantine_warns_without_claiming_all_permissions_removed(monkeypatch):
+    monkeypatch.setattr('cogs.antinuke.asyncio.sleep', AsyncMock())
+    cog, guild, _ = setup()
+    own = _role(70, 'Bot role', 5, discord.Permissions(administrator=True).value, managed=True)
+    high = _role(71, 'Above Veil', 60, discord.Permissions(ban_members=True).value)
+    _guild(cog, guild, [own, high])
+    log = SimpleNamespace(send=AsyncMock())
+    cog._log_channel = AsyncMock(return_value=log)
+    bot = _new_bot(guild, 77, [own, high])
+    asyncio.run(cog.quarantine_new_bot(bot))
+    alert = log.send.await_args.kwargs
+    assert alert['embed'].title == 'Antinuke · New bot quarantined'
+    assert 'may retain dangerous permissions' in alert['embed'].description
+    assert 'took the dangerous permissions' in alert['embed'].fields[0].value
+    assert 'couldn\'t change' in alert['embed'].fields[0].value
+    assert isinstance(alert['view'].children[0], ApproveBotButton)
+    assert cog.bot.db.store['antinuke']['quarantined_bots']['900']['roles']
