@@ -774,11 +774,8 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
     failed = error is not None
     command = shorten(_command_text(ctx).replace("`", "'"), 900)
     level = shorten(str(permission).replace("\n", " "), 200) if permission and permission != "None" else "no level"
-    if granted_by == "Permissions attached to user":
-        via = " · given directly"
-    else:
-        grant = shorten(str(granted_by).replace("\n", " "), 250) if granted_by else ""
-        via = f" · via {grant}" if grant and grant not in ("-", "Built-in") else ""
+    grant = shorten(redact.scrub(str(granted_by)).replace("\n", " "), 250) if granted_by else ""
+    grant = grant if grant and grant != "-" else "Not assigned"
     if failed:
         result = "❌ " + shorten(redact.scrub(error).replace("\n", " "), 300)
     elif getattr(ctx, "command_log_outcome", None):
@@ -791,10 +788,10 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
     channel = shorten(ctx.channel.mention, 100) + (f" · [Jump to command]({shorten(str(jump), 500)})" if jump else "")
     warning = bool(getattr(ctx, "command_log_warning", False))
     return field_card(Colors.deny if failed else Colors.caution if warning else Colors.approve,
-                      "⚠️ Command failed" if failed else "⚠️ Command partially completed" if warning else "⌨️ Command used", subject=ctx.author,
-                      lead=f"{ctx.author.mention} · {channel}",
-                      fields=[("Command", f"`{command}`", False), ("Result", result, True),
-                              ("Level", f"{level}{via}", True)], ids=[("User ID", ctx.author.id)])
+                      "⚠️ Command failed" if failed else "⚠️ Command needs attention" if warning else "⌨️ Command used", subject=ctx.author,
+                      lead=f"👤 {ctx.author.mention}", fields=[("Command", f"`{command}`", False), ("Channel", channel, True),
+                              ("Permission level", level, True), ("Granted by", grant, True),
+                              ("Result", result, False)], ids=[("User ID", ctx.author.id)])
 
 
 # ---------------------------------------------------------------- moderation cases

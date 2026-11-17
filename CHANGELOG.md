@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Network-ban confirmation and command logs.** The genreban confirmation now highlights its target, scope,
+  skipped owner servers, reason and continuing enforcement, with a red confirmation button. Its completion card
+  and command log distinguish cancellation and partial results. Command cards show channel, permission level and
+  grant source in separate fields, while retaining outcomes, redaction, timing and links.
+
 ### Fixed
 
 - **Permission assignment lists.** Admin-level Veil staff can use `,perm list` and `,perm roles` to view saved
