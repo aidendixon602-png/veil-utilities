@@ -53,25 +53,26 @@ def test_owner_check_fails_closed_for_missing_identity_and_non_guild_context():
     assert not owner_or_developer(None, SimpleNamespace(owner_id=10), None)
 
 
-def test_role_blacklist_action_buttons_check_actual_user_and_guild():
+def test_role_blacklist_action_buttons_check_original_user_and_live_authority():
     async def run():
         guild = SimpleNamespace(id=1, owner_id=10)
-        ctx = SimpleNamespace(guild=guild)
         cog = SimpleNamespace(bot=SimpleNamespace(owner_ids={30}))
-        views = [SingleMemberBledView(cog, ctx, SimpleNamespace(id=55), []), GuildBledView(cog, ctx, [])]
         client = SimpleNamespace(owner_ids={30}, owner_id=None)
-        for view in views:
-            it = SimpleNamespace(guild=guild, user=SimpleNamespace(id=20, guild_permissions=discord.Permissions.all()),
-                                 client=client, response=SimpleNamespace(send_message=AsyncMock()))
-            assert not await view.interaction_check(it)  # native Administrator / Manage Roles do not suffice
-            assert it.response.send_message.await_args.kwargs["ephemeral"]
-            it.user.id = 10
-            assert await view.interaction_check(it)
-            it.user.id = 30
-            assert await view.interaction_check(it)
-            it.guild = SimpleNamespace(id=2, owner_id=30)
-            assert not await view.interaction_check(it)
-            view.stop()
+        for opener in (10, 30):
+            ctx = SimpleNamespace(guild=guild, author=SimpleNamespace(id=opener))
+            views = [SingleMemberBledView(cog, ctx, SimpleNamespace(id=55), []), GuildBledView(cog, ctx, [])]
+            for view in views:
+                it = SimpleNamespace(guild=guild, user=SimpleNamespace(id=opener), client=client,
+                                     response=SimpleNamespace(send_message=AsyncMock()))
+                assert await view.interaction_check(it)
+                # Even the other authorized owner/developer cannot use the opener's menu.
+                it.user.id = 30 if opener == 10 else 10
+                assert not await view.interaction_check(it)
+                assert it.response.send_message.await_args.kwargs["ephemeral"]
+                it.user.id = opener
+                it.guild = SimpleNamespace(id=2, owner_id=opener)
+                assert not await view.interaction_check(it)
+                view.stop()
     asyncio.run(run())
 
 
@@ -127,7 +128,7 @@ def test_dm_rbl_buttons_recheck_live_server_owner():
     async def go():
         guild = SimpleNamespace(id=1, owner_id=10)
         bot = SimpleNamespace(owner_ids=set(), owner_id=None, get_guild=lambda gid: guild if gid == 1 else None)
-        ctx = SimpleNamespace(guild=guild)
+        ctx = SimpleNamespace(guild=guild, author=SimpleNamespace(id=10))
         cog = SimpleNamespace(bot=bot)
         view = SingleMemberBledView(cog, ctx, SimpleNamespace(id=55), [])
         it = SimpleNamespace(guild=None, user=SimpleNamespace(id=10), client=bot,

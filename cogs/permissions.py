@@ -9,7 +9,7 @@ from discord.ext import commands
 
 from core import perms
 from core.utils import (Colors, Context, MissingRank, UserError, chunk_embeds, has_perms, human_join,
-                        is_server_owner, missing_perms, requires_uperm)
+                        is_server_owner, missing_perms, requires_uperm, role_protection_ids)
 
 log = logging.getLogger("veil.permissions")
 
@@ -159,12 +159,33 @@ class Permissions(commands.Cog):
                 raise UserError("You can't assign a permission level to @everyone")
             if target.managed:
                 raise UserError("You can't assign a permission level to an integrated bot role")
-            if any(role.id == target.id for role in getattr(ctx.author, "roles", [])):
+            is_dev = perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)
+            privileged = ctx.author.id == ctx.guild.owner_id or is_dev
+            if not privileged and any(role.id == target.id for role in getattr(ctx.author, "roles", [])):
                 raise UserError("You can't assign a permission level to a role you hold")
-            rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if target.id in rbl.get("roles", []):
-                raise UserError(f"{target.mention} is blacklisted and cannot be assigned a permission level")
-            if ctx.author.id != ctx.guild.owner_id and not await self.bot.is_owner(ctx.author):
+            rbl = copy.deepcopy(await self.bot.db.get_config(ctx.guild.id, "roleblacklist"))
+            if target.id in role_protection_ids(rbl):
+                if not privileged or (target.id in rbl.get("hard_roles", []) and not is_dev):
+                    raise UserError(f"{target.mention} is blacklisted and cannot be assigned a permission level by you")
+                confirmed = await ctx.confirm(
+                    f"{target.mention} is blacklisted. Assigning **{info['name']}** can give that Veil level "
+                    "to current and future role holders, subject to assignment precedence. "
+                    "The role blacklist and its enforcement remain unchanged. "
+                    "Continue?")
+                if not confirmed:
+                    ctx.command_log_outcome = "Permission assignment cancelled · nothing changed"
+                    return await ctx.neutral("cancelled; no permission level was changed")
+                # Confirmation grants access to everyone holding the role, so reject stale policy or role changes.
+                current_role = ctx.guild.get_role(target.id)
+                current_rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+                current_cfg = await self.cfg(ctx.guild.id)
+                still_dev = perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)
+                if (current_role is None or current_role.is_default() or current_role.managed
+                        or (ctx.author.id != ctx.guild.owner_id and not still_dev)
+                        or (target.id in current_rbl.get("hard_roles", []) and not still_dev)
+                        or current_rbl != rbl or current_cfg != cfg):
+                    raise UserError("The role, permissions or blacklist changed during confirmation; nothing was changed. Try again.")
+            if not privileged:
                 if info["rank"] >= actor:
                     raise UserError("You can't assign a level equal to or above your own")
                 if target >= ctx.author.top_role:

@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Blacklisted role levels and requester-only controls.** Server owners and developers can assign a Veil level to an
+  ordinary blacklisted role after confirmation; hard-blacklisted roles require a developer. The blacklist stays
+  active and the level can apply to all role holders, subject to assignment precedence. Temporary command menus are now limited to the user who
+  opened them, including when another user is a developer. Shared panels retain their existing access rules.
+
 - **Expired network-ban confirmation.** The timeout card now clearly says this attempt made no changes,
   identifies the target and explains how to start a new confirmation; existing safeguards remain in place.
 

@@ -143,19 +143,15 @@ class Context(commands.Context["Veil"]):
 class OwnedView(discord.ui.View):
     """A button menu only the person who ran the command can use.
 
-    Everyone else gets a private "this isn't yours" message. When `allow_developers` is on, the bot's
-    developers can also use it, e.g. to help someone navigate a menu.
+    Everyone else gets a private "this isn't yours" message, including bot developers.
     """
 
-    def __init__(self, author_id: int, *, timeout: float | None = 180, allow_developers: bool = True):
+    def __init__(self, author_id: int, *, timeout: float | None = 180):
         super().__init__(timeout=timeout)
         self.author_id = author_id
-        self.allow_developers = allow_developers
 
     async def interaction_check(self, it: discord.Interaction) -> bool:
         if it.user.id == self.author_id:
-            return True
-        if self.allow_developers and await it.client.is_owner(it.user):
             return True
         await it.response.send_message(
             f"🔒 Only <@{self.author_id}> can use these buttons. Run the command yourself to get your own.",
@@ -218,7 +214,7 @@ class Paginator(OwnedView):
 class Confirm(OwnedView):
     # confirmations guard destructive actions (nuke, massban, resets), so only the person who ran it may answer
     def __init__(self, author_id: int, timeout: float = 30):
-        super().__init__(author_id, timeout=timeout, allow_developers=False)
+        super().__init__(author_id, timeout=timeout)
         self.value = None
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
@@ -239,7 +235,7 @@ class DangerConfirm(OwnedView):
     the command can answer, not even another developer."""
 
     def __init__(self, author_id: int, timeout: float = 30):
-        super().__init__(author_id, timeout=timeout, allow_developers=False)
+        super().__init__(author_id, timeout=timeout)
         self.value: bool | None = None
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)

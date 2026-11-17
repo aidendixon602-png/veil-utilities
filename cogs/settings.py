@@ -53,7 +53,7 @@ class FakePermPicker(OwnedView):
     """`,fp add @role` with no permissions: pick them from a list."""
 
     def __init__(self, cog: "Settings", ctx: Context, role: discord.Role):
-        super().__init__(ctx.author.id, timeout=120, allow_developers=False)
+        super().__init__(ctx.author.id, timeout=120)
         self.cog, self.ctx, self.role = cog, ctx, role
         options = [discord.SelectOption(label=perm_label(p), value=p) for p in PICKER_PERMS]
         select = discord.ui.Select(placeholder="Choose permissions to give…", options=options,

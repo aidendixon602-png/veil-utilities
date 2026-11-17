@@ -7,9 +7,12 @@
 Use `,help` and the category buttons to browse commands, or `,help <command>` for a direct guide. If the
 category catalog outgrows Discord's button layout, the home screen uses a category selector instead. Paginated lists use the arrow buttons;
 the middle indicator shows the current page and the close button dismisses the menu. These controls are limited
-to the person who opened the menu (bot developers can also navigate standard list menus). Permission assignment
-lists show **direct saved grants**, not a complete view of automatic or fake permissions. Presentation and help
-visibility do not replace the checks that run when a command is used.
+to the person who opened the menu, including when another user is a bot developer. Temporary staff, logging,
+Antinuke and blacklist menus also check their original user's current authorization where required. Other users
+can still read messages in channels they can access, and shared panels (such as tickets, giveaways, VoiceMaster,
+and role buttons) remain shared according to their own access rules. Server and user info cards have no interactive
+controls. Permission assignment lists show **direct saved grants**, not a complete view of automatic or fake
+permissions. Presentation and help visibility do not replace the checks that run when a command is used.
 
 ## Permissions and server authorization
 
