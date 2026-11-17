@@ -8,6 +8,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Optional
 
+import aiohttp
 import discord
 from discord.ext import commands
 
@@ -95,6 +96,48 @@ def parse_real_role_permissions(text: str) -> tuple[list[str], list[str]]:
             unknown.append(words[i])
             i += 1
     return found, unknown
+
+
+ROLE_PERMISSION_GROUPS = {
+    "General": {"administrator", "view_audit_log", "view_guild_insights", "manage_guild", "manage_roles",
+                "manage_channels", "kick_members", "ban_members", "create_instant_invite", "change_nickname",
+                "manage_nicknames", "manage_webhooks", "manage_expressions", "manage_events", "moderate_members"},
+    "Text": {"view_channel", "send_messages", "send_tts_messages", "manage_messages", "embed_links", "attach_files",
+             "read_message_history", "mention_everyone", "external_emojis", "external_stickers", "add_reactions",
+             "use_application_commands", "manage_threads", "create_public_threads", "create_private_threads",
+             "send_messages_in_threads"},
+    "Voice": {"connect", "speak", "mute_members", "deafen_members", "move_members", "use_voice_activation",
+              "priority_speaker", "stream", "request_to_speak", "start_embedded_activities", "use_soundboard",
+              "use_external_sounds", "send_voice_messages"},
+}
+
+
+def role_permissions_help(prefix: str) -> discord.Embed:
+    """Show all permission bits supported by the installed Discord library, grouped for readability."""
+    valid = {name for name, _ in discord.Permissions.all()}
+    aliases = discord.Permissions.VALID_FLAGS
+    groups = {label: {name for name in names if name in aliases} for label, names in ROLE_PERMISSION_GROUPS.items()}
+    used = {aliases[name] for values in groups.values() for name in values}
+    groups["Other"] = {name for name in valid if aliases[name] not in used}
+    embed = discord.Embed(title="Discord role permissions", color=Colors.blurple,
+                          description=f"**Grant:** `{prefix}rpa @Role <permission>`\n"
+                                      f"**Remove from roles:** `{prefix}rpa <permission> [skip role]`\n"
+                                      "Bulk removal previews the affected roles and requires confirmation. "
+                                      "These are real Discord permissions, not fake permissions.")
+    for label, names in groups.items():
+        chunks, line = [], ""
+        for name in sorted(names):
+            token = f"`{name}`"
+            if len(line) + len(token) + 1 > 1000:
+                chunks.append(line)
+                line = ""
+            line = f"{line} {token}".strip()
+        if line:
+            chunks.append(line)
+        for i, part in enumerate(chunks):
+            embed.add_field(name=label if i == 0 else f"{label} (continued)", value=part, inline=False)
+    embed.set_footer(text="Use underscores or quote names with spaces · @everyone and managed roles are excluded")
+    return embed
 
 
 # ==================================================================== role blacklist views
@@ -296,6 +339,7 @@ class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._role_exception_locks: dict[int, asyncio.Lock] = {}
+        self._bulk_permission_locks: dict[int, asyncio.Lock] = {}
 
     def _exception_lock(self, guild_id: int) -> asyncio.Lock:
         return self._role_exception_locks.setdefault(guild_id, asyncio.Lock())
@@ -1858,22 +1902,47 @@ class Moderation(commands.Cog):
                 lines.append(f"• `<@{tid}>` (`{tid}`)")
         await ctx.paginate(chunk_embeds("Authorized Bypasses", lines, numbered=False))
 
-    @commands.command(name="rpa", usage="<role> <permissions>",
+    @commands.command(name="rpa", usage="<role> <permissions> | <permission> [skip role] | help",
                       extras={"example": "@Staff manage messages, kick members"})
     @commands.guild_only()
     @commands.has_guild_permissions(manage_roles=True)
     @commands.bot_has_guild_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
-    async def role_permission_add(self, ctx: Context, role: discord.Role, *, permissions: str):
-        """Give a role real Discord permissions
+    async def role_permission_add(self, ctx: Context, role: str = None, *, permissions: str = None):
+        """Grant one role permissions or remove one permission from many roles
 
         Example: `,rpa @Staff manage messages, kick members`
         Accepts permission names with spaces or underscores. This changes Discord's role permissions,
         not Veil fake permissions or channel overrides. The invoker and bot must have every permission
         being granted, and the role must be below both their highest roles (server owner excepted).
+        Use `,rpa <permission> [skip role]` to preview and confirm bulk removal (actual Administrator required),
+        or `,rpa help` for a categorized list. Mention roles whose names match a permission to grant instead.
         Managed roles and @everyone cannot be changed with this command.
         """
-        requested, unknown = parse_real_role_permissions(permissions)
+        if role is None or (isinstance(role, str) and role.lower() == "help" and not permissions):
+            return await ctx.send(embed=role_permissions_help(getattr(ctx, "clean_prefix", ",")))
+        if isinstance(role, str):
+            parsed, unknown = parse_real_role_permissions(role)
+            if len(parsed) == 1 and not unknown:
+                skip = None
+                if permissions:
+                    try:
+                        skip_text = permissions.strip()
+                        if len(skip_text) >= 2 and skip_text[0] in "\"'" and skip_text[-1] == skip_text[0]:
+                            skip_text = skip_text[1:-1]
+                        skip = await commands.RoleConverter().convert(ctx, skip_text)
+                    except commands.BadArgument:
+                        raise UserError("Skip role not found. To grant a permission, mention the role first: `rpa @Role <permission>`.") from None
+                return await self._remove_permission_across_roles(ctx, parsed[0], skip)
+            if role.lower() == "all":
+                raise UserError("Use `rpa <permission> [skip role]`; do not put `all` before the permission.")
+            if not permissions:
+                raise UserError("Unknown permission or missing permission after the role. Use `rpa help`.")
+            try:
+                role = await commands.RoleConverter().convert(ctx, role)
+            except commands.BadArgument:
+                raise UserError("Role not found. Mention the role, or use `rpa help` for permission names.") from None
+        requested, unknown = parse_real_role_permissions(permissions or "")
         if unknown or not requested:
             raise UserError("Unknown permission name. Use names such as `manage messages`, `kick members`, "
                             "or `administrator`; separate multiple permissions with commas.")
@@ -1916,33 +1985,74 @@ class Moderation(commands.Cog):
         return [r for r in ctx.guild.roles if not r.is_default() and not r.managed
                 and r < ctx.guild.me.top_role and (owner or r < ctx.author.top_role)]
 
+    async def _remove_permission_across_roles(self, ctx: Context, permission: str, skip=None):
+        """Preview and confirm removal; recheck authority, hierarchy and the exact role state before editing."""
+        actor = ctx.author.guild_permissions
+        bot = ctx.guild.me.guild_permissions
+        if not actor.administrator:
+            raise UserError("Bulk removal requires your actual Discord Administrator permission.")
+        if not (bot.administrator or bot.manage_roles):
+            raise UserError("I need the actual Discord Manage Roles permission.")
+        lock = self._bulk_permission_locks.setdefault(ctx.guild.id, asyncio.Lock())
+        async with lock:
+            targets = [r for r in self._eligible_roles(ctx)
+                       if getattr(r.permissions, permission) and (skip is None or r.id != skip.id)]
+            if not targets:
+                ctx.command_log_outcome = "No eligible roles needed changes"
+                return await ctx.neutral(f"no eligible roles have `{permission}`; nothing changed")
+            snapshot = {r.id: r.permissions.value for r in targets}
+            lines = [f"{r.mention} (`{r.id}`)" for r in targets]
+            await ctx.paginate(chunk_embeds(f"Roles affected · remove {permission}", lines, per_page=15, numbered=False))
+            confirmed = await ctx.confirm(f"Remove `{permission}` from **{len(targets)}** role(s) shown in the preview?\n"
+                                          "This changes real Discord permissions and cannot be undone automatically.")
+            if not confirmed:
+                ctx.command_log_outcome = "Cancelled · no role permissions changed"
+                return await ctx.neutral("cancelled; no role permissions were changed")
+            if not ctx.author.guild_permissions.administrator or not (ctx.guild.me.guild_permissions.administrator
+                                                                     or ctx.guild.me.guild_permissions.manage_roles):
+                raise UserError("Permissions changed during confirmation; nothing was changed. Try again.")
+            current = {r.id: r for r in self._eligible_roles(ctx)}
+            if any(rid not in current or current[rid].permissions.value != value for rid, value in snapshot.items()):
+                raise UserError("The role list, hierarchy or permissions changed during confirmation; nothing was changed. Try again.")
+            changed, failed = [], []
+            for rid, value in snapshot.items():
+                # Re-check each role immediately before its edit; earlier API calls may have taken time.
+                eligible = {r.id: r for r in self._eligible_roles(ctx)}
+                role = eligible.get(rid)
+                if (role is None or role.permissions.value != value or not ctx.author.guild_permissions.administrator
+                        or not (ctx.guild.me.guild_permissions.administrator or ctx.guild.me.guild_permissions.manage_roles)):
+                    failed.append(current[rid].name)
+                    continue
+                updated = discord.Permissions(role.permissions.value)
+                setattr(updated, permission, False)
+                try:
+                    await role.edit(permissions=updated, reason=audit_reason(ctx.author, action="bulk role permission removal"))
+                    changed.append(role.name)
+                except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
+                    failed.append(role.name)
+            ctx.command_log_outcome = f"Updated {len(changed)} role(s) · {len(failed)} not confirmed"
+            ctx.command_log_warning = bool(failed)
+            text = (f"removed `{permission}` from **{len(changed)}** role(s)"
+                    + (f"\n-# {shorten(', '.join(changed), 900)}" if changed else ""))
+            if failed:
+                text += (f"\n⚠️ Updates not confirmed for **{len(failed)}** role(s): "
+                         f"{shorten(', '.join(failed), 700)}. Check their current permissions before retrying.")
+                return await ctx.warn(text)
+            await ctx.approve(text)
+
     @commands.command()
     @has_perms(administrator=True)
-    @commands.bot_has_permissions(manage_roles=True)
+    @commands.bot_has_guild_permissions(manage_roles=True)
     @commands.max_concurrency(1, commands.BucketType.guild)
     async def removepermall(self, ctx: Context, *, permission: str):
-        """Remove a permission from every role below the bot
+        """Remove one Discord permission from eligible roles after confirmation
 
-        Useful straight after a raid.
         Example: `,removepermall administrator`
         """
-        from cogs.settings import VALID_PERMS
-        perm = permission.lower().replace(" ", "_")
-        if perm not in VALID_PERMS:
-            raise UserError(f"`{perm}` isn't a valid permission")
-        changed = []
-        for r in self._eligible_roles(ctx):
-            if getattr(r.permissions, perm):
-                new = discord.Permissions(**{**dict(r.permissions), perm: False})
-                try:
-                    await r.edit(permissions=new, reason=audit_reason(ctx.author, action="removepermall"))
-                    changed.append(r.name)
-                except discord.HTTPException:
-                    pass
-        if not changed:
-            raise UserError(f"no roles below me had `{perm}`")
-        await ctx.approve(f"removed `{perm}` from **{len(changed)}** role{'' if len(changed) == 1 else 's'}\n"
-                          f"-# {shorten(', '.join(changed), 900)}")
+        parsed, unknown = parse_real_role_permissions(permission)
+        if unknown or len(parsed) != 1:
+            raise UserError("Specify one valid Discord permission; use `rpa help` for the list.")
+        await self._remove_permission_across_roles(ctx, parsed[0])
 
     @commands.command(aliases=["apa"])
     @has_perms(administrator=True)

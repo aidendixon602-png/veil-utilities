@@ -12,6 +12,23 @@ reviewed for each deployment.
 > assignments and the deployment impact below.
 > See [Review role assignments](#review-role-assignments).
 
+## Real Discord role permissions
+
+- `,rpa @Staff manage_messages, kick_members` grants real Discord permissions to one role. The caller and bot
+  must hold the permissions being granted; Discord role hierarchy and Antinuke checks also apply. Mention a role
+  if its name is also a permission name. Quote role names containing spaces.
+- `,rpa manage_guild` previews roles that explicitly have that permission and asks for confirmation before
+  removing it. `,rpa manage_guild @Role` excludes one role; a name or ID also works. Use underscores, or quote a
+  permission with spaces. `,rpa all manage_guild` is not supported. `,removepermall manage_guild` uses the same
+  preview and confirmation but does not offer a skip argument. `,rpa help` lists the supported permissions.
+- Bulk removal requires the caller's **actual Discord Administrator** permission and the bot's Manage Roles.
+  It excludes @everyone, integration-managed roles, and roles outside the caller's or bot's hierarchy. It does
+  not remove permissions from members, channel overrides, fake permissions or unlisted roles. Removing one bit
+  does not remove access implied by Administrator or other roles. Preview all pages before confirming.
+- Discord edits are separate requests, not a transaction. Roles and authority are rechecked, but external edits
+  can still race a request. A network failure can leave an edit's result unknown; check the reported roles' actual
+  permissions before retrying. There is no automatic rollback.
+
 ## Permission sources
 
 - **Server owner** is recognized from the Discord server. Bot developers are recognized from `OWNER_IDS` and
