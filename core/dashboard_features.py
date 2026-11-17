@@ -87,12 +87,8 @@ async def features_page(server, request: web.Request) -> web.Response:
     guild = await server._guild_for(request, user)
     if guild is None:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
-    limited = not await server._can_manage_security(user, guild)
-    requested = request.query.get("section", "")
-    if limited and not requested:
-        return server._redirect(f"/servers/{guild.id}/overview")
-    if limited and requested not in ("automod", "logging", "leveling", "tickets"):
-        return server._message("Access denied", "Only the server owner or a bot developer may manage security settings.", 403, user)
+    if not await server._can_manage_security(user, guild):
+        return server._message("Access denied", "Your access changed. Please sign in again.", 403, user)
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MIDTOWN_RULES, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
@@ -258,33 +254,32 @@ async def features_page(server, request: web.Request) -> web.Response:
     from core.dashboard_security_views import antinuke_health
     antinuke_section = antinuke_health(server.bot, guild, antinuke_raw) + _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
-    if not limited:
-        granter_users = await server.bot.db.get_config(guild.id, "admin_role_granters")
-        granter_roles = await server.bot.db.get_config(guild.id, "admin_role_granter_roles")
-        if (not isinstance(granter_users, dict) or not isinstance(granter_roles, dict)
-                or any(not isinstance(k, str) or not k.isdigit() or v is not True
-                       for mapping in (granter_users, granter_roles) for k, v in mapping.items())):
-            grant_section = _section("Administrator-role granters", "05", "Authorization data is invalid; no changes can be made here.", "", "admin-grants")
-        else:
-            combined = {"users": granter_users, "roles": granter_roles}
-            members = ", ".join(_esc(uid) for uid in granter_users) or "None"
-            roles = ", ".join(_esc(rid) for rid in granter_roles) or "None"
-            grant_form = _form_start(server, guild, user, "admin-grant", "admin_role_grant", combined)
-            grant_form += (f'<p>Authorized member IDs: {members}</p><p>Authorized role IDs: {roles}</p>'
-                           '<div class="note">Members and all current and future human holders of an authorized role '
-                           'may grant eligible Administrator roles to individuals, once per person every 60 seconds. '
-                           'These specific grants bypass the Permission Grant command guard, not other Antinuke rules '
-                           'or trust checks. Recipients gain full Discord Administrator. Ordinary blacklisted roles '
-                           'may receive a recipient-specific exception. Antinuke is best effort.</div>'
-                           '<div class="form-grid"><div class="form-group"><label for="grant_id">Member or role ID</label>'
-                           '<input id="grant_id" name="target_id" inputmode="numeric" required></div>'
-                           + _select("grant_kind", "Type", "member", (("member", "Member"), ("role", "Role")))
-                           + '</div><label class="confirm-choice"><input type="checkbox" name="confirm_role" value="yes"> '
-                           'I understand authorizing a role includes all its current and future human holders.</label>'
-                           '<div class="list-controls"><button class="btn" name="operation" value="add">Authorize</button>'
-                           '<button class="btn btn-plain" name="operation" value="remove">Revoke</button></div></form>')
-            grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "admin-grants")
-        antinuke_section += grant_section
+    granter_users = await server.bot.db.get_config(guild.id, "admin_role_granters")
+    granter_roles = await server.bot.db.get_config(guild.id, "admin_role_granter_roles")
+    if (not isinstance(granter_users, dict) or not isinstance(granter_roles, dict)
+            or any(not isinstance(k, str) or not k.isdigit() or v is not True
+                   for mapping in (granter_users, granter_roles) for k, v in mapping.items())):
+        grant_section = _section("Administrator-role granters", "05", "Authorization data is invalid; no changes can be made here.", "", "admin-grants")
+    else:
+        combined = {"users": granter_users, "roles": granter_roles}
+        members = ", ".join(_esc(uid) for uid in granter_users) or "None"
+        roles = ", ".join(_esc(rid) for rid in granter_roles) or "None"
+        grant_form = _form_start(server, guild, user, "admin-grant", "admin_role_grant", combined)
+        grant_form += (f'<p>Authorized member IDs: {members}</p><p>Authorized role IDs: {roles}</p>'
+                       '<div class="note">Members and all current and future human holders of an authorized role '
+                       'may grant eligible Administrator roles to individuals, once per person every 60 seconds. '
+                       'These specific grants bypass the Permission Grant command guard, not other Antinuke rules '
+                       'or trust checks. Recipients gain full Discord Administrator. Ordinary blacklisted roles '
+                       'may receive a recipient-specific exception. Antinuke is best effort.</div>'
+                       '<div class="form-grid"><div class="form-group"><label for="grant_id">Member or role ID</label>'
+                       '<input id="grant_id" name="target_id" inputmode="numeric" required></div>'
+                       + _select("grant_kind", "Type", "member", (("member", "Member"), ("role", "Role")))
+                       + '</div><label class="confirm-choice"><input type="checkbox" name="confirm_role" value="yes"> '
+                       'I understand authorizing a role includes all its current and future human holders.</label>'
+                       '<div class="list-controls"><button class="btn" name="operation" value="add">Authorize</button>'
+                       '<button class="btn btn-plain" name="operation" value="remove">Revoke</button></div></form>')
+        grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "admin-grants")
+    antinuke_section += grant_section
 
     from cogs.logging import KINDS, other_bots_channel
     from core.dashboard_security_views import log_routes
@@ -325,7 +320,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                 f'<h1>{_esc(label)}</h1><p>Review your settings and save changes when ready.</p></div>'
                 f'<a class="btn btn-plain" href="/servers/{guild.id}/overview">← Server overview</a></div>{saved}'
                 f'<div class="feature-content">{content}</div>')
-        return server._page(label, body, user, guild=guild, active=selected, limited=limited)
+        return server._page(label, body, user, guild=guild, active=selected)
     body = (f'<div class="page-heading"><div><p class="eyebrow">Servers / Feature controls</p><h1>{_esc(guild.name)}</h1>'
             '<p>Manage selected security and community features. Each section saves separately.</p></div>'
             f'<a class="btn btn-plain" href="/servers/{guild.id}">← Server settings</a></div>{saved}'
@@ -413,11 +408,17 @@ async def save_admin_grant(server, guild, user, data) -> web.Response:
                         target = None
             if target is None:
                 return server._message("Invalid settings", "The member or role could not be verified in this server. Nothing was saved.", 400, user)
+        if not await server._can_manage_rbl(user, guild):
+            return server._message("Access denied", "Your access changed; nothing was saved.", 403, user)
         try:
             changed = await cog._change_admin_role_grant_locked(SimpleNamespace(guild=guild), target_id,
                                                                kind=kind, add=operation == "add", target=target)
         except UserError as exc:
             return server._message("Invalid settings", f"{exc}. Nothing was saved.", 400, user)
+        except Exception as exc:
+            import logging
+            logging.getLogger("veil.dashboard").warning("Role authorization save could not be confirmed (%s)", type(exc).__name__)
+            return server._message("Save not confirmed", "Refresh and review role authorizations before retrying.", 503, user)
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s %s admin grant %s %s for guild %s (changed=%s)",
                                                user["uid"], operation, kind, target_id, guild.id, changed)
@@ -432,8 +433,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
     if guild is None:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
     feature = request.match_info["feature"]
-    if not await server._can_manage_security(user, guild) and feature not in (
-            "automod", "automod-entry", "automod-exempt", "logging", "levels", "tickets"):
+    if not await server._can_manage_security(user, guild):
         return server._message("Access denied", "Only the server owner or a bot developer may change security settings.", 403, user)
     data = await request.post()
     if not server._csrf_ok(user, data.get("csrf")):
@@ -523,9 +523,14 @@ async def save_feature(server, request: web.Request) -> web.Response:
                 if field not in data:
                     raise InvalidSetting("Missing log exclusions; refresh the page")
                 try:
-                    ignore[key] = _parse_ids(str(data[field]))
+                    selected = _parse_ids(str(data[field]))
                 except ValueError:
                     raise InvalidSetting("Invalid log exclusion IDs") from None
+                if key == "channels":
+                    previous = set(ignore.get(key) or [])
+                    if any(guild.get_channel(cid) is None for cid in set(selected) - previous):
+                        raise InvalidSetting("New excluded channels must belong to this server")
+                ignore[key] = selected
         elif feature == "automod":
             for key in ("invites", "links", "zalgo", "antighostping"):
                 cfg[key] = _choice(data, key, ("on", "off")) == "on"
@@ -670,7 +675,17 @@ async def save_feature(server, request: web.Request) -> web.Response:
             notice = f"updated antinuke rule {rule} via the dashboard"
     except (InvalidSetting, TypeError, ValueError) as exc:
         return server._message("Invalid settings", f"{exc}. Nothing was saved.", 400, user)
-    await server.bot.db.set_config_committed(guild.id, module, cfg)
+    if await server._guild_for(request, user) is None:
+        return server._message("Access denied", "Your access changed; nothing was saved.", 403, user)
+    latest = await server.bot.db.get_config(guild.id, module, default)
+    if not hmac.compare_digest(str(revision.get("digest", "")), _digest(latest)):
+        return server._message("Settings changed", "Refresh the page and review the latest settings. Nothing was saved.", 409, user)
+    try:
+        await server.bot.db.set_config_committed(guild.id, module, cfg)
+    except Exception as exc:
+        import logging
+        logging.getLogger("veil.dashboard").warning("Feature save could not be confirmed (%s)", type(exc).__name__)
+        return server._message("Save not confirmed", "The database did not confirm the save. Refresh and review the current settings before retrying.", 503, user)
     if notice:
         try:
             get_cog = getattr(server.bot, "get_cog", None)
