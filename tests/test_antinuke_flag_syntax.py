@@ -40,8 +40,10 @@ def test_flag_syntax_parses_and_preserves_settings_on_toggle():
         assert "commands off" in home_embed(cfg, ",").description
         await invoke(cog, ctx, Antinuke.an_cmd_ban, "off")
         await invoke(cog, ctx, Antinuke.an_cmd_ban, "on --command on")
+        rule = (await cog.cfg(ctx.guild.id))["modules"]["ban"]
         assert rule == {"on": True, "threshold": 4, "punishment": "kick", "window": 120, "command": True}
         await invoke(cog, ctx, Antinuke.an_cmd_ban, "5 strip 60s")
+        rule = (await cog.cfg(ctx.guild.id))["modules"]["ban"]
         assert rule["threshold"] == 5 and rule["punishment"] == "strip"
     run(go)
 
@@ -59,7 +61,7 @@ def test_role_and_channel_shortcuts_configure_separate_rules():
             assert not cfg["modules"][key]["on"] and cfg["modules"][key]["window"] == 30
         assert "each action has its own counter" in ctx.approve.await_args.args[0]
         await invoke(cog, ctx, Antinuke.an_cmd_unban, "on --threshold 2")
-        assert cfg["modules"]["unban"]["threshold"] == 2
+        assert (await cog.cfg(ctx.guild.id))["modules"]["unban"]["threshold"] == 2
     run(go)
 
 
@@ -122,7 +124,7 @@ def test_custom_preset_is_a_snapshot_and_restores_command_detection_and_state():
         assert cfg["modules"]["ban"]["threshold"] == 4
         assert cfg["modules"]["ban"]["command"] is False
         assert cfg["modules"]["unban"]["on"] is False
-        assert cfg["modules"]["unban"]["threshold"] == 2
+        assert (await cog.cfg(ctx.guild.id))["modules"]["unban"]["threshold"] == 2
     run(go)
 
 

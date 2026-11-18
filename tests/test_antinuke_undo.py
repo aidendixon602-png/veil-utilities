@@ -296,13 +296,11 @@ def test_one_invite_from_a_regular_member_is_not_an_attack():
     assert not guild.sent and not cog.bot.delete_invite.await_count
 
 
-def test_old_saved_instant_invite_rules_are_moved_to_the_new_default():
+def test_reading_old_invite_rule_preserves_the_configured_threshold():
     old = {"modules": {"roleinvite": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"}}}
-    assert Antinuke.migrate(old) is True and old["modules"]["roleinvite"]["threshold"] == 10
-    assert Antinuke.migrate(old) is False  # only once
-    custom = {"modules": {"roleinvite": {"on": True, "threshold": 7}}}
-    Antinuke.migrate(custom)
-    assert custom["modules"]["roleinvite"]["threshold"] == 7  # a deliberate setting is kept
+    assert Antinuke.migrate(old) is False
+    assert old == {"modules": {"roleinvite": {"on": True, "threshold": 1, "window": 60, "punishment": "strip"}}}
+
 
 
 def test_other_bots_doing_their_job_are_ignored_but_their_deletes_still_count():
