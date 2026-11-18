@@ -69,7 +69,7 @@ MIDTOWN_RULES = [
     {"key": "emoji", "name": "Emoji Delete", "threshold": 3, "window": 60, "punishment": "strip", "tags": None},
     {"key": "prune", "name": "Member Prune", "threshold": 1, "window": 60, "punishment": "ban", "tags": None},
 ]
-NEW_RULES = ("memberroles", "channelupdate", "roleupdate", "emoji", "prune")  # turned on for servers already protected
+NEW_RULES = ("memberroles", "channelupdate", "roleupdate", "emoji", "prune")  # available for explicit configuration
 RULE_LOOKUP = {r["key"]: r for r in MIDTOWN_RULES}
 
 PRESETS = {
@@ -381,6 +381,7 @@ class Antinuke(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.hits: dict[tuple[int, int, str], deque] = defaultdict(deque)
+        self._seen_audit_entries: dict[tuple[int, int], float] = {}
         self.joins: dict[int, deque] = defaultdict(deque)
         self.raid_until: dict[int, float] = {}
         self.raid_tasks: dict[int, asyncio.Task] = {}  # guild -> waits for the raid to go quiet, then ends it
@@ -411,34 +412,15 @@ class Antinuke(commands.Cog):
             remove(ApproveBotButton)
 
     async def cfg(self, gid):
-        cfg = await self.bot.db.get_config(gid, "antinuke", DEFAULT)
-        if self.migrate(cfg):
-            await self.save(gid, cfg)
-        return cfg
+        return deepcopy(await self.bot.db.get_config(gid, "antinuke", DEFAULT))
 
     @staticmethod
     def migrate(cfg: dict) -> bool:
-        """Saved settings from older versions: the invite rule used to fire on every single invite (1 in 60s),
-        so ordinary members making an invite set off an alert. Move those to the new default. True if changed."""
-        changed = False
-        rule = (cfg.get("modules") or {}).get("roleinvite")
-        if not cfg.get("invite_rule_v2") and isinstance(rule, dict):
-            cfg["invite_rule_v2"] = True
-            if int(rule.get("threshold", 1) or 1) <= 2:
-                rule["threshold"] = RULE_LOOKUP["roleinvite"]["threshold"]
-            changed = True
-        # servers already protected get the newer rules switched on with their defaults (once)
-        if not cfg.get("rules_v3") and cfg.get("enabled") and isinstance(cfg.get("modules"), dict):
-            for key in NEW_RULES:
-                r = RULE_LOOKUP[key]
-                cfg["modules"].setdefault(key, {"on": True, "threshold": r["threshold"], "window": r["window"],
-                                                "punishment": r["punishment"]})
-            cfg["rules_v3"] = True
-            changed = True
-        return changed
+        """Do not rewrite thresholds or enable rules while reading saved configuration."""
+        return False
 
     async def save(self, gid, data):
-        await self.bot.db.set_config(gid, "antinuke", data)
+        await self.bot.db.set_config_committed(gid, "antinuke", data)
 
     # ================================================================ detection
     @commands.Cog.listener()
@@ -492,6 +474,20 @@ class Antinuke(commands.Cog):
         if not module:
             return
         guild = entry.guild
+        # Discord can deliver an audit entry more than once. Do not count or undo it twice
+        # in this process; bounded in-memory state is not a durable exactly-once guarantee.
+        entry_id = getattr(entry, "id", None)
+        if isinstance(entry_id, int) and not isinstance(entry_id, bool) and entry_id > 0:
+            now = time.monotonic()
+            seen = self._seen_audit_entries
+            while seen and now - next(iter(seen.values())) > 300:
+                del seen[next(iter(seen))]
+            key = (guild.id, entry_id)
+            if key in seen:
+                return
+            if len(seen) >= 10000:
+                del seen[next(iter(seen))]
+            seen[key] = now
         get_cog = getattr(self.bot, "get_cog", None)
         if (module == "ban" and _perms.is_bot_developer(getattr(getattr(entry, "target", None), "id", None), self.bot)
                 and get_cog and get_cog("DeveloperProtection")):
@@ -664,7 +660,7 @@ class Antinuke(commands.Cog):
 
     async def start_panic(self, guild: discord.Guild, by, why: str | None = None) -> list[str]:
         """Panic mode: lock every channel for @everyone, pause invites and DMs, and take the dangerous permissions
-        off every role I can edit, remembering exactly what was removed so `,an unpanic` puts it all back."""
+        off editable roles. Recovery is best-effort and may require manual repair."""
         cfg = await self.cfg(guild.id)
         if cfg.get("panic"):
             raise UserError("Panic mode is already on. The server owner can lift it with `,an unpanic`")
@@ -702,13 +698,13 @@ class Antinuke(commands.Cog):
                           description=f"{getattr(by, 'mention', 'Someone')} turned on panic mode"
                                       + (f": {why}" if why else "") + ".")
         e.add_field(name="What I did", value="\n".join(f"• {d}" for d in done), inline=False)
-        e.add_field(name="Ends", value="when the server owner runs `,an unpanic`: everything above is put back",
+        e.add_field(name="Ends", value="The server owner or a bot developer can run `,an unpanic`; recovery is best-effort and requires review.",
                     inline=False)
         await self._panic_post(guild, cfg, e)
         return done
 
     async def end_panic(self, guild: discord.Guild, by) -> list[str]:
-        """Put back exactly what panic mode changed (permissions re-added, only the channels it locked unlocked)."""
+        """Attempt to reverse recorded panic changes; prior settings may not be preserved."""
         cfg = await self.cfg(guild.id)
         state = cfg.pop("panic", None)
         if not state:
@@ -1316,23 +1312,28 @@ class Antinuke(commands.Cog):
                     mapping[str(new)], hit = mapping.pop(str(old)), True
             return hit
 
-        rbl = await db.get_config(guild.id, "roleblacklist")
-        if swap_list(rbl.setdefault("roles", [])) | swap_list(rbl.setdefault("authorized", [])):
-            await db.set_config(guild.id, "roleblacklist", rbl)
-            kept.add("role blacklist")
-        levels = await db.get_config(guild.id, "permlevels")
-        if swap_keys(levels.setdefault("roles", {})):
-            await db.set_config(guild.id, "permlevels", levels)
-            kept.add("permission levels")
-        fake = await db.get_config(guild.id, "fakeperms")
-        if swap_keys(fake):
-            await db.set_config(guild.id, "fakeperms", fake)
-            kept.add("fake permissions")
-        cfg = await self.cfg(guild.id)
-        if swap_list(cfg.setdefault("whitelist_roles", [])):
-            await self.save(guild.id, cfg)
-            kept.add("antinuke whitelist")
-        return [f"kept the rebuilt roles' {', '.join(sorted(kept))}"] if kept else []
+        problems = []
+        for module, label in (("roleblacklist", "role blacklist"), ("permlevels", "permission levels"),
+                              ("fakeperms", "fake permissions"), ("antinuke", "antinuke whitelist")):
+            try:
+                doc = deepcopy(await db.get_config(guild.id, module))
+                if not isinstance(doc, dict):
+                    raise ValueError("invalid configuration")
+                if module == "roleblacklist":
+                    changed = swap_list(doc.setdefault("roles", [])) | swap_list(doc.setdefault("authorized", []))
+                elif module == "permlevels":
+                    changed = swap_keys(doc.setdefault("roles", {}))
+                elif module == "fakeperms":
+                    changed = swap_keys(doc)
+                else:
+                    changed = swap_list(doc.setdefault("whitelist_roles", []))
+                if changed:
+                    await db.set_config_committed(guild.id, module, doc)
+                    kept.add(label)
+            except Exception as exc:
+                log.warning("Rebuilt role settings not confirmed in guild %s (%s)", guild.id, type(exc).__name__)
+                problems.append(f"⚠️ {label} transfer was not confirmed; review configuration before retrying")
+        return ([f"kept the rebuilt roles' {', '.join(sorted(kept))}"] if kept else []) + problems
 
     async def _blacklist_allows(self, guild: discord.Guild, member) -> tuple[set[int], bool]:
         """(blacklisted role IDs, whether this member may hold them): the same people the role blacklist lets
@@ -2241,25 +2242,25 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="panic", aliases=["emergency"])
     async def an_panic(self, ctx: Context, *, reason: str = None):
-        """Lock the whole server down in an emergency
+        """Attempt an emergency server lockdown
 
-        Locks every channel, pauses invites and takes dangerous permissions off every role.
+        Attempts to lock channels, pause invites and remove dangerous role permissions.
         """
         await antinuke_admin(ctx)
         done = await self.start_panic(ctx.guild, ctx.author, reason)
-        await ctx.approve("panic mode is **on**: " + "; ".join(d for d in done if not d.startswith("⚠️"))
+        await ctx.approve("panic mode was attempted: " + "; ".join(done)
                           + f"\n-# the server owner lifts it with `{ctx.clean_prefix}an unpanic`")
 
     @antinuke.command(name="unpanic", aliases=["calm", "endpanic"])
     async def an_unpanic(self, ctx: Context):
-        """End panic mode and put everything back (server owner only)"""
+        """Attempt to end panic mode; review changes manually (owner/developer)"""
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
         if not is_owner_or_dev(self.bot, ctx.guild, ctx.author.id):
             raise UserError("Only the **server owner** can lift panic mode")
         done = await self.end_panic(ctx.guild, ctx.author)
-        await ctx.approve("panic mode is **off**: " + "; ".join(d for d in done if not d.startswith("⚠️"))
-                          if done else "panic mode is **off**")
+        await ctx.approve("panic recovery was attempted; verify all settings manually: " + "; ".join(done)
+                          if done else "panic recovery was attempted; verify all settings manually")
 
     @antinuke.command(name="approve", aliases=["approvebot"])
     async def an_approve(self, ctx: Context, bot: discord.Member):

@@ -1075,7 +1075,7 @@ def test_feature_rule_threshold_window_and_punishment_validation():
     run(server, scenario)
 
 
-def test_feature_rule_page_shows_effective_migrations_without_writing_on_get():
+def test_feature_rule_page_preserves_existing_threshold_without_writing_on_get():
     bot = make_bot()
     original = {"enabled": True, "modules": {"roleinvite": {"on": True, "threshold": 1}}}
     bot.db.store[(GUILD_ID, "antinuke")] = json.loads(json.dumps(original))
@@ -1085,15 +1085,15 @@ def test_feature_rule_page_shows_effective_migrations_without_writing_on_get():
     async def scenario(client):
         page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
         html = await page.text()
-        assert 'id="threshold_roleinvite"' in html and 'value="10"' in html
+        assert 'id="threshold_roleinvite"' in html and 'value="1"' in html
         assert bot.db.store[(GUILD_ID, "antinuke")] == original and not bot.db.writes
         revision = _feature_revision(html, GUILD_ID, "rule")
         response = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers, allow_redirects=False,
                                      data={"csrf": csrf_of(server, token), "revision": revision,
                                            "rule": "ban", "state": "on"})
         assert response.status == 302
-        assert bot.db.store[(GUILD_ID, "antinuke")]["modules"]["roleinvite"]["threshold"] == 10
-        assert bot.db.store[(GUILD_ID, "antinuke")]["rules_v3"] is True
+        assert bot.db.store[(GUILD_ID, "antinuke")]["modules"]["roleinvite"]["threshold"] == 1
+        assert "rules_v3" not in bot.db.store[(GUILD_ID, "antinuke")]
 
     run(server, scenario)
 

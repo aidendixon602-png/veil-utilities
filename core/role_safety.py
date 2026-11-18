@@ -1,6 +1,7 @@
 """Fail-closed checks for roles distributed automatically or through self-service."""
 from __future__ import annotations
 
+from core import perms
 from core.utils import UserError, is_dangerous, role_protection_ids
 
 # Discord staff capabilities that are not necessarily included in the generic dangerous-role check.
@@ -15,7 +16,7 @@ def _has_staff_permissions(permissions) -> bool:
     )
 
 
-async def unsafe_automatic_roles(db, guild, roles) -> dict[int, str]:
+async def unsafe_automatic_roles(db, guild, roles, *, bot_privileges_only: bool = False) -> dict[int, str]:
     """Return role IDs that must not be automatically assigned, with a user-facing reason.
 
     Read every policy before returning: an unavailable or malformed policy must stop a grant,
@@ -27,8 +28,11 @@ async def unsafe_automatic_roles(db, guild, roles) -> dict[int, str]:
     levels = await db.get_config(guild.id, "permlevels")
     fake = await db.get_config(guild.id, "fakeperms")
     antinuke = await db.get_config(guild.id, "antinuke")
-    if not all(isinstance(c, dict) for c in (blacklist, levels, fake, antinuke)):
+    admin_granters = await db.get_config(guild.id, "admin_role_granter_roles")
+    if not all(isinstance(c, dict) for c in (blacklist, levels, fake, antinuke, admin_granters)):
         raise ValueError("Invalid role policy")
+    if any(not isinstance(k, str) or not k.isdigit() or v is not True for k, v in admin_granters.items()):
+        raise ValueError("Invalid Administrator-role granter policy")
     level_roles = levels.get("roles", {})
     if not isinstance(level_roles, dict):
         raise ValueError("Invalid role-level policy")
@@ -43,15 +47,20 @@ async def unsafe_automatic_roles(db, guild, roles) -> dict[int, str]:
     result = {}
     for role in roles:
         rid = role.id
-        if rid in protected or str(rid) in protected:
-            result[rid] = "is blacklisted (bled) and cannot be assigned"
-        elif str(rid) in level_roles or rid in level_roles:
+        if (str(rid) in level_roles or rid in level_roles
+              or perms.CODE_ROLES.get(rid) or perms.CODE_ROLES.get(str(rid))
+              or perms.CODE_ROLES.get(role.name) or perms.CODE_ROLES.get(role.name.lower())):
             result[rid] = "has a Veil permission level and cannot be given automatically"
+        elif admin_granters.get(str(rid)) is True:
+            result[rid] = "authorizes Administrator-role grants and cannot be given automatically"
         elif fake.get(str(rid)) or fake.get(rid):
             result[rid] = "has Veil fake permissions and cannot be given automatically"
         elif rid in sensitive or str(rid) in sensitive:
             result[rid] = "has a security bypass and cannot be given automatically"
-        elif role.is_default() or role.managed or role >= guild.me.top_role or _has_staff_permissions(role.permissions):
+        elif not bot_privileges_only and (rid in protected or str(rid) in protected):
+            result[rid] = "is blacklisted (bled) and cannot be assigned"
+        elif not bot_privileges_only and (role.is_default() or role.managed or role >= guild.me.top_role
+                                          or _has_staff_permissions(role.permissions)):
             result[rid] = "is not safe to give automatically"
     return result
 

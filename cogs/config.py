@@ -231,13 +231,26 @@ class Config(commands.Cog):
                  if r and r < member.guild.me.top_role and r.id not in b_roles]
         if roles:
             await asyncio.sleep(ar.get("delay", 0))
-            # Policy or native role permissions may have changed during the delay.
+            # Resolve the current member, saved configuration and roles again after the delay.
+            current_member = member.guild.get_member(member.id)
+            if current_member is None:
+                return
+            current = await self.get(member.guild.id, "autorole")
+            if not isinstance(current, dict):
+                return
+            wanted = current.get("bots" if current_member.bot else "humans", [])
+            common = current.get("all", [])
+            if not isinstance(wanted, list) or not isinstance(common, list):
+                return
+            allowed = set(wanted + common)
+            roles = [current_role for old in roles if old.id in allowed
+                     if (current_role := member.guild.get_role(old.id)) is not None]
             denied = await unsafe_automatic_roles(self.bot.db, member.guild, roles)
             roles = [r for r in roles if r.id not in denied]
             if not roles:
                 return
             try:
-                await member.add_roles(*roles, reason="autorole")
+                await current_member.add_roles(*roles, reason="autorole")
             except discord.HTTPException:
                 pass
 

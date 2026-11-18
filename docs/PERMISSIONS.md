@@ -44,7 +44,9 @@ reviewed for each deployment.
   fake permissions requires confirmation. `,apa all @role` is an owner/developer-only, confirmed shortcut
   granting all bot-only permissions to one role (never @everyone). It does not change Discord permissions;
   owner, developer and Antinuke checks still apply. The existing `,apa <permission>` instead adds one
-  non-dangerous **Discord** permission across eligible roles.
+  non-dangerous **Discord** permission across eligible roles, after preview and confirmation. It now requires
+  the caller’s actual Discord Administrator permission, and Manage Roles plus the permission being granted for
+  the bot. Authority and role snapshots are rechecked; Antinuke guards apply.
 - Ordinary Veil permission checks accept the member's **effective Discord permissions in the command channel**,
   Veil level grants, and fake grants (including combinations). Real or fake `moderate_members` also grants the
   bot-only warn, timeout and case actions. Administrator covers ordinary permission checks, but not independent
@@ -108,8 +110,8 @@ In a server you control, as the server owner or another appropriately authorized
 
 ### Automatic and self-service role safety
 
-Veil now checks role levels, fake permissions, ordinary/hard blacklists, role-blacklist bypasses, antinuke
-role whitelists, Discord staff permissions and role hierarchy for reaction/button roles, autoroles, boost and
+Veil now checks saved and code-defined role levels, fake permissions, scoped Administrator-role granters,
+ordinary/hard blacklists, role-blacklist bypasses, antinuke role whitelists, Discord staff permissions and role hierarchy for reaction/button roles, autoroles, boost and
 vanity rewards, level rewards, and VoiceMaster default roles. Checks run when configuring a new grant and
 again when granting it, including after an autorole delay. Policy read failures or malformed policy prevent
 new grants. Removing an existing self-role is still possible during a policy outage. These checks do not
@@ -277,3 +279,22 @@ The authorized person can use `,r` directly without further approval, limited to
 per 60 seconds. Those grants are excepted from the Permission Grant command guard; other actions are not.
 Command access, hierarchy, mixed dangerous-permission rank gates and blacklists still apply; no Antinuke
 trust is conferred. See [Antinuke](ANTINUKE.md#scoped-administrator-role-grants) for restrictions and limits.
+
+### Role security upgrade: operator review
+
+Direct and bulk **assignment** of roles conferring Veil levels (including code-defined levels), fake permissions,
+scoped Administrator-role granting authority, role-blacklist bypass or Antinuke role trust is now limited to
+the actual server owner and recognized bot developers. This also applies to scoped Administrator-role granters;
+their scoped authority does not confer authority to grant other bot/security privileges. Ordinary staff who
+previously granted such roles may lose that ability. Native Discord dangerous permissions and hierarchy are
+separate checks. Policy read failures prevent non-owner/developer grants. Existing holders and saved settings
+are not removed. Review code-defined grants, `,perm roles`, `,fakepermissions list`, scoped granter roles,
+blacklist bypasses, Antinuke whitelists, existing role holders and every auto/self-service role before deployment.
+Grant access intentionally; do not use a self-service role as a trust or privilege role.
+
+Back up the database and export/review Discord role assignments and channel overwrites before deployment.
+Test with a disposable server. To roll back, stop the bot, deploy the previously tested revision with
+`AUTO_SYNC_GIT=0` in the process environment, and review access again: older code permits the privilege paths
+closed here. Restore a database backup only after evaluating loss of later changes; database restoration cannot
+restore Discord roles or their original IDs. These checks are not atomic with concurrent configuration or
+Discord changes, and other bots and direct Discord actions remain outside their coverage.

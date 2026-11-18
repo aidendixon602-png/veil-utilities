@@ -185,3 +185,42 @@ pages, bot additions, removal and database failures in a disposable server. Depl
 in the process environment. To roll back, stop the bot and deploy the previous tested revision without
 deleting saved entries; previous versions may quarantine individually whitelisted bots and handle uncached
 role members differently. There has been no live Discord or production deployment verification.
+
+## Role and Antinuke upgrade: limitations and recovery
+
+Reading Antinuke settings no longer silently raises saved invite thresholds or enables missing rules. Existing
+saved settings, administrators and exemptions are retained; explicit enable/preset operations can still set
+defaults. Earlier persisted migrations cannot be automatically reversed: review every active rule, threshold,
+window, punishment, command guard, administrator and whitelist before deploying. This change does not promise
+that punishments are disabled; existing enabled rules continue to act. The dashboard uses the saved threshold.
+
+Duplicate audit-entry IDs are suppressed for up to five minutes in a bounded, process-local cache. A restart,
+eviction, missing ID or another process can still duplicate action. Entries are marked before processing, so a
+processing failure can suppress another delivery during that interval. Detection is best effort: audit delivery
+and actor attribution, Discord permissions, hierarchy, member cache, concurrent configuration changes and API
+failures can prevent or delay detection, punishment, alerts or recovery. Counters and snapshots are not durable.
+Trusted actors and legacy blacklist-authorized users can be exempt; developer protection is separate.
+
+Deleted role recovery creates **new IDs**, attempts only a bounded number of holders (up to 250), and may fail
+to restore positions, overwrites, assignments or associated settings. It reports unconfirmed steps but is not
+transactional. Review actual Discord state and settings before manual repair; a timeout may have succeeded, so
+do not blindly retry. Not all damage, including deleted messages, can be recovered.
+
+**Panic/raid recovery remains unsafe and is not an exact rollback.** Panic changes may occur before recovery state
+is saved; failures can leave partial state, and unpanic may clear its record before every restoration succeeds.
+Original channel overwrites and invite/DM restrictions are not fully preserved. It can overwrite preexisting
+settings; review them manually before and after use. Use only after weighing the emergency and having independent
+backups; test in a disposable server. The current warnings do not solve these persistence and race problems.
+Blacklist scan buttons also use cached, possibly stale targets: strip is not atomic and Authorize All grants broad
+blacklist bypasses and Antinuke trust to the scanned members, not just permission to hold one role. Prefer
+individual, freshly reviewed actions; existing scan state and post-click authority need further hardening.
+
+Back up the database and separately record Discord permissions, roles and overwrites; deploy with
+`AUTO_SYNC_GIT=0` in the process environment. To roll back, stop the bot and deploy the previous tested revision;
+review old behavior (including silent migrations and weaker role checks) before resuming. Restoring a database
+backup loses subsequent settings changes and cannot restore Discord state. No local test proves live protection.
+
+Quarantine/release and other restoration paths may reapply saved roles without the new direct-assignment checks;
+quarantine also records recovery state after changing Discord roles. Review existing snapshots and role privileges
+before using these workflows. They need further safety and recovery work and should not be treated as covered by
+this partial hardening.

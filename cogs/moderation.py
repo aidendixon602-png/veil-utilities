@@ -191,7 +191,7 @@ class SingleMemberBledView(discord.ui.View):
             embed.set_footer(text="Veil Utilities • Developer Immunity")
             return await interaction.response.edit_message(embed=embed, view=self)
 
-        embed.color = Colors.gold
+        embed.color = Colors.warn
         embed.set_footer(text="Veil Utilities • Stripping roles in progress...")
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -287,7 +287,7 @@ class GuildBledView(discord.ui.View):
             child.disabled = True
 
         embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
-        embed.color = Colors.gold
+        embed.color = Colors.warn
         embed.description = "⏳ **Purging Blacklisted Roles...**\n\nStripping blacklisted roles from unauthorized members. Please wait..."
         embed.set_footer(text="Veil Utilities • Purging in progress...")
         # Respond immediately (<50ms) so interaction token never expires
@@ -296,6 +296,8 @@ class GuildBledView(discord.ui.View):
         top_pos = getattr(getattr(self.ctx.guild.me, "top_role", None), "position", 999999)
         done = 0
         removed = 0
+        unconfirmed = 0
+        skipped = 0
         from core import perms as _perms
         for m, roles in self.unauthorized:
             if _perms.is_bot_developer(m, self.cog.bot):
@@ -304,16 +306,20 @@ class GuildBledView(discord.ui.View):
             exceptions = await self.cog._role_exceptions(self.ctx.guild.id)
             denied = self.cog._unauthorized_bled_roles(self.ctx.guild, m, cfg, exceptions, roles)
             valid = [r for r in denied if getattr(r, "position", 0) < top_pos]
+            skipped += len(denied) - len(valid)
             if valid:
                 try:
                     await m.remove_roles(*valid, reason=audit_reason(interaction.user, action="Veil: BLED role purge"))
                     done += 1
                     removed += len(valid)
-                except (discord.HTTPException, discord.Forbidden):
-                    pass
+                except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError, OSError):
+                    unconfirmed += 1
 
-        embed.color = Colors.success
-        embed.description = f"✅ **Purged Blacklisted Roles**\n\nStripped **{removed}** blacklisted role(s) from **{done}** member(s)."
+        embed.color = Colors.warn if unconfirmed or skipped else Colors.success
+        embed.description = (f"**Blacklist strip attempted**\n\nConfirmed removal of **{removed}** role(s) from "
+                             f"**{done}** member(s); **{skipped}** role(s) skipped for hierarchy and "
+                             f"**{unconfirmed}** member request(s) unconfirmed. Verify Discord before retrying. "
+                             "The scan uses cached members and may be stale or incomplete.")
         embed.set_footer(text="Veil Utilities • Purged")
         try:
             await interaction.edit_original_response(embed=embed, view=self)
@@ -1499,9 +1505,22 @@ class Moderation(commands.Cog):
         """Delete a role"""
         self._role_target(ctx, f"delete {role.mention}", role)
         check_role(ctx, role)
+        snapshot = (role.name, role.position, role.permissions.value)
+        if not await ctx.confirm(f"Delete {role.mention} (`{role.id}`)? This removes it from its holders and "
+                                 "channel overwrites. Discord cannot restore the original role ID."):
+            return await ctx.neutral("cancelled; the role was not deleted")
+        if not await ctx.command.can_run(ctx):
+            raise UserError("Your access changed during confirmation; nothing was deleted.")
+        current = ctx.guild.get_role(role.id)
+        if current is None or (current.name, current.position, current.permissions.value) != snapshot:
+            raise UserError("The role changed during confirmation; nothing was deleted. Try again.")
+        check_role(ctx, current)
         await antinuke_guard(ctx, "roledelete")
-        await role.delete(reason=audit_reason(ctx.author))
-        await ctx.done(f"deleted **{discord.utils.escape_markdown(role.name)}**")
+        try:
+            await current.delete(reason=audit_reason(ctx.author))
+        except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError, OSError):
+            return await ctx.warn("Role deletion was not confirmed. Check the role in Discord before retrying.")
+        await ctx.done(f"deleted **{discord.utils.escape_markdown(current.name)}**")
 
     @role.command(name="color", aliases=["colour"])
     @requires_uperm("admin")
@@ -1538,62 +1557,100 @@ class Moderation(commands.Cog):
         await ctx.done(f"{role.mention} is {'now' if not role.hoist else 'no longer'} shown separately")
 
     async def _mass_role(self, ctx: Context, action: str, role: discord.Role, which, who: str, *, confirm_add: bool = False):
+        """Preview and confirm all bulk changes; skip targets outside the caller/bot hierarchy."""
         action = action.lower()
         if action not in ("add", "remove"):
             raise UserError(f"use `add` or `remove`, e.g. `{ctx.clean_prefix}r {ctx.command.name} add @Role`")
         add = action == "add"
         self._role_target(ctx, f"{action} {role.mention} {'to' if add else 'from'} {who}", role)
-        if add:
-            await check_role_assignable(ctx, role)
-            cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if role.id in role_protection_ids(cfg):
-                raise UserError("Cannot mass-assign blacklisted roles; use the role command for each recipient")
-        else:
-            check_role(ctx, role)
-        targets = [m for m in ctx.guild.members if which(m) and ((role not in m.roles) if add else (role in m.roles))
-                   and (add or not perms_mod.is_whitelisted_person(m))]  # roles are never taken from whitelisted people
+
+        async def check_role_policy(current):
+            if add:
+                await check_role_assignable(ctx, current)
+                cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
+                if current.id in role_protection_ids(cfg):
+                    raise UserError("Cannot mass-assign blacklisted roles; use the role command for each recipient")
+            else:
+                check_role(ctx, current)
+
+        async def eligible(current):
+            selected, excluded = [], 0
+            for member in ctx.guild.members:
+                if not which(member) or ((current in member.roles) if add else (current not in member.roles)):
+                    continue
+                try:
+                    await check_hierarchy_async(ctx, member, "modify roles on")
+                except UserError:
+                    excluded += 1
+                    continue
+                selected.append(member)
+            return selected, excluded
+
+        await check_role_policy(role)
+        targets, excluded = await eligible(role)
         if not targets:
-            raise UserError("nobody to update")
-        if confirm_add:
-            target_ids = {m.id for m in targets}
-            permissions = role.permissions.value
-            level_cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "permlevels"))
-            fake_cfg = deepcopy(await self.bot.db.get_config(ctx.guild.id, "fakeperms"))
-            confirmed = await ctx.confirm(f"Add {role.mention} to **{len(targets)}** cached {who}? "
-                                          "The member cache may be incomplete. This changes Discord roles; "
-                                          "review their Discord permissions, Veil levels and fake permissions before confirming.")
-            if not confirmed:
-                ctx.command_log_outcome = "Mass role assignment cancelled · nothing changed"
-                return await ctx.neutral("cancelled; no roles were changed")
-            if not await ctx.command.can_run(ctx):
-                raise UserError("Your access changed during confirmation; nothing was changed.")
-            current_role = ctx.guild.get_role(role.id)
-            if (current_role is None or current_role.permissions.value != permissions
-                    or await self.bot.db.get_config(ctx.guild.id, "permlevels") != level_cfg
-                    or await self.bot.db.get_config(ctx.guild.id, "fakeperms") != fake_cfg):
-                raise UserError("The role or its permissions changed during confirmation; nothing was changed. Try again.")
-            await check_role_assignable(ctx, current_role)
-            cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
-            if current_role.id in role_protection_ids(cfg):
-                raise UserError("The role is now blacklisted; nothing was changed.")
-            current = [m for m in ctx.guild.members if which(m) and current_role not in m.roles]
-            if {m.id for m in current} != target_ids:
-                raise UserError("The target list changed during confirmation; nothing was changed. Try again.")
-            role, targets = current_role, current
-            if is_dangerous(role.permissions):
-                await antinuke_guard(ctx, "permissions", amount=len(targets))
+            raise UserError("No eligible cached members to update; protected or higher-ranked members are excluded")
+        target_ids = {member.id for member in targets}
+        permissions = role.permissions.value
+        policy = {key: deepcopy(await self.bot.db.get_config(ctx.guild.id, key))
+                  for key in ("permlevels", "fakeperms", "roleblacklist")}
+        lines = [f"Member ID `{m.id}`" for m in targets]
+        await ctx.paginate(chunk_embeds(f"Role {action} preview", lines, per_page=15, numbered=False))
+        confirmed = await ctx.confirm(
+            f"{action.capitalize()} {role.mention} {'to' if add else 'from'} **{len(targets)}** cached {who} "
+            f"shown in the preview? **{excluded}** protected or higher-ranked member(s) excluded. "
+            "The member cache may be incomplete. Discord changes are not atomic; review access before confirming.")
+        if not confirmed:
+            ctx.command_log_outcome = "Mass role operation cancelled · nothing changed"
+            return await ctx.neutral("cancelled; no roles were changed")
+        if not await ctx.command.can_run(ctx):
+            raise UserError("Your access changed during confirmation; nothing was changed.")
+        current_role = ctx.guild.get_role(role.id)
+        if (current_role is None or current_role.permissions.value != permissions
+                or any([await self.bot.db.get_config(ctx.guild.id, key) != value for key, value in policy.items()])):
+            raise UserError("The role or role policy changed during confirmation; nothing was changed. Try again.")
+        await check_role_policy(current_role)
+        current, _ = await eligible(current_role)
+        if {member.id for member in current} != target_ids:
+            raise UserError("The eligible target list changed during confirmation; nothing was changed. Try again.")
+        role, targets = current_role, current
+        if add and is_dangerous(role.permissions):
+            await antinuke_guard(ctx, "permissions", amount=len(targets))
         msg = await ctx.compact(Colors.neutral, f"⏳ updating **{len(targets)}** members…")
-        done = 0
-        for m in targets:
+        done, skipped = 0, 0
+        for index, original in enumerate(targets):
+            # Each request may take time; re-evaluate current authority, role and target.
+            member = next((m for m in ctx.guild.members if m.id == original.id), None)
+            current_role = ctx.guild.get_role(role.id)
             try:
-                await (m.add_roles if add else m.remove_roles)(role, reason=audit_reason(ctx.author, action="mass role"))
+                if (not await ctx.command.can_run(ctx) or current_role is None
+                        or current_role.permissions.value != permissions or member is None or not which(member)
+                        or ((current_role in member.roles) if add else (current_role not in member.roles))):
+                    skipped += 1
+                    continue
+                await check_role_policy(current_role)
+                await check_hierarchy_async(ctx, member, "modify roles on")
+                if any([await self.bot.db.get_config(ctx.guild.id, key) != value for key, value in policy.items()]):
+                    skipped += 1
+                    continue
+            except (UserError, commands.CheckFailure):
+                skipped += 1
+                continue
+            except Exception as exc:
+                logging.getLogger("veil.moderation").warning(
+                    "Bulk role validation stopped in guild %s (%s)", ctx.guild.id, type(exc).__name__)
+                skipped += len(targets) - index
+                break
+            try:
+                await (member.add_roles if add else member.remove_roles)(current_role, reason=audit_reason(ctx.author, action="mass role"))
                 done += 1
-            except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
-                pass
-        skipped = len(targets) - done
+            except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError, OSError):
+                skipped += 1
         ctx.command_log_outcome = f"Role {'added to' if add else 'removed from'} {done} member(s) · {skipped} not confirmed"
         ctx.command_log_warning = bool(skipped)
         text = f"{'added' if add else 'removed'} {role.mention} {'to' if add else 'from'} **{done}** members"
+        if excluded:
+            text += f" · {excluded} protected or higher-ranked member(s) excluded"
         if skipped:
             text += f" (**{skipped}** updates not confirmed; check roles before retrying)"
         embed = discord.Embed(color=(Colors.caution if skipped else Colors.success) if done else Colors.error,
@@ -2034,7 +2091,9 @@ class Moderation(commands.Cog):
         embed = discord.Embed(
             title="Role Blacklist Check",
             color=Colors.error,
-            description=f"⚠️ **Unauthorized Members Detected**\n\nFound **{len(unauthorized)}** member(s) holding blacklisted roles:"
+            description=(f"⚠️ **Unauthorized Members Detected**\n\nFound **{len(unauthorized)}** member(s) holding blacklisted roles. "
+                         "This cached scan may be stale or incomplete. Authorize All grants a broad bypass, "
+                         "including Antinuke trust, to every listed member; review each before using it:")
         )
         lines = [f"• {m.mention} (`{m.id}`) — " + ", ".join(getattr(r, 'mention', f'<@&{r.id}>') for r in held) for m, held in unauthorized[:15]]
         if len(unauthorized) > 15:
@@ -2467,19 +2526,57 @@ class Moderation(commands.Cog):
         if perm in DANGEROUS_PERMS:
             raise UserError(f"`{perm}` is too dangerous to grant to every role at once, that looks exactly like a nuke. "
                             f"Grant it per role, or use fake permissions (`fp grant`) instead")
-        changed = []
-        for r in self._eligible_roles(ctx):
-            if not getattr(r.permissions, perm):
-                new = discord.Permissions(**{**dict(r.permissions), perm: True})
+        await self._add_permission_across_roles(ctx, perm)
+
+    async def _add_permission_across_roles(self, ctx: Context, permission: str):
+        """Add one native permission after reviewing exact eligible role state."""
+        def authorized():
+            actor = ctx.author.guild_permissions
+            bot = ctx.guild.me.guild_permissions
+            return (actor.administrator and (bot.administrator or bot.manage_roles)
+                    and (bot.administrator or getattr(bot, permission, False)))
+
+        if not authorized():
+            raise UserError("Bulk permission grants require actual Discord Administrator and the bot's Manage Roles "
+                            "and permission being granted.")
+        async with self._bulk_permission_locks.setdefault(ctx.guild.id, asyncio.Lock()):
+            roles = [role for role in self._eligible_roles(ctx) if not getattr(role.permissions, permission)]
+            if not roles:
+                return await ctx.neutral(f"no eligible roles need `{permission}`; nothing changed")
+            snapshot = {role.id: role.permissions.value for role in roles}
+            await ctx.paginate(chunk_embeds(f"Roles affected · add {permission}",
+                                           [f"{r.mention} (`{r.id}`)" for r in roles], per_page=15, numbered=False))
+            if not await ctx.confirm(f"Add `{permission}` to **{len(roles)}** roles shown in the preview? "
+                                     "This grants a real Discord permission to current and future holders."):
+                ctx.command_log_outcome = "Cancelled · no role permissions changed"
+                return await ctx.neutral("cancelled; no role permissions were changed")
+            current = {r.id: r for r in self._eligible_roles(ctx)}
+            if (not authorized() or any(rid not in current or current[rid].permissions.value != value
+                                        for rid, value in snapshot.items())):
+                raise UserError("Access, hierarchy or role permissions changed during confirmation; nothing changed.")
+            await antinuke_guard(ctx, "roleupdate", amount=len(roles))
+            changed, failed = [], []
+            for rid, value in snapshot.items():
+                eligible = {r.id: r for r in self._eligible_roles(ctx)}
+                role = eligible.get(rid)
+                if role is None or role.permissions.value != value or not authorized():
+                    failed.append(current[rid].name)
+                    continue
+                updated = discord.Permissions(value)
+                setattr(updated, permission, True)
                 try:
-                    await r.edit(permissions=new, reason=audit_reason(ctx.author, action="addpermall"))
-                    changed.append(r.name)
-                except discord.HTTPException:
-                    pass
-        if not changed:
-            raise UserError(f"every role below me already had `{perm}`")
-        await ctx.approve(f"added `{perm}` to **{len(changed)}** role{'' if len(changed) == 1 else 's'}\n"
-                          f"-# {shorten(', '.join(changed), 900)}")
+                    await role.edit(permissions=updated, reason=audit_reason(ctx.author, action="bulk role permission addition"))
+                    changed.append(role.name)
+                except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError, OSError):
+                    failed.append(role.name)
+            ctx.command_log_outcome = f"Updated {len(changed)} role(s) · {len(failed)} not confirmed"
+            ctx.command_log_warning = bool(failed)
+            text = f"added `{permission}` to **{len(changed)}** role(s)"
+            if failed:
+                text += (f"\n⚠️ Updates not confirmed for **{len(failed)}** role(s): "
+                         f"{shorten(', '.join(failed), 700)}. Check current permissions before retrying.")
+                return await ctx.warn(text)
+            await ctx.approve(text)
 
     # ================================================================ nicknames
     @commands.command(aliases=["nick"])

@@ -27,6 +27,9 @@ class FakeDB:
     async def set_config(self, gid, module, data):
         self.store[module] = data
 
+    async def set_config_committed(self, gid, module, data):
+        await self.set_config(gid, module, data)
+
 
 class Role(SimpleNamespace):
     def is_default(self):

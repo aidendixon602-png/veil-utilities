@@ -34,6 +34,7 @@ async def setup():
     ctx = _mock_context(bot, guild, author)
     ctx.message = SimpleNamespace(attachments=[])
     ctx.confirm = AsyncMock(return_value=True)
+    ctx.paginate = AsyncMock()
     ctx.compact.return_value = SimpleNamespace(edit=AsyncMock())
     return bot, ctx, role, human, bot_member, store
 
@@ -74,7 +75,7 @@ def test_existing_explicit_add_still_works(args):
         await invoke(bot, ctx, 'humans', args)
         human.add_roles.assert_awaited_once()
         bot_member.add_roles.assert_not_awaited()
-        ctx.confirm.assert_not_awaited()
+        ctx.confirm.assert_awaited_once()
         await bot.close()
     asyncio.run(go())
 
@@ -88,7 +89,7 @@ def test_explicit_remove_remains_remove_not_toggle():
         bot_member.remove_roles.assert_awaited_once()
         human.remove_roles.assert_not_awaited()
         bot_member.add_roles.assert_not_awaited()
-        ctx.confirm.assert_not_awaited()
+        ctx.confirm.assert_awaited_once()
         await bot.close()
     asyncio.run(go())
 
@@ -225,5 +226,56 @@ def test_scoped_admin_role_authorization_does_not_enable_bulk_grants():
         ctx.confirm.assert_not_awaited()
         human.add_roles.assert_not_awaited()
         bot_member.add_roles.assert_not_awaited()
+        await bot.close()
+    asyncio.run(go())
+
+
+def test_bulk_excludes_owner_actor_and_highest_targets():
+    async def go():
+        bot, ctx, role, human, _, _ = await setup()
+        ctx.author = _mock_member(300)
+        ctx.author.top_role = _mock_role(301, pos=70)
+        human.top_role = _mock_role(302, pos=10)
+        above = _mock_member(400)
+        above.top_role = _mock_role(401, pos=80)
+        owner = _mock_member(ctx.guild.owner_id)
+        ctx.guild.members = [ctx.author, human, above, owner]
+        await invoke(bot, ctx, 'humans', 'add "Cool Team"')
+        human.add_roles.assert_awaited_once()
+        for protected in (ctx.author, above, owner):
+            protected.add_roles.assert_not_awaited()
+        assert '3** protected or higher-ranked' in ctx.confirm.await_args.args[0]
+        await bot.close()
+    asyncio.run(go())
+
+
+def test_explicit_remove_cancellation_and_recheck():
+    async def go():
+        bot, ctx, role, human, _, _ = await setup()
+        human.roles.append(role)
+        ctx.confirm.return_value = False
+        await invoke(bot, ctx, 'humans', 'remove "Cool Team"')
+        human.remove_roles.assert_not_awaited()
+        async def changed(*args):
+            human.top_role = _mock_role(600, pos=101)
+            return True
+        ctx.confirm.side_effect = changed
+        with pytest.raises(UserError, match='target list changed'):
+            await invoke(bot, ctx, 'humans', 'remove "Cool Team"')
+        human.remove_roles.assert_not_awaited()
+        await bot.close()
+    asyncio.run(go())
+
+
+def test_explicit_add_uses_antinuke_guard(monkeypatch):
+    async def go():
+        bot, ctx, role, human, _, _ = await setup()
+        role.permissions.manage_roles = True
+        guard = AsyncMock(side_effect=UserError('blocked by antinuke'))
+        monkeypatch.setattr('cogs.moderation.antinuke_guard', guard)
+        with pytest.raises(UserError, match='antinuke'):
+            await invoke(bot, ctx, 'humans', 'add "Cool Team"')
+        guard.assert_awaited_once_with(ctx, 'permissions', amount=1)
+        human.add_roles.assert_not_awaited()
         await bot.close()
     asyncio.run(go())

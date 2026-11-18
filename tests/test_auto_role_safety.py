@@ -206,3 +206,68 @@ def test_reaction_add_fails_closed_if_policy_store_unavailable(bot):  # noqa: F8
             await Config(bot)._rr_event(payload, True)
         member.add_roles.assert_not_awaited()
     asyncio.run(run())
+
+
+def test_scoped_administrator_granter_role_is_never_self_assigned(bot):  # noqa: F811
+    async def run():
+        guild, role, member = _mock_guild(123), _mock_role(888), _mock_member(555)
+        guild.get_role.return_value = role
+        bot._storage[(123, "admin_role_granter_roles")] = {"888": True}
+        assert 888 in await unsafe_automatic_roles(bot.db, guild, [role])
+        it = SimpleNamespace(guild=guild, client=bot, user=member,
+                             response=SimpleNamespace(send_message=AsyncMock()))
+        await RoleButton(888, "test").callback(it)
+        member.add_roles.assert_not_awaited()
+        assert "Administrator-role grants" in it.response.send_message.await_args.args[0]
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("key", [888, "888", "TestRole", "testrole"])
+def test_builtin_role_levels_block_automatic_grants(bot, monkeypatch, key):  # noqa: F811
+    from core import perms
+    async def run():
+        role = _mock_role(888)
+        monkeypatch.setattr(perms, "CODE_ROLES", {key: "admin"})
+        assert 888 in await unsafe_automatic_roles(bot.db, _mock_guild(123), [role])
+    asyncio.run(run())
+
+
+def test_invalid_or_unavailable_admin_granter_policy_fails_closed(bot):  # noqa: F811
+    async def run():
+        role, guild = _mock_role(888), _mock_guild(123)
+        bot._storage[(123, "admin_role_granter_roles")] = {"888": "yes"}
+        with pytest.raises(ValueError, match="granter"):
+            await unsafe_automatic_roles(bot.db, guild, [role])
+        async def get(gid, module, default=None):
+            if module == "admin_role_granter_roles":
+                raise RuntimeError("offline")
+            return {}
+        bot.db.get_config.side_effect = get
+        with pytest.raises(RuntimeError, match="offline"):
+            await unsafe_automatic_roles(bot.db, guild, [role])
+    asyncio.run(run())
+
+
+def test_delayed_autorole_respects_removal_and_current_role(bot, monkeypatch):  # noqa: F811
+    async def run():
+        guild, old, member = _mock_guild(123), _mock_role(888), _mock_member(555)
+        member.guild = guild
+        guild.get_member.return_value = member
+        guild.get_role.return_value = old
+        bot._storage[(123, "autorole")] = {"all": [888], "delay": 1}
+        config = Config(bot)
+        config._greet_send = AsyncMock()
+        async def revoke(_):
+            bot._storage[(123, "autorole")] = {"all": []}
+        monkeypatch.setattr("cogs.config.asyncio.sleep", revoke)
+        await config.on_member_join(member)
+        member.add_roles.assert_not_awaited()
+        async def replace(_):
+            replacement = _mock_role(888)
+            replacement.permissions = discord.Permissions(administrator=True)
+            guild.get_role.return_value = replacement
+        bot._storage[(123, "autorole")] = {"all": [888], "delay": 1}
+        monkeypatch.setattr("cogs.config.asyncio.sleep", replace)
+        await config.on_member_join(member)
+        member.add_roles.assert_not_awaited()
+    asyncio.run(run())

@@ -103,35 +103,44 @@ async def restore_roles(guild, snaps: list[dict], reason: str) -> tuple[dict[int
             role = await guild.create_role(name=snap["name"], permissions=discord.Permissions(snap["permissions"]),
                                            colour=discord.Colour(snap["colour"]), hoist=snap["hoist"],
                                            mentionable=snap["mentionable"], reason=reason)
-        except discord.HTTPException as e:
-            lines.append(f"⚠️ couldn't restore the role {snap['name']} (Discord said {e.status})")
+        except (discord.HTTPException, OSError, asyncio.TimeoutError) as e:
+            lines.append(f"⚠️ creation of role {snap['name']} was not confirmed ({type(e).__name__}); check Discord before retrying")
             continue
         role_map[snap["id"]] = role
         top = getattr(getattr(guild.me, "top_role", None), "position", 0)
         if snap["position"] and top:
             try:
                 await role.edit(position=max(1, min(snap["position"], top - 1)), reason=reason)
-            except (discord.HTTPException, TypeError, ValueError):
-                pass
+            except (discord.HTTPException, OSError, asyncio.TimeoutError, TypeError, ValueError):
+                lines.append(f"⚠️ position for restored role @{snap['name']} was not confirmed; review manually")
         given = 0
+        member_unconfirmed = max(0, len(snap["holders"]) - MAX_MEMBERS_RESTORED)
         for member_id in snap["holders"][:MAX_MEMBERS_RESTORED]:
             member = guild.get_member(member_id)
             if member is None:
+                member_unconfirmed += 1
                 continue
             try:
                 await member.add_roles(role, reason=reason)
                 given += 1
-            except discord.HTTPException:
-                pass
+            except (discord.HTTPException, OSError, asyncio.TimeoutError):
+                member_unconfirmed += 1
+        if member_unconfirmed:
+            lines.append(f"⚠️ {member_unconfirmed} holder assignment(s) for @{snap['name']} were not confirmed "
+                         "(missing, failed or above the restore limit); review manually")
+        overwrite_unconfirmed = 0
         for channel_id, allow, deny in snap["overwrites"]:
             channel = guild.get_channel(channel_id)
             if channel is None:
+                overwrite_unconfirmed += 1
                 continue
             try:
                 await channel.set_permissions(role, overwrite=discord.PermissionOverwrite.from_pair(
                     discord.Permissions(allow), discord.Permissions(deny)), reason=reason)
-            except discord.HTTPException:
-                pass
+            except (discord.HTTPException, OSError, asyncio.TimeoutError):
+                overwrite_unconfirmed += 1
+        if overwrite_unconfirmed:
+            lines.append(f"⚠️ {overwrite_unconfirmed} channel overwrite(s) for @{snap['name']} were not confirmed; review manually")
         extra = f" (given back to {given} member{'s' if given != 1 else ''})" if given else ""
         lines.append(f"restored @{snap['name']}{extra}")
     return role_map, lines

@@ -20,9 +20,9 @@ Presentation and help visibility do not replace the checks that run when a comma
 Use `,r humans "Role Name"`, `,r bots "Role Name"`, or `,r all "Role Name"` to **add** a role to matching
 cached members after confirmation. Role mentions and IDs also work; use a mention or ID for a role named `add`
 or `remove`. The existing explicit forms, for example `,r humans add @Role` and `,r bots remove @Role`, remain
-available and do not use the new shorthand confirmation. Existing rank and permission checks still apply; neither
-ordinary nor hard-blacklisted roles can be mass-assigned. Dangerous Discord permission grants via the new
-shorthand are checked by Antinuke.
+available and also require confirmation. Existing rank and permission checks still apply; neither
+ordinary nor hard-blacklisted roles can be mass-assigned. Dangerous Discord permission grants in either
+form are checked by Antinuke. Removal also previews and confirms, and target hierarchy is checked.
 
 Bulk role commands use Discord's cached member list, which can be incomplete, and do not affect future joins.
 Review role Discord permissions, Veil levels and fake permissions before confirming. Permissions and the target
@@ -43,8 +43,8 @@ inspect and remove unwanted channels manually. Server log routing now requires r
 see [logging](LOGGING.md) before upgrading. Rolling back to older versions restores unsafe name-based routing
 and cleanup behavior. Do not use production for destructive tests.
 
-**Known self-role risk:** Do not put Veil level or fake-permission grants on roles members can obtain from
-button or reaction panels. Review existing role holders as well as panels; removing a panel does not revoke roles.
+**Self-role safety:** Do not put Veil level, fake-permission, trust or scoped-granter grants on roles members can obtain from
+button or reaction panels. Veil checks its supported self-service paths, but other bots and Discord itself are not covered. Review existing role holders as well as panels; removing a panel does not revoke roles.
 See the [permissions guide](PERMISSIONS.md#review-role-assignments) for mitigation and current trust boundaries.
 
 Veil recognizes the Discord application's owner/team and additional `OWNER_IDS` as bot developers. Developer commands are hidden and independently checked; they include highly privileged operations. Server owners and role/user permission levels govern access to many server commands. Actual Discord permissions and role hierarchy are also required to perform Discord actions. Use `,help <command>` and `,perm roles` to inspect available information; the generated reference cannot represent every check.

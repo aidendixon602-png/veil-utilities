@@ -51,7 +51,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `,antinuke memberroles [count] [punishment] [timeframe] [flags]` (member_roles) | Configure member roles rule |  |
 | `,antinuke module <module> <state> [threshold]` | Turn one antinuke rule on or off |  |
 | `,antinuke namemonitor [enabled]` | Monitor server name changes without automatic punishment | server owner or bot developer |
-| `,antinuke panic [reason]` (emergency) | Lock the whole server down in an emergency |  |
+| `,antinuke panic [reason]` (emergency) | Attempt an emergency server lockdown |  |
 | `,antinuke permissions [count] [punishment] [timeframe] [flags]` (permission, perms) | Configure permission grant rule |  |
 | `,antinuke preset` | Save, load or list antinuke rule presets |  |
 | `,antinuke preset list` | List available antinuke presets |  |
@@ -71,7 +71,7 @@ _Stop rogue admins and raids before they wreck your server_
 | `,antinuke timeout [count] [punishment] [timeframe] [flags]` (mute) | Configure timeout rule |  |
 | `,antinuke toggle [state]` (on/off) | Toggle antinuke, or explicitly set it to on or off |  |
 | `,antinuke unban [count] [punishment] [timeframe] [flags]` | Configure unban rule |  |
-| `,antinuke unpanic` (calm, endpanic) | End panic mode and put everything back (server owner only) |  |
+| `,antinuke unpanic` (calm, endpanic) | Attempt to end panic mode; review changes manually (owner/developer) |  |
 | `,antinuke unwhitelist <target>` (unwl, untrust) | Stop trusting a user, bot or role |  |
 | `,antinuke webhook [count] [punishment] [timeframe] [flags]` (webhooks) | Configure webhook rule |  |
 | `,antinuke whitelist [target]` (wl, trust) | Trust a user, bot or role in the antinuke |  |
