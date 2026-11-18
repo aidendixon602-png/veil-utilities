@@ -106,6 +106,9 @@ def test_automatic_setup_enables_veil_for_fresh_servers_even_with_ghost():
 
         async def set_config(self, gid, module, data):
             store[module] = data
+
+        async def set_config_committed(self, gid, module, data):
+            await self.set_config(gid, module, data)
     from test_auto_and_panels import bot_with
     bot = bot_with(DB())
     g = guild()

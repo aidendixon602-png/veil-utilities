@@ -35,6 +35,10 @@ class FakeDB:
     async def set_config_committed(self, gid, module, data):
         await self.set_config(gid, module, data)
 
+    async def set_configs_committed(self, gid, documents):
+        for module, data in documents.items():
+            await self.set_config(gid, module, data)
+
     async def set_config(self, gid, module, data):
         self.store[(gid, module)] = data
         self.writes.append((gid, module))
@@ -45,8 +49,10 @@ def make_bot(guild_name="Test Server"):
         SimpleNamespace(id=GUILD_ID, name=guild_name, owner_id=GUILD_OWNER, member_count=10, members=[]),
         SimpleNamespace(id=OTHER_GUILD_ID, name="Other", owner_id=999, member_count=5, members=[]),
     ]
-    channels = {cid: MagicMock(spec=discord.TextChannel) for cid in (44, 66)}
+    channels = {cid: MagicMock(spec=discord.TextChannel) for cid in (33, 44, 66)}
     guilds[0].get_channel = lambda cid: channels.get(cid)
+    guilds[0].get_role = lambda rid: SimpleNamespace(id=rid) if rid in (11, 22, 33, 42, 44) else None
+    guilds[0].fetch_member = AsyncMock(side_effect=lambda uid: SimpleNamespace(id=uid))
     guilds[0].text_channels = []
     guilds[1].get_channel = lambda cid: None
     guilds[1].text_channels = []
@@ -54,6 +60,8 @@ def make_bot(guild_name="Test Server"):
         guilds=guilds,
         get_guild=lambda gid: next((g for g in guilds if g.id == gid), None),
         is_owner=AsyncMock(side_effect=lambda uid: uid == BOT_OWNER),
+        application_info=AsyncMock(return_value=SimpleNamespace(owner=SimpleNamespace(id=BOT_OWNER), team=None)),
+        fetch_guild=AsyncMock(side_effect=lambda gid: next(g for g in guilds if g.id == gid)),
         is_authorized=lambda gid: True,
         db=FakeDB(),
         latency=0.05,
@@ -85,6 +93,14 @@ def cookie(server, uid, name="user"):
 
 def csrf_of(server, token):
     return server._unsign(token, "session")["csrf"]
+
+
+async def combined_revision(client, headers, gid=GUILD_ID):
+    response = await client.get(f"/servers/{gid}", headers=headers)
+    assert response.status == 200
+    match = re.search(r'name="revision" value="([^"]+)"', await response.text())
+    assert match
+    return match.group(1)
 
 
 # ------------------------------------------------------------------ settings and binding
@@ -208,9 +224,10 @@ def test_owner_save_writes_the_keys_the_bot_actually_reads():
     token, headers = cookie(server, GUILD_OWNER)
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         r = await client.post(
             f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
-            data={"csrf": csrf_of(server, token), "rbl_roles": "11, 22", "rbl_authorized": "33",
+            data={"csrf": csrf_of(server, token), "revision": combined_rev, "confirm_security": "yes", "rbl_roles": "11, 22", "rbl_authorized": "33",
                   "log_commands": "44", "log_bans": "", "log_joins": "66",
                   "an_punishment": "kick", "an_admins": "77, 77, 88"},
         )
@@ -226,14 +243,16 @@ def test_owner_save_writes_the_keys_the_bot_actually_reads():
     assert an["whitelist"] == [] and an["modules"] == {}  # antinuke defaults kept
 
 
-def test_invalid_punishment_is_ignored():
+def test_invalid_punishment_is_rejected_without_writes():
     bot = make_bot()
     server = login_server(bot)
     token, headers = cookie(server, GUILD_OWNER)
 
     async def scenario(client):
-        await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
-                          data={"csrf": csrf_of(server, token), "an_punishment": "nuke"})
+        combined_rev = await combined_revision(client, headers)
+        response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
+                                     data={"csrf": csrf_of(server, token), "revision": combined_rev, "an_punishment": "nuke"})
+        assert response.status == 400
 
     run(server, scenario)
     assert bot.db.store[(GUILD_ID, "antinuke")]["punishment"] == "ban"
@@ -325,7 +344,7 @@ def test_local_mode_rejects_other_host_headers():
         r = await client.get("/", headers={"Host": "evil.example"})
         assert r.status == 421
         r = await client.get("/api/guilds")
-        assert r.status == 200 and len(await r.json()) == 2
+        assert r.status == 401
 
     run(server, scenario)
 
@@ -336,7 +355,7 @@ def test_local_mode_still_needs_csrf_for_changes():
 
     async def scenario(client):
         r = await client.post(f"/api/guilds/{GUILD_ID}/config", data={"an_admins": "42"})
-        assert r.status == 403
+        assert r.status == 401
 
     run(server, scenario)
     assert bot.db.writes == []
@@ -351,7 +370,7 @@ def test_login_mode_session_is_not_valid_in_local_mode():
         r = await client.post(f"/api/guilds/{GUILD_ID}/config",
                               headers={"Cookie": f"{SESSION_COOKIE}={remote_token}"},
                               data={"csrf": local._unsign(remote_token, "session")["csrf"], "an_admins": "42"})
-        assert r.status == 403  # the cookie is replaced by a fresh local session, so its CSRF token doesn't match
+        assert r.status == 401  # local mode never accepts a session
 
     run(local, scenario)
     assert bot.db.writes == []
@@ -405,10 +424,11 @@ def test_invalid_ids_never_partially_save_security_settings():
     bot.db.store[(GUILD_ID, "roleblacklist")] = {"roles": [11], "authorized": [22]}
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         for field, value in (("rbl_roles", "33, invalid"), ("an_admins", "nope"),
                              ("log_commands", "invalid"), ("rbl_roles", ",".join(map(str, range(1, 102))))):
             r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
-                                  data={"csrf": csrf_of(server, token), "rbl_roles": "33", field: value})
+                                  data={"csrf": csrf_of(server, token), "revision": combined_rev, "rbl_roles": "33", field: value})
             assert r.status == 400 and "Nothing was saved" in await r.text()
 
     run(server, scenario)
@@ -422,8 +442,9 @@ def test_dashboard_preserves_logging_off_state():
     token, headers = cookie(server, GUILD_OWNER)
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
-                              data={"csrf": csrf_of(server, token), "log_commands": "-1"})
+                              data={"csrf": csrf_of(server, token), "revision": combined_rev, "log_commands": "-1"})
         assert r.status == 302
 
     run(server, scenario)
@@ -459,8 +480,9 @@ def test_dashboard_rejects_hard_role_in_soft_blacklist_without_writes():
     bot.db.store[(GUILD_ID, "roleblacklist")] = original.copy()
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
-                                     data={"csrf": csrf_of(server, token), "rbl_roles": "11,22"})
+                                     data={"csrf": csrf_of(server, token), "revision": combined_rev, "rbl_roles": "11,22"})
         assert response.status == 400 and "Nothing was saved" in await response.text()
 
     run(server, scenario)
@@ -468,38 +490,17 @@ def test_dashboard_rejects_hard_role_in_soft_blacklist_without_writes():
     assert bot.db.writes == []
 
 
-def test_local_dashboard_cannot_read_or_write_role_blacklist_even_with_valid_csrf():
+def test_local_dashboard_never_grants_access_even_with_signed_local_session():
     bot = make_bot()
-    bot.db.store[(GUILD_ID, "roleblacklist")] = {"roles": [123456], "authorized": [654321]}
     server = DashboardServer(bot, port=0)
-
+    token = server.make_session(0, "local", local=True)
+    headers = {"Cookie": f"{SESSION_COOKIE}={token}"}
     async def scenario(client):
-        page = await client.get(f"/servers/{GUILD_ID}")
-        body = await page.text()
-        assert page.status == 200 and "123456" not in body and "rbl_roles" not in body
-        api = await client.get(f"/api/guilds/{GUILD_ID}/config")
-        assert "roleblacklist" not in await api.json()
-        session = server._unsign(client.session.cookie_jar.filter_cookies(client.make_url('/'))[SESSION_COOKIE].value, "session")
-        response = await client.post(f"/api/guilds/{GUILD_ID}/config",
-                                     data={"csrf": session["csrf"], "rbl_roles": "44"})
-        assert response.status == 403
+        assert (await client.get(f"/api/guilds/{GUILD_ID}/config", headers=headers)).status == 401
+        assert (await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
+                                  data={"csrf": csrf_of(server, token), "rbl_roles": "44"})).status == 401
     run(server, scenario)
-    assert bot.db.store[(GUILD_ID, "roleblacklist")] == {"roles": [123456], "authorized": [654321]}
     assert bot.db.writes == []
-
-
-def test_local_unrelated_settings_save_does_not_write_role_blacklist():
-    bot = make_bot()
-    server = DashboardServer(bot, port=0)
-
-    async def scenario(client):
-        await client.get("/")
-        token = client.session.cookie_jar.filter_cookies(client.make_url('/'))[SESSION_COOKIE].value
-        csrf = server._unsign(token, "session")["csrf"]
-        response = await client.post(f"/api/guilds/{GUILD_ID}/config", data={"csrf": csrf, "an_admins": "42"}, allow_redirects=False)
-        assert response.status == 302
-    run(server, scenario)
-    assert (GUILD_ID, "roleblacklist") not in bot.db.writes
 
 
 # ------------------------------------------------------------------ authenticated-only dashboard & authorization
@@ -582,7 +583,7 @@ def test_authorization_is_developer_only_csrf_protected_and_requires_confirmatio
                                   data={**base, "action": "revoke"})).status == 403
         assert not calls
         r = await client.post("/authorization", headers=dev_headers,
-                              data={"csrf": base["csrf"], "action": "authorize", "guild_id": "12345"})
+                              data={"csrf": base["csrf"], "action": "authorize", "guild_id": "12345", "confirm_authorize": "yes"})
         assert r.status == 200 and 12345 in bot.authorized
         assert calls[-1] == ("add", 12345, BOT_OWNER, "via dashboard")
         r = await client.post("/authorization", headers=dev_headers, data={**base, "action": "review"})
@@ -608,15 +609,16 @@ def test_log_selection_rejects_channels_not_in_guild_without_writes():
     token, headers = cookie(server, GUILD_OWNER)
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         page = await client.get(f"/servers/{GUILD_ID}", headers=headers)
         text = await page.text()
         for field in ("log_roles", "log_messages", "log_timeouts", "log_antinuke", "log_server"):
             assert f'name="{field}"' in text
         r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
-                              data={"csrf": csrf_of(server, token), "log_roles": "999", "rbl_roles": "42"})
+                              data={"csrf": csrf_of(server, token), "revision": combined_rev, "log_roles": "999", "rbl_roles": "42"})
         assert r.status == 400 and "Nothing was saved" in await r.text()
         r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
-                              data={"csrf": csrf_of(server, token), "log_roles": "44", "log_timeouts": "-1"})
+                              data={"csrf": csrf_of(server, token), "revision": combined_rev, "log_roles": "44", "log_timeouts": "-1"})
         assert r.status == 302
 
     run(server, scenario)
@@ -707,7 +709,7 @@ def test_dashboard_authorization_updates_real_cog_and_database():
         await client.start_server()
         try:
             data = {"csrf": csrf_of(server, token), "guild_id": "12345"}
-            r = await client.post("/authorization", headers=headers, data={**data, "action": "authorize"})
+            r = await client.post("/authorization", headers=headers, data={**data, "action": "authorize", "confirm_authorize": "yes"})
             assert r.status == 200 and bot.authorized == {12345}
             row = await db.fetchone("SELECT * FROM authorized WHERE guild_id=?", 12345)
             assert row["authorized_by"] == BOT_OWNER and row["note"] == "via dashboard"
@@ -736,12 +738,13 @@ def test_dashboard_extended_settings_save_and_preserve_other_configuration():
     token, headers = cookie(server, GUILD_OWNER)
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         page = await client.get(f"/servers/{GUILD_ID}", headers=headers)
         html = await page.text()
         assert 'name="an_whitelist" value="8"' in html
         assert 'name="log_ignore_users" value="5"' in html
         response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, allow_redirects=False,
-                                     data={"csrf": csrf_of(server, token), "an_whitelist": "11, 11, 12",
+                                     data={"csrf": csrf_of(server, token), "revision": combined_rev, "confirm_security": "yes", "an_whitelist": "11, 11, 12",
                                            "an_whitelist_roles": "44", "log_ignore_users": "22",
                                            "log_ignore_channels": "33", "rbl_reply_mode": "dm"})
         assert response.status == 302
@@ -762,11 +765,12 @@ def test_dashboard_extended_settings_validate_before_writes_and_forbid_everyone(
     token, headers = cookie(server, GUILD_OWNER)
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         for field, value in (("an_whitelist", "bad"), ("log_ignore_users", "12, nope"),
                              ("an_whitelist_roles", str(GUILD_ID)), ("an_whitelist_roles", "999"),
                              ("rbl_reply_mode", "invalid")):
             response = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers,
-                                         data={"csrf": csrf_of(server, token), "rbl_roles": "11", field: value})
+                                         data={"csrf": csrf_of(server, token), "revision": combined_rev, "rbl_roles": "11", field: value})
             assert response.status == 400
             assert "Nothing was saved" in await response.text()
         assert bot.db.writes == []
@@ -775,7 +779,7 @@ def test_dashboard_extended_settings_validate_before_writes_and_forbid_everyone(
         assert response.status == 403 and bot.db.writes == []
         # An authenticated owner cannot change another owner's server even with valid CSRF.
         response = await client.post(f"/api/guilds/{OTHER_GUILD_ID}/config", headers=headers,
-                                     data={"csrf": csrf_of(server, token), "an_whitelist": "11"})
+                                     data={"csrf": csrf_of(server, token), "revision": combined_rev, "an_whitelist": "11"})
         assert response.status == 404
         assert bot.db.writes == []
 
@@ -792,6 +796,7 @@ def test_form_referrer_policy_allows_browser_origin_without_weakening_csrf():
     same_origin = {**headers, "Origin": "https://veil.example.com", "Sec-Fetch-Site": "same-origin"}
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         for path in ("/", f"/servers/{GUILD_ID}", "/authorization"):
             response = await client.get(path, headers=headers)
             assert response.status == 200
@@ -801,7 +806,7 @@ def test_form_referrer_policy_allows_browser_origin_without_weakening_csrf():
         redirect = await client.get("/login", allow_redirects=False)
         assert redirect.headers["Referrer-Policy"] == "no-referrer"
 
-        form = {"csrf": csrf, "an_admins": "42"}
+        form = {"csrf": csrf, "revision": combined_rev, "confirm_security": "yes", "an_admins": "42"}
         url = f"/api/guilds/{GUILD_ID}/config"
         for origin, fetch_site in (("null", "same-origin"), ("https://evil.example", "cross-site"),
                                    ("https://veil.example.com", "cross-site")):
@@ -1070,7 +1075,7 @@ def test_feature_rule_threshold_window_and_punishment_validation():
     run(server, scenario)
 
 
-def test_feature_rule_page_shows_effective_migrations_without_writing_on_get():
+def test_feature_rule_page_preserves_existing_threshold_without_writing_on_get():
     bot = make_bot()
     original = {"enabled": True, "modules": {"roleinvite": {"on": True, "threshold": 1}}}
     bot.db.store[(GUILD_ID, "antinuke")] = json.loads(json.dumps(original))
@@ -1080,15 +1085,15 @@ def test_feature_rule_page_shows_effective_migrations_without_writing_on_get():
     async def scenario(client):
         page = await client.get(f"/servers/{GUILD_ID}/features", headers=headers)
         html = await page.text()
-        assert 'id="threshold_roleinvite"' in html and 'value="10"' in html
+        assert 'id="threshold_roleinvite"' in html and 'value="1"' in html
         assert bot.db.store[(GUILD_ID, "antinuke")] == original and not bot.db.writes
         revision = _feature_revision(html, GUILD_ID, "rule")
         response = await client.post(f"/servers/{GUILD_ID}/features/rule", headers=headers, allow_redirects=False,
                                      data={"csrf": csrf_of(server, token), "revision": revision,
                                            "rule": "ban", "state": "on"})
         assert response.status == 302
-        assert bot.db.store[(GUILD_ID, "antinuke")]["modules"]["roleinvite"]["threshold"] == 10
-        assert bot.db.store[(GUILD_ID, "antinuke")]["rules_v3"] is True
+        assert bot.db.store[(GUILD_ID, "antinuke")]["modules"]["roleinvite"]["threshold"] == 1
+        assert "rules_v3" not in bot.db.store[(GUILD_ID, "antinuke")]
 
     run(server, scenario)
 
@@ -1194,7 +1199,7 @@ def test_landing_workspace_owner_developer_and_revoked_server_access():
 
     async def scenario(client):
         owner = await (await client.get("/", headers=owner_headers)).text()
-        assert "Server owner / administrator workspace" in owner and "Test Server</a>" in owner
+        assert "Server owner workspace" in owner and "Test Server</a>" in owner
         assert "Other</a>" not in owner and "Developer workspace" not in owner
         assert 'href="/authorization"' not in owner and "JOINED SERVERS" not in owner
         assert 'class="guild-card"' in owner and "1 configured" in owner
@@ -1432,84 +1437,24 @@ def test_advanced_automod_developer_session_and_access_recheck():
     run(server, scenario)
 
 
-def test_administrator_scoped_access_writes_and_revocation():
-    from core.dashboard import LOG_FIELDS
-
+def test_administrator_has_no_dashboard_access_even_for_preexisting_session():
     bot = make_bot()
     guild = bot.guilds[0]
-    role_id = 42
-    member = SimpleNamespace(id=STRANGER, _roles=[role_id])
-    admin_role = SimpleNamespace(id=role_id, permissions=discord.Permissions(administrator=True))
-    guild.fetch_member = AsyncMock(return_value=member)
-    guild.fetch_roles = AsyncMock(return_value=[admin_role])
-    bot.db.store[(GUILD_ID, "antinuke")] = {"enabled": True, "whitelist": [1234]}
-    bot.db.store[(GUILD_ID, "roleblacklist")] = {"roles": [5678]}
-    bot.db.store[(GUILD_ID, "logs")] = {"commands": 44, "unknown": "preserve", "ignore": {"users": [9], "extra": [88]}}
+    guild.fetch_member = AsyncMock(return_value=SimpleNamespace(id=STRANGER, _roles=[42]))
+    guild.fetch_roles = AsyncMock(return_value=[SimpleNamespace(id=42, permissions=discord.Permissions(administrator=True))])
     server = login_server(bot)
     token, headers = cookie(server, STRANGER)
-    path = f"/servers/{GUILD_ID}"
 
     async def scenario(client):
-        home = await (await client.get("/", headers=headers)).text()
-        assert "Test Server</a>" in home and "Other</a>" not in home
-        assert '<span>ANTINUKE</span>' not in home
-        assert "Test Server</a>" not in await (await client.get("/?antinuke=on", headers=headers)).text()
-        overview = await (await client.get(f"{path}/overview", headers=headers)).text()
-        assert "Automod" in overview and "Tickets" in overview and "Logging channels" in overview
-        assert "Antinuke" not in overview and "Trusted identities" not in overview and "Role blacklist" not in overview
-        for section in ("automod", "logging", "leveling", "tickets"):
-            page = await client.get(f"{path}/features?section={section}", headers=headers)
-            assert page.status == 200
-            html = await page.text()
-            assert 'section=rules' not in html and 'id="an_whitelist"' not in html
-        for section in ("rules", "general", "garbage"):
-            assert (await client.get(f"{path}/features?section={section}", headers=headers)).status == 403
-        assert (await client.get(path, headers=headers, allow_redirects=False)).status == 302
-        assert (await client.get(f"/api/guilds/{GUILD_ID}/config", headers=headers)).status == 403
-        assert (await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, data={"an_whitelist": "1"})).status == 403
-        assert (await client.get("/authorization", headers=headers)).status == 403
-        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/overview", headers=headers)).status == 404
-        for feature in ("general", "rule", "protection", "authorization"):
-            assert (await client.post(f"{path}/features/{feature}", headers=headers,
-                                      data={"csrf": csrf_of(server, token)})).status == 403
-        for section, feature, fields in (
-            ("automod", "automod", {"invites": "on", "links": "off", "zalgo": "off", "antighostping": "off",
-                                    "caps": "0", "massmention": "0", "emojis": "0", "newlines": "0",
-                                    "spam_messages": "0", "spam_seconds": "10", "action": "delete", "timeout": "60"}),
-            ("leveling", "levels", {"enabled": "on", "voice": "off", "stack": "on", "channel": "", "message": "hi"}),
-            ("tickets", "tickets", {"category": "", "log": "", "ping": "off", "max": "2", "support": "", "message": "hi"}),
-        ):
-            html = await (await client.get(f"{path}/features?section={section}", headers=headers)).text()
-            data = {**fields, "csrf": csrf_of(server, token), "revision": _feature_revision(html, GUILD_ID, feature),
-                    "an_whitelist": "1", "rbl_roles": "1"}
-            assert (await client.post(f"{path}/features/{feature}", headers=headers, data=data, allow_redirects=False)).status == 302
-        html = await (await client.get(f"{path}/features?section=logging", headers=headers)).text()
-        revision = _feature_revision(html, GUILD_ID, "logging")
-        data = {field: "" for field, _ in LOG_FIELDS}
-        data.update({"csrf": csrf_of(server, token), "revision": revision, "log_commands": "44",
-                     "log_ignore_channels": "55, 66", "log_ignore_users": "77", "an_whitelist": "1",
-                     "rbl_roles": "1", "return_section": "logging"})
-        assert (await client.post(f"{path}/features/logging", headers={**headers, "Origin": "https://evil.example"}, data=data)).status == 403
-        assert (await client.post(f"{path}/features/logging", headers=headers, data={**data, "csrf": "bad"})).status == 403
-        assert (await client.post(f"{path}/features/logging", headers=headers, data=data, allow_redirects=False)).status == 302
-        logs = bot.db.store[(GUILD_ID, "logs")]
-        assert logs["commands"] == 44 and logs["unknown"] == "preserve"
-        assert logs["ignore"] == {"users": [77], "channels": [55, 66], "extra": [88]}
-        assert bot.db.store[(GUILD_ID, "antinuke")]["whitelist"] == [1234]
-        assert bot.db.store[(GUILD_ID, "roleblacklist")]["roles"] == [5678]
-        assert (await client.post(f"{path}/features/logging", headers=headers, data=data)).status == 409
-        # Fresh roles are used: removal of Administrator immediately denies the old session.
-        admin_role.permissions = discord.Permissions.none()
-        assert (await client.get(f"{path}/features?section=logging", headers=headers)).status == 403
-        assert (await client.post(f"{path}/features/logging", headers=headers, data=data)).status == 403
-        admin_role.permissions = discord.Permissions(administrator=True)
-        guild.fetch_member.side_effect = RuntimeError("Discord unavailable")
-        assert (await client.get(f"{path}/overview", headers=headers)).status == 403
-        guild.fetch_member.side_effect = None
-        bot.is_authorized = lambda gid: gid != GUILD_ID
-        assert (await client.get(f"{path}/overview", headers=headers)).status == 403
-
+        for path in ("/", "/api/guilds", f"/servers/{GUILD_ID}", f"/servers/{GUILD_ID}/overview",
+                     f"/servers/{GUILD_ID}/features?section=automod", f"/api/guilds/{GUILD_ID}/config", "/authorization"):
+            assert (await client.get(path, headers=headers)).status == 403
+        for path in (f"/api/guilds/{GUILD_ID}/config", f"/servers/{GUILD_ID}/features/automod", "/authorization"):
+            assert (await client.post(path, headers=headers, data={"csrf": csrf_of(server, token)})).status == 403
+        assert not bot.db.writes
     run(server, scenario)
+    guild.fetch_member.assert_not_awaited()
+    guild.fetch_roles.assert_not_awaited()
 
 
 def test_dashboard_workspace_refresh_keeps_real_links_and_safe_static_icons():
@@ -1545,6 +1490,7 @@ def test_dashboard_logging_rejects_new_vanguard_routes_without_changing_existing
     path = f'/servers/{GUILD_ID}'
 
     async def scenario(client):
+        combined_rev = await combined_revision(client, headers)
         html = await (await client.get(f'{path}/features?section=logging', headers=headers)).text()
         assert '#message-logs' not in html
         revision = _feature_revision(html, GUILD_ID, 'logging')
@@ -1555,7 +1501,7 @@ def test_dashboard_logging_rejects_new_vanguard_routes_without_changing_existing
         assert response.status == 400
         assert 'Vanguard' in await response.text()
         response = await client.post(f'/api/guilds/{GUILD_ID}/config', headers=headers,
-                                     data={'csrf': csrf_of(server, token), 'log_messages': '88'})
+                                     data={'csrf': csrf_of(server, token), 'revision': combined_rev, 'log_messages': '88'})
         assert response.status == 400
         assert bot.db.store[(GUILD_ID, 'logs')] == {'messages': None}
         assert not bot.db.writes
@@ -1669,7 +1615,7 @@ def test_discord_administrator_cannot_manage_admin_role_grants():
     bot = make_bot()
     bot.get_cog = lambda name: Moderation(bot) if name == 'Moderation' else None
     server = login_server(bot)
-    server._is_discord_admin = AsyncMock(return_value=True)
+    server._is_server_owner = AsyncMock(return_value=False)
     token, headers = cookie(server, STRANGER)
     async def scenario(client):
         page = await client.get(f'/servers/{GUILD_ID}/features?section=rules', headers=headers)
@@ -1709,4 +1655,332 @@ def test_dashboard_admin_grant_revision_detects_discord_command_change():
         assert result.status == 409
         assert bot.db.store[(GUILD_ID, 'admin_role_granter_roles')] == {str(role.id): True}
         assert bot.db.store[(GUILD_ID, 'admin_role_granters')] == {}
+    run(server, scenario)
+
+
+def test_command_access_controls_validate_permissions_and_stale_changes():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, 'settings')] = {'prefix': '!', 'bot_channels': [999], 'other': 'preserved'}
+    server = login_server(bot)
+    token, owner = cookie(server, GUILD_OWNER)
+    admin_token, admin = cookie(server, STRANGER)
+    guild = bot.guilds[0]
+    guild.fetch_member = AsyncMock(return_value=SimpleNamespace(id=STRANGER, _roles=[42]))
+    guild.fetch_roles = AsyncMock(return_value=[SimpleNamespace(id=42, permissions=discord.Permissions(administrator=True))])
+    path = f'/servers/{GUILD_ID}/features'
+
+    async def scenario(client):
+        html = await (await client.get(f'{path}?section=general', headers=owner)).text()
+        assert 'Command access' in html and 'staff_only' in html and 'bot_channels' in html
+        revision = _feature_revision(html, GUILD_ID, 'command-access')
+        base = {'csrf': csrf_of(server, token), 'revision': revision, 'staff_only': 'on',
+                'bot_channels': '44, 999', 'return_section': 'general'}
+        assert (await client.post(f'{path}/command-access', headers=owner, data={**base, 'csrf': 'bad'})).status == 403
+        assert (await client.post(f'{path}/command-access', headers={**owner, 'Origin': 'https://evil.example'}, data=base)).status == 403
+        assert (await client.post(f'{path}/command-access', headers=admin,
+                                  data={**base, 'csrf': csrf_of(server, admin_token)})).status == 403
+        assert (await client.post(f'{path}/command-access', headers=owner, data={**base, 'bot_channels': '12345'})).status == 400
+        assert (await client.post(f'{path}/command-access', headers=owner, data={**base, 'staff_only': 'maybe'})).status == 400
+        assert not bot.db.writes
+        response = await client.post(f'{path}/command-access', headers=owner, data=base, allow_redirects=False)
+        assert response.status == 302
+        assert bot.db.store[(GUILD_ID, 'settings')] == {'prefix': '!', 'staff_only': True,
+                                                       'bot_channels': [44, 999], 'other': 'preserved'}
+        assert (await client.post(f'{path}/command-access', headers=owner, data=base)).status == 409
+        html = await (await client.get(f'{path}?section=general', headers=owner)).text()
+        revision = _feature_revision(html, GUILD_ID, 'command-access')
+        response = await client.post(f'{path}/command-access', headers=owner,
+                                     data={**base, 'revision': revision, 'staff_only': 'off', 'bot_channels': ''},
+                                     allow_redirects=False)
+        assert response.status == 302
+        assert bot.db.store[(GUILD_ID, 'settings')]['bot_channels'] == []
+        assert bot.db.store[(GUILD_ID, 'settings')]['staff_only'] is False
+    run(server, scenario)
+
+
+def test_command_control_preserves_other_fields_and_never_disables_settings():
+    bot = make_bot()
+    bot.db.store[(GUILD_ID, 'settings')] = {'prefix': '?', 'disabled': ['old command'], 'staff_only': True}
+    commands = {'ban': SimpleNamespace(qualified_name='ban', cog_name='Moderation'),
+                'b': SimpleNamespace(qualified_name='ban', cog_name='Moderation'),
+                'dcmd': SimpleNamespace(qualified_name='disablecommand', cog_name='Settings')}
+    bot.get_command = commands.get
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    path = f'/servers/{GUILD_ID}/features'
+
+    async def scenario(client):
+        html = await (await client.get(f'{path}?section=general', headers=headers)).text()
+        assert 'Disabled commands' in html and 'old command' in html
+        revision = _feature_revision(html, GUILD_ID, 'command-control')
+        base = {'csrf': csrf_of(server, token), 'revision': revision, 'command_action': 'disable', 'command_name': 'b'}
+        assert (await client.post(f'{path}/command-control', headers=headers, data={**base, 'command_name': 'dcmd'})).status == 400
+        assert (await client.post(f'{path}/command-control', headers=headers, data={**base, 'command_name': 'unknown'})).status == 400
+        assert (await client.post(f'{path}/command-control', headers=headers, data={**base, 'command_action': 'bogus'})).status == 400
+        assert not bot.db.writes
+        assert (await client.post(f'{path}/command-control', headers=headers, data=base, allow_redirects=False)).status == 302
+        cfg = bot.db.store[(GUILD_ID, 'settings')]
+        assert cfg == {'prefix': '?', 'disabled': ['old command', 'ban'], 'staff_only': True}
+        assert (await client.post(f'{path}/command-control', headers=headers, data=base)).status == 409
+        html = await (await client.get(f'{path}?section=general', headers=headers)).text()
+        revision = _feature_revision(html, GUILD_ID, 'command-control')
+        assert (await client.post(f'{path}/command-control', headers=headers,
+                                  data={**base, 'revision': revision, 'command_action': 'enable'},
+                                  allow_redirects=False)).status == 302
+        assert bot.db.store[(GUILD_ID, 'settings')]['disabled'] == ['old command']
+    run(server, scenario)
+
+
+def test_owner_is_freshly_verified_and_access_fails_closed_on_discord_errors():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        assert (await client.get(f"/servers/{GUILD_ID}/overview", headers=headers)).status == 200
+        # Gateway cache still lists the old owner but Discord reports a transfer.
+        bot.fetch_guild.side_effect = lambda gid: SimpleNamespace(id=gid, owner_id=999)
+        for path in ("/", "/api/guilds", f"/servers/{GUILD_ID}/overview"):
+            assert (await client.get(path, headers=headers)).status == 403
+        bot.fetch_guild.side_effect = RuntimeError('Discord API unavailable')
+        assert (await client.get("/", headers=headers)).status == 403
+        bot.fetch_guild.side_effect = lambda gid: bot.get_guild(gid)
+        bot.is_authorized = lambda gid: False
+        assert (await client.get("/", headers=headers)).status == 403
+    run(server, scenario)
+
+
+def test_developer_revocation_and_cross_server_are_enforced_per_request():
+    bot = make_bot()
+    server = login_server(bot)
+    token, owner_headers = cookie(server, GUILD_OWNER)
+    _, dev_headers = cookie(server, BOT_OWNER)
+    async def scenario(client):
+        for path in (f"/servers/{OTHER_GUILD_ID}", f"/servers/{OTHER_GUILD_ID}/overview",
+                     f"/servers/{OTHER_GUILD_ID}/features", f"/api/guilds/{OTHER_GUILD_ID}/config"):
+            assert (await client.get(path, headers=owner_headers)).status == 404
+        for path in (f"/servers/{OTHER_GUILD_ID}/features/automod", f"/api/guilds/{OTHER_GUILD_ID}/config"):
+            assert (await client.post(path, headers=owner_headers, data={"csrf": csrf_of(server, token)})).status == 404
+        assert (await client.get("/authorization", headers=dev_headers)).status == 200
+        bot.is_owner.return_value = False
+        bot.is_owner.side_effect = None
+        for path in ("/", "/api/guilds", "/authorization", f"/servers/{OTHER_GUILD_ID}/overview"):
+            assert (await client.get(path, headers=dev_headers)).status == 403
+        assert (await client.post("/authorization", headers=dev_headers, data={"action": "authorize"})).status == 403
+    run(server, scenario)
+    assert not bot.db.writes
+
+
+def test_oauth_rejects_admin_and_does_not_log_discord_error_details(caplog):
+    bot = make_bot()
+    server = login_server(bot)
+    server._fetch_discord_user = AsyncMock(return_value={"id": str(STRANGER), "username": "admin"})
+    async def scenario(client):
+        login = await client.get("/login", allow_redirects=False)
+        state_cookie = login.cookies[STATE_COOKIE].value
+        state = server._unsign(state_cookie, "state")["s"]
+        headers = {"Cookie": f"{STATE_COOKIE}={state_cookie}"}
+        denied = await client.get(f"/callback?code=x&state={state}", headers=headers)
+        assert denied.status == 403 and SESSION_COOKIE not in denied.cookies
+        server._fetch_discord_user.side_effect = RuntimeError("oauth-secret-code")
+        failed = await client.get(f"/callback?code=x&state={state}", headers=headers)
+        assert failed.status == 502 and 'oauth-secret-code' not in await failed.text()
+    run(server, scenario)
+    assert 'oauth-secret-code' not in caplog.text
+
+
+def test_combined_form_stale_confirmation_validation_and_database_failure():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        url = f"/api/guilds/{GUILD_ID}/config"
+        rev = await combined_revision(client, headers)
+        data = {"csrf": csrf_of(server, token), "revision": rev, "an_admins": "12"}
+        result = await client.post(url, headers=headers, data=data)
+        assert result.status == 400 and "Confirm" in await result.text()
+        assert not bot.db.writes
+        bot.db.store[(GUILD_ID, 'logs')]['commands'] = 44
+        stale = await client.post(url, headers=headers, data={**data, 'confirm_security': 'yes'})
+        assert stale.status == 409 and not bot.db.writes
+        fresh = await combined_revision(client, headers)
+        bot.db.set_configs_committed = AsyncMock(side_effect=RuntimeError('sensitive database failure'))
+        response = await client.post(url, headers=headers, data={**data, 'revision': fresh, 'confirm_security': 'yes'})
+        assert response.status == 503 and 'sensitive database failure' not in await response.text()
+        assert bot.db.store[(GUILD_ID, 'antinuke')]['admins'] == []
+    run(server, scenario)
+
+
+def test_combined_role_and_identity_inputs_must_be_in_guild():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    bot.guilds[0].fetch_member = AsyncMock(side_effect=RuntimeError('not found'))
+    async def scenario(client):
+        rev = await combined_revision(client, headers)
+        base = {'csrf': csrf_of(server, token), 'revision': rev, 'confirm_security': 'yes'}
+        for data in ({'rbl_roles': '999'}, {'rbl_roles': str(GUILD_ID)},
+                     {'an_admins': '999'}, {'an_whitelist': '999'}, {'rbl_authorized': str(GUILD_ID)}):
+            response = await client.post(f'/api/guilds/{GUILD_ID}/config', headers=headers, data={**base, **data})
+            assert response.status == 400
+        assert not bot.db.writes
+    run(server, scenario)
+
+
+def test_parallel_dashboard_saves_with_same_revision_do_not_both_succeed():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        rev = await combined_revision(client, headers)
+        data = {'csrf': csrf_of(server, token), 'revision': rev, 'log_commands': '44'}
+        url = f'/api/guilds/{GUILD_ID}/config'
+        responses = await asyncio.gather(*(client.post(url, headers=headers, data=data, allow_redirects=False) for _ in range(2)))
+        assert sorted(r.status for r in responses) == [302, 409]
+    run(server, scenario)
+
+
+def test_dashboard_ui_and_listener_security():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        page = await client.get(f'/servers/{GUILD_ID}/overview', headers=headers)
+        html = await page.text()
+        assert 'A safer setup, step by step' in html and 'aria-labelledby="setup-title"' in html
+        assert '<script src="/assets/dashboard.js" defer>' in html
+        assert "script-src 'self'" in page.headers['Content-Security-Policy']
+        script = await client.get('/assets/dashboard.js', headers=headers)
+        assert script.content_type == 'application/javascript'
+        assert 'Unsaved changes' in await script.text()
+        assert 'prefers-reduced-motion:reduce' in html and 'focus-visible' in html
+        owner = await client.get(f'/servers/{GUILD_ID}', headers=headers)
+        assert 'name="confirm_security"' in await owner.text()
+    run(server, scenario)
+    async def refuse():
+        exposed = DashboardServer(bot, host='0.0.0.0', public_url='https://veil.example.com',
+                                  client_id=1, client_secret='secret')
+        with pytest.raises(RuntimeError, match='loopback'):
+            await exposed.start()
+    asyncio.run(refuse())
+
+
+def test_config_api_returns_user_bound_revision_for_subsequent_write():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        url = f'/api/guilds/{GUILD_ID}/config'
+        snapshot = await (await client.get(url, headers=headers)).json()
+        assert snapshot['revision']
+        response = await client.post(url, headers=headers, allow_redirects=False,
+                                     data={'csrf': csrf_of(server, token), 'revision': snapshot['revision'], 'log_commands': '44'})
+        assert response.status == 302
+        assert (await client.post(url, headers=headers, data={'csrf': csrf_of(server, token),
+                                                               'revision': snapshot['revision']})).status == 409
+    run(server, scenario)
+
+
+def test_feature_database_failure_returns_uncertain_status_without_false_success():
+    bot = make_bot()
+    server = login_server(bot)
+    token, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        path = f'/servers/{GUILD_ID}/features'
+        html = await (await client.get(path + '?section=leveling', headers=headers)).text()
+        revision = _feature_revision(html, GUILD_ID, 'levels')
+        bot.db.set_config_committed = AsyncMock(side_effect=RuntimeError('db-secret'))
+        response = await client.post(path + '/levels', headers=headers,
+                                     data={'csrf': csrf_of(server, token), 'revision': revision, 'enabled': 'on',
+                                           'voice': 'off', 'stack': 'off', 'channel': '', 'message': ''})
+        assert response.status == 503 and 'not confirm' in await response.text()
+        assert 'db-secret' not in await response.text()
+        assert not bot.db.writes
+    run(server, scenario)
+
+
+def test_access_revoked_during_request_does_not_fall_back_to_administrator_pages():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+    async def scenario(client):
+        # Middleware and target lookup pass; the second per-page check detects revocation.
+        for path in (f'/servers/{GUILD_ID}/overview', f'/servers/{GUILD_ID}/features?section=automod',
+                     f'/servers/{GUILD_ID}'):
+            server._can_manage_security = AsyncMock(return_value=False)
+            response = await client.get(path, headers=headers, allow_redirects=False)
+            assert response.status == 403
+            assert 'Block invites' not in await response.text()
+    run(server, scenario)
+
+
+def test_authorize_requires_explicit_confirmation_and_handles_storage_errors():
+    bot = make_bot()
+    cog = SimpleNamespace(authorize=AsyncMock(side_effect=RuntimeError('secret database details')))
+    bot.get_cog = lambda name: cog
+    server = login_server(bot)
+    token, headers = cookie(server, BOT_OWNER)
+    async def scenario(client):
+        data = {'csrf': csrf_of(server, token), 'guild_id': '12345', 'action': 'authorize'}
+        response = await client.post('/authorization', headers=headers, data=data)
+        assert response.status == 400 and not cog.authorize.await_count
+        response = await client.post('/authorization', headers=headers, data={**data, 'confirm_authorize': 'yes'})
+        assert response.status == 503 and 'secret database details' not in await response.text()
+    run(server, scenario)
+
+
+def test_unexpected_dashboard_failure_is_generic_and_not_logged_raw(caplog):
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, GUILD_OWNER)
+    bot.db.get_config = AsyncMock(side_effect=RuntimeError('database password super-secret'))
+    async def scenario(client):
+        response = await client.get(f'/api/guilds/{GUILD_ID}/config', headers=headers)
+        assert response.status == 500
+        assert 'super-secret' not in await response.text()
+        assert response.headers['Cache-Control'] == 'no-store'
+    run(server, scenario)
+    assert 'super-secret' not in caplog.text
+
+
+def test_missing_member_counts_are_not_invented_from_cache():
+    bot = make_bot()
+    bot.guilds[0].member_count = None
+    bot.guilds[0].members = [SimpleNamespace(id=111)]
+    bot.guilds[1].member_count = None
+    server = login_server(bot)
+    _, dev_headers = cookie(server, BOT_OWNER)
+    async def scenario(client):
+        html = await (await client.get('/', headers=dev_headers)).text()
+        assert 'MEMBERS (PARTIAL)</span><strong>Unavailable' in html
+        assert 'MEMBERS</span><strong>Unavailable' in html
+        payload = await (await client.get('/api/guilds', headers=dev_headers)).json()
+        assert all(g['member_count'] is None for g in payload)
+    run(server, scenario)
+
+
+def test_discovered_developer_is_rechecked_against_discord_application():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, BOT_OWNER)
+    async def scenario(client):
+        assert (await client.get('/authorization', headers=headers)).status == 200
+        # The bot still has the old developer cached; Discord has removed them.
+        bot.application_info.return_value = SimpleNamespace(owner=SimpleNamespace(id=999), team=None)
+        assert (await client.get('/authorization', headers=headers)).status == 403
+        assert (await client.get('/api/guilds', headers=headers)).status == 403
+        bot.application_info.side_effect = RuntimeError('Discord unavailable')
+        assert (await client.get('/', headers=headers)).status == 403
+    run(server, scenario)
+
+
+def test_configured_developer_stays_authorized_when_discord_application_lookup_fails(monkeypatch):
+    from dataclasses import replace
+    import core.dashboard as dashboard
+    monkeypatch.setattr(dashboard, 'settings', replace(dashboard.settings, owner_ids=frozenset({BOT_OWNER})))
+    bot = make_bot()
+    bot.application_info.side_effect = RuntimeError('Discord unavailable')
+    server = login_server(bot)
+    _, headers = cookie(server, BOT_OWNER)
+    async def scenario(client):
+        assert (await client.get('/authorization', headers=headers)).status == 200
     run(server, scenario)

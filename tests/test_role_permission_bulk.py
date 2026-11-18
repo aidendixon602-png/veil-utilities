@@ -265,3 +265,42 @@ def test_apa_all_is_restricted_and_rechecks(case, monkeypatch):
             run(Moderation.addpermall.callback(Moderation(ctx.bot), ctx, permission='all role'))
     ctx.bot.db.set_config_committed.assert_not_awaited()
     role.edit.assert_not_awaited()
+
+
+def test_bulk_permission_add_requires_native_authority_and_confirmation():
+    ctx, a, b, managed, everyone, high = setup()
+    cog = Moderation(ctx.bot)
+    with pytest.raises(UserError, match='actual Discord Administrator'):
+        run(cog._add_permission_across_roles(ctx, 'send_messages'))
+    ctx.guild.me.guild_permissions = discord.Permissions(manage_roles=True, send_messages=True)
+    ctx.confirm.return_value = False
+    run(cog._add_permission_across_roles(ctx, 'send_messages'))
+    a.edit.assert_not_awaited()
+    b.edit.assert_not_awaited()
+    ctx.confirm.return_value = True
+    run(cog._add_permission_across_roles(ctx, 'send_messages'))
+    a.edit.assert_awaited_once()
+    b.edit.assert_awaited_once()
+    for role in (managed, everyone, high):
+        role.edit.assert_not_awaited()
+    assert a.edit.await_args.kwargs['permissions'].send_messages
+
+
+def test_bulk_permission_add_aborts_on_stale_state_and_reports_partial_failures():
+    ctx, a, b, *_ = setup()
+    ctx.guild.me.guild_permissions = discord.Permissions(manage_roles=True, send_messages=True)
+    cog = Moderation(ctx.bot)
+    async def stale(*args):
+        a.permissions.attach_files = True
+        return True
+    ctx.confirm.side_effect = stale
+    with pytest.raises(UserError, match='changed'):
+        run(cog._add_permission_across_roles(ctx, 'send_messages'))
+    a.edit.assert_not_awaited()
+    b.edit.assert_not_awaited()
+    ctx.confirm.side_effect = None
+    ctx.confirm.return_value = True
+    b.edit.side_effect = asyncio.TimeoutError()
+    run(cog._add_permission_across_roles(ctx, 'send_messages'))
+    assert ctx.command_log_warning
+    assert 'not confirmed' in ctx.warn.await_args.args[0]

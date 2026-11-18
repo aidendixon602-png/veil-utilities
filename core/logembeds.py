@@ -199,17 +199,24 @@ async def audit_actor(guild, action: discord.AuditLogAction, target_id: int, *,
         return None, None
     if AUDIT_SETTLE:
         await asyncio.sleep(AUDIT_SETTLE)
+    matches = []
     try:
         async for entry in guild.audit_logs(limit=6, action=action):
             if getattr(entry.target, "id", None) != target_id:
                 continue
-            if (discord.utils.utcnow() - entry.created_at).total_seconds() > AUDIT_WINDOW:
+            age = (discord.utils.utcnow() - entry.created_at).total_seconds()
+            if age < 0 or age > AUDIT_WINDOW:
                 continue
             if check is not None and not check(entry):
                 continue
-            return on_behalf(guild, entry.user, entry.reason)
+            matches.append(entry)
+            if len(matches) > 1:
+                return None, None  # multiple plausible entries cannot be attributed safely
     except Exception:  # missing access, rate limit, library quirks: the log is still worth sending
-        pass
+        return None, None
+    if len(matches) == 1:
+        entry = matches[0]
+        return on_behalf(guild, entry.user, entry.reason)
     return None, None
 
 
@@ -317,7 +324,7 @@ def _message_content(text: str | None) -> str:
     """Compact quoted content that fits safely within a Discord embed field."""
     if not text:
         return "*No text*"
-    return quote(text, limit=700)
+    return quote(redact.scrub(text), limit=700)
 
 
 def message_deleted(m: discord.Message, actor=None) -> discord.Embed:
@@ -362,7 +369,7 @@ def bulk_deleted(messages: list[discord.Message]) -> discord.Embed:
 
 
 def transcript(messages: list[discord.Message]) -> str:
-    return "\n".join(f"[{m.created_at:%Y-%m-%d %H:%M}] {m.author}: {m.content}"
+    return "\n".join(f"[{m.created_at:%Y-%m-%d %H:%M}] {m.author}: {redact.scrub(m.content)}"
                      for m in sorted(messages, key=lambda x: x.id))
 
 

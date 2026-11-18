@@ -123,3 +123,10 @@ verify the database, review existing assignments and role grants, disable automa
 revision, and test on a disposable server. No schema change is introduced by this increment. Rollback requires
 restoring the previous application revision and, if configuration changed after upgrading, a verified compatible
 backup; the old revision restores the insecure native-permission fallback and role-name automatic grants.
+
+## Role and Antinuke follow-up (partial)
+
+See [the prioritized role/Antinuke review](ROLE_ANTINUKE_OVERHAUL.md) for implemented hardening, behavior
+changes, local validation and unresolved risks. In particular, panic/raid recovery, blacklist-scan stale state,
+quarantine/regrant paths, cross-process configuration races and audit-delivery failure remain open. Do not
+interpret the new checks as a guarantee of protection or complete restoration.

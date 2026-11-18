@@ -306,6 +306,24 @@ class Database:
         )
         self._cache[(guild_id, module)] = data
 
+    async def set_configs_committed(self, guild_id: int, documents: dict[str, Any]) -> None:
+        """Persist several config documents in one SQL statement, then publish the cache.
+
+        This makes the batch all-or-nothing at the database statement level. It is not
+        a compare-and-swap and does not coordinate with other writers or processes.
+        """
+        if not documents:
+            return
+        rows = [(guild_id, module, json.dumps(data)) for module, data in documents.items()]
+        placeholders = ",".join("(?,?,?)" for _ in rows)
+        args = tuple(value for row in rows for value in row)
+        await self.execute(
+            f"INSERT INTO config(guild_id, module, data) VALUES {placeholders} "
+            "ON CONFLICT(guild_id, module) DO UPDATE SET data=excluded.data", *args,
+        )
+        for module, data in documents.items():
+            self._cache[(guild_id, module)] = data
+
     async def guilds_with(self, module: str) -> list[tuple[int, Any]]:
         rows = await self.fetchall("SELECT guild_id, data FROM config WHERE module=?", module)
         return [(r["guild_id"], json.loads(r["data"])) for r in rows]
@@ -435,6 +453,24 @@ class PostgresDatabase:
             guild_id, module, json.dumps(data),
         )
         self._cache[(guild_id, module)] = data
+
+    async def set_configs_committed(self, guild_id: int, documents: dict[str, Any]) -> None:
+        """Persist several config documents in one SQL statement, then publish the cache.
+
+        This makes the batch all-or-nothing at the database statement level. It is not
+        a compare-and-swap and does not coordinate with other writers or processes.
+        """
+        if not documents:
+            return
+        rows = [(guild_id, module, json.dumps(data)) for module, data in documents.items()]
+        placeholders = ",".join("(?,?,?)" for _ in rows)
+        args = tuple(value for row in rows for value in row)
+        await self.execute(
+            f"INSERT INTO config(guild_id, module, data) VALUES {placeholders} "
+            "ON CONFLICT(guild_id, module) DO UPDATE SET data=excluded.data", *args,
+        )
+        for module, data in documents.items():
+            self._cache[(guild_id, module)] = data
 
     async def guilds_with(self, module: str) -> list[tuple[int, Any]]:
         rows = await self.fetchall("SELECT guild_id, data FROM config WHERE module=?", module)

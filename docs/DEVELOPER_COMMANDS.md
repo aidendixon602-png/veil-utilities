@@ -27,6 +27,8 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,hardbans` (genrebans, genrebanlist, globalbans) | List network genrebans |
 | `,joinleavelogs [channel]` (jllogs) | Log joins, leaves and kicks in their own channel |
 | `,massunrole [role] [flag]` | Remove a role from everyone |
+| `,midtown` | Search joined servers privately for Midtown |
+| `,midtown servers` | Privately scan joined server names for Midtown |
 | `,revert <user> <duration>` | Undo someone's recent bans and deletions |
 | `,strip <member>` | Remove every role from a member and log the strip |
 | `,ungenreban <user>` (unreban, unhardban, globalunban, unhb) | Lift a network genreban in every server |

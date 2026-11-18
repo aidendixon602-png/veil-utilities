@@ -954,6 +954,17 @@ async def check_role_assignable(ctx: Context, role: discord.Role, *, scoped_admi
     if not is_auth and not scoped_admin_grant:
         if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")
+    if not (is_dev or is_owner):
+        # These roles can grant bot access or a security exemption even when their native
+        # Discord bits look harmless. Scoped Administrator grants do not bypass this.
+        from core.role_safety import unsafe_automatic_roles
+        try:
+            sensitive = await unsafe_automatic_roles(ctx.bot.db, ctx.guild, [role], bot_privileges_only=True)
+        except Exception as exc:
+            raise UserError("Cannot verify role privilege policy; no role was assigned.") from exc
+        if role.id in sensitive:
+            raise UserError("Only the server owner or a bot developer can assign a role that grants Veil "
+                            "permissions, Administrator-role authorization or a security bypass.")
     if is_dangerous(role.permissions):
         db = getattr(bot, "db", None)
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}

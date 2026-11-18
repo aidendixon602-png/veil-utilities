@@ -55,6 +55,8 @@ PINNED: dict[str, list[str]] = {
     "Developer": ["gitpull", "restart", "version", "reload", "errors", "eval", "system", "blacklist"],
 }
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
+SECRET_WORDS = ("secret", "secrets", "tokens", "secretsuite")
+HOME_CATEGORIES = ("Utility", "Music", "Moderation", "Roles", "Permissions", "Antinuke", "Developer", "Secret")
 # Legacy names still open the unified moderation category.
 CATEGORY_ALIASES = {"gv": "ghost vanguard", "vanguard": "ghost vanguard", "ghost": "ghost vanguard",
                     "moderator": "moderation", "moderators": "moderation", "mods": "moderation",
@@ -109,6 +111,7 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Fun": "🎲",
     "Images": "🖼️",
     "Developer": "⚡",
+    "Secret": "🔒",
 }
 
 # One short line per category: shown under the list title.
@@ -128,6 +131,7 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Fun": "Games, actions, jokes and AI",
     "Images": "Image effects and edits",
     "Developer": "Bot owner tools: updates, restarts, blacklist, eval",
+    "Secret": "Developer-only moderation and network tools",
 }
 
 
@@ -545,7 +549,7 @@ class CategorySelect(discord.ui.Select["HelpView"]):
         options = [discord.SelectOption(label=label, value=label, default=label == current,
                                         emoji=CATEGORY_EMOJIS.get(label),
                                         description=count(sizes.get(label, 0), "command")) for label in labels]
-        super().__init__(placeholder="Choose a category", options=options[:25], min_values=1, max_values=1, row=0)
+        super().__init__(placeholder="More categories", options=options[:25], min_values=1, max_values=1, row=0)
 
     async def callback(self, it: discord.Interaction):
         choice = self.values[0]
@@ -559,8 +563,8 @@ class CategoryButton(discord.ui.Button["HelpView"]):
     """Open a visible category from the help home screen."""
 
     def __init__(self, category: str, row: int):
-        super().__init__(label=category[:80], emoji=CATEGORY_EMOJIS.get(category),
-                         style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label=category[:80],
+                         style=discord.ButtonStyle.danger if category == "Secret" else discord.ButtonStyle.secondary, row=row)
         self.category = category
 
     async def callback(self, it: discord.Interaction):
@@ -658,6 +662,9 @@ class HelpView(OwnedView):
     async def interaction_check(self, it: discord.Interaction) -> bool:
         if not await super().interaction_check(it):
             return False
+        if self.is_owner and not await self.bot.is_owner(it.user):
+            await it.response.send_message("This menu is no longer available.", ephemeral=True)
+            return False
         from core.utils import owner_or_developer
         guild = getattr(it, "guild", None)
         original_guild = getattr(self.help_cmd.context, "guild", None)
@@ -683,11 +690,13 @@ class HelpView(OwnedView):
 
     def labels(self) -> list[str]:
         names = category_labels(self.categories, self.is_owner, self.author_rank, self.access)
-        return (names + (["Developer"] if self.is_owner else []))[:24]
+        return (names + (["Developer", "Secret"] if self.is_owner else []))[:24]
 
     def commands_in(self, label: str | None) -> list[commands.Command]:
         if label == "Developer":
             return developer_commands(self.bot) if self.is_owner else []
+        if label == "Secret":
+            return [cmd for cmd in developer_commands(self.bot) if cmd.cog_name == "DevTools"] if self.is_owner else []
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank, self.access)
 
     def current_items(self) -> list[commands.Command]:
@@ -720,12 +729,15 @@ class HelpView(OwnedView):
     def _build_items(self):
         self.clear_items()
         if self.current is None:
-            if len(self.pages) > 20:
-                # Discord allows five button rows; use the existing select for a larger catalog.
-                self.add_item(CategorySelect(list(self.pages), self.sizes, self.current))
-            else:
-                for index, label in enumerate(self.pages):
-                    self.add_item(CategoryButton(label, row=index // 4))
+            primary = [label for label in HOME_CATEGORIES if label in self.pages]
+            other = [label for label in self.pages if label not in HOME_CATEGORIES]
+            for index, label in enumerate(primary):
+                self.add_item(CategoryButton(label, row=index // 5))
+            if other:
+                # Keep every other accessible category available without crowding the home screen.
+                select = CategorySelect(other, self.sizes, self.current)
+                select.row = 2
+                self.add_item(select)
             return
         items = self.current_items()
         if items and self.selected is None:
@@ -835,10 +847,8 @@ class Help(commands.HelpCommand):
                    visible_categories: list[str] | None = None) -> discord.Embed:
         """Describe only categories already permitted by the menu's visibility checks."""
         p = self.context.clean_prefix
-        lines = ["Select a category below to view its commands.", "", f"**Prefix:** `{p}` · **Command help:** `{p}help <command>`"]
+        lines = ["Select a category below to view its commands.", "", f"**prefix:** `{p}`"]
         card = self._brand(discord.Embed(color=HELP_COLOR, description="\n".join(lines)))
-        if total is not None and sections is not None:
-            card.set_footer(text=f"{count(total, 'command')} · {count(sections, 'category', 'categories')} visible · Permissions still apply")
         return card
 
     def command_line(self, cmd: commands.Command) -> str:
@@ -1086,10 +1096,10 @@ class Help(commands.HelpCommand):
         is_owner = await self.is_owner_check()
         rank = await self.get_author_rank()
         if (start or "").lower() in DEVELOPER_WORDS:
-            start = "Developer" if is_owner else None
+            start = ("Secret" if start.lower() in SECRET_WORDS else "Developer") if is_owner else None
         access = None if is_owner else await self.help_access(rank)
         if (start is not None and start not in category_labels(categories, is_owner, rank, access)
-                and not (start == "Developer" and is_owner)):
+                and not (start in ("Developer", "Secret") and is_owner)):
             return await self.send_error_message(f'No command or category called "{start}" found.')
         view = HelpView(self, categories, start, is_owner=is_owner, author_rank=rank, access=access)
         view.message = await self.context.send(embed=view.embed(), view=view)
@@ -1111,7 +1121,7 @@ class Help(commands.HelpCommand):
             if wanted in DEVELOPER_WORDS:
                 if is_owner:
                     await self.prepare_help_command(ctx, command)
-                    return await self.open_menu("Developer")
+                    return await self.open_menu("Secret" if wanted in SECRET_WORDS else "Developer")
                 return await self.send_error_message("No command or category called that")
         return await super().command_callback(ctx, command=command)
 

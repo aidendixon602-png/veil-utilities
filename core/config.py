@@ -272,7 +272,8 @@ class Settings:
         """Safe one-line-per-setting view for logs (secrets are masked)."""
         secret = {"discord_token", "ai_api_key", "lastfm_api_key", "ocr_space_api_key", "lavalink_password",
                   "spotify_client_secret", "twitch_client_secret", "database_url",
-                  "discord_client_secret", "dashboard_secret", "ngrok_authtoken"}
+                  "discord_client_secret", "dashboard_secret", "ngrok_authtoken", "proxy", "ai_base_url",
+                  "lavalink_uri", "rsshub_url", "support_url"}
         lines = []
         for f in fields(self):
             value = getattr(self, f.name)

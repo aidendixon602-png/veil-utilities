@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 
-from cogs.antinuke import NEW_RULES, RULE_LOOKUP, WEBHOOK_SPAM, Antinuke
+from cogs.antinuke import NEW_RULES, WEBHOOK_SPAM, Antinuke
 from test_antinuke_undo import A, entry, feed, field, make_role, member, setup
 
 
@@ -148,16 +148,12 @@ def test_ordinary_webhook_messages_are_fine():
     cog.bot.fetch_webhook.assert_not_awaited()
 
 
-def test_protected_servers_get_the_new_rules_once():
+def test_reading_existing_configuration_does_not_enable_new_rules():
     cfg = {"enabled": True, "invite_rule_v2": True, "modules": {"ban": {"on": True, "threshold": 3}}}
-    assert Antinuke.migrate(cfg) is True
-    for key in NEW_RULES:
-        assert cfg["modules"][key]["on"] and cfg["modules"][key]["threshold"] == RULE_LOOKUP[key]["threshold"]
-    cfg["modules"]["emoji"]["on"] = False  # a server's own choice afterwards sticks
-    assert Antinuke.migrate(cfg) is False and cfg["modules"]["emoji"]["on"] is False
-    off = {"enabled": False, "modules": {}}
-    Antinuke.migrate(off)
-    assert "memberroles" not in off["modules"]  # off servers get them when they turn the antinuke on
+    assert Antinuke.migrate(cfg) is False
+    assert cfg == {"enabled": True, "invite_rule_v2": True, "modules": {"ban": {"on": True, "threshold": 3}}}
+    assert all(key not in cfg["modules"] for key in NEW_RULES)
+
 
 
 # ------------------------------------------------------------------ blacklisted roles (,rbl)

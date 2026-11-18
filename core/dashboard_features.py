@@ -87,12 +87,8 @@ async def features_page(server, request: web.Request) -> web.Response:
     guild = await server._guild_for(request, user)
     if guild is None:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
-    limited = not await server._can_manage_security(user, guild)
-    requested = request.query.get("section", "")
-    if limited and not requested:
-        return server._redirect(f"/servers/{guild.id}/overview")
-    if limited and requested not in ("automod", "logging", "leveling", "tickets"):
-        return server._message("Access denied", "Only the server owner or a bot developer may manage security settings.", 403, user)
+    if not await server._can_manage_security(user, guild):
+        return server._message("Access denied", "Your access changed. Please sign in again.", 403, user)
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MIDTOWN_RULES, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
@@ -113,6 +109,34 @@ async def features_page(server, request: web.Request) -> web.Response:
              '<span class="hint">1–10 characters without spaces. This changes the server prefix, not personal prefixes.</span></div>'
              '<button class="btn" type="submit">Save prefix</button></form>')
     general_section = _section("Server prefix", "00", "Choose how members start Veil commands in this server.", form, "general")
+
+    access_form = _form_start(server, guild, user, "command-access", "settings", settings)
+    access_form += ('<div class="note">These restrictions affect non-staff command users. Staff, server owners and bot developers can bypass them. '
+                    'The bot private mode and all command permission checks still apply.</div><div class="form-grid">')
+    access_form += _select("staff_only", "Staff-only mode", _on_off(settings.get("staff_only")), on_off,
+                           "When enabled, non-staff members cannot run commands.")
+    channels_value = ", ".join(str(cid) for cid in settings.get("bot_channels", []))
+    available_channels = sorted(getattr(guild, "text_channels", []), key=lambda ch: (ch.position, ch.id))
+    channel_reference = "".join(f'<li>#{_esc(ch.name)} · <code>{_esc(ch.id)}</code></li>' for ch in available_channels)
+    access_form += ('<div class="form-group"><label for="bot_channels">Allowed command channel IDs</label>'
+                    f'<input id="bot_channels" name="bot_channels" value="{_esc(channels_value)}" placeholder="e.g. 123456789012345678">'
+                    '<span class="hint">Comma-separated text channel IDs. Leave empty to allow all channels. '
+                    'Staff can use commands outside the listed channels.</span></div></div>')
+    if channel_reference:
+        access_form += f'<details class="channel-reference"><summary>Available text channel IDs</summary><ul>{channel_reference}</ul></details>'
+    access_form += '<button class="btn" type="submit">Save command access</button></form>'
+    general_section += _section("Command access", "01", "Choose where non-staff members can use commands.", access_form, "command-access")
+
+    disabled = settings.get("disabled", [])
+    disabled_names = ", ".join(str(name) for name in disabled) if disabled else "None"
+    command_form = _form_start(server, guild, user, "command-control", "settings", settings)
+    command_form += (f'<p class="hint">Currently disabled: <strong>{_esc(disabled_names)}</strong></p>'
+                     '<div class="form-grid"><div class="form-group"><label for="command_name">Command name</label>'
+                     '<input id="command_name" name="command_name" maxlength="100" required placeholder="e.g. ban">'
+                     '<span class="hint">Use a command or alias, without the prefix. Owners and developers bypass disabled commands.</span></div>')
+    command_form += _select("command_action", "Action", "disable", (("disable", "Disable"), ("enable", "Enable")))
+    command_form += '</div><button class="btn" type="submit">Update command</button></form>'
+    general_section += _section("Disabled commands", "02", "Disable or re-enable individual commands for this server.", command_form, "command-control")
 
     form = _form_start(server, guild, user, "automod", "filters", filters)
     form += '<div class="note">These filters can delete messages and apply timeouts. Members with Manage Messages are exempt.</div><div class="form-grid">'
@@ -230,46 +254,45 @@ async def features_page(server, request: web.Request) -> web.Response:
     from core.dashboard_security_views import antinuke_health
     antinuke_section = antinuke_health(server.bot, guild, antinuke_raw) + _section("Antinuke rules", "04", "Enable protection and control individual rules.", form, "rules")
 
-    if not limited:
-        granter_users = await server.bot.db.get_config(guild.id, "admin_role_granters")
-        granter_roles = await server.bot.db.get_config(guild.id, "admin_role_granter_roles")
-        if (not isinstance(granter_users, dict) or not isinstance(granter_roles, dict)
-                or any(not isinstance(k, str) or not k.isdigit() or v is not True
-                       for mapping in (granter_users, granter_roles) for k, v in mapping.items())):
-            grant_section = _section("Administrator-role granters", "05", "Authorization data is invalid; no changes can be made here.", "", "admin-grants")
-        else:
-            combined = {"users": granter_users, "roles": granter_roles}
-            members = ", ".join(_esc(uid) for uid in granter_users) or "None"
-            roles = ", ".join(_esc(rid) for rid in granter_roles) or "None"
-            grant_form = _form_start(server, guild, user, "admin-grant", "admin_role_grant", combined)
-            grant_form += (f'<p>Authorized member IDs: {members}</p><p>Authorized role IDs: {roles}</p>'
-                           '<div class="note">Members and all current and future human holders of an authorized role '
-                           'may grant eligible Administrator roles to individuals, once per person every 60 seconds. '
-                           'These specific grants bypass the Permission Grant command guard, not other Antinuke rules '
-                           'or trust checks. Recipients gain full Discord Administrator. Ordinary blacklisted roles '
-                           'may receive a recipient-specific exception. Antinuke is best effort.</div>'
-                           '<div class="form-grid"><div class="form-group"><label for="grant_id">Member or role ID</label>'
-                           '<input id="grant_id" name="target_id" inputmode="numeric" required></div>'
-                           + _select("grant_kind", "Type", "member", (("member", "Member"), ("role", "Role")))
-                           + '</div><label class="confirm-choice"><input type="checkbox" name="confirm_role" value="yes"> '
-                           'I understand authorizing a role includes all its current and future human holders.</label>'
-                           '<div class="list-controls"><button class="btn" name="operation" value="add">Authorize</button>'
-                           '<button class="btn btn-plain" name="operation" value="remove">Revoke</button></div></form>')
-            grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "admin-grants")
-        antinuke_section += grant_section
+    granter_users = await server.bot.db.get_config(guild.id, "admin_role_granters")
+    granter_roles = await server.bot.db.get_config(guild.id, "admin_role_granter_roles")
+    if (not isinstance(granter_users, dict) or not isinstance(granter_roles, dict)
+            or any(not isinstance(k, str) or not k.isdigit() or v is not True
+                   for mapping in (granter_users, granter_roles) for k, v in mapping.items())):
+        grant_section = _section("Administrator-role granters", "05", "Authorization data is invalid; no changes can be made here.", "", "admin-grants")
+    else:
+        combined = {"users": granter_users, "roles": granter_roles}
+        members = ", ".join(_esc(uid) for uid in granter_users) or "None"
+        roles = ", ".join(_esc(rid) for rid in granter_roles) or "None"
+        grant_form = _form_start(server, guild, user, "admin-grant", "admin_role_grant", combined)
+        grant_form += (f'<p>Authorized member IDs: {members}</p><p>Authorized role IDs: {roles}</p>'
+                       '<div class="note">Members and all current and future human holders of an authorized role '
+                       'may grant eligible Administrator roles to individuals, once per person every 60 seconds. '
+                       'These specific grants bypass the Permission Grant command guard, not other Antinuke rules '
+                       'or trust checks. Recipients gain full Discord Administrator. Ordinary blacklisted roles '
+                       'may receive a recipient-specific exception. Antinuke is best effort.</div>'
+                       '<div class="form-grid"><div class="form-group"><label for="grant_id">Member or role ID</label>'
+                       '<input id="grant_id" name="target_id" inputmode="numeric" required></div>'
+                       + _select("grant_kind", "Type", "member", (("member", "Member"), ("role", "Role")))
+                       + '</div><label class="confirm-choice"><input type="checkbox" name="confirm_role" value="yes"> '
+                       'I understand authorizing a role includes all its current and future human holders.</label>'
+                       '<div class="list-controls"><button class="btn" name="operation" value="add">Authorize</button>'
+                       '<button class="btn btn-plain" name="operation" value="remove">Revoke</button></div></form>')
+        grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "admin-grants")
+    antinuke_section += grant_section
 
-    from cogs.logging import KINDS, other_bots_channel
+    from cogs.logging import KINDS
     from core.dashboard_security_views import log_routes
     logs = await server.bot.db.get_config(guild.id, "logs") or {}
     form = _form_start(server, guild, user, "logging", "logs", logs)
-    form += '<div class="note">Auto uses normal routing. Off disables the direct route; some events use other routes as fallbacks.</div>'
+    form += '<div class="note">Unset routes may share explicitly approved destinations. Off disables the category. Review existing routes and channel privacy before confirming.</div>'
     form += log_routes(guild, logs) + '<div class="form-grid">'
-    channels = sorted((ch for ch in getattr(guild, "text_channels", []) if not other_bots_channel(ch)),
+    channels = sorted(getattr(guild, "text_channels", []),
                       key=lambda ch: (ch.position, ch.id))
     for field, key in LOG_FIELDS:
         current = logs.get(key)
         value = str(current) if current is not None else ""
-        choices = [("", "Auto"), ("-1", "Off")] + [(str(ch.id), f"#{ch.name}") for ch in channels]
+        choices = [("", "Shared if available"), ("-1", "Off")] + [(str(ch.id), f"#{ch.name}") for ch in channels]
         if value and value not in {v for v, _ in choices}:
             choices.append((value, f"Unavailable or excluded channel ({value})"))
         form += _select(field, KINDS[key].label, value, choices)
@@ -279,7 +302,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                               ("log_ignore_users", "Ignored user IDs", "users")):
         value = ", ".join(str(v) for v in ignore.get(key, []))
         form += f'<div class="form-group"><label for="{field}">{label}</label><input id="{field}" name="{field}" value="{_esc(value)}"><span class="hint">Comma-separated Discord IDs.</span></div>'
-    form += '</div><button class="btn" type="submit">Save logging</button></form>'
+    form += '</div><label class="confirm-choice"><input type="checkbox" name="confirm_logs" value="yes"> I reviewed these logging destinations and their access permissions.</label><button class="btn" type="submit">Save logging</button></form>'
     logging_section = _section("Logging", "03", "Configure log destinations and exclusions.", form, "logging")
 
     saved = ('<div class="note ok" role="status">Settings saved.</div>' if request.query.get("saved") else "")
@@ -297,7 +320,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                 f'<h1>{_esc(label)}</h1><p>Review your settings and save changes when ready.</p></div>'
                 f'<a class="btn btn-plain" href="/servers/{guild.id}/overview">← Server overview</a></div>{saved}'
                 f'<div class="feature-content">{content}</div>')
-        return server._page(label, body, user, guild=guild, active=selected, limited=limited)
+        return server._page(label, body, user, guild=guild, active=selected)
     body = (f'<div class="page-heading"><div><p class="eyebrow">Servers / Feature controls</p><h1>{_esc(guild.name)}</h1>'
             '<p>Manage selected security and community features. Each section saves separately.</p></div>'
             f'<a class="btn btn-plain" href="/servers/{guild.id}">← Server settings</a></div>{saved}'
@@ -385,11 +408,17 @@ async def save_admin_grant(server, guild, user, data) -> web.Response:
                         target = None
             if target is None:
                 return server._message("Invalid settings", "The member or role could not be verified in this server. Nothing was saved.", 400, user)
+        if not await server._can_manage_rbl(user, guild):
+            return server._message("Access denied", "Your access changed; nothing was saved.", 403, user)
         try:
             changed = await cog._change_admin_role_grant_locked(SimpleNamespace(guild=guild), target_id,
                                                                kind=kind, add=operation == "add", target=target)
         except UserError as exc:
             return server._message("Invalid settings", f"{exc}. Nothing was saved.", 400, user)
+        except Exception as exc:
+            import logging
+            logging.getLogger("veil.dashboard").warning("Role authorization save could not be confirmed (%s)", type(exc).__name__)
+            return server._message("Save not confirmed", "Refresh and review role authorizations before retrying.", 503, user)
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s %s admin grant %s %s for guild %s (changed=%s)",
                                                user["uid"], operation, kind, target_id, guild.id, changed)
@@ -404,8 +433,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
     if guild is None:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
     feature = request.match_info["feature"]
-    if not await server._can_manage_security(user, guild) and feature not in (
-            "automod", "automod-entry", "automod-exempt", "logging", "levels", "tickets"):
+    if not await server._can_manage_security(user, guild):
         return server._message("Access denied", "Only the server owner or a bot developer may change security settings.", 403, user)
     data = await request.post()
     if not server._csrf_ok(user, data.get("csrf")):
@@ -416,7 +444,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
-    modules = {"logging": ("logs", {}), "general": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
+    modules = {"logging": ("logs", {}), "general": ("settings", {}), "command-access": ("settings", {}), "command-control": ("settings", {}), "automod": ("filters", FILTER_DEFAULT), "automod-entry": ("filters", FILTER_DEFAULT),
                "automod-exempt": ("filters", FILTER_DEFAULT), "levels": ("levels", LEVEL_DEFAULT),
                "tickets": ("tickets", TICKET_DEFAULT), "protection": ("antinuke", AN_DEFAULT),
                "rule": ("antinuke", AN_DEFAULT)}
@@ -439,9 +467,42 @@ async def save_feature(server, request: web.Request) -> web.Response:
             if not 1 <= len(prefix) <= 10 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in prefix):
                 raise InvalidSetting("Prefix must be 1–10 characters without spaces or control characters")
             cfg["prefix"] = prefix
+        elif feature == "command-access":
+            staff_only = _choice(data, "staff_only", {"on", "off"})
+            if "bot_channels" not in data:
+                raise InvalidSetting("Missing command channels; refresh the page")
+            channels = _parse_ids(str(data["bot_channels"]))
+            previous = set(old.get("bot_channels", []))
+            for cid in channels:
+                if cid not in previous and not isinstance(guild.get_channel(cid), discord.TextChannel):
+                    raise InvalidSetting("Command channels must be text channels in this server")
+            cfg["staff_only"] = staff_only == "on"
+            cfg["bot_channels"] = channels
+        elif feature == "command-control":
+            action = _choice(data, "command_action", {"enable", "disable"})
+            name = str(data.get("command_name", "")).strip()
+            if not name or len(name) > 100 or any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+                raise InvalidSetting("Enter a valid command name without the prefix")
+            get_command = getattr(server.bot, "get_command", None)
+            command = get_command(name) if callable(get_command) else None
+            disabled = cfg.get("disabled", [])
+            if not isinstance(disabled, list) or any(not isinstance(item, str) for item in disabled):
+                raise InvalidSetting("Saved disabled commands are invalid; review them in Discord")
+            canonical = command.qualified_name if command else name
+            if action == "disable":
+                if not command or command.cog_name in ("Settings", "Owner", "Authorization"):
+                    raise InvalidSetting("That command cannot be disabled")
+                if canonical in disabled:
+                    raise InvalidSetting("That command is already disabled")
+                disabled.append(canonical)
+            else:
+                if canonical not in disabled:
+                    raise InvalidSetting("That command is not disabled")
+                disabled.remove(canonical)
+            cfg["disabled"] = disabled
         elif feature == "logging":
             # This independent form never writes role blacklist or antinuke fields.
-            from cogs.logging import other_bots_channel
+            from cogs.logging import can_post
             for field, key in LOG_FIELDS:
                 if field not in data:
                     raise InvalidSetting("Missing log route; refresh the page")
@@ -453,8 +514,18 @@ async def save_feature(server, request: web.Request) -> web.Response:
                 else:
                     cfg[key] = _channel(guild, data, field, discord.TextChannel, old.get(key))
                     target = guild.get_channel(cfg[key])
-                    if cfg[key] != old.get(key) and target and other_bots_channel(target):
-                        raise InvalidSetting("Choose a Veil log channel, not a Vanguard channel")
+                    if (cfg[key] != old.get(key) or data.get("confirm_logs") == "yes") and target and not can_post(target):
+                        raise InvalidSetting("Veil needs View Channel, Send Messages and Embed Links in selected destinations")
+                if cfg[key] != old.get(key) and data.get("confirm_logs") != "yes":
+                    raise InvalidSetting("Review and confirm logging destinations")
+                if not isinstance(cfg.get("approved_routes"), dict):
+                    cfg["approved_routes"] = {}
+                approvals = cfg["approved_routes"]
+                if data.get("confirm_logs") == "yes" and isinstance(cfg[key], int) and cfg[key] > 0:
+                    if isinstance(guild.get_channel(cfg[key]), discord.TextChannel):
+                        approvals[key] = cfg[key]
+                elif cfg[key] is None or cfg[key] == -1:
+                    approvals.pop(key, None)
             if not isinstance(cfg.get("ignore", {}), dict):
                 raise InvalidSetting("Log exclusions have an unexpected format")
             ignore = cfg.setdefault("ignore", {})
@@ -462,9 +533,14 @@ async def save_feature(server, request: web.Request) -> web.Response:
                 if field not in data:
                     raise InvalidSetting("Missing log exclusions; refresh the page")
                 try:
-                    ignore[key] = _parse_ids(str(data[field]))
+                    selected = _parse_ids(str(data[field]))
                 except ValueError:
                     raise InvalidSetting("Invalid log exclusion IDs") from None
+                if key == "channels":
+                    previous = set(ignore.get(key) or [])
+                    if any(guild.get_channel(cid) is None for cid in set(selected) - previous):
+                        raise InvalidSetting("New excluded channels must belong to this server")
+                ignore[key] = selected
         elif feature == "automod":
             for key in ("invites", "links", "zalgo", "antighostping"):
                 cfg[key] = _choice(data, key, ("on", "off")) == "on"
@@ -609,7 +685,17 @@ async def save_feature(server, request: web.Request) -> web.Response:
             notice = f"updated antinuke rule {rule} via the dashboard"
     except (InvalidSetting, TypeError, ValueError) as exc:
         return server._message("Invalid settings", f"{exc}. Nothing was saved.", 400, user)
-    await server.bot.db.set_config_committed(guild.id, module, cfg)
+    if await server._guild_for(request, user) is None:
+        return server._message("Access denied", "Your access changed; nothing was saved.", 403, user)
+    latest = await server.bot.db.get_config(guild.id, module, default)
+    if not hmac.compare_digest(str(revision.get("digest", "")), _digest(latest)):
+        return server._message("Settings changed", "Refresh the page and review the latest settings. Nothing was saved.", 409, user)
+    try:
+        await server.bot.db.set_config_committed(guild.id, module, cfg)
+    except Exception as exc:
+        import logging
+        logging.getLogger("veil.dashboard").warning("Feature save could not be confirmed (%s)", type(exc).__name__)
+        return server._message("Save not confirmed", "The database did not confirm the save. Refresh and review the current settings before retrying.", 503, user)
     if notice:
         try:
             get_cog = getattr(server.bot, "get_cog", None)
@@ -620,6 +706,6 @@ async def save_feature(server, request: web.Request) -> web.Response:
             pass  # security notices are best effort, as in the Discord commands
     import logging
     logging.getLogger("veil.dashboard").info("Dashboard: user %s updated %s for guild %s", user["uid"], feature, guild.id)
-    anchor = {"logging": "logging", "general": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
+    anchor = {"logging": "logging", "general": "general", "command-access": "general", "command-control": "general", "automod": "automod", "automod-entry": "automod", "automod-exempt": "automod", "levels": "leveling", "tickets": "tickets", "protection": "rules", "rule": "rules"}[feature]
     section = f"&section={anchor}" if data.get("return_section") == anchor else ""
     return server._redirect(f"/servers/{guild.id}/features?saved=1{section}#{anchor}")

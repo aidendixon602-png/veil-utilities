@@ -20,9 +20,9 @@ Presentation and help visibility do not replace the checks that run when a comma
 Use `,r humans "Role Name"`, `,r bots "Role Name"`, or `,r all "Role Name"` to **add** a role to matching
 cached members after confirmation. Role mentions and IDs also work; use a mention or ID for a role named `add`
 or `remove`. The existing explicit forms, for example `,r humans add @Role` and `,r bots remove @Role`, remain
-available and do not use the new shorthand confirmation. Existing rank and permission checks still apply; neither
-ordinary nor hard-blacklisted roles can be mass-assigned. Dangerous Discord permission grants via the new
-shorthand are checked by Antinuke.
+available and also require confirmation. Existing rank and permission checks still apply; neither
+ordinary nor hard-blacklisted roles can be mass-assigned. Dangerous Discord permission grants in either
+form are checked by Antinuke. Removal also previews and confirms, and target hierarchy is checked.
 
 Bulk role commands use Discord's cached member list, which can be incomplete, and do not affect future joins.
 Review role Discord permissions, Veil levels and fake permissions before confirming. Permissions and the target
@@ -38,17 +38,13 @@ fake permissions or a command restriction cannot substitute for the actual serve
 command remains **developer-only**. Existing Discord bot permissions, hierarchy, and other checks still apply.
 Owners should review application team access and `OWNER_IDS` before upgrading. Existing assignments are unchanged.
 
-`,cleanuplogs` / `,logs cleanup` now **only reports channels with matching log names**; it does not delete or
-move them. Names alone cannot establish ownership or whether logs are redundant. Inspect channels and back up
-anything needed before manually changing them. Automatic log setup and name-based routing remain separate: they can create channels, select similarly named
-channels outside the recognized Ghost/Midtown Vanguard categories, and move existing channels with a Veil topic
-marker. A topic is not proof of ownership. Review the [logging configuration](#logging)
-and other bots before using them; `,logs setup off` changes automatic setup globally and is developer-only.
-To roll back, deploy the previous tested revision with `AUTO_SYNC_GIT=0`, knowing that older code restores the
-broader command access and destructive name-based cleanup. Do not use production for security tests.
+`,cleanuplogs` / `,logs cleanup` are non-destructive. Veil does not infer ownership from a name or topic;
+inspect and remove unwanted channels manually. Server log routing now requires reviewed destination IDs;
+see [logging](LOGGING.md) before upgrading. Rolling back to older versions restores unsafe name-based routing
+and cleanup behavior. Do not use production for destructive tests.
 
-**Known self-role risk:** Do not put Veil level or fake-permission grants on roles members can obtain from
-button or reaction panels. Review existing role holders as well as panels; removing a panel does not revoke roles.
+**Self-role safety:** Do not put Veil level, fake-permission, trust or scoped-granter grants on roles members can obtain from
+button or reaction panels. Veil checks its supported self-service paths, but other bots and Discord itself are not covered. Review existing role holders as well as panels; removing a panel does not revoke roles.
 See the [permissions guide](PERMISSIONS.md#review-role-assignments) for mitigation and current trust boundaries.
 
 Veil recognizes the Discord application's owner/team and additional `OWNER_IDS` as bot developers. Developer commands are hidden and independently checked; they include highly privileged operations. Server owners and role/user permission levels govern access to many server commands. Actual Discord permissions and role hierarchy are also required to perform Discord actions. Use `,help <command>` and `,perm roles` to inspect available information; the generated reference cannot represent every check.
@@ -70,19 +66,11 @@ Veil rank even when a fake permission is present. Explicit denies, temporary gra
 permissions and the requested Helper preset's limited timeout do not yet exist. Other authorization paths and
 legacy trusted/exempt accounts remain under review. See [the staged audit](MASTER_AUDIT.md).
 
-### Veil and Ghost Vanguard together
+### Multiple logging and protection tools
 
-For a Veil-first setup, run `,logs coexist` as the server owner for a read-only checklist. Keep the Veil
-logging and protection rules you want, then **manually disable matching logs and protection rules in Ghost
-Vanguard** using that bot's own controls. Veil cannot read or change Ghost Vanguard's configuration and cannot
-verify that overlap has been removed; duplicate logs, punishments or rollbacks remain possible until you check
-both bots. Presence detection uses the member cache and may miss the bot when member data is unavailable.
-
-Veil avoids log channels and categories it recognizes as belonging to Vanguard and does not move or delete
-them during setup or cleanup. Recognition is name-based, not proof of ownership; review custom-named channels
-and destinations with `,logs list`. Existing saved settings, channels and protections are not automatically
-changed. `,gv` is an explicit optional command handoff and does not run by itself. The owner or developer may use
-`,gvbridge off` to disable it, and `,gvbridge on` to restore it; this never changes either bot's protections.
+Use `,logs coexist` for neutral routing guidance. Review each tool's settings independently to prevent duplicate
+logs or enforcement. The separate `,gv` integration and protection exemptions are unchanged; this logging change
+does not control or verify another tool's configuration.
 
 New message-delete, edit and bulk-delete logs use compact titled cards with details and IDs. Edit cards now
 include up to 700 characters each from the old and new text instead of only short 80-character previews, so
@@ -137,15 +125,20 @@ cancel. Only the actual server owner can confirm; confirmation times out after t
 modules with saved settings, even if disabled, and may separately create a Discord keyword-preset slur rule if none
 exists and Veil has Manage Server. It enables bot quarantine, raid detection, message filters and warning actions
 where no settings exist; review the preview carefully. An interrupted setup can leave partial changes. Previously
-enabled protections are not disabled or rolled back by this upgrade. Automatic **logging** setup is independent.
+enabled protections are not disabled or rolled back by this upgrade. Server logging setup is independent and requires confirmation.
 
 Start with `,an status` and `,an health`, then review the [antinuke guide](ANTINUKE.md). Audit permissions, server-specific rules, exemptions, role position and punishment settings matter. Detection, punishment and restoration are best-effort. Some audit actions cannot be attributed or undone; only Veil commands wired into the guard count toward command-based thresholds. Test in a disposable server and avoid overlapping protection with another bot.
 
 ## Logging
 
-`,logs` opens the panel; `,logs setup` attempts to create the category and channels and requires Manage Channels. `,logs set messages #logs` routes a category to an existing channel, `,logs off messages` disables it, and `,logs auto messages` restores automatic channel selection. Veil needs permission to view, send messages and embed links in a target channel. Use `,logs` to inspect categories and settings; local logs go to `LOG_FILE`. Log destinations and data may contain sensitive server information—restrict access and establish a retention policy.
+See the [logging and migration guide](LOGGING.md). Existing logging destination IDs are preserved but paused
+until reviewed and explicitly approved. `,logs setup` previews and confirms creation of missing server logging
+channels; startup and join no longer do so.
 
-Developer channels are separate from server log categories. `AUTH_LOG_CHANNEL` and `ERROR_LOG_CHANNEL` can override them; otherwise the bot attempts to create private channels in an eligible server. They may not exist if the bot lacks permission or a suitable server.
+Developer channels are separate from server log categories. `AUTH_LOG_CHANNEL` and `ERROR_LOG_CHANNEL` can
+override them; automatic startup creation is disabled. Existing saved IDs remain available. The internal
+provisioning helper still reuses categories by name and can move stored channels; do not call it until separately
+reviewed.
 
 ## Developer notifications
 
