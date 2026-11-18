@@ -32,9 +32,9 @@ def test_serverinfo_and_si_share_attribution_and_actual_owner():
         ctx = SimpleNamespace(guild=guild, send=AsyncMock())
         await Utility.serverinfo.callback(Utility.__new__(Utility), ctx)
         embed = ctx.send.await_args.kwargs['embed']
-        assert 'A community' in embed.description
-        assert 'Property of Midtown Genre Owner: simisear' in embed.description
-        assert '843909457616044092' in embed.description
+        assert embed.description == 'A community'
+        assert 'Property of Midtown Genre Owner: simisear' not in embed.description
+        assert '843909457616044092' not in embed.description
         assert next(f.value for f in embed.fields if f.name == 'Owner') == '<@42>'
         assert 'Unavailable' in next(f.value for f in embed.fields if f.name == 'Members')
         assert ctx.send.await_args.kwargs['allowed_mentions'].everyone is False

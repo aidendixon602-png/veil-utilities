@@ -337,9 +337,7 @@ class Utility(commands.Cog):
         This attribution is separate from the current server owner.
         """
         g = ctx.guild
-        attribution = "**Property of Midtown Genre Owner: simisear**\n**User ID:** `843909457616044092`"
-        description = f"{g.description}\n\n{attribution}" if g.description else attribution
-        e = discord.Embed(title=g.name, color=Colors.main, description=description)
+        e = discord.Embed(title=g.name, color=Colors.main, description=g.description)
         if g.icon:
             e.set_thumbnail(url=g.icon.url)
         if g.banner:
