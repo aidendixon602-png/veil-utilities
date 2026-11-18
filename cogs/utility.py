@@ -324,7 +324,11 @@ class Utility(commands.Cog):
     @commands.command(aliases=["si", "guildinfo"])
     @commands.guild_only()
     async def serverinfo(self, ctx: Context):
-        """Info about this server"""
+        """Info about this server
+
+        Property of Midtown Genre Owner: simisear
+        User ID: 843909457616044092
+        """
         g = ctx.guild
         e = discord.Embed(title=g.name, color=Colors.main, description=g.description)
         if g.icon:
