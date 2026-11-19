@@ -1,4 +1,4 @@
-"""Midtown attribution belongs in command help, not arbitrary server details."""
+"""Server info omits the old fixed attribution while preserving server details."""
 from __future__ import annotations
 
 import asyncio
@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock
 import discord
 from discord.ext import commands
 
-from cogs.utility import Utility
+from cogs.utility import Utility, _serverinfo_description
 from core.help import Help
 
 
-def test_serverinfo_aliases_share_attributed_help():
+def test_serverinfo_aliases_share_clean_help():
     bot = commands.Bot(command_prefix=",", intents=discord.Intents.none())
     bot.add_command(Utility.serverinfo.copy())
     help_cmd = Help()
@@ -23,8 +23,8 @@ def test_serverinfo_aliases_share_attributed_help():
         command = bot.get_command(name)
         assert command is bot.get_command("serverinfo")
         description = help_cmd.command_embed(command).description
-        assert "Property of Midtown Genre Owner: simisear" in description
-        assert "843909457616044092" in description
+        assert "Property of Midtown" not in description
+        assert "843909457616044092" not in description
 
 
 def test_serverinfo_shows_real_server_description_and_owner():
@@ -42,3 +42,36 @@ def test_serverinfo_shows_real_server_description_and_owner():
     assert embed.description == "A real server description"
     assert next(field.value for field in embed.fields if field.name == "Owner") == "<@1234>"
     assert "simisear" not in str(embed.to_dict())
+
+
+def test_serverinfo_filters_legacy_attribution_from_server_description():
+    legacy = "**Property of Midtown Genre Owner: simisear**\n**User ID: `843909457616044092`**"
+    assert _serverinfo_description(legacy) is None
+    assert _serverinfo_description(f"Welcome!\n{legacy}\nEnjoy your stay.") == "Welcome!\nEnjoy your stay."
+    assert _serverinfo_description("property of midtown genre owner: SIMISEAR\nUser ID: 843909457616044092") is None
+
+
+def test_serverinfo_preserves_unrelated_descriptions_and_ids():
+    for description in (None, "", "A real server description", "User ID: 843909457616044092",
+                        "Property of another community\nUser ID: 123",
+                        "Property of Midtown Genre Owner: someone else"):
+        assert _serverinfo_description(description) == description
+    assert _serverinfo_description("Property of Midtown Genre Owner: simisear\nUser ID: 123") == "User ID: 123"
+
+
+def test_serverinfo_embed_hides_the_legacy_lines():
+    guild = SimpleNamespace(
+        name="Server", description="**Property of Midtown Genre Owner: simisear**\n**User ID: `843909457616044092`**",
+        icon=None, banner=None, owner_id=1234, created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        member_count=1, members=[], text_channels=[], voice_channels=[], categories=[], roles=[],
+        emojis=[], emoji_limit=50, premium_subscription_count=0, premium_tier=0,
+        verification_level="none", vanity_url_code=None, id=5678,
+    )
+    ctx = SimpleNamespace(guild=guild, send=AsyncMock())
+    asyncio.run(Utility.serverinfo.callback(Utility(SimpleNamespace()), ctx))
+    embed = ctx.send.await_args.kwargs["embed"]
+    assert embed.description is None
+    assert next(field.value for field in embed.fields if field.name == "Owner") == "<@1234>"
+    assert "Property of Midtown" not in str(embed.to_dict())
+    assert "843909457616044092" not in str(embed.to_dict())
+    assert "Property of Midtown" in guild.description  # no Discord server metadata is modified
