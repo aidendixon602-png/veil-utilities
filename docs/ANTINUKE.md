@@ -114,7 +114,7 @@ be authorized directly; removing one authorization does not remove their other a
 and developers can manage these authorizations under **Antinuke → Administrator-role granters** in the
 Discord-login dashboard. The dashboard uses member or role IDs, and requires confirmation of role scope.
 
-Once authorized, a human holder can directly give any eligible Administrator role to an individual with
+Without actual Discord Administrator, an authorized human holder can directly give any eligible Administrator role to an individual with
 `,r @recipient @AdministratorRole` (no approval for each grant). This covers eligible Administrator roles
 created or changed in the future, not just roles present when they were authorized. Scoped grants are limited to one per
 person per server every 60 seconds, across roles and recipients; the limit survives restarts. The slot is
@@ -224,3 +224,29 @@ Quarantine/release and other restoration paths may reapply saved roles without t
 quarantine also records recovery state after changing Discord roles. Review existing snapshots and role privileges
 before using these workflows. They need further safety and recovery work and should not be treated as covered by
 this partial hardening.
+
+### Discord Administrator role-action exemption
+
+Human members with actual Discord Administrator are now exempt from Antinuke's **role-management** command
+guards for validated role creation/deletion, role assignments and native role-permission edits. This does not
+exempt bans, channel changes, channel permission overwrites, bot additions or other actions; fake permissions,
+Veil ranks and bots do not confer this exemption. The existing blacklist and other independent enforcement
+systems still apply. Bulk commands still require confirmation and recheck eligible roles/targets. Role and bot
+hierarchy, target protections, and native bot permissions continue to apply.
+
+For direct Discord actions, audit exemption is limited to role create/delete/update and member-role update
+entries when Veil can resolve the current human actor's Administrator permission and affected role hierarchy.
+Deleted roles require a captured unmanaged-role snapshot; Veil waits briefly for it if necessary. Missing
+member/role/snapshot data, managed roles,
+equal/higher roles and uncertain hierarchy are not exempt. A changed role cannot be the sole source of the
+actor's current Administrator permission. The verification uses **current cached state**, not historical
+permissions or hierarchy at the time of the event: Discord's audit entries do not prove either. Events may arrive
+before cache/snapshot updates, or state may change between the action and processing. Therefore legitimate
+changes can still trigger Antinuke, and an administrator who abuses or compromises their account can escape
+role-action detection. This exemption is not a guarantee of legitimate intent or protection. Review Discord
+Administrator holders carefully; the exception does not change saved whitelists or other rules.
+
+Take a database backup and record Discord roles before deployment. To roll back, stop the bot and deploy the prior
+tested revision with `AUTO_SYNC_GIT=0` in the process environment; that revision restores its prior role-command
+and Antinuke restrictions. No live Discord verification is implied by tests. Other protection bots and Veil's
+blacklist enforcement can still react to role changes independently.

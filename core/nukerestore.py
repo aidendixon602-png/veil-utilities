@@ -45,7 +45,8 @@ def snapshot_role(role) -> dict:
                 overwrites.append((channel.id, int(ow.allow), int(ow.deny)))
     colour = getattr(role, "colour", None) or getattr(role, "color", None)
     return {
-        "id": role.id, "name": role.name, "permissions": int(getattr(role.permissions, "value", 0)),
+        "id": role.id, "name": role.name, "managed": bool(getattr(role, "managed", False)),
+        "permissions": int(getattr(role.permissions, "value", 0)),
         "colour": int(getattr(colour, "value", colour or 0) or 0), "hoist": bool(getattr(role, "hoist", False)),
         "mentionable": bool(getattr(role, "mentionable", False)), "position": getattr(role, "position", 1),
         "holders": holders, "overwrites": overwrites, "at": time.monotonic(),

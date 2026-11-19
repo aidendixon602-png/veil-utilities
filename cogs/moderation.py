@@ -28,7 +28,7 @@ if not hasattr(_cu, "check_role_assignable"):
 from core import perms as perms_mod
 from core.utils import (DANGEROUS_PERMS, AdminRoleGrantRequired, Colors, Context, Duration, Paginator, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
-                        check_role, check_role_assignable, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
+                        check_role, check_role_assignable, chunk_embeds, fmt_duration, has_perms, has_discord_administrator, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
                         has_soft_role_bypass, role_protection_ids)
 
@@ -1253,8 +1253,27 @@ class Moderation(commands.Cog):
         updated[str(actor_id)] = current
         await self.bot.db.set_config_committed(guild_id, "admin_role_grant_cooldowns", updated)
 
+    async def _role_member_hierarchy(self, ctx: Context, member: discord.Member) -> None:
+        # Native administrators do not need a separate Veil rank to manage roles. Keep
+        # Discord/member, owner and developer target protections from check_hierarchy.
+        if has_discord_administrator(ctx.author):
+            from core.utils import check_hierarchy
+            check_hierarchy(ctx, member, "modify roles on")
+            if (ctx.author.id != ctx.guild.owner_id and member.top_role >= ctx.author.top_role):
+                raise UserError("The member's highest role must be below yours")
+        else:
+            await check_hierarchy_async(ctx, member, "modify roles on")
+
+    async def _role_antinuke_guard(self, ctx: Context, module: str, amount: int | None = None) -> None:
+        # Only call from role-only operations after their role/hierarchy validation.
+        if not has_discord_administrator(ctx.author):
+            if amount is None:
+                await antinuke_guard(ctx, module)
+            else:
+                await antinuke_guard(ctx, module, amount=amount)
+
     async def _apply_single_role(self, ctx: Context, member: discord.Member, role: discord.Role, *, scoped=False):
-        await check_hierarchy_async(ctx, member, "modify roles on")
+        await self._role_member_hierarchy(ctx, member)
         if role in member.roles:
             raise UserError("they already have it")
         if scoped:
@@ -1266,7 +1285,7 @@ class Moderation(commands.Cog):
             if role.id in cfg.get("whitelist_roles", []):
                 raise UserError("This role is Antinuke-whitelisted; scoped grants cannot give it")
         elif is_dangerous(role.permissions):
-            await antinuke_guard(ctx, "permissions")
+            await self._role_antinuke_guard(ctx, "permissions")
         # The scoped branch is an owner-authorized exception for this exact call only; it does not alter
         # Antinuke trust, counters, rules, other commands, bulk operations or direct Discord actions.
         async with self._exception_lock(ctx.guild.id):
@@ -1289,7 +1308,8 @@ class Moderation(commands.Cog):
             ordinary_error = exc
 
         scoped = False
-        if getattr(role.permissions, "administrator", False) and not owner_or_developer(ctx.author, ctx.guild, self.bot):
+        if (getattr(role.permissions, "administrator", False) and not has_discord_administrator(ctx.author)
+                and not owner_or_developer(ctx.author, ctx.guild, self.bot)):
             scoped = await self._has_admin_role_grant(ctx.guild.id, ctx.author)
             if scoped and ordinary_error is None:
                 # Preserve pre-existing trusted/disabled-Antinuke behavior for users who already qualify
@@ -1328,7 +1348,7 @@ class Moderation(commands.Cog):
             if role.id in cfg.get("whitelist_roles", []):
                 raise UserError("This role is Antinuke-whitelisted; scoped grants cannot give it")
             await check_role_assignable(ctx, role, scoped_admin_grant=True)
-            await check_hierarchy_async(ctx, member, "modify roles on")
+            await self._role_member_hierarchy(ctx, member)
             if role in member.roles:
                 raise UserError("they already have it")
             await self._claim_admin_grant_slot(ctx.guild.id, ctx.author.id)
@@ -1337,7 +1357,7 @@ class Moderation(commands.Cog):
     async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"remove {role.mention} from {member.mention}", role)
         check_role(ctx, role)
-        await check_hierarchy_async(ctx, member, "modify roles on")
+        await self._role_member_hierarchy(ctx, member)
         if role not in member.roles:
             raise UserError("they don't have it")
         async with self._exception_lock(ctx.guild.id):
@@ -1499,7 +1519,10 @@ class Moderation(commands.Cog):
     async def role_create(self, ctx: Context, *, name: str):
         """Create a role"""
         ctx.compact_action = f"create **{discord.utils.escape_markdown(name)}**"
-        await antinuke_guard(ctx, "rolecreate")
+        if (has_discord_administrator(ctx.author) and ctx.author.id != ctx.guild.owner_id
+                and ctx.author.top_role.is_default()):
+            raise UserError("A new role cannot be below your highest role; ask the server owner to create it.")
+        await self._role_antinuke_guard(ctx, "rolecreate")
         r = await ctx.guild.create_role(name=name, reason=audit_reason(ctx.author))
         await ctx.done(f"created {r.mention}")
 
@@ -1521,7 +1544,7 @@ class Moderation(commands.Cog):
         if current is None or (current.name, current.position, current.permissions.value) != snapshot:
             raise UserError("The role changed during confirmation; nothing was deleted. Try again.")
         check_role(ctx, current)
-        await antinuke_guard(ctx, "roledelete")
+        await self._role_antinuke_guard(ctx, "roledelete")
         try:
             await current.delete(reason=audit_reason(ctx.author))
         except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError, OSError):
@@ -1585,7 +1608,7 @@ class Moderation(commands.Cog):
                 if not which(member) or ((current in member.roles) if add else (current not in member.roles)):
                     continue
                 try:
-                    await check_hierarchy_async(ctx, member, "modify roles on")
+                    await self._role_member_hierarchy(ctx, member)
                 except UserError:
                     excluded += 1
                     continue
@@ -1621,7 +1644,7 @@ class Moderation(commands.Cog):
             raise UserError("The eligible target list changed during confirmation; nothing was changed. Try again.")
         role, targets = current_role, current
         if add and is_dangerous(role.permissions):
-            await antinuke_guard(ctx, "permissions", amount=len(targets))
+            await self._role_antinuke_guard(ctx, "permissions", amount=len(targets))
         msg = await ctx.compact(Colors.neutral, f"⏳ updating **{len(targets)}** members…")
         done, skipped = 0, 0
         for index, original in enumerate(targets):
@@ -1635,7 +1658,7 @@ class Moderation(commands.Cog):
                     skipped += 1
                     continue
                 await check_role_policy(current_role)
-                await check_hierarchy_async(ctx, member, "modify roles on")
+                await self._role_member_hierarchy(ctx, member)
                 if any([await self.bot.db.get_config(ctx.guild.id, key) != value for key, value in policy.items()]):
                     skipped += 1
                     continue
@@ -2410,7 +2433,7 @@ class Moderation(commands.Cog):
         for permission in added:
             setattr(updated, permission, True)
         granted = discord.Permissions(updated.value & ~role.permissions.value)
-        await antinuke_guard(ctx, "permissions" if is_dangerous(granted) else "roleupdate")
+        await self._role_antinuke_guard(ctx, "permissions" if is_dangerous(granted) else "roleupdate")
         try:
             await role.edit(permissions=updated, reason=audit_reason(ctx.author, action="role permission add"))
         except discord.Forbidden:
@@ -2560,7 +2583,7 @@ class Moderation(commands.Cog):
             if (not authorized() or any(rid not in current or current[rid].permissions.value != value
                                         for rid, value in snapshot.items())):
                 raise UserError("Access, hierarchy or role permissions changed during confirmation; nothing changed.")
-            await antinuke_guard(ctx, "roleupdate", amount=len(roles))
+            await self._role_antinuke_guard(ctx, "roleupdate", amount=len(roles))
             changed, failed = [], []
             for rid, value in snapshot.items():
                 eligible = {r.id: r for r in self._eligible_roles(ctx)}
