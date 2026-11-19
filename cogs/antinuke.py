@@ -14,7 +14,7 @@ from discord.ext import commands
 from core.antinukepanel import AntinukePanel, home_embed
 from core.config import settings
 from core.nukerestore import Snapshots, collapse, display, restore_channels, restore_roles
-from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_perms, is_dangerous, is_server_owner, shorten
+from core.utils import DANGEROUS_PERMS, Colors, Context, UserError, antinuke_admin, has_discord_administrator, has_perms, is_dangerous, is_server_owner, shorten
 from core import perms as _perms
 
 log = logging.getLogger("veil.antinuke")
@@ -468,6 +468,58 @@ class Antinuke(commands.Cog):
             return any(is_dangerous(getattr(r, "permissions", None)) for r in _given_roles(entry))
         return True
 
+    def _native_admin_role_action(self, entry) -> bool:
+        """Exempt only identifiable role operations below a currently verified native admin.
+
+        Discord audit entries do not carry historical actor permissions/hierarchy. Cached
+        state can be stale; if necessary details are missing, keep normal detection.
+        """
+        action = getattr(entry, "action", None)
+        if action not in (A.role_create, A.role_delete, A.role_update, A.member_role_update):
+            return False
+        guild = entry.guild
+        actor_id = getattr(entry, "user_id", None)
+        member = guild.get_member(actor_id) if actor_id else None
+        if member is None or not has_discord_administrator(member):
+            return False
+        top = getattr(member, "top_role", None)
+        if top is None:
+            return False
+        target_id = getattr(getattr(entry, "target", None), "id", None)
+        if not isinstance(target_id, int):
+            return False
+        changed_ids = set()
+        try:
+            if action == A.member_role_update:
+                target = guild.get_member(target_id)
+                if target is None or target.id == member.id or target.top_role >= top:
+                    return False
+                changes = ((getattr(entry.before, "roles", None) or [])
+                           + (getattr(entry.after, "roles", None) or []))
+                if not changes:
+                    return False
+                changed_ids = {r.id for r in changes}
+                roles = [guild.get_role(rid) for rid in changed_ids]
+            elif action == A.role_delete:
+                snap = self.snapshots.roles.get(target_id)
+                if (not snap or snap.get("managed") is not False or target_id == guild.id
+                        or not isinstance(snap.get("position"), int)
+                        or snap["position"] >= top.position):
+                    return False
+                changed_ids = {target_id}
+                roles = []
+            else:
+                changed_ids = {target_id}
+                roles = [guild.get_role(target_id)]
+            if any(role is None or role.is_default() or role.managed or not role < top for role in roles):
+                return False
+            # An action must not establish its own exemption by newly giving its actor
+            # Administrator. Require an independent currently-held Administrator role.
+            return any(r.id not in changed_ids and isinstance(r.permissions, discord.Permissions)
+                       and r.permissions.administrator for r in member.roles)
+        except (AttributeError, TypeError, ValueError):
+            return False
+
     @commands.Cog.listener()
     async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
         module = self.module_for(entry)
@@ -516,6 +568,17 @@ class Antinuke(commands.Cog):
         test = run is not None and actor_id == getattr(self.bot.user, "id", None) and run.owns(entry)
         if not test:
             if not actor_id:
+                return
+            # The role-delete gateway event can trail its audit entry. Give its snapshot
+            # a short chance to arrive without consuming it or weakening other rules.
+            if getattr(entry, "action", None) == A.role_delete:
+                actor = guild.get_member(actor_id)
+                rid = getattr(getattr(entry, "target", None), "id", None)
+                if has_discord_administrator(actor) and isinstance(rid, int) and rid not in self.snapshots.roles:
+                    deadline = time.monotonic() + 1.0
+                    while rid not in self.snapshots.roles and time.monotonic() < deadline:
+                        await asyncio.sleep(0.05)
+            if self._native_admin_role_action(entry):
                 return
             try:
                 if await self._trusted(guild, cfg, actor_id):

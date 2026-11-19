@@ -507,6 +507,16 @@ NATIVE_STAFF_PERMISSIONS = {
 }
 
 
+def has_discord_administrator(member) -> bool:
+    """Only a human member's actual guild Administrator bit, never Veil/fake permissions."""
+    try:
+        permissions = member.guild_permissions
+        return (getattr(member, "bot", True) is False and isinstance(permissions, discord.Permissions)
+                and permissions.administrator)
+    except (AttributeError, TypeError):
+        return False
+
+
 def has_native_staff_permission(ctx: Context) -> bool:
     return bool(native_permission_names(ctx) & NATIVE_STAFF_PERMISSIONS)
 
@@ -903,7 +913,8 @@ def check_role(ctx: Context, role: discord.Role) -> None:
         raise UserError(f"{role.mention} can't be assigned")
     if role >= ctx.guild.me.top_role:
         raise UserError(f"{role.mention} is above my top role")
-    if not is_dev and ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role:
+    if (ctx.author.id != ctx.guild.owner_id and (not is_dev or has_discord_administrator(ctx.author))
+            and role >= ctx.author.top_role):
         raise UserError(f"{role.mention} is above or equal to your top role")
 
 
@@ -958,7 +969,8 @@ async def check_role_assignable(ctx: Context, role: discord.Role, *, scoped_admi
     if not is_auth and not scoped_admin_grant:
         if await is_role_blacklisted(ctx.guild.id, role.id, ctx.bot.db):
             raise UserError(f"{role.mention} is blacklisted (bled) and cannot be assigned via bot commands.")
-    if not (is_dev or is_owner):
+    native_admin = has_discord_administrator(ctx.author)
+    if not (is_dev or is_owner or native_admin):
         # These roles can grant bot access or a security exemption even when their native
         # Discord bits look harmless. Scoped Administrator grants do not bypass this.
         from core.role_safety import unsafe_automatic_roles
@@ -969,7 +981,7 @@ async def check_role_assignable(ctx: Context, role: discord.Role, *, scoped_admi
         if role.id in sensitive:
             raise UserError("Only the server owner or a bot developer can assign a role that grants Veil "
                             "permissions, Administrator-role authorization or a security bypass.")
-    if is_dangerous(role.permissions):
+    if is_dangerous(role.permissions) and not native_admin:
         db = getattr(bot, "db", None)
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)

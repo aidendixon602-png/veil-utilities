@@ -274,7 +274,8 @@ The Discord server owner or bot developer can authorize a human to grant eligibl
 `,adminrolegrant add @role`. Use `,adminrolegrant list`, `,adminrolegrant remove @member` or `@role`,
 `,adminrolegrant removeid <member_id>`, or `,adminrolegrant removeroleid <role_id>` to review or revoke.
 Role-based authorization is separate from Antinuke whitelisting; avoid roles members can self-assign.
-This covers eligible Administrator roles added in the future as well.
+This covers eligible Administrator roles added in the future as well. A human with actual Discord Administrator
+uses the native path instead and does not require delegation or its 60-second scoped limit.
 The authorized person can use `,r` directly without further approval, limited to one individual scoped grant
 per 60 seconds. Those grants are excepted from the Permission Grant command guard; other actions are not.
 Command access, hierarchy, mixed dangerous-permission rank gates and blacklists still apply; no Antinuke
@@ -283,18 +284,33 @@ trust is conferred. See [Antinuke](ANTINUKE.md#scoped-administrator-role-grants)
 ### Role security upgrade: operator review
 
 Direct and bulk **assignment** of roles conferring Veil levels (including code-defined levels), fake permissions,
-scoped Administrator-role granting authority, role-blacklist bypass or Antinuke role trust is now limited to
-the actual server owner and recognized bot developers. This also applies to scoped Administrator-role granters;
-their scoped authority does not confer authority to grant other bot/security privileges. Ordinary staff who
+scoped Administrator-role granting authority, role-blacklist bypass or Antinuke role trust is limited to
+the actual server owner, recognized bot developers and human holders of actual Discord Administrator. Scoped
+Administrator-role delegation alone does not confer authority to grant other bot/security privileges. Ordinary staff who
 previously granted such roles may lose that ability. Native Discord dangerous permissions and hierarchy are
-separate checks. Policy read failures prevent non-owner/developer grants. Existing holders and saved settings
+separate checks. Policy read failures can prevent grants. Existing holders and saved settings
 are not removed. Review code-defined grants, `,perm roles`, `,fakepermissions list`, scoped granter roles,
 blacklist bypasses, Antinuke whitelists, existing role holders and every auto/self-service role before deployment.
 Grant access intentionally; do not use a self-service role as a trust or privilege role.
 
 Back up the database and export/review Discord role assignments and channel overwrites before deployment.
 Test with a disposable server. To roll back, stop the bot, deploy the previously tested revision with
-`AUTO_SYNC_GIT=0` in the process environment, and review access again: older code permits the privilege paths
-closed here. Restore a database backup only after evaluating loss of later changes; database restoration cannot
+`AUTO_SYNC_GIT=0` in the process environment, and review its different access rules before resuming. Restore a database backup only after evaluating loss of later changes; database restoration cannot
 restore Discord roles or their original IDs. These checks are not atomic with concurrent configuration or
 Discord changes, and other bots and direct Discord actions remain outside their coverage.
+
+### Discord Administrator role management
+
+A human member with the **actual Discord Administrator** permission can use Veil's role commands without a
+separate Veil rank or Administrator-role delegation. This includes assigning a role that itself carries Discord
+Administrator or Veil/fake permissions or security trust. Role management remains a powerful authority: anyone
+holding Discord Administrator can thereby delegate those powers to others. Audit Administrator holders and the
+roles below them before deploying this change; removing a delegation does not remove roles already granted.
+Fake Administrator and Veil levels alone do not qualify for this native-Administrator exception.
+
+The role must be below both the member's and the bot's highest roles (the server owner retains Discord's owner
+exception); managed and @everyone roles cannot be assigned. Veil also retains its stricter target-member
+hierarchy, owner/developer target protections, blacklist/hard-blacklist policy, command restrictions, bot
+permissions and bulk confirmations. Consequently, some Discord-permitted role changes remain blocked by Veil.
+Antinuke treatment and the limitations of checking current audit state are described in the Antinuke guide.
+Existing saved grants and exemptions are not altered.
