@@ -1253,7 +1253,18 @@ class Moderation(commands.Cog):
         updated[str(actor_id)] = current
         await self.bot.db.set_config_committed(guild_id, "admin_role_grant_cooldowns", updated)
 
-    async def _role_member_hierarchy(self, ctx: Context, member: discord.Member) -> None:
+    async def _role_member_hierarchy(self, ctx: Context, member: discord.Member, *, allow_self: bool = False) -> None:
+        if allow_self and member.id == ctx.author.id and has_discord_administrator(ctx.author):
+            # Only individual role commands may opt in. Retain bot hierarchy and the
+            # independent global protected-person rule; other moderation stays unchanged.
+            if perms_mod.is_whitelisted_person(member.id):
+                raise UserError(f"<@{member.id}> is whitelisted, so the bot won't take any action against them")
+            bot_id = getattr(ctx.guild.me, "id", None)
+            if member.id == bot_id:
+                raise UserError("I can't modify my own roles")
+            if member.top_role >= ctx.guild.me.top_role:
+                raise UserError("Your highest role must be below mine")
+            return
         # Native administrators do not need a separate Veil rank to manage roles. Keep
         # Discord/member, owner and developer target protections from check_hierarchy.
         if has_discord_administrator(ctx.author):
@@ -1273,7 +1284,7 @@ class Moderation(commands.Cog):
                 await antinuke_guard(ctx, module, amount=amount)
 
     async def _apply_single_role(self, ctx: Context, member: discord.Member, role: discord.Role, *, scoped=False):
-        await self._role_member_hierarchy(ctx, member)
+        await self._role_member_hierarchy(ctx, member, allow_self=True)
         if role in member.roles:
             raise UserError("they already have it")
         if scoped:
@@ -1289,6 +1300,9 @@ class Moderation(commands.Cog):
         # The scoped branch is an owner-authorized exception for this exact call only; it does not alter
         # Antinuke trust, counters, rules, other commands, bulk operations or direct Discord actions.
         async with self._exception_lock(ctx.guild.id):
+            if member.id == ctx.author.id:
+                await check_role_assignable(ctx, role)
+                await self._role_member_hierarchy(ctx, member, allow_self=True)
             newly_allowed = await self._authorize_bled_target(ctx, member, role, scoped_admin_grant=scoped)
             try:
                 await member.add_roles(role, reason=audit_reason(ctx.author, "owner-authorized scoped Administrator grant" if scoped else None))
@@ -1357,10 +1371,13 @@ class Moderation(commands.Cog):
     async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"remove {role.mention} from {member.mention}", role)
         check_role(ctx, role)
-        await self._role_member_hierarchy(ctx, member)
+        await self._role_member_hierarchy(ctx, member, allow_self=True)
         if role not in member.roles:
             raise UserError("they don't have it")
         async with self._exception_lock(ctx.guild.id):
+            if member.id == ctx.author.id:
+                check_role(ctx, role)
+                await self._role_member_hierarchy(ctx, member, allow_self=True)
             await member.remove_roles(role, reason=audit_reason(ctx.author))
             await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
         await ctx.done(f"removed {role.mention} from {member.mention}")
@@ -1447,7 +1464,8 @@ class Moderation(commands.Cog):
     async def role(self, ctx: Context, arg1: str, *, arg2: str = None):
         """Give a member a role, or take it if they have it
 
-        The member and role can go in either order.
+        The member and role can go in either order. Human Discord administrators can also manage their own
+        eligible lower roles individually; role hierarchy and blacklist checks still apply.
         Example: `,r @User @Role`
         """
         if not arg2:
