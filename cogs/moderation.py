@@ -26,7 +26,7 @@ if not hasattr(_cu, "check_role_assignable"):
         pass
 
 from core import perms as perms_mod
-from core.utils import (DANGEROUS_PERMS, Colors, Context, Duration, Paginator, UserError, antinuke_guard, audit_reason,
+from core.utils import (DANGEROUS_PERMS, AdminRoleGrantRequired, Colors, Context, Duration, Paginator, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
                         check_role, check_role_assignable, chunk_embeds, fmt_duration, has_perms, is_dangerous, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
@@ -1307,6 +1307,12 @@ class Moderation(commands.Cog):
                 if trusted or not cfg.get("enabled"):
                     scoped = False
         if not scoped:
+            if isinstance(ordinary_error, AdminRoleGrantRequired):
+                raise UserError(
+                    f"{ordinary_error} For eligible individual grants, ask the server owner or a bot developer "
+                    f"to authorize you with `{ctx.clean_prefix}adminrolegrant add @member`. "
+                    "Antinuke must be enabled; other access, trust, role and hierarchy checks still apply."
+                ) from ordinary_error
             if ordinary_error is not None:
                 raise ordinary_error
             return await self._apply_single_role(ctx, member, role)

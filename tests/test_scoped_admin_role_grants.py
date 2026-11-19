@@ -409,3 +409,38 @@ def test_role_mention_parses_for_adminrolegrant(role_bot):  # noqa: F811
         await cog.admin_role_grant_add.callback(cog, ctx, ctx.args[-1])
         assert role_bot._storage[(123, 'admin_role_granter_roles')] == {str(staff.id): True}
     run(go())
+
+
+def test_admin_role_denial_explains_delegation_then_owner_can_authorize(role_bot):  # noqa: F811
+    async def go():
+        cog, ctx, actor, target, role, _, _ = setup(role_bot)
+        role_bot._storage[(123, 'roleblacklist')] = {}
+        ctx.clean_prefix = '!'
+        ctx.author = actor
+        with pytest.raises(UserError) as error:
+            await cog._give_role(ctx, target, role)
+        assert '!adminrolegrant add @member' in str(error.value)
+        assert 'Antinuke must be enabled' in str(error.value)
+        target.add_roles.assert_not_awaited()
+        assert (123, 'admin_role_granters') not in role_bot._storage
+
+        ctx.author = _mock_member(ctx.guild.owner_id)
+        await Moderation.admin_role_grant_add.callback(cog, ctx, actor)
+        ctx.author = actor
+        await cog._give_role(ctx, target, role)
+        target.add_roles.assert_awaited_once()
+    run(go())
+
+
+def test_sensitive_role_denial_does_not_suggest_scoped_authorization(role_bot):  # noqa: F811
+    async def go():
+        cog, ctx, actor, target, role, _, _ = setup(role_bot)
+        role_bot._storage[(123, 'roleblacklist')] = {}
+        role_bot._storage[(123, 'fakeperms')] = {str(role.id): ['administrator']}
+        ctx.author = actor
+        with pytest.raises(UserError) as error:
+            await cog._give_role(ctx, target, role)
+        assert 'Only the server owner or a bot developer' in str(error.value)
+        assert 'adminrolegrant add' not in str(error.value)
+        target.add_roles.assert_not_awaited()
+    run(go())
