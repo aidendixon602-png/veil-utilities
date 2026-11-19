@@ -492,7 +492,7 @@ class Antinuke(commands.Cog):
         try:
             if action == A.member_role_update:
                 target = guild.get_member(target_id)
-                if target is None or target.id == member.id or target.top_role >= top:
+                if target is None or (target.id != member.id and target.top_role >= top):
                     return False
                 changes = ((getattr(entry.before, "roles", None) or [])
                            + (getattr(entry.after, "roles", None) or []))

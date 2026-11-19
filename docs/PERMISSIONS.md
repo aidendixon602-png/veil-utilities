@@ -309,7 +309,12 @@ roles below them before deploying this change; removing a delegation does not re
 Fake Administrator and Veil levels alone do not qualify for this native-Administrator exception.
 
 The role must be below both the member's and the bot's highest roles (the server owner retains Discord's owner
-exception); managed and @everyone roles cannot be assigned. Veil also retains its stricter target-member
+exception); managed and @everyone roles cannot be assigned. Human members with actual Discord Administrator
+can individually add or remove eligible roles on themselves using `,r @yourself @role` (which toggles the role),
+or the explicit add/remove forms. The actor's highest role must also be below the bot's highest role. This does
+not grant access to self-role changes through bulk commands, fake Administrator, Veil ranks or scoped delegation.
+The global protected-person rule and blacklist checks still apply; other self-moderation remains prohibited.
+Veil also retains its stricter target-member
 hierarchy, owner/developer target protections, blacklist/hard-blacklist policy, command restrictions, bot
 permissions and bulk confirmations. Consequently, some Discord-permitted role changes remain blocked by Veil.
 Antinuke treatment and the limitations of checking current audit state are described in the Antinuke guide.

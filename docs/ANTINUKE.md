@@ -239,7 +239,9 @@ entries when Veil can resolve the current human actor's Administrator permission
 Deleted roles require a captured unmanaged-role snapshot; Veil waits briefly for it if necessary. Missing
 member/role/snapshot data, managed roles,
 equal/higher roles and uncertain hierarchy are not exempt. A changed role cannot be the sole source of the
-actor's current Administrator permission. The verification uses **current cached state**, not historical
+actor's current Administrator permission. This includes individual self-role changes if an independent current
+Administrator role and the affected roles' hierarchy can be verified; removing one's only Administrator role
+cannot be verified this way. The verification uses **current cached state**, not historical
 permissions or hierarchy at the time of the event: Discord's audit entries do not prove either. Events may arrive
 before cache/snapshot updates, or state may change between the action and processing. Therefore legitimate
 changes can still trigger Antinuke, and an administrator who abuses or compromises their account can escape
