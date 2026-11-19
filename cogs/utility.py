@@ -29,6 +29,30 @@ SNIPE_COLOR = 0x7C8B99  # a quiet slate strip: a snipe is a look back, not an al
 IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 
+def _serverinfo_description(description: str | None) -> str | None:
+    """Hide the old fixed attribution without changing the saved server description."""
+    if not description:
+        return description
+    lines = description.splitlines()
+
+    def plain(line: str) -> str:
+        return re.sub(r"[*_~`]", "", line).strip().casefold()
+
+    removed = set()
+    for index, line in enumerate(lines):
+        if plain(line) != "property of midtown genre owner: simisear":
+            continue
+        removed.add(index)
+        following = index + 1
+        while following < len(lines) and not lines[following].strip():
+            following += 1
+        if following < len(lines) and plain(lines[following]) == "user id: 843909457616044092":
+            removed.add(following)
+    if not removed:
+        return description
+    return "\n".join(line for index, line in enumerate(lines) if index not in removed).strip("\n") or None
+
+
 def _is_image(name: str, content_type: str | None) -> bool:
     return (content_type or "").startswith("image/") or name.lower().endswith(IMAGE_TYPES)
 
@@ -330,14 +354,9 @@ class Utility(commands.Cog):
     @commands.command(aliases=["si", "guildinfo"])
     @commands.guild_only()
     async def serverinfo(self, ctx: Context):
-        """Info about this server
-
-        Property of Midtown Genre Owner: simisear
-        User ID: 843909457616044092
-        This attribution is separate from the current server owner.
-        """
+        """Info about this server"""
         g = ctx.guild
-        e = discord.Embed(title=g.name, color=Colors.main, description=g.description)
+        e = discord.Embed(title=g.name, color=Colors.main, description=_serverinfo_description(g.description))
         if g.icon:
             e.set_thumbnail(url=g.icon.url)
         if g.banner:

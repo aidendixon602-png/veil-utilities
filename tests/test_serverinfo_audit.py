@@ -12,7 +12,7 @@ from core.bot import Veil
 from core.help import Help
 
 
-def test_serverinfo_and_si_share_attribution_and_actual_owner():
+def test_serverinfo_and_si_have_clean_help_and_actual_owner():
     async def go():
         b = commands.Bot(command_prefix=',', intents=discord.Intents.none())
         b.add_command(Utility.serverinfo.copy())
@@ -22,8 +22,8 @@ def test_serverinfo_and_si_share_attribution_and_actual_owner():
         help_cmd.context = SimpleNamespace(clean_prefix='!', bot=b, author=SimpleNamespace(id=5), guild=None)
         for lookup in ('serverinfo', 'si'):
             card = help_cmd.command_embed(b.get_command(lookup))
-            assert 'Property of Midtown Genre Owner: simisear' in card.description
-            assert '843909457616044092' in card.description and '!serverinfo' in card.description
+            assert 'Property of Midtown' not in card.description
+            assert '843909457616044092' not in card.description and '!serverinfo' in card.description
         guild = SimpleNamespace(name='Example', description='A community', icon=None, banner=None, owner_id=42,
                                 created_at=datetime.now(timezone.utc), member_count=None, members=[],
                                 text_channels=[], voice_channels=[], categories=[], roles=[], emojis=[],
