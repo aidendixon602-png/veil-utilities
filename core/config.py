@@ -175,6 +175,8 @@ class Settings:
     dashboard_secret: str | None = None   # signs login cookies; random per start if unset
     dashboard_ngrok_enabled: bool = False
     ngrok_authtoken: str | None = field(default=None, repr=False)
+    roblox_open_cloud_group_id: int | None = None
+    roblox_open_cloud_api_key: str | None = field(default=None, repr=False)
 
     @property
     def dashboard_login_configured(self) -> bool:
@@ -238,6 +240,8 @@ class Settings:
             dashboard_secret=r.str("DASHBOARD_SECRET"),
             dashboard_ngrok_enabled=r.bool("DASHBOARD_NGROK_ENABLED", False),
             ngrok_authtoken=r.str("NGROK_AUTHTOKEN"),
+            roblox_open_cloud_group_id=r.snowflake("ROBLOX_OPEN_CLOUD_GROUP_ID"),
+            roblox_open_cloud_api_key=r.str("ROBLOX_OPEN_CLOUD_API_KEY"),
         )
         if len(settings.prefix) > 10:
             r.problems.append("PREFIX can be at most 10 characters")
@@ -272,7 +276,7 @@ class Settings:
         """Safe one-line-per-setting view for logs (secrets are masked)."""
         secret = {"discord_token", "ai_api_key", "lastfm_api_key", "ocr_space_api_key", "lavalink_password",
                   "spotify_client_secret", "twitch_client_secret", "database_url",
-                  "discord_client_secret", "dashboard_secret", "ngrok_authtoken", "proxy", "ai_base_url",
+                  "discord_client_secret", "dashboard_secret", "ngrok_authtoken", "roblox_open_cloud_api_key", "proxy", "ai_base_url",
                   "lavalink_uri", "rsshub_url", "support_url"}
         lines = []
         for f in fields(self):

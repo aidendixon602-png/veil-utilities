@@ -172,6 +172,8 @@ class DashboardServer:
         self._save_locks = [asyncio.Lock() for _ in range(64)]
         self._roblox_locks = [asyncio.Lock() for _ in range(32)]
         self._roblox_cache: dict[int, tuple[float, dict]] = {}
+        self._roblox_role_confirmations: dict[str, dict] = {}
+        self._roblox_role_locks = [asyncio.Lock() for _ in range(32)]
         self._http_session: aiohttp.ClientSession | None = None
         self.app = web.Application(middlewares=[self._security_middleware])
         self.runner: web.AppRunner | None = None
@@ -199,6 +201,7 @@ class DashboardServer:
         r.add_get("/servers/{guild_id}/overview", self.handle_server_overview)
         r.add_get("/servers/{guild_id}/roblox", self.handle_roblox)
         r.add_post("/servers/{guild_id}/roblox", self.handle_roblox_save)
+        r.add_post("/servers/{guild_id}/roblox/roles", self.handle_roblox_role)
         r.add_get("/servers/{guild_id}/features", self.handle_features)
         r.add_post("/servers/{guild_id}/features/{feature}", self.handle_save_feature)
         r.add_get("/authorization", self.handle_authorization)
@@ -920,6 +923,10 @@ class DashboardServer:
     async def handle_roblox_save(self, request: web.Request) -> web.Response:
         from core.dashboard_roblox import save_group
         return await save_group(self, request)
+
+    async def handle_roblox_role(self, request: web.Request) -> web.Response:
+        from core.dashboard_roblox_roles import handle_role_action
+        return await handle_role_action(self, request)
 
     async def handle_features(self, request: web.Request) -> web.Response:
         from core.dashboard_features import features_page

@@ -61,6 +61,13 @@ CREATE TABLE IF NOT EXISTS vm_channels (channel_id INTEGER PRIMARY KEY, guild_id
 CREATE TABLE IF NOT EXISTS blacklist (id INTEGER PRIMARY KEY, reason TEXT);
 CREATE TABLE IF NOT EXISTS authorized (guild_id INTEGER PRIMARY KEY, authorized_by INTEGER, at REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS globalbans (user_id INTEGER PRIMARY KEY, mod_id INTEGER, reason TEXT, at REAL);
+-- Role mutations are journaled before contacting Roblox; pending rows require manual review.
+CREATE TABLE IF NOT EXISTS roblox_role_actions (
+    action_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, group_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL, user_id TEXT NOT NULL, role_id TEXT NOT NULL,
+    operation TEXT NOT NULL, outcome TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_roblox_role_actions_guild ON roblox_role_actions (guild_id, created_at);
 -- An incident and its delivery states are written atomically in one row.
 CREATE TABLE IF NOT EXISTS security_incidents (
     incident_id TEXT PRIMARY KEY, kind TEXT NOT NULL, severity TEXT NOT NULL,
