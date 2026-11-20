@@ -1,4 +1,4 @@
-"""Read-only Roblox group overview; never stores credentials or changes ranks."""
+"""Public Roblox group overview and per-server connection settings."""
 from __future__ import annotations
 
 import asyncio
@@ -66,7 +66,9 @@ async def fetch_group(group_id: int) -> dict:
             rank, count = role.get("rank"), role.get("memberCount")
             if not isinstance(rank, int) or isinstance(rank, bool) or not 0 <= rank <= 255:
                 break
+            role_id = role.get("id")
             clean.append({"name": role["name"], "rank": rank,
+                          "id": role_id if isinstance(role_id, int) and not isinstance(role_id, bool) and 0 < role_id < 2**63 else None,
                           "members": count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None})
         else:
             result["roles"] = sorted(clean, key=lambda r: r["rank"], reverse=True)
@@ -121,9 +123,9 @@ async def group_page(server, request: web.Request) -> web.Response:
         return server._message("Access denied", "Your access changed. Please sign in again.", 403, user)
     if await server.bot.db.get_config(guild.id, "roblox_group") != cfg:
         return server._message("Settings changed", "Refresh to see the current group.", 409, user)
-    body = ('<div class="page-heading"><div><p class="eyebrow">COMMUNITY · READ ONLY</p>'
+    body = ('<div class="page-heading"><div><p class="eyebrow">COMMUNITY · ROBLOX</p>'
             '<h1>Roblox group</h1><p>See public group roles and rank order in one place. '
-            'No credentials, rank changes, member linking or automated enforcement.</p></div></div>')
+            'Member role changes require a separately configured Open Cloud key. No member linking or automated enforcement.</p></div></div>')
     if request.query.get("saved") == "1":
         body += '<div class="note ok">Group ID saved. Public data is fetched separately and may be unavailable.</div>'
     body += ('<section class="card"><div class="card-head"><div><h2>Group connection</h2>'
@@ -153,14 +155,20 @@ async def group_page(server, request: web.Request) -> web.Response:
         elif not roles:
             body += '<p class="hint">Roblox returned no roles.</p>'
         else:
-            body += '<div class="table-wrap"><table><thead><tr><th>Role</th><th>Rank</th><th>Members</th></tr></thead><tbody>'
+            body += '<div class="table-wrap"><table><thead><tr><th>Role</th><th>Role ID</th><th>Rank</th><th>Members</th></tr></thead><tbody>'
             for role in roles:
                 count = role["members"] if role["members"] is not None else "Unavailable"
-                body += f'<tr><td>{_esc(role["name"])}</td><td>{role["rank"]}</td><td>{_esc(count)}</td></tr>'
+                body += f'<tr><td>{_esc(role["name"])}</td><td>{_esc(role.get("id") or "Unavailable")}</td><td>{role["rank"]}</td><td>{_esc(count)}</td></tr>'
             body += '</tbody></table></div>'
             if data["truncated"]:
                 body += '<p class="hint">Only the first 250 roles returned by Roblox are shown.</p>'
         body += '</section>'
+    from core.dashboard_roblox_roles import form, history
+    body += form(server, guild, user, group_id)
+    if group_id:
+        body += await history(server, guild.id, group_id)
+    if await server._guild_for(request, user) is None or not await server._can_manage_security(user, guild):
+        return server._message("Access denied", "Your access changed. Please sign in again.", 403, user)
     return server._page("Roblox group", body, user, guild=guild, active="roblox")
 
 

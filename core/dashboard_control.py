@@ -134,8 +134,8 @@ async def page(server, request: web.Request, section: str | None = None) -> web.
                 body += await incidents(server, gid)
             elif section == 'roblox':
                 body += (f'<div class="control-links"><a href="/servers/{gid}/roblox">Open Roblox group connection ↗</a></div>'
-                         '<p class="hint">Public group metadata only. Group monitoring, raid detection, lockdown, '
-                         'backups and recovery are not implemented; no credentials are stored.</p>')
+                         '<p class="hint">Public metadata and individually confirmed member role changes. Group monitoring, raid detection, lockdown, '
+                         'backups and recovery are not implemented. Open Cloud credentials stay on the host.</p>')
             elif section == 'diagnostics':
                 body += (f'<div class="control-links"><a href="/servers/{gid}">Configure log routing ↗</a></div>'
                          '<p class="hint">Discord log channels remain the source for event logs. A searchable log archive '
