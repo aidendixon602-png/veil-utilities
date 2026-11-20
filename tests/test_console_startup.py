@@ -64,3 +64,20 @@ def test_application_logs_survive_preconfigured_root_logger(tmp_path):
     assert result.stdout.count("warning-once") == 1
     assert "console-after-preconfigured-root" in (tmp_path / "veil.log").read_text()
     assert "test-token-not-real" not in result.stdout + result.stderr
+
+
+def test_non_tty_stdout_is_line_buffered_and_handles_unicode_banner(tmp_path):
+    env = _env(tmp_path)
+    env["LC_ALL"] = "C"
+    code = (
+        "import runpy, sys; "
+        "m = runpy.run_path(" + repr(str(ROOT / "main.py")) + ", run_name='offline_test'); "
+        "print(m['render_startup_banner'](color=False)); "
+        "m['log'].info('live-panel-line'); "
+        "assert sys.stdout.line_buffering or sys.stdout.write_through"
+    )
+    result = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert "live-panel-line" in result.stdout
+    assert "test-token-not-real" not in result.stdout + result.stderr

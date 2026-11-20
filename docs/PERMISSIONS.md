@@ -140,6 +140,8 @@ The current source includes global entries in [`core/perms.py`](../core/perms.py
 - **thesimisear**, user ID `843909457616044092`, is in `WHITELISTED_PEOPLE`. Veil's moderation target checks and
   several antinuke, automod, antiraid, role-blacklist and network-ban paths exempt this account. This is not a
   developer permission grant.
+- **Ban-log button accounts**, user IDs `843909457616044092` and `1062243262909390988`, are in `BAN_BUTTON_USERS`
+  and may use the Unban and Reban buttons on moderation log cards without a per-server Admin level.
 
 These are code-level, cross-server exceptions, separate from per-server whitelist settings. Their implications
 and removal/replacement remain under review. They must not be treated as proof that all behavior is safe or that

@@ -77,12 +77,13 @@ class Kind:
 KINDS: dict[str, Kind] = {k.key: k for k in (
     Kind("joinleave", "Joins & leaves", "🚪", "Joins, leaves and kicks", "join-logs",
          ("join-logs", "join-log", "joins-leaves")),
-    Kind("commands", "Commands", "⌨️", "Every command a member runs", "command-logs",
+    Kind("commands", "Commands", "⌨️", "Command executions and permission checks", "command-logs",
          ("command-logs", "cmd-logs", "commands", "command-log")),
     Kind("server", "Server", "⚙️", "Server settings, invites and emojis", "veil-utilities-logging",
-         ("veil-utilities-logging", "server-logs", "bot-logs", "logs")),
-    Kind("antinuke", "Antinuke", "🚨", "Antinuke alerts and what the bot did about them", "antinuke-logs",
-         ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging")),
+         ("veil-utilities-logging", "midtown-utilities-logging", "server-logs", "bot-logs", "logs")),
+    Kind("antinuke", "Antinuke", "🚨", "Antinuke alerts and automated responses", "antinuke-logs",
+         ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging",
+          "midtown-utilities-logging")),
     Kind("messages", "Messages", "💬", "Deleted, edited and bulk-deleted messages", None, ("message-logs", "msg-logs")),
     Kind("members", "Members", "👥", "Nicknames; joins and leaves use the join log when available", None,
          ("member-logs", "members")),
@@ -135,7 +136,7 @@ FALLBACKS: dict[str, tuple[str, ...]] = {
     "joinleave": ("members",),  # joins ride with the member channel when there is no #join-logs
     "members": ("joinleave",),  # one member stream: nicknames, joins, leaves and kicks
     "messages": ("server",), "roles": ("server",), "channels": ("server",), "voice": ("server",),
-    "timeouts": ("bans",),
+    "timeouts": ("bans", "members", "joinleave"),
 }
 # The flip side: a category whose channel carries other categories' logs with it when it is made.
 CARRIES: dict[str, tuple[str, ...]] = {
@@ -144,26 +145,143 @@ CARRIES: dict[str, tuple[str, ...]] = {
     "server": ("messages", "roles", "channels", "voice"),
 }
 
+_CATCHALL_NAMES = frozenset({"veil-utilities-logging", "midtown-utilities-logging", "server-logs", "bot-logs", "logs"})
+
+
+def _clean_name(name: str | None) -> str:
+    """Normalize a channel or category name, stripping leading emoji/separators."""
+    if not name:
+        return ""
+    text = name.strip().lower()
+    for idx, ch in enumerate(text):
+        if ch.isalnum():
+            return "-".join(text[idx:].split())
+    return text
+
+
+def bans_only(channel) -> bool:
+    """True when a moderation channel name is dedicated strictly to bans (not timeouts or kicks)."""
+    return _clean_name(getattr(channel, "name", None)) in ("bans", "ban-logs", "ban-log")
+
+
+def other_bots_channel(channel) -> bool:
+    """True when a channel belongs to Ghost Vanguard's logging setup and should be left alone."""
+    if channel is None:
+        return False
+    cname = _clean_name(getattr(channel, "name", None))
+    cat = getattr(channel, "category", None)
+    cat_name = _clean_name(getattr(cat, "name", None))
+    if "vanguard" in cat_name:
+        return True
+    if cname == "bans" or "vanguard" in cname:
+        return True
+    return False
+
+
+def _is_veil_category(cat) -> bool:
+    if cat is None:
+        return False
+    cname = _clean_name(getattr(cat, "name", None))
+    return cname == "veil-logs" and "vanguard" not in cname
+
+
+ALL_LOG_NAMES = frozenset(
+    n for k in KINDS.values() for n in k.names
+    if "log" in n or "security" in n or n in ("modlog", "punishments")
+)
+
+
+def _is_log_channel(channel) -> bool:
+    if channel is None or other_bots_channel(channel):
+        return False
+    return _clean_name(getattr(channel, "name", None)) in ALL_LOG_NAMES
+
+
+def _is_text_channel(channel) -> bool:
+    return (isinstance(channel, discord.TextChannel)
+            or getattr(channel, "__dict__", {}).get("__class__") is discord.TextChannel)
+
+
+def _is_approved(cfg: dict, key: str, value: int) -> bool:
+    approved = cfg.get("approved_routes")
+    return isinstance(approved, dict) and approved.get(key) == value
+
 
 def _set_channel(guild, cfg: dict, key: str) -> discord.TextChannel | None:
-    """Resolve only a destination whose current ID was explicitly reviewed."""
+    """Resolve an explicitly saved channel ID (skipping another bot's channel unless explicitly approved)."""
     value = cfg.get(key)
-    approved = cfg.get("approved_routes") or {}
-    if (guild is None or not isinstance(value, int) or isinstance(value, bool) or value <= 0
-            or not isinstance(approved, dict) or approved.get(key) != value):
+    if guild is None or not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         return None
-    channel = guild.get_channel(value)
-    return channel if isinstance(channel, discord.TextChannel) else None
+    get_channel = getattr(guild, "get_channel", None)
+    channel = get_channel(value) if callable(get_channel) else None
+    if not _is_text_channel(channel):
+        return None
+    if other_bots_channel(channel) and not _is_approved(cfg, key, value):
+        return None
+    return channel
 
 
-def _channel_for(guild, cfg: dict, kind: str) -> discord.TextChannel | None:
-    # A broken or unreviewed explicit destination never silently falls back.
-    if cfg.get(kind) is not None:
-        return _set_channel(guild, cfg, kind)
+def _auto_channel(guild, kind: str, *, setup_only: bool = False) -> discord.TextChannel | None:
+    """Find a matching Veil log channel by name when no explicit ID is set."""
+    if guild is None or kind not in KINDS:
+        return None
+    channels = [c for c in getattr(guild, "text_channels", ())
+                if _is_text_channel(c) and not other_bots_channel(c)]
+    if not channels:
+        return None
+    for wanted in KINDS[kind].names:
+        if setup_only and (wanted not in ALL_LOG_NAMES or (kind != "server" and wanted in _CATCHALL_NAMES)):
+            continue
+        matches = [c for c in channels if _clean_name(getattr(c, "name", None)) == wanted]
+        if matches:
+            in_veil = [c for c in matches if _is_veil_category(getattr(c, "category", None))]
+            return in_veil[0] if in_veil else matches[0]
+    return None
+
+
+def _channel_for(guild, cfg: dict, kind: str, _seen: frozenset[str] = frozenset()) -> discord.TextChannel | None:
+    if guild is None or kind not in KINDS or kind in _seen:
+        return None
+    value = cfg.get(kind)
+    if value == OFF:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        direct = _set_channel(guild, cfg, kind)
+        if direct is not None:
+            return direct
+        # Deleted/missing explicit IDs do not silently spill into another channel;
+        # legacy unapproved IDs pointing to another bot's channel fall through to Veil's own channel.
+        get_channel = getattr(guild, "get_channel", None)
+        raw = get_channel(value) if callable(get_channel) else None
+        if not (_is_text_channel(raw) and other_bots_channel(raw)):
+            return None
+    own = _auto_channel(guild, kind)
+    if own is not None:
+        return own
+    next_seen = _seen | {kind}
     for key in FALLBACKS.get(kind, ()):
-        channel = _set_channel(guild, cfg, key)
+        if cfg.get(key) == OFF:
+            continue
+        channel = _channel_for(guild, cfg, key, next_seen)
         if channel is not None:
+            if kind == "timeouts" and key == "bans" and bans_only(channel):
+                continue
             return channel
+    return None
+
+
+def _timeout_fallback(guild, cfg: dict) -> discord.TextChannel | None:
+    """Secondary fallback for timeout events when direct timeout routing is disabled or unset."""
+    if guild is None:
+        return None
+    for key in ("bans", "members", "joinleave"):
+        if cfg.get(key) == OFF:
+            continue
+        ch = _channel_for(guild, cfg, key)
+        if ch is not None:
+            if key == "bans" and bans_only(ch):
+                continue
+            return ch
     return None
 
 
@@ -179,11 +297,20 @@ def describe(guild, cfg: dict, kind: str) -> str:
     value = cfg.get(kind)
     if value == OFF:
         return "`off`"
-    channel = _channel_for(guild, cfg, kind)
-    if channel:
-        return channel.mention + (" *(shared)*" if value is None else "")
-    if isinstance(value, int) and value > 0:
-        return f"`{value}` *(unavailable or review required)*"
+    direct = _set_channel(guild, cfg, kind)
+    if direct is not None:
+        return direct.mention
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        get_channel = getattr(guild, "get_channel", None)
+        raw = get_channel(value) if callable(get_channel) else None
+        if not (isinstance(raw, discord.TextChannel) and other_bots_channel(raw)):
+            return f"`{value}` *(unavailable)*"
+    own = _auto_channel(guild, kind)
+    if own is not None:
+        return f"{own.mention} *(auto)*"
+    shared = _channel_for(guild, cfg, kind)
+    if shared is not None:
+        return f"{shared.mention} *(shared)*"
     return "`not set`"
 
 
@@ -217,6 +344,13 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
         if not guild:
             return await it.response.send_message("Guild not found", ephemeral=True)
         member = guild.get_member(it.user.id)
+        if member is None and getattr(getattr(it.user, "guild", None), "id", None) == guild.id:
+            member = it.user
+        if member is None and hasattr(guild, "fetch_member"):
+            try:
+                member = await guild.fetch_member(it.user.id)
+            except discord.HTTPException:
+                member = None
         if not member:
             return await it.response.send_message("You are not in this guild", ephemeral=True)
 
@@ -231,15 +365,20 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
             return await it.response.send_message("🛡️ Developer ban blocked.", ephemeral=True)
         is_dev = _perms.is_bot_developer(it.user.id, it.client)
         is_owner = member.id == guild.owner_id
+        is_button_user = _perms.is_ban_button_user(it.user.id)
         cfg = await it.client.db.get_config(guild.id, "permlevels")
         rank = _perms.rank_of(cfg, member, is_owner=is_owner, is_dev=is_dev)
 
-        # Bot developers, the server owner, or uperm Admin+ (rank 3+); Discord's own Administrator isn't enough
-        if not (is_dev or is_owner or rank >= 3):
+        # Bot developers, the server owner, designated ban-button users, or uperm Admin+ (rank 3+)
+        if not (is_dev or is_owner or is_button_user or rank >= 3):
             return await it.response.send_message(
                 "🔒 Only the server owner, the bot's developers or the **Admin** permission level or higher can use this button.", ephemeral=True)
         if it.user.id == self.user_id:
             return await it.response.send_message("❌ You cannot ban or unban yourself with this button.", ephemeral=True)
+        if not self.is_banned and _perms.is_whitelisted_person(self.user_id):
+            return await it.response.send_message("❌ That user is whitelisted and cannot be banned.", ephemeral=True)
+        if not self.is_banned and self.user_id == guild.owner_id:
+            return await it.response.send_message("❌ You cannot ban the server owner.", ephemeral=True)
 
         user = it.client.get_user(self.user_id)
         if user is None:
@@ -271,9 +410,15 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
         card = getattr(it, "message", None)
         embed = card.embeds[0].copy() if card is not None and getattr(card, "embeds", None) else None
         if embed is not None:
-            done = "unbanned" if self.is_banned else "banned again"
-            note = f"-# {'🔓' if self.is_banned else '🔨'} {done} by {it.user.mention} {discord.utils.format_dt(discord.utils.utcnow(), 'R')}"
-            embed.description = shorten((embed.description or "") + "\n" + note, 4000)
+            done = "Unbanned" if self.is_banned else "Rebanned"
+            note = f"{done} by {it.user.mention} {discord.utils.format_dt(discord.utils.utcnow(), 'R')}"
+            status_idx = next((idx for idx, f in enumerate(embed.fields) if f.name == "Status"), None)
+            if status_idx is not None:
+                embed.set_field_at(status_idx, name="Status", value=note, inline=False)
+            elif len(embed.fields) < 25:
+                embed.add_field(name="Status", value=note, inline=False)
+            else:
+                embed.description = shorten(((embed.description or "") + "\n" + note).strip(), 4000)
             await it.response.edit_message(embed=embed, view=self.build(guild.id, self.user_id, not self.is_banned))
         else:
             await it.response.edit_message(view=self.build(guild.id, self.user_id, not self.is_banned))
@@ -365,8 +510,26 @@ class LogPanel(OwnedView):
         await self.refresh(it)
 
     async def assign(self, it: discord.Interaction, channel_id: int):
-        await it.response.send_message(
-            "To review and confirm a destination, use `logs set <category> #channel`.", ephemeral=True)
+        if await self._need_kind(it):
+            return
+        channel = self.guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return await it.response.send_message("Pick a text channel in this server.", ephemeral=True)
+        if other_bots_channel(channel):
+            return await it.response.send_message(
+                "That channel belongs to Ghost Vanguard's logging setup; pick a Veil channel instead.",
+                ephemeral=True,
+            )
+        if not can_post(channel):
+            return await it.response.send_message(
+                f"I need View Channel, Send Messages and Embed Links in {channel.mention}.", ephemeral=True)
+        self.cfg = await self.cog.config(self.guild)
+        self.cfg[self.selected] = channel_id
+        if not isinstance(self.cfg.get("approved_routes"), dict):
+            self.cfg["approved_routes"] = {}
+        self.cfg["approved_routes"][self.selected] = channel_id
+        await self.cog.save(self.guild, self.cfg)
+        await self.refresh(it)
 
     async def _need_kind(self, it: discord.Interaction) -> bool:
         """A greyed-out button says nothing; say what is missing instead."""
@@ -377,10 +540,24 @@ class LogPanel(OwnedView):
         return True
 
     async def do_off(self, it: discord.Interaction):
-        await it.response.send_message("Use `logs off <category>` to confirm this change.", ephemeral=True)
+        if await self._need_kind(it):
+            return
+        self.cfg = await self.cog.config(self.guild)
+        self.cfg[self.selected] = OFF
+        if isinstance(self.cfg.get("approved_routes"), dict):
+            self.cfg["approved_routes"].pop(self.selected, None)
+        await self.cog.save(self.guild, self.cfg)
+        await self.refresh(it)
 
     async def do_auto(self, it: discord.Interaction):
-        await it.response.send_message("Use `logs auto <category>` to confirm this change.", ephemeral=True)
+        if await self._need_kind(it):
+            return
+        self.cfg = await self.cog.config(self.guild)
+        self.cfg[self.selected] = None
+        if isinstance(self.cfg.get("approved_routes"), dict):
+            self.cfg["approved_routes"].pop(self.selected, None)
+        await self.cog.save(self.guild, self.cfg)
+        await self.refresh(it)
 
     async def do_toggle_dm(self, it: discord.Interaction):
         """Choose channel or DM for RBL replies other than the always-in-channel list."""
@@ -390,7 +567,14 @@ class LogPanel(OwnedView):
         await self.refresh(it)
 
     async def do_create(self, it: discord.Interaction):
-        await it.response.send_message("Use `logs setup` to preview and confirm creation.", ephemeral=True)
+        me = getattr(self.guild, "me", None)
+        if not me or not getattr(me.guild_permissions, "manage_channels", False):
+            return await it.response.send_message("I need **Manage Channels** to create log channels.", ephemeral=True)
+        await it.response.defer()
+        await self.cog.organize(self.guild)
+        self.cfg = await self.cog.config(self.guild)
+        self.rebuild()
+        await it.edit_original_response(embed=self.embed(), view=self)
 
     async def do_done(self, it: discord.Interaction):
         self.stop()
@@ -422,6 +606,7 @@ class Logging(commands.Cog):
         self._feeds: dict[int, _Feed] = {}
         self._clicks: dict[tuple[int, int, str], tuple[object, float]] = {}
         self._setup_locks: dict[int, asyncio.Lock] = {}
+        self._startup_done: bool = False
 
     async def cog_load(self):
         self.bot.add_dynamic_items(BanLogButton)
@@ -454,6 +639,8 @@ class Logging(commands.Cog):
     async def route(self, guild: discord.Guild, *kinds: str, channel_id: int | None = None,
                     user_id: int | None = None) -> discord.TextChannel | None:
         """First channel that should get this event, or None (nothing set, switched off, or the source is ignored)."""
+        if guild is None:
+            return None
         cfg = await self.config(guild)
         ignore = cfg.get("ignore") or {}
         if channel_id and channel_id in ignore.get("channels", []):
@@ -464,8 +651,6 @@ class Logging(commands.Cog):
             channel = _channel_for(guild, cfg, kind)
             if channel:
                 return channel
-            if cfg.get(kind) is not None:
-                return None
         return None
 
     async def rbl_private(self, guild: discord.Guild) -> bool:
@@ -591,40 +776,111 @@ class Logging(commands.Cog):
         return (await self.organize(guild, kinds)).created
 
     async def organize(self, guild: discord.Guild, kinds: tuple[str, ...] | None = None) -> SetupReport:
-        """Create only unset routes; never adopt or modify existing resources by name."""
+        """Set up private Veil log channels under VEIL LOGS, reusing existing Veil channels and splitting old catch-alls."""
         async with self._setup_locks.setdefault(guild.id, asyncio.Lock()):
             report = SetupReport()
-            cfg = await self.config(guild)
-            todo = [key for key in (SETUP_KINDS if kinds is None else kinds)
-                    if KINDS[key].channel and cfg.get(key) is None and _channel_for(guild, cfg, key) is None]
-            if not todo:
-                return report
             me = getattr(guild, "me", None)
             if not me or not getattr(me.guild_permissions, "manage_channels", False):
                 report.failures.append("Missing Manage Channels permission.")
                 return report
+
+            cfg = await self.config(guild)
+            if not isinstance(cfg.get("approved_routes"), dict):
+                cfg["approved_routes"] = {}
+            approved = cfg["approved_routes"]
+
+            existing_cat = next((c for c in getattr(guild, "categories", ()) if _is_veil_category(c)), None)
+            if existing_cat is not None:
+                report.category = existing_cat
+                if getattr(existing_cat, "position", 0) > 0 and callable(getattr(existing_cat, "edit", None)):
+                    try:
+                        await existing_cat.edit(position=0)
+                        report.raised = True
+                    except discord.HTTPException:
+                        pass
+
+            server_ch = _set_channel(guild, cfg, "server") or _auto_channel(guild, "server", setup_only=True)
+            target_kinds = SETUP_KINDS if kinds is None else kinds
+            todo: list[str] = []
+            changed_existing = False
+
+            for key in target_kinds:
+                if not KINDS[key].channel or cfg.get(key) == OFF:
+                    continue
+                current = _set_channel(guild, cfg, key)
+                if (key != "server" and current is not None and server_ch is not None
+                        and current.id == server_ch.id and _clean_name(current.name) in _CATCHALL_NAMES):
+                    current = None
+                if current is not None:
+                    continue
+                raw_val = cfg.get(key)
+                if isinstance(raw_val, int) and not isinstance(raw_val, bool) and raw_val > 0 and _is_approved(cfg, key, raw_val):
+                    get_channel = getattr(guild, "get_channel", None)
+                    if callable(get_channel) and get_channel(raw_val) is None:
+                        continue
+                reused = _auto_channel(guild, key, setup_only=True)
+                if reused is not None:
+                    if cfg.get(key) != reused.id or approved.get(key) != reused.id:
+                        cfg[key] = reused.id
+                        approved[key] = reused.id
+                        changed_existing = True
+                    if key == "server":
+                        server_ch = reused
+                    continue
+                todo.append(key)
+
+            # Reset catch-all carried categories other than messages/server when splitting
+            if server_ch is not None:
+                for carried_key in ("members",):
+                    if cfg.get(carried_key) == server_ch.id:
+                        cfg.pop(carried_key, None)
+                        approved.pop(carried_key, None)
+                        changed_existing = True
+                if cfg.get("messages") is None and _auto_channel(guild, "messages", setup_only=True) is None:
+                    cfg["messages"] = server_ch.id
+                    approved["messages"] = server_ch.id
+                    changed_existing = True
+
+            if not todo:
+                if changed_existing:
+                    try:
+                        await self.save(guild, cfg)
+                    except Exception as exc:
+                        log.warning("Log setup persistence could not be confirmed in guild %s (%s)", guild.id, type(exc).__name__)
+                        report.failures.append("Save not confirmed; review before retrying.")
+                return report
+
             private = {guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
                        me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True,
                                                        attach_files=True)}
-            try:
-                report.category = await guild.create_category(CATEGORY_NAME, overwrites=private,
-                                                               reason="Veil Utilities: confirmed log setup")
-            except discord.HTTPException as exc:
-                report.failures.append(f"Category creation failed ({type(exc).__name__}).")
-                return report
+            if report.category is None:
+                try:
+                    report.category = await guild.create_category(CATEGORY_NAME, overwrites=private,
+                                                                  reason="Veil Utilities: log setup")
+                except discord.HTTPException as exc:
+                    report.failures.append(f"Category creation failed ({type(exc).__name__}).")
+                    return report
+                if getattr(report.category, "position", 0) > 0 and callable(getattr(report.category, "edit", None)):
+                    try:
+                        await report.category.edit(position=0)
+                        report.raised = True
+                    except discord.HTTPException:
+                        pass
+
             for key in todo:
                 try:
                     channel = await guild.create_text_channel(KINDS[key].channel, category=report.category,
                         topic=f"Veil Utilities · {KINDS[key].blurb}", overwrites=private,
-                        reason="Veil Utilities: confirmed log setup")
+                        reason="Veil Utilities: log setup")
                 except discord.HTTPException as exc:
                     report.failures.append(f"{KINDS[key].label}: creation failed ({type(exc).__name__}).")
                     continue
                 report.created.append(channel)
                 cfg[key] = channel.id
-                if not isinstance(cfg.get("approved_routes"), dict):
-                    cfg["approved_routes"] = {}
-                cfg["approved_routes"][key] = channel.id
+                approved[key] = channel.id
+                if key == "server" and cfg.get("messages") is None and _auto_channel(guild, "messages", setup_only=True) is None:
+                    cfg["messages"] = channel.id
+                    approved["messages"] = channel.id
                 try:
                     await self.save(guild, cfg)
                 except Exception as exc:
@@ -634,15 +890,73 @@ class Logging(commands.Cog):
             return report
 
     async def auto_setup_enabled(self) -> bool:
-        return False
+        g = await self.bot.db.get_config(0, "global")
+        return bool(g.get("auto_log_setup", True))
 
     async def set_auto_setup(self, enabled: bool) -> None:
+        g = dict(await self.bot.db.get_config(0, "global") or {})
+        g["auto_log_setup"] = bool(enabled)
+        await self.bot.db.set_config(0, "global", g)
+
+    async def _set_auto(self, ctx: Context, mode: str) -> None:
+        from core import perms as _perms
+        if not _perms.is_bot_developer(ctx.author, self.bot):
+            raise UserError("Only a bot developer can change automatic log setup.")
+        enabled = mode.lower() in ("on", "enable", "true", "auto")
+        await self.set_auto_setup(enabled)
         if enabled:
-            raise UserError("Automatic setup is unavailable; each server must confirm setup.")
+            totals = await self.organize_everywhere()
+            await ctx.approve(f"Automatic log setup **enabled** across **{totals['servers']}** server(s) "
+                              f"(created **{totals['created']}** channel(s)).")
+        else:
+            await ctx.approve("Automatic log setup **disabled**.")
 
     async def organize_everywhere(self, pause: float = 2.0) -> dict[str, int]:
-        # Kept for callers of the historical API; never create resources unattended.
-        return {"servers": 0, "created": 0, "moved": 0, "skipped": len(getattr(self.bot, "guilds", []))}
+        try:
+            await devchannels.ensure(self.bot)
+        except Exception:
+            pass
+        totals = {"servers": 0, "created": 0, "moved": 0, "skipped": 0}
+        for guild in list(getattr(self.bot, "guilds", ())):
+            is_auth = getattr(self.bot, "is_authorized", None)
+            me = getattr(guild, "me", None)
+            if (callable(is_auth) and not is_auth(guild.id)) or not me or not getattr(me.guild_permissions, "manage_channels", False):
+                totals["skipped"] += 1
+                continue
+            report = await self.organize(guild)
+            totals["servers"] += 1
+            totals["created"] += len(report.created)
+            totals["moved"] += len(report.moved)
+            if pause:
+                await asyncio.sleep(pause)
+        return totals
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self._startup_done:
+            return
+        self._startup_done = True
+        if await self.auto_setup_enabled():
+            totals = await self.organize_everywhere()
+            log.info("Discord logging ready · %d server(s) checked · %d channel(s) created",
+                     totals["servers"], totals["created"])
+        else:
+            log.info("Discord logging ready · %d server(s) attached (auto-setup off)",
+                     len(getattr(self.bot, "guilds", ())))
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild):
+        if not await self.auto_setup_enabled():
+            return
+        await asyncio.sleep(2)
+        is_auth = getattr(self.bot, "is_authorized", None)
+        if callable(is_auth) and not is_auth(guild.id):
+            get_cog = getattr(self.bot, "get_cog", None)
+            auth = get_cog("Authorization") if callable(get_cog) else None
+            waiter = getattr(auth, "wait_for_pending_approval", None)
+            if not callable(waiter) or not await waiter(guild.id):
+                return
+        await self.organize(guild)
 
     # ------------------------------------------------------------ commands
     @commands.group(aliases=["log"], invoke_without_command=True)
@@ -681,16 +995,11 @@ class Logging(commands.Cog):
             value, shown = None, "auto"
         else:
             target = await commands.TextChannelConverter().convert(ctx, channel)
+            if other_bots_channel(target):
+                raise UserError("That channel belongs to Ghost Vanguard's logging setup; choose a Veil channel instead.")
             if not can_post(target):
                 raise UserError(f"I need View Channel, Send Messages and Embed Links in {target.mention}.")
             value, shown = target.id, target.mention
-        if not await ctx.confirm(f"Set {category} log destinations to {shown}? Review channel access first."):
-            return await ctx.neutral("Change cancelled.")
-        cfg = await self.config(ctx.guild)
-        if isinstance(value, int) and value > 0:
-            target = ctx.guild.get_channel(value)
-            if not isinstance(target, discord.TextChannel) or not can_post(target):
-                raise UserError("That channel is no longer available or I cannot post there. Nothing was saved.")
         if not isinstance(cfg.get("approved_routes"), dict):
             cfg["approved_routes"] = {}
         approved = cfg["approved_routes"]
@@ -727,23 +1036,22 @@ class Logging(commands.Cog):
     async def logs_setup(self, ctx: Context, mode: str = None):
         """Preview and confirm creation of channels for unset log categories"""
         if mode is not None:
-            raise UserError("Automatic setup is unavailable. Use `logs setup` and confirm in each server.")
-        cfg = await self.config(ctx.guild)
-        todo = [k for k in SETUP_KINDS if cfg.get(k) is None and _channel_for(ctx.guild, cfg, k) is None]
-        if not todo:
-            return await ctx.neutral("No missing setup destinations. Existing, shared and disabled routes are unchanged.")
+            mode_clean = mode.strip().lower()
+            if mode_clean in ("on", "off", "enable", "disable", "auto"):
+                return await self._set_auto(ctx, mode_clean)
+            raise UserError("Use `logs setup` to create missing log channels, or `logs setup on|off` (developers only).")
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need Manage Channels to create log channels.")
-        if not await ctx.confirm("Create a private category and new channels for: " + ", ".join(KINDS[k].label for k in todo)
-                                 + "? Existing routes and channels are not changed.", timeout=120):
-            return await ctx.neutral("Setup cancelled; nothing was created.")
-        report = await self.organize(ctx.guild, tuple(todo))
+        async with ctx.typing():
+            report = await self.organize(ctx.guild)
         cfg = await self.config(ctx.guild)
         lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values()]
-        lines.append(f"Created {len(report.created)} channel(s).")
+        if report.created:
+            lines.append("")
+            lines.append(f"Created **{len(report.created)}** channel(s).")
         lines.extend(report.failures)
         await ctx.send(embed=discord.Embed(title="Logging setup results", description="\n".join(lines),
-                                          color=Colors.error if report.failures else Colors.success))
+                                           color=Colors.error if report.failures else Colors.success))
 
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)
@@ -763,16 +1071,18 @@ class Logging(commands.Cog):
         cfg = await self.config(ctx.guild)
         lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values()]
         lines.append("")
-        lines.append("-# `shared` uses an approved destination · existing IDs require review")
+        lines.append("-# `auto` matches by channel name · `shared` rides in a related log channel")
         await ctx.send(embed=discord.Embed(title="Where logs go", color=Colors.main, description="\n".join(lines)))
 
     @logs.command(name="coexist")
     @is_server_owner()
     async def logs_coexist(self, ctx: Context):
         """Review routing when multiple logging tools are in use"""
-        await ctx.send(embed=discord.Embed(title="Logging review", color=Colors.main,
-            description="Review `logs list` and the other tools' settings to avoid duplicate events. "
-                        "Names do not establish ownership. Veil cannot inspect other tools' configuration."))
+        await ctx.send(embed=discord.Embed(
+            title="Logging review", color=Colors.main,
+            description="Veil skips Ghost Vanguard channels automatically, but it cannot read or control "
+                        "another bot's configuration. Review `logs list` and manually turn off overlapping "
+                        "categories in either bot to avoid duplicate events."))
 
     @logs.command(name="test")
     @has_perms(manage_guild=True)
@@ -789,8 +1099,10 @@ class Logging(commands.Cog):
             if channel is None:
                 unset.append(kind.label)
                 continue
-            embed = fmt.card(Colors.blurple, ctx.author, f"{kind.emoji} {kind.label} logs land here · sent by {ctx.author.mention}",
-                             ids=[("User ID", ctx.author.id)], header=f"Log test · {kind.label}")
+            embed = fmt.field_card(fmt.SLATE, f"Log Test — {kind.label}", subject=ctx.author, fields=[
+                ("Category", kind.label, True),
+                ("Triggered By", ctx.author.mention, True),
+            ], ids=[("User ID", ctx.author.id)])
             (ok if await self.post(channel, embed) else failed).append(f"{kind.label} → {channel.mention}")
         lines = []
         if ok:
@@ -847,8 +1159,37 @@ class Logging(commands.Cog):
     @is_server_owner()
     async def logs_cleanup(self, ctx: Context, delete: str = None):
         """Explain safe manual cleanup without deleting channels"""
-        await ctx.neutral("Cleanup is review-only. Veil cannot establish ownership from channel names or topics; "
-                          "inspect and remove unwanted channels manually. Nothing was deleted.")
+        cfg = await self.config(ctx.guild)
+        active_ids = {ch.id for k in KINDS if (ch := _channel_for(ctx.guild, cfg, k)) is not None}
+        veil_logs = [c for c in getattr(ctx.guild, "text_channels", ()) if _is_log_channel(c)]
+        name_counts: dict[str, list] = {}
+        for c in veil_logs:
+            name_counts.setdefault(_clean_name(c.name), []).append(c)
+        duplicates = [c for group in name_counts.values() if len(group) > 1 for c in group]
+        leftovers = [c for c in veil_logs if c.id not in active_ids and c not in duplicates]
+
+        if delete and delete.strip().lower() == "delete":
+            removable = [c for c in veil_logs if c.id not in active_ids and _clean_name(c.name) in _CATCHALL_NAMES]
+            if not removable:
+                return await ctx.neutral("No leftover catch-all log channels to remove. Nothing was deleted.")
+            removed = 0
+            for c in removable:
+                try:
+                    await c.delete(reason=f"Veil Utilities: logs cleanup delete by {ctx.author}")
+                    removed += 1
+                except discord.HTTPException:
+                    pass
+            return await ctx.approve(f"deleted **{removed}** leftover log channel(s)")
+
+        flagged = list(dict.fromkeys([*leftovers, *duplicates]))
+        if not flagged:
+            return await ctx.neutral("No duplicate or leftover log channels found. Nothing was deleted.")
+        lines = [f"• {c.mention} (`#{c.name}`)" for c in flagged]
+        lines.append("")
+        lines.append(f"Nothing was deleted. Run `{getattr(ctx, 'clean_prefix', ',')}logs cleanup delete` to remove "
+                     "unused leftover catch-all channels, or remove duplicates manually.")
+        embed = discord.Embed(title="Log channel cleanup", color=Colors.main, description="\n".join(lines))
+        await ctx.paginate([embed])
 
     @commands.command(name="cleanuplogs", aliases=["cleanuplogchannels", "purgeduplicatelogs"])
     @has_perms(manage_guild=True)
@@ -868,7 +1209,15 @@ class Logging(commands.Cog):
     async def _log_command(self, ctx: Context, error: str | None = None):
         if not ctx.guild or ctx.author.bot or ctx.command is None:
             return
-        channel = await self.route(ctx.guild, "commands", channel_id=ctx.channel.id, user_id=ctx.author.id)
+        started = getattr(ctx, "_log_started", None)
+        ms = (time.perf_counter() - started) * 1000 if started is not None else None
+        cmd_name = getattr(ctx.command, "qualified_name", "command")
+        status = "error" if error else ("warn" if getattr(ctx, "command_log_warning", False) else "ok")
+        took = f" · {ms:.0f}ms" if ms is not None else ""
+        log.info("Command %s%s · user=%s · guild=%s [%s%s]",
+                 getattr(ctx, "clean_prefix", ","), cmd_name, ctx.author.id, ctx.guild.id, status, took)
+        channel = await self.route(ctx.guild, "commands", channel_id=getattr(ctx.channel, "id", None),
+                                   user_id=ctx.author.id)
         if not channel:
             return
         from core import perms as _perms
@@ -884,8 +1233,6 @@ class Logging(commands.Cog):
             permission, granted = _perms.OWNER_NAME, "Built-in"
         else:
             permission, granted, rank = "None", "-", None
-        started = getattr(ctx, "_log_started", None)
-        ms = (time.perf_counter() - started) * 1000 if started is not None else None
         await self.post(channel, fmt.command_used(ctx, permission, granted, rank=rank, ms=ms, error=error))
 
     @commands.Cog.listener()
@@ -996,7 +1343,13 @@ class Logging(commands.Cog):
         return await self.route(guild, "joinleave", user_id=user_id)
 
     async def timeout_channel(self, guild: discord.Guild, user_id: int | None = None) -> discord.TextChannel | None:
-        return await self.route(guild, "timeouts", user_id=user_id)
+        if guild is None:
+            return None
+        cfg = await self.config(guild)
+        ignore = cfg.get("ignore") or {}
+        if user_id and user_id in ignore.get("users", []):
+            return None
+        return _channel_for(guild, cfg, "timeouts") or _timeout_fallback(guild, cfg)
 
     # ------------------------------------------------------------ member updates and roles
     async def _build_role_update_embed(self, member: discord.Member, added: list, removed: list,
@@ -1137,13 +1490,13 @@ class Logging(commands.Cog):
     # ------------------------------------------------------------ voice
     @commands.Cog.listener()
     async def on_voice_state_update(self, m: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        line = fmt.voice_changed(m, before, after)
-        if line is None:
+        embed = fmt.voice_embed(m, before, after)
+        if embed is None:
             return
         where = after.channel or before.channel
         channel = await self.route(m.guild, "voice", channel_id=getattr(where, "id", None), user_id=m.id)
         if channel:
-            await self.post_line(channel, line)
+            await self.post(channel, embed)
 
 
 async def setup(bot):

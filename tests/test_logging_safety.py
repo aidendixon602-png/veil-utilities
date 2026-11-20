@@ -36,14 +36,15 @@ def cog_with(config):
     return Logging(SimpleNamespace(db=db)), store
 
 
-def test_names_never_route_and_legacy_ids_need_review():
+def test_veil_channels_and_legacy_ids_route_immediately_while_vanguard_is_skipped():
     c = channel(1, "message-logs")
-    g = guild_with(c)
-    assert _channel_for(g, {}, "messages") is None
-    assert _channel_for(g, {"messages": 1}, "messages") is None
-    cfg = {"messages": 1, "approved_routes": {"messages": 1}}
-    assert _channel_for(g, cfg, "messages") is c
-    assert "review" in log_routes(g, {"messages": 1}).lower()
+    vanguard = channel(2, "bans")
+    g = guild_with(c, vanguard)
+    assert _channel_for(g, {}, "messages") is c
+    assert _channel_for(g, {"messages": 1}, "messages") is c
+    assert _channel_for(g, {"bans": 2}, "bans") is None
+    assert _channel_for(g, {"bans": 2, "approved_routes": {"bans": 2}}, "bans") is vanguard
+    assert "unavailable" in log_routes(g, {"messages": 999}).lower()
 
 
 def test_approved_routes_are_neutral_to_channel_and_category_names():
@@ -60,7 +61,7 @@ def test_off_and_broken_explicit_never_fall_back():
     assert _channel_for(g, cfg, "messages") is c
     assert _channel_for(g, {**cfg, "messages": OFF}, "messages") is None
     assert _channel_for(g, {**cfg, "messages": 999, "approved_routes": {"server": 1, "messages": 999}}, "messages") is None
-    assert _channel_for(g, {**cfg, "messages": 1}, "messages") is None
+    assert _channel_for(g, {**cfg, "messages": 999}, "messages") is None
 
 
 def test_setup_only_creates_unset_without_touching_existing_and_is_idempotent():
@@ -138,28 +139,29 @@ def test_send_failure_is_reported_without_exception_text(caplog):
     asyncio.run(run())
 
 
-def test_setup_and_route_changes_require_confirmation(monkeypatch):
+def test_set_saves_approved_routes_and_rejects_vanguard_channels(monkeypatch):
+    from core.utils import UserError
     from discord.ext import commands
+    import pytest
 
     async def run():
         c = channel(1, "some-channel")
-        g = guild_with(c)
-        g.create_category = AsyncMock()
+        vanguard = channel(2, "bans")
+        g = guild_with(c, vanguard)
         cog, store = cog_with({})
-        ctx = SimpleNamespace(guild=g, confirm=AsyncMock(return_value=False), neutral=AsyncMock(), approve=AsyncMock())
-        monkeypatch.setattr(commands.TextChannelConverter, "convert", AsyncMock(return_value=c))
-        await Logging.logs_set.callback(cog, ctx, "messages", "#some-channel")
+        ctx = SimpleNamespace(guild=g, neutral=AsyncMock(), approve=AsyncMock())
+        monkeypatch.setattr(commands.TextChannelConverter, "convert", AsyncMock(return_value=vanguard))
+        with pytest.raises(UserError, match="Vanguard"):
+            await Logging.logs_set.callback(cog, ctx, "messages", "#bans")
         assert not store["logs"]
-        await Logging.logs_setup.callback(cog, ctx)
-        g.create_category.assert_not_awaited()
-        ctx.confirm.return_value = True
+        monkeypatch.setattr(commands.TextChannelConverter, "convert", AsyncMock(return_value=c))
         await Logging.logs_set.callback(cog, ctx, "messages", "#some-channel")
         assert store["logs"]["approved_routes"]["messages"] == 1
         assert _channel_for(g, store["logs"], "messages") is c
     asyncio.run(run())
 
 
-def test_dashboard_combined_requires_confirmation_and_reapproves_legacy_id():
+def test_dashboard_combined_reapproves_override_route_when_confirmed():
     from test_dashboard_security import (GUILD_ID, BOT_OWNER, combined_revision, cookie, csrf_of, login_server,
                                          make_bot, run)
     bot = make_bot()
@@ -174,18 +176,14 @@ def test_dashboard_combined_requires_confirmation_and_reapproves_legacy_id():
 
     async def scenario(client):
         rev = await combined_revision(client, headers)
-        payload = {"csrf": csrf_of(server, token), "revision": rev, "log_commands": "-1"}
-        r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, data=payload)
-        assert r.status == 400
-        assert bot.db.store[(GUILD_ID, "logs")] == {"commands": 44}
-        payload.update(log_commands="44", confirm_logs="yes")
+        payload = {"csrf": csrf_of(server, token), "revision": rev, "log_commands": "44", "confirm_logs": "yes"}
         r = await client.post(f"/api/guilds/{GUILD_ID}/config", headers=headers, data=payload, allow_redirects=False)
         assert r.status == 302
         assert bot.db.store[(GUILD_ID, "logs")]["approved_routes"] == {"commands": 44}
     run(server, scenario)
 
 
-def test_feature_dashboard_requires_confirmation_and_accepts_neutral_route():
+def test_feature_dashboard_blocks_vanguard_unless_explicitly_confirmed():
     from core.dashboard import LOG_FIELDS
     from test_dashboard_security import (GUILD_ID, BOT_OWNER, _feature_revision, cookie, csrf_of, login_server,
                                          make_bot, run)
@@ -201,7 +199,7 @@ def test_feature_dashboard_requires_confirmation_and_accepts_neutral_route():
     async def scenario(client):
         page = await client.get(f"{path}/features?section=logging", headers=headers)
         html = await page.text()
-        assert "#bans" in html
+        assert "#bans" not in html
         revision = _feature_revision(html, GUILD_ID, "logging")
         data = {field: "" for field, _ in LOG_FIELDS}
         data.update(csrf=csrf_of(server, token), revision=revision, log_messages="88", log_ignore_channels="",

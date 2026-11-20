@@ -93,23 +93,25 @@ def test_member_stripped_shows_the_two_columns_and_an_undo_hint():
     card = fmt.member_stripped(member(), removed, member(9, "mod"), hint="a developer can put them back")
     assert card.color.value == Colors.orange
     assert fields(card) == [
-        ("User", "<@7> (`7`)", True),
-        ("By", "<@9> (`9`)", True),
-        ("Roles removed", ", ".join(f"<@&{i}>" for i in range(1, 9)), False),
+        ("Member", "<@7>", True),
+        ("Moderator", "<@9>", True),
+        ("Roles Removed (8)", " ".join(f"<@&{i}>" for i in range(1, 9)), False),
+        ("Recovery", "a developer can put them back", False),
     ]
-    assert card.description == "-# How to undo · a developer can put them back"
+    assert card.description is None
     assert card.footer.text == "User ID: 7"
 
 
 @pytest.mark.parametrize("removed", [[], [role(1)]])
-def test_member_stripped_falls_back_to_plain_advice(removed):
+def test_member_stripped_omits_recovery_when_no_hint_is_given(removed):
     card = fmt.member_stripped(member(), removed, member(9))
-    assert "Give the role(s) above back to undo this." in card.description
+    assert card.description is None
+    assert all(f.name != "Recovery" for f in card.fields)
 
 
 def test_member_stripped_without_an_actor_or_roles_is_still_valid():
     card = fmt.member_stripped(member(), [], None)
-    assert [f[0] for f in fields(card)] == ["User"]
+    assert [f[0] for f in fields(card)] == ["Member"]
     assert card.footer.text == "User ID: 7"
     assert len(card) <= 6000
 
@@ -117,8 +119,8 @@ def test_member_stripped_without_an_actor_or_roles_is_still_valid():
 def test_a_long_role_list_is_never_cut_in_the_middle_of_a_mention():
     card = fmt.member_stripped(member(), [role(100 + i) for i in range(150)], member(9))
     value = card.fields[-1].value
-    assert len(value) <= 1024 and value.endswith(" *+41 more*")
-    assert "<@&" in value and value.rsplit(", ", 1)[-1].startswith("*+")
+    assert len(value) <= 1024 and "  ·  +" in value and value.endswith(" more")
+    assert "<@&" in value
 
 
 def test_roles_updated_is_the_same_shape_for_an_ordinary_edit():
@@ -126,8 +128,8 @@ def test_roles_updated_is_the_same_shape_for_an_ordinary_edit():
     assert card.title == "Roles Updated" and card.color.value == Colors.success
     assert card.description is None
     assert fields(card) == [
-        ("User", "<@7> (`7`)", True),
-        ("Changed By", "<@9> (`9`)", True),
+        ("Member", "<@7>", True),
+        ("Changed By", "<@9>", True),
         ("Added (1)", "<@&2>", False),
         ("Reason", "cleanup", False),
     ]
@@ -137,30 +139,31 @@ def test_roles_updated_calls_a_mass_removal_a_strip_and_says_what_is_left():
     roles = [role(i) for i in range(1, 9)]
     card = fmt.roles_updated(member(), [], roles, actor=member(9), total=9)
     assert card.title == "Member Stripped" and card.color.value == Colors.orange
-    assert card.description == "Stripped **8 roles** from <@7>, leaving 1 role."
+    assert card.description == "Removed **8 roles** from <@7> (1 role remaining)."
     every = fmt.roles_updated(member(), [], roles, actor=member(9), total=8)
-    assert every.description == "Stripped **8 roles** from <@7>, every role they had."
+    assert every.description == "Removed all **8 roles** from <@7>."
 
 
 def test_two_roles_going_out_of_many_is_not_called_a_strip():
     card = fmt.roles_updated(member(), [], [role(1), role(2)], actor=member(9), total=12)
     assert card.title == "Roles Updated" and card.description is None
     assert fields(card) == [
-        ("User", "<@7> (`7`)", True), ("Changed By", "<@9> (`9`)", True),
-        ("Removed (2)", "<@&1>, <@&2>", False),
+        ("Member", "<@7>", True), ("Changed By", "<@9>", True),
+        ("Removed (2)", "<@&1> <@&2>", False),
     ]
     # a handful of roles is fine to call a strip; one or two is just an edit
     small = fmt.roles_updated(member(), [], [role(1), role(2)], actor=member(9), total=2)
     assert small.title == "Roles Updated" and small.description is None
     three = fmt.roles_updated(member(), [], [role(1), role(2), role(3)], actor=member(9), total=3)
     assert three.title == "Member Stripped"
-    assert three.description == "Stripped **3 roles** from <@7>, every role they had."
+    assert three.description == "Removed all **3 roles** from <@7>."
 
 
-def test_the_old_sentence_card_is_untouched():
-    """`roles_changed` still serves callers that never pass a total."""
+def test_roles_changed_delegates_to_structured_roles_updated():
+    """`roles_changed` serves callers that never pass a total using the same structured card."""
     card = fmt.roles_changed(member(), [], [role(3, "VIP")])
-    assert card.description.splitlines()[0] == "**<@7> had roles taken**"
+    assert card.title == "Roles Updated" and card.color.value == Colors.error
+    assert ("Removed (1)", "<@&3>", False) in fields(card)
 
 
 # ------------------------------------------------------------------ the ,strip command itself
@@ -194,7 +197,7 @@ def test_strip_posts_the_card_and_saves_the_roles():
         target.remove_roles.assert_awaited_once()
         card = ctx.send.await_args.kwargs["embed"]
         assert card.title == "Member Stripped" and card.author.name == "ham"
-        assert ",unstrip" in card.description
+        assert ",unstrip" in {f.name: f.value for f in card.fields}["Recovery"]
 
     asyncio.run(run())
 
@@ -207,7 +210,7 @@ def test_the_role_log_counts_what_the_member_had_before_the_burst(monkeypatch):
 
     async def run():
         monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-        store = {"roles": 1}
+        store = {"logs": {"roles": 1, "approved_routes": {"roles": 1}}}
 
         async def get_config(gid, module, default=None):
             return store.setdefault(module, {})
@@ -243,7 +246,7 @@ def test_the_role_log_counts_what_the_member_had_before_the_burst(monkeypatch):
         assert embed.title == "Member Stripped"
         removed = next(f for f in embed.fields if f.name.startswith("Removed"))
         assert removed.name == "Removed (8)" and removed.value.count("<@&") == 8
-        assert embed.description == "Stripped **8 roles** from <@7>, leaving 1 role."
+        assert embed.description == "Removed **8 roles** from <@7> (1 role remaining)."
 
     asyncio.run(run())
 
@@ -276,8 +279,8 @@ def test_stripstaff_logs_the_member_stripped_card(monkeypatch):
         assert logs.route.await_args.args == (ctx.guild, "bans", "members")
         assert len(posted) == 1 and posted[0].title == "Member Stripped"
         assert posted[0].author.name == "ham" and posted[0].author.icon_url == target.display_avatar.url
-        assert [f.name for f in posted[0].fields] == ["User", "By", "Roles removed"]
-        assert posted[0].fields[-1].value == "<@&10>, <@&11>"
+        assert [f.name for f in posted[0].fields] == ["Member", "Moderator", "Roles Removed (2)"]
+        assert posted[0].fields[-1].value == "<@&10> <@&11>"
         target.remove_roles.assert_awaited_once()
         ctx.approve.assert_awaited_once()  # the ephemeral one-liner is still the command's own reply
 

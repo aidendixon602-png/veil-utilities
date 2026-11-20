@@ -90,8 +90,9 @@ def test_trust_changes_are_reported_to_the_owner():
     with _admin_ok():
         asyncio.run(Antinuke.an_whitelist.callback(cog, _ctx(guild, 77), target))
     notice = guild.owner.send.await_args.kwargs["embed"]
-    assert notice.title == "Antinuke · Settings changed"
-    assert notice.description.startswith("<@77> whitelisted <@55>")
+    fields = {f.name: f.value for f in notice.fields}
+    assert notice.title == "Antinuke Updated"
+    assert fields["Actor"] == "<@77>" and fields["Change"].startswith("Whitelisted <@55>")
 
 
 def test_the_owners_own_changes_dont_page_the_owner():
@@ -164,7 +165,7 @@ def test_a_new_bot_is_quarantined_until_the_owner_approves_it(monkeypatch):
     assert own.permissions == discord.Permissions(send_messages=True)
     bot.remove_roles.assert_awaited_once()
     alert = log.send.await_args.kwargs
-    assert alert["embed"].title == "Antinuke · New bot quarantined"
+    assert alert["embed"].title == "Bot Quarantined"
     assert isinstance(alert["view"].children[0], ApproveBotButton)
 
     text = asyncio.run(cog.approve_bot(guild, 900, SimpleNamespace(id=OWNER, mention="<@1>")))
@@ -302,9 +303,10 @@ def test_quarantine_reports_total_failure_without_approval_button(monkeypatch):
     bot = _new_bot(guild, 77, [high])
     asyncio.run(cog.quarantine_new_bot(bot))
     alert = log.send.await_args.kwargs
-    assert alert['embed'].title == 'Antinuke · Bot quarantine failed'
-    assert 'may retain dangerous permissions' in alert['embed'].description
-    assert 'couldn\'t change' in alert['embed'].fields[0].value
+    fields = {f.name: f.value for f in alert['embed'].fields}
+    assert alert['embed'].title == 'Bot Quarantine Failed'
+    assert 'review permissions manually' in fields['Status']
+    assert 'above bot role hierarchy' in fields['Response Actions']
     assert alert['view'] is None
     assert not cog.bot.db.store['antinuke'].get('quarantined_bots')
     guild.owner.send.assert_awaited_once()
@@ -321,9 +323,10 @@ def test_partial_bot_quarantine_warns_without_claiming_all_permissions_removed(m
     bot = _new_bot(guild, 77, [own, high])
     asyncio.run(cog.quarantine_new_bot(bot))
     alert = log.send.await_args.kwargs
-    assert alert['embed'].title == 'Antinuke · New bot quarantined'
-    assert 'may retain dangerous permissions' in alert['embed'].description
-    assert 'took the dangerous permissions' in alert['embed'].fields[0].value
-    assert 'couldn\'t change' in alert['embed'].fields[0].value
+    fields = {f.name: f.value for f in alert['embed'].fields}
+    assert alert['embed'].title == 'Bot Quarantined'
+    assert 'review permissions manually' in fields['Status']
+    assert 'Removed elevated permissions from managed role' in fields['Response Actions']
+    assert 'above bot role hierarchy' in fields['Response Actions']
     assert isinstance(alert['view'].children[0], ApproveBotButton)
     assert cog.bot.db.store['antinuke']['quarantined_bots']['900']['roles']
