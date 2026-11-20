@@ -160,7 +160,7 @@ def test_setup_and_route_changes_require_confirmation(monkeypatch):
 
 
 def test_dashboard_combined_requires_confirmation_and_reapproves_legacy_id():
-    from test_dashboard_security import (GUILD_ID, GUILD_OWNER, combined_revision, cookie, csrf_of, login_server,
+    from test_dashboard_security import (GUILD_ID, BOT_OWNER, combined_revision, cookie, csrf_of, login_server,
                                          make_bot, run)
     bot = make_bot()
     g = bot.guilds[0]
@@ -170,7 +170,7 @@ def test_dashboard_combined_requires_confirmation_and_reapproves_legacy_id():
     g.me = object()
     bot.db.store[(GUILD_ID, "logs")] = {"commands": 44}
     server = login_server(bot)
-    token, headers = cookie(server, GUILD_OWNER)
+    token, headers = cookie(server, BOT_OWNER)
 
     async def scenario(client):
         rev = await combined_revision(client, headers)
@@ -187,7 +187,7 @@ def test_dashboard_combined_requires_confirmation_and_reapproves_legacy_id():
 
 def test_feature_dashboard_requires_confirmation_and_accepts_neutral_route():
     from core.dashboard import LOG_FIELDS
-    from test_dashboard_security import (GUILD_ID, GUILD_OWNER, _feature_revision, cookie, csrf_of, login_server,
+    from test_dashboard_security import (GUILD_ID, BOT_OWNER, _feature_revision, cookie, csrf_of, login_server,
                                          make_bot, run)
     bot = make_bot()
     g = bot.guilds[0]
@@ -195,7 +195,7 @@ def test_feature_dashboard_requires_confirmation_and_accepts_neutral_route():
     c.position, c.guild, c.category = 1, g, SimpleNamespace(name="Ghost Vanguard")
     g.me, g.text_channels, g.get_channel = object(), [c], lambda cid: c if cid == 88 else None
     server = login_server(bot)
-    token, headers = cookie(server, GUILD_OWNER)
+    token, headers = cookie(server, BOT_OWNER)
     path = f"/servers/{GUILD_ID}"
 
     async def scenario(client):

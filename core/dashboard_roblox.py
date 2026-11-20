@@ -116,7 +116,7 @@ async def group_page(server, request: web.Request) -> web.Response:
     group_id = _group_id(str(raw)) if raw is not None else None
     rev = _revision(server, guild.id, int(user["uid"]), "roblox_group", cfg)
     data = await cached_group(server, group_id) if group_id else None
-    # A network request may have outlived the user's ownership or the stored configuration.
+    # A network request may have outlived the user's developer access or the stored configuration.
     if await server._guild_for(request, user) is None or not await server._can_manage_security(user, guild):
         return server._message("Access denied", "Your access changed. Please sign in again.", 403, user)
     if await server.bot.db.get_config(guild.id, "roblox_group") != cfg:
@@ -196,4 +196,5 @@ async def save_group(server, request: web.Request) -> web.Response:
         except Exception as exc:
             log.warning("Roblox group save not confirmed (%s)", type(exc).__name__)
             return server._message("Save not confirmed", "Refresh and review the group ID before retrying.", 503, user)
+    log.info("Dashboard: developer %s set Roblox group %s for guild %s", user["uid"], group_id or "disconnected", guild.id)
     return server._redirect(f"/servers/{guild.id}/roblox?saved=1")

@@ -1,3 +1,5 @@
+> Historical note: the earlier owner/developer dashboard policy described below has been superseded by the developer-only control center work documented in [DEVELOPER_CONTROL_CENTER.md](DEVELOPER_CONTROL_CENTER.md). Server owners who are not developers no longer have dashboard access.
+
 # Dashboard overhaul: review and prioritized plan
 
 Baseline: `04b29e54652c1795e7c148794bb666ef263827d1`. Plan recorded before implementation.

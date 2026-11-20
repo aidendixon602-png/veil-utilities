@@ -419,3 +419,22 @@ input, select, textarea { background:#0d1721; border-color:#526979; min-height:4
 """
 
 
+
+# Control-center layer: real data only, with a responsive, collapsible navigation.
+CSS += """
+:root { --bg:#090a11; --surface:#131420; --surface2:#191a29; --border:#292b3c; --accent:#a878ff; }
+.sidebar { background:#0e0f19; }
+.sidebar-navigation { min-width:0; }
+.sidebar-navigation > summary { cursor:pointer; color:var(--muted); font-size:11px; padding:4px 12px 14px; }
+.sidebar-navigation nav { display:grid; gap:3px; }
+.control-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:16px; }
+.control-links { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:18px; }
+.control-links a { display:flex; justify-content:space-between; gap:10px; padding:14px; background:#1b1b2d;
+                   border:1px solid #34304c; border-radius:9px; color:#d0b7ff; font-weight:650; }
+.control-links a:hover { background:#282139; }
+.control-picker { display:flex; align-items:end; gap:12px; margin-bottom:24px; }
+.control-picker .form-group { flex:1; margin:0; }
+.control-pagination { display:flex; gap:8px; margin-top:16px; }
+@media(max-width:800px) { .control-grid { grid-template-columns:1fr; } }
+@media(max-width:520px) { .control-links { grid-template-columns:1fr; } .control-picker { align-items:stretch; flex-direction:column; } }
+"""
