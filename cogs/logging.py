@@ -355,14 +355,14 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
             return await it.response.send_message("You are not in this guild", ephemeral=True)
 
         from core import perms as _perms
-        if not self.is_banned and _perms.is_bot_developer(self.user_id, it.client):
+        if not self.is_banned and it.user.id != self.user_id and _perms.is_bot_developer(self.user_id, it.client):
             protection = it.client.get_cog("DeveloperProtection")
             if protection:
                 await it.response.defer(ephemeral=True)
                 await protection.handle(guild, self.user_id, it.user.id, source="Veil ban-log button", actual_ban=False)
-                return await it.followup.send("🛡️ Developer ban blocked. A security notice was attempted.",
+                return await it.followup.send("❌ Developer ban blocked — this attempt has been logged.",
                                               ephemeral=True)
-            return await it.response.send_message("🛡️ Developer ban blocked.", ephemeral=True)
+            return await it.response.send_message("❌ Developer ban blocked.", ephemeral=True)
         is_dev = _perms.is_bot_developer(it.user.id, it.client)
         is_owner = member.id == guild.owner_id
         is_button_user = _perms.is_ban_button_user(it.user.id)

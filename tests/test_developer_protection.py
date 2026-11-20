@@ -94,7 +94,40 @@ def test_fallback_unbans_without_guessing_a_moderator(monkeypatch):
     guild.ban.assert_not_awaited()
     guild.unban.assert_awaited_once()
     embed = dev.send.await_args.kwargs["embed"]
-    assert "**Actor:** Unknown" in embed.description
+    fields = {f.name: f.value for f in embed.fields}
+    assert fields["Actor"] == "Unknown"
+
+
+def test_self_ban_by_developer_does_not_trigger_developer_protection(monkeypatch):
+    from cogs.moderation import Moderation
+    cog, guild, _, _ = setup(monkeypatch)
+    cog.handle = AsyncMock()
+    ctx = SimpleNamespace(guild=guild, command=SimpleNamespace(qualified_name="ban"),
+                          view=StringView(f" {DEV}"), author=SimpleNamespace(id=DEV), send=AsyncMock())
+    assert not asyncio.run(cog.blocked_command(ctx))
+    cog.handle.assert_not_awaited()
+    cog.bot.get_cog = lambda name: cog if name == "DeveloperProtection" else None
+    moderation = Moderation(cog.bot)
+    asyncio.run(moderation._protect_developer_ban(SimpleNamespace(guild=guild, author=SimpleNamespace(id=DEV)),
+                                                  SimpleNamespace(id=DEV)))
+    cog.handle.assert_not_awaited()
+
+
+def test_blocked_command_skips_unban_and_sends_embed(monkeypatch):
+    cog, guild, dev, channel = setup(monkeypatch)
+    ctx = SimpleNamespace(guild=guild, command=SimpleNamespace(qualified_name="ban"),
+                          view=StringView(f" <@{DEV}> reason"), author=SimpleNamespace(id=ACTOR), send=AsyncMock())
+    assert asyncio.run(cog.blocked_command(ctx))
+    guild.ban.assert_awaited_once()
+    guild.unban.assert_not_awaited()
+    sent_embed = ctx.send.await_args.kwargs["embed"]
+    assert "Developer ban blocked" in sent_embed.description
+    alert = channel.send.await_args.kwargs["embed"]
+    fields = {f.name: f.value for f in alert.fields}
+    assert alert.title == "Developer Protection"
+    assert fields["Developer"] == f"<@{DEV}> (`{DEV}`)"
+    assert fields["Actor"] == f"<@{ACTOR}> (`{ACTOR}`)"
+    assert "blocked before reaching Discord" in fields["Developer ban"]
 
 
 def test_fallback_does_not_duplicate_handled_audit_alert(monkeypatch):

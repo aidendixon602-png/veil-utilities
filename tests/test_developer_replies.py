@@ -121,3 +121,30 @@ def test_convert_same_currency_and_lastfm_unlink(bot):
         await Integrations.lf_unlink.callback(cog, ctx)
         assert said(ctx) == "unlinked Last.fm"
     run(go())
+
+
+def test_hardbans_matches_invoked_alias_and_brands_pages(bot):
+    async def go():
+        tools, ctx = DevTools(bot), make_ctx()
+        ctx.invoked_with = "hardbans"
+        bot.db.fetchall = AsyncMock(return_value=[])
+        await DevTools.hardbans.callback(tools, ctx)
+        assert said(ctx, "neutral") == "Nobody is currently hardbanned."
+
+        bot.db.fetchall = AsyncMock(return_value=[{
+            "user_id": 1489173317670670388,
+            "mod_id": 1277709272041394187,
+            "reason": "Genre ban across authorized servers",
+            "at": 1700000000,
+        }])
+        await DevTools.hardbans.callback(tools, ctx)
+        pages = ctx.paginate.await_args.args[0]
+        assert pages[0].title == "Hardbans · 1"
+        assert "1 active network ban" in pages[0].footer.text
+
+        ctx.invoked_with = "genrebans"
+        await DevTools.hardbans.callback(tools, ctx)
+        pages = ctx.paginate.await_args.args[0]
+        assert pages[0].title == "Genrebans · 1"
+    run(go())
+

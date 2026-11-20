@@ -1860,10 +1860,14 @@ def test_structured_embeds_clean_handles_blockquotes_roles_invites_and_voice():
                           max_uses=0, max_age=2592000, guild=SimpleNamespace(icon=None, name="S"), uses=0, temporary=False)
     assert detail(fmt.invite_created(inv), "Limits") == "Unlimited uses • Expires in 30 days"
 
-    # Leading status emojis stripped cleanly
+    # Leading status emojis stripped cleanly without corrupting opening Markdown
     assert fmt.strip_lead_emoji("❌ Failed to ban") == "Failed to ban"
     assert fmt.strip_lead_emoji("⚠️ Partial update") == "Partial update"
     assert fmt.strip_lead_emoji("🔒 Locked channel") == "Locked channel"
+    assert fmt.strip_lead_emoji("**refederation.** is already banned") == "**refederation.** is already banned"
+    assert fmt.strip_lead_emoji("❌ **refederation.** is already banned") == "**refederation.** is already banned"
+    failed_card = fmt.command_used(cmd_ctx(), "Developer", "Built-in", error="**refederation.** is already banned")
+    assert detail(failed_card, "Error") == "**refederation.** is already banned"
 
 
 def test_voice_listener_posts_structured_embeds_instead_of_editing_feed():

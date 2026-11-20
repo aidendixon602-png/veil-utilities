@@ -27,7 +27,7 @@ GROUP_SHOWN = 25
 DANGEROUS = ("administrator", "manage_guild", "manage_roles", "manage_channels", "manage_webhooks", "ban_members",
              "kick_members", "mention_everyone", "moderate_members", "manage_messages")
 
-_LEAD_SYMBOL = re.compile(r"^(?:[^\w\s`<@#\[(\"'-]+\s*)+")
+_LEAD_SYMBOL = re.compile(r"^(?:[^\w\s`<@#\[(\"'\-*_~|]+\s*)+")
 
 
 # ---------------------------------------------------------------- building blocks
@@ -846,10 +846,10 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
 
     detail_field: tuple[str, str | None, bool] = ("Outcome", None, False)
     if failed:
-        cleaned_err = shorten(strip_lead_emoji(redact.scrub(error).replace("\n", " ")), 400)
+        cleaned_err = shorten_md(strip_lead_emoji(redact.scrub(error).replace("\n", " ")), 400)
         detail_field = ("Error", cleaned_err, False)
     elif getattr(ctx, "command_log_outcome", None):
-        cleaned_out = shorten(strip_lead_emoji(redact.scrub(str(ctx.command_log_outcome)).replace("\n", " ")), 400)
+        cleaned_out = shorten_md(strip_lead_emoji(redact.scrub(str(ctx.command_log_outcome)).replace("\n", " ")), 400)
         if took:
             cleaned_out = f"{cleaned_out} ({took})"
         detail_field = ("Outcome", cleaned_out, False)
