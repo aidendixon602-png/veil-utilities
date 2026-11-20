@@ -81,21 +81,30 @@ def saved(cog):
 
 
 def test_the_home_card_shows_the_state_and_offers_the_main_controls():
+    from core.utils import Colors
     cog, guild = setup()
     panel, embed = open_panel(cog, guild)
-    assert embed.title == "Antinuke" and embed.description.startswith("antinuke is **off**.")
-    assert labels(panel) == ["Turn on", "Default", "Strict", "Relaxed", "Advanced", "Previous", "Rules 1/2", "Next"]
+    assert embed.title == "Antinuke" and embed.description.startswith("`STANDBY`")
+    assert embed.colour.value == Colors.neutral
+    assert labels(panel) == ["Turn on", "Default", "Strict", "Relaxed", "Advanced"]
     (select,) = [i for i in panel.children if isinstance(i, RuleSelect)]
-    assert len(select.options) == 6 and select.options[0].label == "Ban"
+    assert len(select.options) == 12 and select.options[0].label == "Ban"
+    assert {f.name for f in embed.fields} == {"Trusted", "Operators", "Alert Feed"}
 
 
 def test_turning_it_on_fills_in_every_rule_and_flips_the_button():
+    from core.utils import Colors
     cog, guild = setup()
     panel, _ = open_panel(cog, guild)
     it = press(panel, "Turn on")
     assert saved(cog)["enabled"] is True and saved(cog)["modules"]["ban"]["threshold"] == 3
     assert labels(panel)[0] == "Turn off"
-    assert it.response.edit_message.await_args.kwargs["embed"].description.startswith("antinuke is **on**.")
+    updated = it.response.edit_message.await_args.kwargs["embed"]
+    assert updated.description.startswith("`ACTIVE`")
+    assert "Profile: **Default**" in updated.description
+    assert updated.colour.value == Colors.main
+    default_btn = next(i for i in panel.children if getattr(i, "label", None) == "Default")
+    assert default_btn.style == discord.ButtonStyle.primary
     press(panel, "Turn off")
     assert saved(cog)["enabled"] is False
 
@@ -106,6 +115,9 @@ def test_a_preset_button_loads_that_preset():
     press(panel, "Strict")
     assert saved(cog)["enabled"] is True
     assert saved(cog)["modules"]["kick"]["threshold"] == PRESETS["strict"]["kick"]["threshold"] == 1
+    strict_btn = next(i for i in panel.children if getattr(i, "label", None) == "Strict")
+    assert strict_btn.style == discord.ButtonStyle.primary
+    assert "Profile: **Strict**" in panel.embed().description
 
 
 def test_a_rule_page_changes_count_time_punishment_and_state():
@@ -114,20 +126,20 @@ def test_a_rule_page_changes_count_time_punishment_and_state():
     press(panel, "Turn on")
     it = press(panel, "Ban")
     assert it.response.edit_message.await_args.kwargs["embed"].title == "Ban"
-    assert labels(panel) == ["Turn off", "−", "count: 3", "+", "time: 60s", "punishment: ban", "commands: on", "← Back"]
+    assert labels(panel) == ["Turn off", "−", "Limit: 3", "+", "Window: 60s", "Action: Ban", "Commands: On", "← Back"]
     press(panel, "+")
     press(panel, "+")
     press(panel, "−")
     assert saved(cog)["modules"]["ban"]["threshold"] == 4
-    press(panel, "time: 60s")
+    press(panel, "Window: 60s")
     assert saved(cog)["modules"]["ban"]["window"] == 120
-    press(panel, "punishment: ban")
-    press(panel, "punishment: kick")
+    press(panel, "Action: Ban")
+    press(panel, "Action: Kick")
     assert saved(cog)["modules"]["ban"]["punishment"] == "strip"
     press(panel, "Turn off")
     assert saved(cog)["modules"]["ban"]["on"] is False
     press(panel, "← Back")
-    assert panel.rule is None and "`Ban` - off" in panel.embed().description
+    assert panel.rule is None and "`Ban` — *off*" in panel.embed().description
 
 
 def test_the_time_button_wraps_around():
@@ -136,7 +148,7 @@ def test_the_time_button_wraps_around():
     press(panel, "Turn on")
     press(panel, "Ban")
     for expected in (120, 300, 600, 30, 60):
-        press(panel, next(label for label in labels(panel) if label.startswith("time:")))
+        press(panel, next(label for label in labels(panel) if label.startswith("Window:")))
         assert saved(cog)["modules"]["ban"]["window"] == expected
 
 
@@ -146,9 +158,10 @@ def test_fixed_rules_lock_the_buttons_that_dont_apply():
     press(panel, "Turn on")
     press(panel, "Permission Grant")
     buttons = {i.label: i for i in panel.children if isinstance(i, discord.ui.Button)}
-    assert buttons["punishment: strip"].disabled  # granting permissions is always answered by taking them back
+    assert buttons["Action: Strip"].disabled  # granting permissions is always answered by taking them back
     assert buttons["−"].disabled and buttons["+"].disabled  # instant rule: always 1
-    assert "(always 1)" in panel.embed().description
+    fields = {f.name: f.value for f in panel.embed().fields}
+    assert "always 1" in fields["Threshold"]
 
 
 def test_only_antinuke_admins_can_press_anything():
@@ -184,7 +197,8 @@ def test_text_commands_still_work_alongside_the_panel():
     asyncio.run(Antinuke.an_enable.callback(cog, ctx))
     asyncio.run(cog._update_rule(ctx, "ban", 7, "kick", "2m"))
     panel, embed = open_panel(cog, guild)
-    assert "`Ban` - 7 in 120s → kick `[revert]`" in embed.description
+    assert "`Ban` — **7** in 120s → **kick**  ·  *revert*" in embed.description
+    assert "Profile: **Custom**" in embed.description
 
 
 # ------------------------------------------------------------------ whitelisting a role
@@ -237,7 +251,28 @@ def test_the_panel_counts_whitelisted_roles():
     cog, guild = setup()
     cog.bot.db.store["antinuke"] = {"whitelist": [1], "whitelist_roles": [2, 3], "modules": {}}
     _, embed = open_panel(cog, guild)
-    assert "whitelisted: 1 + 2 roles" in embed.description
+    fields = {f.name: f.value for f in embed.fields}
+    assert fields["Trusted"] == "1 user + 2 roles"
+    assert fields["Operators"] == "Owner only"
+
+
+def test_alert_feed_auto_detects_antinuke_logs_and_branding():
+    cog, guild = setup()
+    cog.bot.user = SimpleNamespace(name="Veil Utilities", display_avatar=SimpleNamespace(url="https://cdn.example/veil.png"))
+    guild.icon = SimpleNamespace(url="https://cdn.example/guild.png")
+    log_ch = MagicMock(spec=discord.TextChannel)
+    log_ch.id = 777
+    log_ch.name = "antinuke-logs"
+    log_ch.mention = "<#777>"
+    log_ch.topic = None
+    log_ch.category = SimpleNamespace(name="VEIL LOGS")
+    guild.text_channels = [log_ch]
+    _, embed = open_panel(cog, guild)
+    fields = {f.name: f.value for f in embed.fields}
+    assert fields["Alert Feed"] == "<#777>"
+    assert embed.author.name == "Veil Utilities · Security"
+    assert embed.author.icon_url == "https://cdn.example/veil.png"
+    assert embed.thumbnail.url == "https://cdn.example/guild.png"
 
 
 def test_rule_panel_can_toggle_command_detection_and_notifies_on_disabling():
@@ -246,11 +281,12 @@ def test_rule_panel_can_toggle_command_detection_and_notifies_on_disabling():
     panel, _ = open_panel(cog, guild)
     press(panel, "Turn on")
     press(panel, "Ban")
-    press(panel, "commands: on")
+    press(panel, "Commands: On")
     assert saved(cog)["modules"]["ban"]["command"] is False
-    assert "Veil command detection: **off**" in panel.embed().description
+    fields = {f.name: f.value for f in panel.embed().fields}
+    assert "Off" in fields["Command Guard"]
     cog.security_notice.assert_awaited_once()
-    press(panel, "commands: off")
+    press(panel, "Commands: Off")
     assert saved(cog)["modules"]["ban"]["command"] is True
 
 
@@ -280,26 +316,22 @@ def test_rule_selector_pages_cover_every_rule_without_saving():
     cog, guild = setup()
     panel, _ = open_panel(cog, guild)
     before = json.loads(json.dumps(saved(cog)))
-    seen = []
-    for page in range(2):
-        select = next(c for c in panel.children if isinstance(c, RuleSelect))
-        seen.extend(o.value for o in select.options)
-        assert len(select.options) <= 6
-        assert f"Rules {page + 1}/2" in labels(panel)
-        if page == 0:
-            press(panel, "Next")
-    assert seen == [r["key"] for r in MIDTOWN_RULES[:12]]
+    select = next(c for c in panel.children if isinstance(c, RuleSelect))
+    assert len(select.options) == 12
+    assert {o.value for o in select.options} == {r["key"] for r in MIDTOWN_RULES[:12]}
     press(panel, "Advanced")
     select = next(c for c in panel.children if isinstance(c, RuleSelect))
     assert [o.value for o in select.options] == [r["key"] for r in MIDTOWN_RULES[12:]]
     assert panel.embed().title == "Antinuke · Advanced"
+    assert "**◈  Extended Monitors**" in panel.embed().description
     final_rule = select.options[-1]
     press(panel, final_rule.label)
     assert panel.rule == final_rule.value
     press(panel, "← Back")
     assert panel.advanced
     press(panel, "Main rules")
-    assert "Rules 1/2" in labels(panel)
+    select = next(c for c in panel.children if isinstance(c, RuleSelect))
+    assert len(select.options) == 12
     assert saved(cog) == before
 
 

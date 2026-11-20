@@ -1665,7 +1665,7 @@ class Antinuke(commands.Cog):
 
     # ================================================================ status & rules
     async def build_status_embed(self, guild_id: int, prefix: str = ",", guild=None) -> discord.Embed:
-        return home_embed(await self.cfg(guild_id), prefix, guild)
+        return home_embed(await self.cfg(guild_id), prefix, guild, bot=getattr(self, "bot", None))
 
     @staticmethod
     def enable_rules(cfg: dict) -> None:

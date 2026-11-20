@@ -1,9 +1,9 @@
-"""The `,an` panel: the antinuke's status in the same plain style as `,help`, with buttons to change it.
+"""The `,an` control panel: Veil-branded antinuke overview, grouped rules, presets, and live rule inspector.
 
-Home: on/off, every rule on one line, and buttons to turn the antinuke on or off, load a preset, or open a rule.
-A rule: its limit, punishment and what gets undone, with buttons for on/off, the count, the time window, the
-punishment, and Back. Only the server owner, antinuke admins and developers can press anything; everyone else is
-told so privately.
+Home: protection state, active profile, grouped core rules (or extended monitors on Advanced), inline trust/alert
+summary fields, preset buttons, and a single-click rule selector.
+Rule inspector: threshold, time window, punishment, Veil command guard, auto-recovery details, and instant controls.
+Only the server owner, antinuke admins, and bot developers can interact; everyone else receives a private notice.
 """
 from __future__ import annotations
 
@@ -13,20 +13,59 @@ from types import SimpleNamespace
 
 import discord
 
-from core.utils import OwnedView, UserError, antinuke_admin, respond_or_edit
+from core.utils import Colors, OwnedView, UserError, antinuke_admin, respond_or_edit
 
 log = logging.getLogger("veil.antinuke.panel")
 
 WINDOWS = [30, 60, 120, 300, 600]  # seconds the time button cycles through
-RULES_PER_PAGE = 6
+RULES_PER_PAGE = 25
 PRIMARY_RULE_COUNT = 12
 PUNISHMENTS = ["ban", "kick", "strip"]
-PUNISHMENT_WORDS = {"ban": "ban", "kick": "kick", "strip": "strip their staff roles"}
+PUNISHMENT_WORDS = {"ban": "Ban", "kick": "Kick", "strip": "Strip staff roles"}
+
+CORE_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Members & Bots", ("ban", "kick", "timeout", "botadd")),
+    ("Roles & Escalation", ("permissions", "rolecreate", "roledelete")),
+    ("Channels & Server", ("channelcreate", "channeldelete", "serverupdate", "webhook", "roleinvite")),
+)
 
 
 def _an():
     import cogs.antinuke as an  # imported late: the cog imports this module
     return an
+
+
+def _brand_embed(embed: discord.Embed, *, bot=None, guild=None, section: str = "Security") -> discord.Embed:
+    bot_user = getattr(bot, "user", None)
+    avatar = getattr(getattr(bot_user, "display_avatar", None), "url", None)
+    name = getattr(bot_user, "name", None)
+    author_name = f"{name} · {section}" if isinstance(name, str) and name else f"Veil Utilities · {section}"
+    if isinstance(avatar, str) and avatar:
+        embed.set_author(name=author_name, icon_url=avatar)
+    else:
+        embed.set_author(name=author_name)
+    guild_icon = getattr(getattr(guild, "icon", None), "url", None)
+    if isinstance(guild_icon, str) and guild_icon:
+        embed.set_thumbnail(url=guild_icon)
+    return embed
+
+
+def _resolve_alert_channel(cfg: dict, guild):
+    if guild is None:
+        return None
+    get_channel = getattr(guild, "get_channel", None)
+    log_id = cfg.get("log")
+    if callable(get_channel) and log_id:
+        explicit = get_channel(log_id)
+        if explicit is not None:
+            return explicit
+    if hasattr(guild, "text_channels"):
+        try:
+            from cogs.logging import _auto_channel
+            return _auto_channel(guild, "antinuke", setup_only=True)
+        except Exception:
+            return None
+    return None
 
 
 def rule_state(cfg: dict, key: str) -> dict:
@@ -41,59 +80,157 @@ def rule_state(cfg: dict, key: str) -> dict:
                                                                    cfg.get("punishment", base["punishment"]))}
 
 
+def active_preset(cfg: dict) -> str | None:
+    """Name of the preset matching current settings ('default', 'strict', 'relaxed'), 'custom', or None when off."""
+    if not cfg.get("enabled"):
+        return None
+    an = _an()
+    for name, target in an.PRESETS.items():
+        if all(
+            rule_state(cfg, k)["on"]
+            and rule_state(cfg, k)["threshold"] == (1 if k in an.INSTANT else v["threshold"])
+            and rule_state(cfg, k)["window"] == v["window"]
+            and rule_state(cfg, k)["punishment"] == ("strip" if k == "permissions" else v["punishment"])
+            for k, v in target.items()
+        ):
+            return name
+    return "custom"
+
+
 def rule_line(cfg: dict, key: str) -> str:
     an = _an()
     name = an.RULE_LOOKUP[key]["name"]
     st = rule_state(cfg, key)
     if not st["on"]:
-        return f"`{name}` - off"
-    tag = " `[revert]`" if key in an.UNDOES else ""
-    command_note = " · commands off" if (cfg.get("modules") or {}).get(key, {}).get("command") is False else ""
-    return f"`{name}` - {st['threshold']} in {st['window']}s → {st['punishment']}{tag}{command_note}"
+        return f"`{name}` — *off*"
+    extras: list[str] = []
+    if key in an.UNDOES:
+        extras.append("*revert*")
+    if (cfg.get("modules") or {}).get(key, {}).get("command") is False:
+        extras.append("*commands off*")
+    suffix = ("  ·  " + " · ".join(extras)) if extras else ""
+    return f"`{name}` — **{st['threshold']}** in {st['window']}s → **{st['punishment']}**{suffix}"
 
 
-def home_embed(cfg: dict, prefix: str, guild=None, *, advanced: bool = False) -> discord.Embed:
+def _ordered_primary_rules() -> list[dict]:
     an = _an()
-    state = "on" if cfg.get("enabled") else "off"
-    primary, additional = an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT], an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:]
-    rules = additional if advanced else primary
-    lines = [f"antinuke is **{state}**.", ""] + [rule_line(cfg, r["key"]) for r in rules]
-    if not advanced:
-        active = sum(rule_state(cfg, r["key"])["on"] for r in additional)
-        lines += ["", f"Advanced rules: **{active}/{len(additional)} enabled** in settings"
-                  + (" (not enforcing while antinuke is off)." if not cfg.get("enabled") else ".")
-                  + " Select Advanced to view or edit them."]
+    seen: set[str] = set()
+    ordered: list[dict] = []
+    for _, keys in CORE_SECTIONS:
+        for k in keys:
+            if k in an.RULE_LOOKUP and k not in seen:
+                ordered.append(an.RULE_LOOKUP[k])
+                seen.add(k)
+    for r in an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]:
+        if r["key"] not in seen:
+            ordered.append(r)
+            seen.add(r["key"])
+    return ordered
+
+
+def _summary_fields(embed: discord.Embed, cfg: dict, guild) -> None:
+    users = len(cfg.get("whitelist", []))
     roles = len(cfg.get("whitelist_roles", []))
-    extra = [f"whitelisted: {len(cfg.get('whitelist', []))}" + (f" + {roles} role{'s' if roles != 1 else ''}" if roles else ""),
-             f"antinuke admins: {len(cfg.get('admins', []))}"]
-    log = guild.get_channel(cfg.get("log") or 0) if guild is not None else None
-    if log is not None:
-        extra.append(f"alerts: {log.mention}")
-    lines += ["", " · ".join(extra)]
-    e = discord.Embed(title="Antinuke · Advanced" if advanced else "Antinuke", description="\n".join(lines))
-    e.add_field(name=f"prefix: {prefix}", value="​", inline=False)
-    e.set_footer(text="pick a rule below to change it" if cfg.get("enabled") else "turn it on to protect this server")
+    parts: list[str] = []
+    if users:
+        parts.append(f"{users} user{'s' if users != 1 else ''}")
+    if roles:
+        parts.append(f"{roles} role{'s' if roles != 1 else ''}")
+    trusted_val = " + ".join(parts) if parts else "None"
+
+    admins = len(cfg.get("admins", []))
+    admins_val = f"Owner + {admins} admin{'s' if admins != 1 else ''}" if admins else "Owner only"
+
+    alert_ch = _resolve_alert_channel(cfg, guild)
+    alert_val = getattr(alert_ch, "mention", None) or "Auto (Logs)"
+
+    embed.add_field(name="Trusted", value=trusted_val, inline=True)
+    embed.add_field(name="Operators", value=admins_val, inline=True)
+    embed.add_field(name="Alert Feed", value=alert_val, inline=True)
+
+
+def home_embed(cfg: dict, prefix: str, guild=None, *, advanced: bool = False, bot=None) -> discord.Embed:
+    an = _an()
+    enabled = bool(cfg.get("enabled"))
+    primary = an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]
+    additional = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:]
+    core_on = sum(rule_state(cfg, r["key"])["on"] for r in primary)
+    adv_on = sum(rule_state(cfg, r["key"])["on"] for r in additional)
+    preset = active_preset(cfg)
+
+    if enabled:
+        profile_label = preset.title() if preset else "Custom"
+        status_line = (
+            f"`ACTIVE`  ·  Profile: **{profile_label}**  ·  "
+            f"**{core_on}/{len(primary)}** core  ·  **{adv_on}/{len(additional)}** advanced"
+        )
+    else:
+        status_line = "`STANDBY`  ·  Protection is **off** — enable it below or pick a preset to arm rules"
+
+    lines = [status_line]
+    if advanced:
+        lines += [
+            "-# Monitors quieter raid, permission, and mass-edit vectors alongside core rules.",
+            "",
+            "**◈  Extended Monitors**",
+            *(rule_line(cfg, r["key"]) for r in additional),
+        ]
+    else:
+        for heading, keys in CORE_SECTIONS:
+            section_rules = [k for k in keys if k in an.RULE_LOOKUP]
+            if not section_rules:
+                continue
+            lines += ["", f"**◈  {heading}**", *(rule_line(cfg, k) for k in section_rules)]
+
+    color = Colors.main if enabled else Colors.neutral
+    title = "Antinuke · Advanced" if advanced else "Antinuke"
+    e = discord.Embed(title=title, description="\n".join(lines), color=color)
+    _brand_embed(e, bot=bot, guild=guild, section="Security")
+    _summary_fields(e, cfg, guild)
+    hint = "Select a rule below to configure" if enabled else "Turn on protection or load a preset below"
+    e.set_footer(text=f"VEIL UTILITIES  •  Prefix: {prefix}  •  {hint}")
     return e
 
 
-def rule_embed(cfg: dict, key: str, prefix: str) -> discord.Embed:
+def rule_embed(cfg: dict, key: str, prefix: str, *, guild=None, bot=None) -> discord.Embed:
     an = _an()
     rule = an.RULE_LOOKUP[key]
     st = rule_state(cfg, key)
-    lines = [f"watches: {an.MODULES.get(key, rule['name']).lower()}.",
-             f"limit: **{st['threshold']}** in **{st['window']}s**" + (" (always 1)" if key in an.INSTANT else ""),
-             f"punishment: **{PUNISHMENT_WORDS.get(st['punishment'], st['punishment'])}**",
-             f"state: **{'on' if st['on'] else 'off'}**"]
+    enabled = bool(cfg.get("enabled"))
+    watches = an.MODULES.get(key, rule["name"])
+    watches_sentence = watches[:1].upper() + watches[1:]
+
+    if not st["on"]:
+        badge = "`OFF`"
+        color = Colors.neutral
+    elif not enabled:
+        badge = "`PAUSED`"
+        color = Colors.warn
+    else:
+        badge = "`ACTIVE`"
+        color = Colors.main
+
+    desc = [f"{badge}  ·  {watches_sentence}."]
+    if not enabled:
+        desc.append("-# Antinuke is currently off — enable protection on the main panel for this rule to run.")
+
+    e = discord.Embed(title=rule["name"], description="\n".join(desc), color=color)
+    _brand_embed(e, bot=bot, guild=guild, section="Rule Inspector")
+
+    limit_val = f"**{st['threshold']}** in **{st['window']}s**" + (" *(always 1)*" if key in an.INSTANT else "")
+    punish_label = PUNISHMENT_WORDS.get(st["punishment"], st["punishment"].title())
+    punish_val = f"**{punish_label}**" + (" *(fixed)*" if key == "permissions" else "")
     command_on = (cfg.get("modules") or {}).get(key, {}).get("command", True) is not False
-    lines.append(f"Veil command detection: **{'on' if command_on else 'off'}**")
-    if not command_on:
-        lines.append("-# supported Veil commands won't count toward this rule")
+    cmd_val = "**On**" if command_on else "**Off** *(ignores Veil commands)*"
+
+    e.add_field(name="Threshold", value=limit_val, inline=True)
+    e.add_field(name="Punishment", value=punish_val, inline=True)
+    e.add_field(name="Command Guard", value=cmd_val, inline=True)
     if key in an.UNDOES:
-        lines.append(f"when someone is caught: {an.UNDOES[key]}.")
-    if not cfg.get("enabled"):
-        lines += ["", "-# the antinuke itself is off, so no rule runs until it's turned on"]
-    e = discord.Embed(title=rule["name"], description="\n".join(lines))
-    e.add_field(name=f"prefix: {prefix}", value="​", inline=False)
+        undo = an.UNDOES[key]
+        e.add_field(name="Auto-Recovery", value=undo[:1].upper() + undo[1:] + ".", inline=False)
+
+    e.set_footer(text=f"VEIL UTILITIES  •  Prefix: {prefix}  •  Changes save immediately")
     return e
 
 
@@ -112,12 +249,18 @@ class RuleSelect(discord.ui.Select["AntinukePanel"]):
         an = _an()
         options = []
         start = page * RULES_PER_PAGE
-        rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if advanced else an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]
+        rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if advanced else _ordered_primary_rules()
         for r in rules[start:start + RULES_PER_PAGE]:
-            st = rule_state(cfg, r["key"])
-            desc = f"{st['threshold']} in {st['window']}s → {st['punishment']}" if st["on"] else "off"
-            options.append(discord.SelectOption(label=r["name"], value=r["key"], description=desc))
-        super().__init__(placeholder="Choose a rule to edit…", options=options, row=1)
+            key = r["key"]
+            st = rule_state(cfg, key)
+            if st["on"]:
+                rev = " · auto-revert" if key in an.UNDOES else ""
+                desc = f"{st['threshold']} in {st['window']}s → {st['punishment']}{rev}"
+            else:
+                desc = "Disabled"
+            options.append(discord.SelectOption(label=r["name"], value=key, description=desc[:100]))
+        placeholder = "Choose an advanced rule to configure…" if advanced else "Choose a rule to configure…"
+        super().__init__(placeholder=placeholder, options=options, row=1)
 
     async def callback(self, it: discord.Interaction):
         await self.view.handle(it, "open:" + self.values[0])
@@ -137,10 +280,11 @@ class AntinukePanel(OwnedView):
 
     # -- what's on screen
     def embed(self) -> discord.Embed:
+        bot = getattr(self.cog, "bot", None)
         if self.rule is None:
-            embed = home_embed(self.cfg, self.prefix, self.guild, advanced=self.advanced)
+            embed = home_embed(self.cfg, self.prefix, self.guild, advanced=self.advanced, bot=bot)
         else:
-            embed = rule_embed(self.cfg, self.rule, self.prefix)
+            embed = rule_embed(self.cfg, self.rule, self.prefix, guild=self.guild, bot=bot)
         an = _an()
         if an._perms.ghost_guards(self.guild):
             embed.description = ((embed.description or "") + "\n\n" + an.OVERLAP_NOTE).strip()
@@ -151,12 +295,19 @@ class AntinukePanel(OwnedView):
         an = _an()
         if self.rule is None:
             on = bool(self.cfg.get("enabled"))
+            current_preset = active_preset(self.cfg)
             self.add_item(_Button("Turn off" if on else "Turn on", "toggle",
                                   style=discord.ButtonStyle.danger if on else discord.ButtonStyle.success))
             for name in an.PRESETS:
-                self.add_item(_Button(name.title(), f"preset:{name}"))
-            self.add_item(_Button("Main rules" if self.advanced else "Advanced", "show_rules"))
-            rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if self.advanced else an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]
+                style = (discord.ButtonStyle.primary if current_preset == name
+                         else discord.ButtonStyle.secondary)
+                self.add_item(_Button(name.title(), f"preset:{name}", style=style))
+            self.add_item(_Button(
+                "Main rules" if self.advanced else "Advanced",
+                "show_rules",
+                style=discord.ButtonStyle.primary if self.advanced else discord.ButtonStyle.secondary,
+            ))
+            rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if self.advanced else _ordered_primary_rules()
             total = max(1, (len(rules) + RULES_PER_PAGE - 1) // RULES_PER_PAGE)
             self.rule_page = max(0, min(self.rule_page, total - 1))
             self.add_item(RuleSelect(self.cfg, self.rule_page, advanced=self.advanced))
@@ -170,13 +321,18 @@ class AntinukePanel(OwnedView):
         self.add_item(_Button("Turn off" if st["on"] else "Turn on", "rule_toggle",
                               style=discord.ButtonStyle.danger if st["on"] else discord.ButtonStyle.success))
         self.add_item(_Button("−", "less", disabled=instant or st["threshold"] <= 1))
-        self.add_item(_Button(f"count: {st['threshold']}", "noop", disabled=True))
+        self.add_item(_Button(f"Limit: {st['threshold']}", "noop", disabled=True))
         self.add_item(_Button("+", "more", disabled=instant or st["threshold"] >= 100))
-        self.add_item(_Button(f"time: {st['window']}s", "window", row=1))
-        self.add_item(_Button(f"punishment: {st['punishment']}", "punishment", row=1,
+        self.add_item(_Button(f"Window: {st['window']}s", "window", row=1))
+        self.add_item(_Button(f"Action: {st['punishment'].title()}", "punishment", row=1,
                               disabled=self.rule == "permissions"))
         command_on = (self.cfg.get("modules") or {}).get(self.rule, {}).get("command", True) is not False
-        self.add_item(_Button(f"commands: {'on' if command_on else 'off'}", "command", row=2))
+        self.add_item(_Button(
+            f"Commands: {'On' if command_on else 'Off'}",
+            "command",
+            row=1,
+            style=discord.ButtonStyle.secondary if command_on else discord.ButtonStyle.primary,
+        ))
         self.add_item(_Button("← Back", "back", row=2))
 
     # -- who may press
@@ -219,7 +375,7 @@ class AntinukePanel(OwnedView):
             self.rule_page = 0
             changed = False
         elif action in ("rules_prev", "rules_next"):
-            rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if self.advanced else an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]
+            rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if self.advanced else _ordered_primary_rules()
             total = max(1, (len(rules) + RULES_PER_PAGE - 1) // RULES_PER_PAGE)
             self.rule_page = max(0, min(total - 1, self.rule_page + (1 if action == "rules_next" else -1)))
             changed = False
