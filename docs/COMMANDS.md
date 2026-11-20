@@ -1,6 +1,6 @@
 # Command reference
 
-486 commands. Default prefix `,`. `<required>` `[optional]`.
+485 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -333,14 +333,13 @@ _Log server events to channels_
 | `,logs auto <category>` (reset) | Use an approved shared route if available | manage guild, server owner or bot developer |
 | `,logs cleanup [delete]` (clean, purgeduplicates, cleanupchannels) | Explain safe manual cleanup without deleting channels | manage guild, server owner or bot developer |
 | `,logs coexist` | Review routing when multiple logging tools are in use | server owner or bot developer |
-| `,logs combine <channel>` | Preview combining server logs into one channel | manage guild, server owner or bot developer |
 | `,logs ignore` | Skip logging messages, voice and commands from a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore add <target>` | Ignore a channel or member | manage guild, server owner or bot developer |
 | `,logs ignore remove <target>` (del, delete) | Stop ignoring a channel or member | manage guild, server owner or bot developer |
 | `,logs list` (show, status) | Show where every log category goes, without opening the panel | manage guild, server owner or bot developer |
 | `,logs off <category>` (disable) | Stop logging a category | manage guild, server owner or bot developer |
 | `,logs set <category> [channel]` | Send a log category to a channel | manage guild, server owner or bot developer |
-| `,logs setup [mode]` (init, default, defaults, create) | Create one private channel for missing log routes | manage guild, server owner or bot developer |
+| `,logs setup [mode]` (init, default, defaults, create) | Preview and confirm creation of channels for unset log categories | manage guild, server owner or bot developer |
 | `,logs test` | Send a test line to every log channel | manage guild, server owner or bot developer |
 | `,setuplogs` (setupchannels, autologs) | Preview and confirm creation of missing log destinations | manage guild, server owner or bot developer |
 

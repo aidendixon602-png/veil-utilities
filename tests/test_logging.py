@@ -319,9 +319,9 @@ def test_deleted_by_a_moderator_says_so_but_self_deletes_do_not():
 def test_edit_card_shows_before_after_jump_and_ids():
     card = fmt.message_edited(message(content="old text"), message(content="new text"))
     fields = {f.name: f.value for f in card.fields}
-    assert card.title == "Message Edited"
+    assert card.title == "✏️ Message edited"
     assert fields["Before"] == "> old text" and fields["After"] == "> new text"
-    assert fields["Jump"] == "[Open message](https://discord.com/channels/10/30/500)"
+    assert "[Jump to message](https://discord.com/channels/10/30/500)" in card.description
     assert card.footer.text == "User ID: 7 · Message ID: 500"
     long = fmt.message_edited(message(content="x" * 5000), message(content="y\n" * 3000))
     assert all(len(f.value) <= 1024 for f in long.fields)
@@ -402,10 +402,9 @@ def test_handing_out_a_dangerous_role_is_flagged():
 def test_timeout_cards():
     until = discord.utils.utcnow() + timedelta(hours=1, minutes=5)
     e = fmt.timed_out(member(), until, member(9, "mod"), "calm down")
-    fields = {field.name: field.value for field in e.fields}
-    assert e.title == "Timeout Applied" and fields["User"] == "<@7> (`7`)" and fields["By"] == "<@9> (`9`)"
-    assert fields["Duration"] == "1 hour, 5 minutes" and fields["Reason"] == "calm down"
-    assert fields["Until"].startswith("<t:")
+    assert body(e)[0] == "**<@7> was timed out by <@9>**"
+    assert detail(e, "Duration") == "1 hour, 5 minutes" and detail(e, "Reason") == "calm down"
+    assert detail(e, "Ends").startswith("<t:")
     cleared = fmt.timeout_removed(member(), member(9, "mod"))
     assert body(cleared) == ["**<@7>'s timeout was removed by <@9>**"]
 
@@ -1637,7 +1636,7 @@ def test_message_edit_posts_quiet_detailed_card_and_respects_ignores():
         before.guild = after.guild = guild
         await cog.on_message_edit(before, after)
         kwargs = channel.send.await_args.kwargs
-        assert kwargs['embed'].title == 'Message Edited'
+        assert kwargs['embed'].title == '✏️ Message edited'
         assert {f.name: f.value for f in kwargs['embed'].fields}['Before'] == '> old'
         assert kwargs['allowed_mentions'].everyone is False and kwargs['allowed_mentions'].users is False
         channel.send.reset_mock()

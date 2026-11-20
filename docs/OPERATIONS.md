@@ -22,10 +22,6 @@ is calculated from cached members with known join times and is not necessarily t
 Long role lists show an omission count; role mentions do not notify their members. Profile banners depend on a
 Discord lookup and may be absent if the lookup fails.
 
-## Combined server logging
-
-Use `,logs setup` to preview and create a private single-channel destination for missing server-log routes, or `,logs combine #channel` to preview consolidating existing non-disabled routes into a channel you select. Explicitly disabled routes stay off; unset routes become active in a combine, so review the preview and channel visibility. Existing channels are not removed. Other Veil logging destinations (including explicit Antinuke alerts and case modlog) have separate settings. See [logging](LOGGING.md) for permissions, privacy, rollback and limitations. Event delivery and audit attribution remain best effort.
-
 ## Bulk role shortcuts
 
 Use `,r humans "Role Name"`, `,r bots "Role Name"`, or `,r all "Role Name"` to **add** a role to matching
