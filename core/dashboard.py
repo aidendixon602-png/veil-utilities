@@ -425,10 +425,9 @@ class DashboardServer:
               guild=None, active: str = "", developer: bool = False) -> web.Response:
         who = ""
         if user and not user.get("local"):
-            who = (f'<div class="who"><span class="account-dot" aria-hidden="true">'
-                   f'{_esc(str(user.get("name") or "?")[:1].upper())}</span>'
-                   f'<span>Signed in as <b>{_esc(user.get("name"))}</b></span>'
-                   f'<form class="inline" method="POST" action="/logout">'
+            who = ('<div class="who"><span class="account-dot" aria-hidden="true">✓</span>'
+                   '<span>Developer access</span>'
+                   '<form class="inline" method="POST" action="/logout">'
                    f'<input type="hidden" name="csrf" value="{_esc(user.get("csrf"))}">'
                    f'<button class="btn btn-plain" type="submit">Log out</button></form></div>')
         elif user:
