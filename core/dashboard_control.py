@@ -69,38 +69,64 @@ def select_guild(server, request):
 
 async def overview(server, user):
     import time
+
     guilds = list(server.bot.guilds)
-    check = getattr(server.bot, 'is_authorized', None)
-    auth = str(sum(bool(check(g.id)) for g in guilds)) if callable(check) else 'Unavailable'
-    ready = getattr(server.bot, 'is_ready', None)
-    state = ('Ready' if ready() else 'Not ready') if callable(ready) else 'Unavailable'
-    started = getattr(server.bot, 'started_at', None)
+    check = getattr(server.bot, "is_authorized", None)
+    try:
+        authorized = str(sum(bool(check(g.id)) for g in guilds)) if callable(check) else "Unavailable"
+    except Exception:
+        authorized = "Unavailable"
+
+    ready = getattr(server.bot, "is_ready", None)
+    state = ("Online" if ready() else "Starting") if callable(ready) else "Unavailable"
+    started = getattr(server.bot, "started_at", None)
     if isinstance(started, (int, float)) and not isinstance(started, bool) and 0 < started <= time.time():
         minutes = int((time.time() - started) / 60)
-        uptime = f'{minutes // 60}h {minutes % 60}m'
+        uptime = f"{minutes // 60}h {minutes % 60}m"
     else:
-        uptime = 'Unavailable'
+        uptime = "Unavailable"
+
     try:
-        row = await server.bot.db.fetchone("SELECT COUNT(*) AS count FROM security_incidents WHERE state IN ('open','containing')")
-        incidents = str(row['count'])
+        row = await server.bot.db.fetchone(
+            "SELECT COUNT(*) AS count FROM security_incidents WHERE state IN ('open','containing')"
+        )
+        incidents = str(row["count"])
     except Exception:
-        incidents = 'Unavailable'
-    return (heading('Developer overview', 'An operational starting point for your Veil deployment.') +
-            '<div class="stats">' + card('Gateway status', state, 'Local bot readiness, not an external health check') +
-            card('Bot uptime', uptime, 'Since this bot process started') + card('Joined servers', str(len(guilds)), 'Gateway cache') +
-            card('Authorized servers', auth, 'Joined servers currently authorized') +
-            card('Open incident records', incidents, 'Stored open/containing records; not a live alert count') + '</div>' +
-            '<div class="control-grid"><section class="card"><div class="card-head"><div><h2>Workspace</h2>'
-            '<p>Manage your servers using the existing Veil configuration.</p></div></div>'
-            '<div class="control-links"><a href="/servers">Server inventory <span>↗</span></a>'
-            '<a href="/authorization">Server authorization <span>↗</span></a>'
-            '<a href="/control/security">Security center <span>↗</span></a>'
-            '<a href="/control/roblox">Roblox groups <span>↗</span></a></div></section>'
-            '<section class="card"><div class="card-head"><div><h2>Operational context</h2>'
-            '<p>Read before taking action</p></div></div><p class="hint">Protection is best effort. Discord permissions, '
-            'hierarchy, audit delivery and API availability affect detection and recovery. '
-            'Roblox monitoring, backups and recovery are not implemented.</p>'
-            '<p class="hint">Live API health, recent developer activity and backup history are not available here.</p></section></div>')
+        incidents = "Unavailable"
+
+    return (
+        '<section class="dashboard-hero">'
+        '<div><p class="eyebrow">VEIL / DEVELOPER CONTROL CENTER</p>'
+        '<h1>Welcome to <span>Veil Utilities</span></h1>'
+        '<p>Manage the bot, review server security, and inspect connected communities from one place.</p></div>'
+        f'<div class="hero-status"><strong><span class="status-indicator"></span>{_esc(state)}</strong>'
+        '<small>Discord gateway status</small></div></section>'
+        '<div class="stats">'
+        + card("Bot status", state, "Current gateway readiness")
+        + card("Bot uptime", uptime, "Since this process started")
+        + card("Connected servers", str(len(guilds)), "Current Discord gateway cache")
+        + card("Authorized servers", authorized, "Currently authorized servers")
+        + '</div>'
+        '<div class="control-grid">'
+        '<section class="card"><div class="card-head"><div><h2>Quick access</h2>'
+        '<p>Open a developer workspace.</p></div></div>'
+        '<div class="control-links">'
+        '<a href="/servers">Server management <span>↗</span></a>'
+        '<a href="/control/security">Security center <span>↗</span></a>'
+        '<a href="/control/moderation">Moderation center <span>↗</span></a>'
+        '<a href="/control/roblox">Roblox security <span>↗</span></a>'
+        '<a href="/control/diagnostics">Logs and diagnostics <span>↗</span></a>'
+        '<a href="/authorization">Server authorization <span>↗</span></a>'
+        '</div></section>'
+        '<section class="card"><div class="card-head"><div><h2>System overview</h2>'
+        '<p>Live process state and stored records.</p></div></div>'
+        '<div class="summary-row"><span>Open incident records</span><strong>' + _esc(incidents) + '</strong></div>'
+        '<div class="summary-row"><span>Connected servers</span><strong>' + _esc(len(guilds)) + '</strong></div>'
+        '<div class="summary-row"><span>Authorized servers</span><strong>' + _esc(authorized) + '</strong></div>'
+        '<p class="overview-note">Values are read from the running bot and available database records. '
+        'Unavailable values are shown as unavailable; this page does not estimate service health or claim that '
+        'an incident is still active.</p></section></div>'
+    )
 
 
 async def page(server, request: web.Request, section: str | None = None) -> web.Response:
