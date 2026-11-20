@@ -1,6 +1,7 @@
 """Read-only Roblox integration, without contacting Roblox or Discord."""
 import asyncio
 import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,7 +26,7 @@ def test_connect_disconnect_csrf_stale_and_authorization(monkeypatch):
                                     "roles": [{"name": '<b>Boss</b>', "rank": 255, "members": None}],
                                     "truncated": False})
     monkeypatch.setattr(roblox, "fetch_group", fetch)
-    token, headers = cookie(server, GUILD_OWNER)
+    token, headers = cookie(server, BOT_OWNER)
     _, stranger = cookie(server, STRANGER)
     _, developer = cookie(server, BOT_OWNER)
     path = f"/servers/{GUILD_ID}/roblox"
@@ -33,7 +34,8 @@ def test_connect_disconnect_csrf_stale_and_authorization(monkeypatch):
     async def scenario(client):
         assert (await client.get(path, allow_redirects=False)).status == 302
         assert (await client.get(path, headers=stranger)).status == 403
-        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/roblox", headers=headers)).status == 404
+        _, owner = cookie(server, GUILD_OWNER)
+        assert (await client.get(f"/servers/{OTHER_GUILD_ID}/roblox", headers=owner)).status == 403
         assert (await client.get(f"/servers/{OTHER_GUILD_ID}/roblox", headers=developer)).status == 200
         page = await client.get(path, headers=headers)
         html = await page.text()
@@ -136,7 +138,7 @@ def test_failure_states_revocation_and_uncertain_save(monkeypatch):
     bot.db.store[(GUILD_ID, 'roblox_group')] = {'group_id': 123}
     fetch = AsyncMock(side_effect=asyncio.TimeoutError)
     monkeypatch.setattr(roblox, 'fetch_group', fetch)
-    token, headers = cookie(server, GUILD_OWNER)
+    token, headers = cookie(server, BOT_OWNER)
     path = f'/servers/{GUILD_ID}/roblox'
 
     async def scenario(client):
@@ -148,7 +150,7 @@ def test_failure_states_revocation_and_uncertain_save(monkeypatch):
         response = await client.post(path, headers=headers, data=form)
         assert response.status == 503 and 'Save not confirmed' in await response.text()
         assert bot.db.store[(GUILD_ID, 'roblox_group')] == {'group_id': 123}
-        bot.guilds[0].owner_id = 999
+        bot.application_info.return_value = SimpleNamespace(owner=SimpleNamespace(id=999), team=None)
         assert (await client.get(path, headers=headers)).status in (403, 404)
         assert (await client.post(path, headers=headers, data=form)).status in (403, 404)
         assert bot.db.set_config_committed.await_count == 1
@@ -159,7 +161,7 @@ def test_failure_states_revocation_and_uncertain_save(monkeypatch):
 def test_concurrent_saves_and_access_revoked_during_lookup(monkeypatch):
     bot = make_bot()
     server = login_server(bot)
-    token, headers = cookie(server, GUILD_OWNER)
+    token, headers = cookie(server, BOT_OWNER)
     path = f'/servers/{GUILD_ID}/roblox'
 
     async def scenario(client):
@@ -171,7 +173,7 @@ def test_concurrent_saves_and_access_revoked_during_lookup(monkeypatch):
         assert bot.db.writes == [(GUILD_ID, 'roblox_group')]
 
         async def revoke(group_id):
-            bot.guilds[0].owner_id = 999
+            bot.application_info.return_value = SimpleNamespace(owner=SimpleNamespace(id=999), team=None)
             return {'group': {'name': 'private view', 'members': 1}, 'roles': [], 'truncated': False}
 
         monkeypatch.setattr(roblox, 'fetch_group', revoke)

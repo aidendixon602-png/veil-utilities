@@ -1,4 +1,4 @@
-"""Owner/developer dashboard controls backed by the existing bot configuration.
+"""Developer-only dashboard controls backed by the existing bot configuration.
 
 Each section saves independently and checks a signed snapshot to avoid overwriting
 changes made since the page was opened. No Discord actions or channel deletion happen here.
@@ -372,7 +372,7 @@ async def save_admin_grant(server, guild, user, data) -> web.Response:
     from core.utils import UserError
 
     if not await server._can_manage_rbl(user, guild):
-        return server._message("Access denied", "Only the server owner or a bot developer may manage grants.", 403, user)
+        return server._message("Access denied", "Only bot developers may manage grants via the dashboard.", 403, user)
     get_cog = getattr(server.bot, "get_cog", None)
     cog = get_cog("Moderation") if callable(get_cog) else None
     if cog is None:
@@ -434,7 +434,7 @@ async def save_feature(server, request: web.Request) -> web.Response:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
     feature = request.match_info["feature"]
     if not await server._can_manage_security(user, guild):
-        return server._message("Access denied", "Only the server owner or a bot developer may change security settings.", 403, user)
+        return server._message("Access denied", "Only bot developers may change dashboard security settings.", 403, user)
     data = await request.post()
     if not server._csrf_ok(user, data.get("csrf")):
         return server._message("Session expired", "Please refresh the page and try again.", 403, user)

@@ -4,9 +4,8 @@ Security model
 --------------
 * Off unless ``DASHBOARD_ENABLED=true``.
 * A real listener requires HTTPS and Discord login; it never starts in unauthenticated local mode.
-* With ``DISCORD_CLIENT_SECRET`` and ``DASHBOARD_URL`` set (the client ID comes from the bot itself), people sign in with Discord
-  (``identify`` scope only) and each server is shown only to its owner or to a bot developer. This mirrors the
-  Discord commands: only the server owner can change antinuke admins, which this page edits.
+* Discord OAuth identifies the user. Only Veil bot developers may use any dashboard page or API;
+  server ownership, Discord Administrator and bot permission levels never grant dashboard access.
 * Login cookies are HMAC-signed, every form carries a CSRF token, cross-site POSTs are refused, and every value
   written into HTML is escaped.
 """
@@ -46,7 +45,7 @@ DISCORD_AUTHORIZE = "https://discord.com/oauth2/authorize"
 
 SESSION_COOKIE = "veil_session"
 STATE_COOKIE = "veil_oauth_state"
-SESSION_TTL = 7 * 24 * 3600
+SESSION_TTL = 12 * 3600
 STATE_TTL = 10 * 60
 
 PUNISHMENTS = ("ban", "kick", "strip")
@@ -168,6 +167,8 @@ class DashboardServer:
 
         self._secret = (secret or secrets.token_hex(32)).encode()
         self._pending_revocations: dict[str, tuple[int, int, float]] = {}
+        self._sessions: dict[str, tuple[int, int]] = {}
+        self._request_limits: dict[str, list[float]] = {}
         self._save_locks = [asyncio.Lock() for _ in range(64)]
         self._roblox_locks = [asyncio.Lock() for _ in range(32)]
         self._roblox_cache: dict[int, tuple[float, dict]] = {}
@@ -191,7 +192,8 @@ class DashboardServer:
     def _setup_routes(self):
         r = self.app.router
         r.add_get("/assets/dashboard.js", self.handle_script)
-        r.add_get("/", self.handle_home)
+        r.add_get("/", self.handle_control_overview)
+        r.add_get("/control/{section}", self.handle_control)
         r.add_get("/servers", self.handle_home)
         r.add_get("/servers/{guild_id}", self.handle_server)
         r.add_get("/servers/{guild_id}/overview", self.handle_server_overview)
@@ -230,9 +232,16 @@ class DashboardServer:
         return payload
 
     def make_session(self, uid: int, name: str, *, local: bool = False) -> str:
+        now = int(time.time())
+        self._sessions = {sid: entry for sid, entry in self._sessions.items() if entry[1] > now}
+        if len(self._sessions) >= 4096:
+            raise RuntimeError("Dashboard session capacity reached")
+        sid = secrets.token_urlsafe(32)
+        expiry = now + SESSION_TTL
+        self._sessions[sid] = (int(uid), expiry)
         return self._sign({
-            "t": "session", "uid": int(uid), "name": name, "local": local,
-            "csrf": secrets.token_urlsafe(24), "exp": int(time.time()) + SESSION_TTL,
+            "t": "session", "uid": int(uid), "name": name, "local": local, "sid": sid,
+            "csrf": secrets.token_urlsafe(24), "exp": expiry,
         })
 
     def _set_cookie(self, resp: web.StreamResponse, name: str, value: str, max_age: int) -> None:
@@ -244,7 +253,12 @@ class DashboardServer:
         if not self.login_enabled:
             return None
         user = self._unsign(request.cookies.get(SESSION_COOKIE), "session")
-        return user if user and not user.get("local") else None
+        if not user or user.get("local"):
+            return None
+        sid = user.get("sid")
+        if not isinstance(sid, str) or self._sessions.get(sid) != (user.get("uid"), user.get("exp")):
+            return None
+        return user
 
     # ------------------------------------------------------------------ middleware
     def _origin(self, request: web.Request) -> str:
@@ -252,6 +266,18 @@ class DashboardServer:
             parts = urlsplit(self.public_url)
             return f"{parts.scheme}://{parts.netloc}"
         return f"{request.scheme}://{request.host}"
+
+    def _rate_allowed(self, key: str, limit: int) -> bool:
+        now = time.monotonic()
+        self._request_limits = {k: [t for t in times if t > now - 60]
+                                for k, times in self._request_limits.items() if times and times[-1] > now - 60}
+        if key not in self._request_limits and len(self._request_limits) >= 1024:
+            return False
+        bucket = self._request_limits.setdefault(key, [])
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        return True
 
     @web.middleware
     async def _security_middleware(self, request: web.Request, handler):
@@ -261,16 +287,23 @@ class DashboardServer:
                 if hostname not in LOCAL_HOSTNAMES:
                     return self._finish(request, web.Response(
                         status=421, text=f"Open the dashboard at http://127.0.0.1:{self.port}"))
+            user = self._user(request)
+            if request.path not in {"/assets/dashboard.js", "/logout"}:
+                key = f"user:{user['uid']}" if user else f"peer:{request.remote or 'unknown'}"
+                if not self._rate_allowed(key, 240 if user else 60):
+                    return self._finish(request, web.Response(status=429, text="Too many requests; try again later.",
+                                                              headers={"Retry-After": "60"}))
             if request.method == "POST":
                 origin = request.headers.get("Origin")
                 fetch_site = request.headers.get("Sec-Fetch-Site")
                 if (origin and origin != self._origin(request)) or fetch_site == "cross-site":
                     return self._finish(request, web.Response(status=403, text="Cross-site request refused"))
-            # Recheck every request so losing ownership or developer status revokes an existing session.
+            # Recheck developer status on every request.
             if self.login_enabled and request.path not in {"/login", "/callback", "/logout"}:
                 user = self._user(request)
                 if user and not await self._may_use_dashboard(user):
-                    return self._finish(request, self._message("Access denied", "Only bot developers and owners of authorized servers may use this dashboard.", 403))
+                    log.warning("Dashboard access denied: user %s", user["uid"])
+                    return self._finish(request, self._message("Access denied", "Only verified bot developers may use this dashboard.", 403))
             resp = await handler(request)
         except web.HTTPException as exc:
             for k, v in SECURITY_HEADERS.items():
@@ -294,6 +327,11 @@ class DashboardServer:
             resp.headers.setdefault("Referrer-Policy", "same-origin")
         for k, v in SECURITY_HEADERS.items():
             resp.headers.setdefault(k, v)
+        if request.path != "/assets/dashboard.js":
+            user = self._user(request)
+            # Do not log URLs, query strings, cookies, OAuth codes, form fields, or exception messages.
+            log.info("Dashboard request: user=%s method=%s status=%s", user["uid"] if user else "anonymous",
+                     request.method, resp.status)
         token = request.get(NEW_SESSION_KEY)
         if token:
             self._set_cookie(resp, SESSION_COOKIE, token, SESSION_TTL)
@@ -305,80 +343,48 @@ class DashboardServer:
 
         Explicitly configured/built-in developers remain authorized until their local
         configuration changes. Application owners and team members must still be
-        present in both Veil's identity model and fresh Discord application info.
+        present in fresh Discord application info.
         """
         if user.get("local"):
+            return False
+        sid = user.get("sid")
+        if sid is not None and (self._sessions.get(sid) != (user.get("uid"), user.get("exp"))
+                                or user.get("exp", 0) <= time.time()):
             return False
         try:
             uid = int(user["uid"])
             if uid in perms.BOT_DEVELOPERS or uid in (settings.owner_ids or ()):
                 return True
-            if not perms.is_bot_developer(uid, self.bot) and not await self.bot.is_owner(uid):
-                return False
             info = await asyncio.wait_for(self.bot.application_info(), timeout=5)
             owner = getattr(getattr(info, "owner", None), "id", None)
             team = getattr(info, "team", None)
             members = getattr(team, "members", ()) if team is not None else ()
-            return uid == owner or any(getattr(member, "id", None) == uid for member in members)
-        except Exception:
-            return False
-
-    async def _is_server_owner(self, user: dict, guild) -> bool:
-        """Confirm ownership with Discord; a stale gateway cache cannot grant access.
-
-        API errors and timeouts deny access. The cached owner is used only to narrow
-        the list of candidates during discovery, never as proof of ownership.
-        """
-        if user.get("local") or not self._server_authorized(guild):
-            return False
-        try:
-            fetch = getattr(self.bot, "fetch_guild", None)
-            if not callable(fetch):
-                return False
-            fresh = await asyncio.wait_for(fetch(guild.id), timeout=5)
-            return (fresh.id == guild.id and fresh.owner_id == int(user["uid"])
-                    and self._server_authorized(guild))
+            return uid == owner or any(getattr(member, "id", None) == uid and
+                                       getattr(member, "membership_state", None) == discord.TeamMembershipState.accepted
+                                       for member in members)
         except Exception:
             return False
 
     async def _may_use_dashboard(self, user: dict) -> bool:
-        if user.get("local"):
-            return False
-        if await self._is_bot_owner(user):
-            return True
-        for guild in self.bot.guilds:
-            if guild.owner_id == user.get("uid") and await self._is_server_owner(user, guild):
-                return True
-        return False
-
-    def _server_authorized(self, guild) -> bool:
-        check = getattr(self.bot, "is_authorized", None)
-        return bool(check(guild.id)) if callable(check) else False
+        return await self._is_bot_owner(user)
 
     async def _can_manage_rbl(self, user: dict, guild) -> bool:
-        return not user.get("local") and (await self._is_bot_owner(user) or await self._is_server_owner(user, guild))
+        return await self._is_bot_owner(user)
 
     async def _can_manage_security(self, user: dict, guild) -> bool:
-        return await self._can_manage_rbl(user, guild)
+        return await self._is_bot_owner(user)
 
     async def _guilds_for(self, user: dict) -> list:
-        if await self._is_bot_owner(user):
-            return list(self.bot.guilds)
-        return [guild for guild in self.bot.guilds if guild.owner_id == user.get("uid")
-                and await self._is_server_owner(user, guild)]
+        return list(self.bot.guilds) if await self._is_bot_owner(user) else []
 
     async def _guild_for(self, request: web.Request, user: dict):
-        """Enforce server-scoped owner/developer authorization for each request."""
+        """Only developers can access a joined server, including by a direct URL."""
         try:
             gid = int(request.match_info["guild_id"])
         except (KeyError, ValueError):
             return None
         guild = self.bot.get_guild(gid)
-        if guild is None:
-            return None
-        if await self._is_bot_owner(user) or await self._is_server_owner(user, guild):
-            return guild
-        return None
+        return guild if guild is not None and await self._is_bot_owner(user) else None
 
     async def _antinuke_cfg(self, gid: int) -> dict:
         """Load antinuke config the same way the antinuke cog does, so a first read caches the full defaults."""
@@ -425,14 +431,12 @@ class DashboardServer:
         elif user:
             who = '<div class="who">Local access (127.0.0.1)</div>'
         sub = f'<div class="sub">{subtitle}</div>' if subtitle else ""
-        nav = (self._server_navigation(guild, active) if guild else
-               '<span class="nav-label">WORKSPACE</span><a class="nav-link active" href="/" aria-current="page">'
-               f'<span class="nav-icon" aria-hidden="true">{_dashboard_icon("overview")}</span><span class="nav-text">Server overview</span></a>')
-        if not guild and developer:
-            nav += ('<span class="nav-label">DEVELOPER</span><a class="nav-link" href="/authorization" title="Server authorization">'
-                    f'<span class="nav-icon" aria-hidden="true">{_dashboard_icon("rules")}</span><span class="nav-text">Authorization</span></a>')
-        mobile_nav = (f'<details class="mobile-nav"><summary>Navigate server workspace</summary><nav aria-label="Mobile server navigation">{nav}</nav></details>'
-                      if guild else '')
+        from core.dashboard_control import navigation
+        nav = navigation(active) if user else ''
+        if guild and user:
+            nav += self._server_navigation(guild, active)
+        mobile_nav = (f'<details class="mobile-nav"><summary>Navigate control center</summary><nav aria-label="Mobile navigation">{nav}</nav></details>'
+                      if user else '')
         doc = (
             '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
@@ -444,9 +448,9 @@ class DashboardServer:
             'stroke="currentColor" stroke-width="1.7"><path d="M12 2.5 20 6v5.4c0 4.6-3.2 7.7-8 10.1-4.8-2.4-8-5.5-8-10.1V6L12 2.5Z"/>'
             '<path d="m8.8 11.5 2.2 2.2 4.6-5"/></svg></span>'
             '<span class="brand-copy"><span class="logo">Veil Utilities</span>'
-            '<span class="brand-caption">Server management</span></span></a>'
-            f'<nav aria-label="Main navigation">{nav}</nav>'
-            '<div class="side-note"><strong>Your workspace</strong>Manage settings for the servers available to your account.</div>'
+            '<span class="brand-caption">Developer control center</span></span></a>'
+            f'<details class="sidebar-navigation" open><summary>Navigation</summary><nav aria-label="Main navigation">{nav}</nav></details>'
+            '<div class="side-note"><strong>Your workspace</strong>Verified developer access only.</div>'
             '</aside><div class="workspace"><header>'
             f'<div class="top-title"><a href="/">Veil Utilities</a><span class="top-separator">/</span><b>{_esc(title)}</b>{sub}</div>{who}'
             f'</header>{mobile_nav}<div class="container"><main id="main">{body}</main></div></div></div></body></html>'
@@ -467,21 +471,29 @@ class DashboardServer:
     async def handle_script(self, request: web.Request) -> web.Response:
         return web.Response(text=DASHBOARD_SCRIPT, content_type="application/javascript")
 
+    async def handle_control_overview(self, request: web.Request) -> web.Response:
+        if self._user(request) is None:
+            return await self.handle_home(request)
+        from core.dashboard_control import page
+        return await page(self, request, "overview")
+
+    async def handle_control(self, request: web.Request) -> web.Response:
+        from core.dashboard_control import page
+        return await page(self, request)
+
     async def handle_home(self, request: web.Request) -> web.Response:
         user = self._user(request)
         if user is None:
             return self._page("Sign in", (
                 '<div class="card center"><p class="eyebrow">Veil Utilities / Dashboard</p>'
                 '<h1>Sign in to Veil</h1>'
-                '<p class="muted">Sign in with Discord to manage your authorized servers. '
-                'Bot developers can access all joined servers.</p>'
+                '<p class="muted">Sign in with Discord. This control center is restricted to verified Veil bot developers.</p>'
                 '<a class="btn" href="/login">Log in with Discord →</a></div>'))
 
         guilds = await self._guilds_for(user)
         is_developer = await self._is_bot_owner(user)
-        role = "Developer workspace" if is_developer else "Server owner workspace"
-        access_description = ("Manage every server Veil has joined and review server authorizations."
-                              if is_developer else "Manage authorized servers you own, all in one place.")
+        role = "Developer workspace"
+        access_description = "Manage every server Veil has joined and review server authorizations."
         authorization_link = ('<a class="hero-action" href="/authorization">Manage authorization <span aria-hidden="true">↗</span></a>'
                               if is_developer and not user.get("local") else "")
         body = (f'<section class="welcome-panel"><div class="welcome-copy"><div class="welcome-kicker"><span class="kicker-dot"></span>{role}</div>'
@@ -504,8 +516,7 @@ class DashboardServer:
                      f'<div><span>{member_label}</span><strong>{members_text}</strong></div>'
                      f'<div><span>GATEWAY LATENCY</span><strong>{latency_text}</strong></div>'
                      f'<div><span>UPTIME</span><strong>{hours}h {rem // 60}m</strong></div></section>')
-        # Search and filters are evaluated on the server, after the access check. No guild
-        # names or settings for other owners are sent to the browser.
+        # Search and filters are evaluated after the developer access check.
         query = request.query.get("q", "").strip()[:100]
         status = request.query.get("antinuke", "any")
         if status not in ("any", "on", "off"):
@@ -527,7 +538,7 @@ class DashboardServer:
                 continue
             an = await self._antinuke_cfg(g.id)
             enabled = bool(an.get("enabled"))
-            security_access = await self._can_manage_security(user, g)
+            security_access = True  # The inventory is developer-only; recheck before responding.
             if status != "any" and (not security_access or enabled != (status == "on")):
                 continue
             is_authorized = getattr(self.bot, "is_authorized", None)
@@ -571,11 +582,10 @@ class DashboardServer:
         if cards:
             listing = '<div class="guild-grid">' + "".join(cards) + '</div>'
         elif guilds:
-            listing = '<div class="empty-servers"><strong>No servers match your filters.</strong><p>Try a different search or clear the filters.</p><a href="/">Clear filters →</a></div>'
+            listing = '<div class="empty-servers"><strong>No servers match your filters.</strong><p>Try a different search or clear the filters.</p><a href="/servers">Clear filters →</a></div>'
         else:
             listing = ('<div class="empty-servers"><strong>No servers available yet.</strong>'
-                       '<p>Veil must be in an authorized server you own. '
-                       'Bot developers can access every joined server.</p></div>')
+                       '<p>Veil has not joined a server yet.</p></div>')
         status_options = "".join(option(v, label, status == v) for v, label in
                                  (("any", "Any"), ("on", "On"), ("off", "Off")))
         sort_options = "".join(option(v, label, order == v) for v, label in
@@ -589,10 +599,10 @@ class DashboardServer:
                  '<p class="eyebrow">YOUR WORKSPACE</p><h2>Your servers</h2>'
                  '<p>Select a server to manage its protection and features.</p></div>'
                  f'<span class="server-count">{len(visible)} of {len(guilds)} servers shown</span></div>'
-                 '<form method="GET" action="/" class="server-search">'
+                 '<form method="GET" action="/servers" class="server-search">'
                  '<div class="search-row"><div class="search-field"><label for="q">Search servers</label>'
                  f'<input id="q" name="q" value="{_esc(query)}" placeholder="Search by name or server ID"></div>'
-                 '<button class="btn" type="submit">Search</button><a class="btn btn-plain" href="/">Clear</a></div>'
+                 '<button class="btn" type="submit">Search</button><a class="btn btn-plain" href="/servers">Clear</a></div>'
                  f'<details class="advanced-filters"{filters_open}><summary>Filter &amp; sort servers</summary><div class="filter-row">'
                  f'<div class="form-group"><label for="antinuke">Antinuke</label><select id="antinuke" name="antinuke">{status_options}</select></div>'
                  f'<div class="form-group"><label for="authorized">Authorization</label><select id="authorized" name="authorized">{auth_options}</select></div>'
@@ -600,7 +610,9 @@ class DashboardServer:
                  f'<div class="form-group"><label for="sort">Sort by</label><select id="sort" name="sort">{sort_options}</select></div>'
                  '<button class="btn btn-plain" type="submit">Apply filters</button></div></details></form>'
                  f'{listing}<p class="overview-note">Log routes count explicitly selected channels; automatic routing is not included.</p></section>')
-        return self._page("Dashboard", body, user, developer=is_developer)
+        if not await self._is_bot_owner(user):
+            return self._message("Access denied", "Developer access changed.", 403)
+        return self._page("Server Management", body, user, active="servers", developer=is_developer)
 
     async def _authorization_user(self, request: web.Request) -> dict | None:
         user = self._user(request)
@@ -707,7 +719,9 @@ class DashboardServer:
             if guild:
                 # Serialize the final check with authorization, just like the join rejection path.
                 async with cog._auth_lock:
-                    if self.bot.is_authorized(gid):
+                    if not await self._is_bot_owner(user):
+                        detail = "Authorization was revoked, but developer access changed before the leave; the bot did not attempt to leave. Review the server in Discord."
+                    elif self.bot.is_authorized(gid):
                         detail = "The bot stayed because this server is still automatically authorized or authorization is disabled."
                     else:
                         try:
@@ -777,7 +791,7 @@ class DashboardServer:
                 '<p class="overview-note">Log route counts show explicitly selected categories, not automatic routing.</p></div>'
                 '<aside class="workspace-summary" aria-label="Workspace summary"><p class="eyebrow">AT A GLANCE</p>'
                 '<h2>Workspace overview</h2><p>A quick view of your saved configuration.</p>'
-                f'<div class="summary-row"><span>Access</span><strong>Owner / developer</strong></div>'
+                f'<div class="summary-row"><span>Access</span><strong>Developer only</strong></div>'
                 f'{security_summary}<div class="summary-row"><span>Leveling</span><strong>{_esc(level_state.title())}</strong></div>'
                 f'<div class="summary-row"><span>Explicit log routes</span><strong>{count}</strong></div>'
                 '<p class="summary-note">Settings are a snapshot, not a guarantee of Discord permissions or delivery.</p></aside></div>')
@@ -951,7 +965,8 @@ class DashboardServer:
             return self._message("Login failed", "Couldn't verify your Discord account. Please try again.", 502)
         name = str(me.get("global_name") or me.get("username") or uid)
         if not await self._may_use_dashboard({"uid": uid, "local": False}):
-            resp = self._message("Access denied", "Only bot developers and owners of authorized servers may use this dashboard.", 403)
+            log.warning("Dashboard login denied: user %s", uid)
+            resp = self._message("Access denied", "Only verified bot developers may use this dashboard.", 403)
             resp.del_cookie(STATE_COOKIE, path="/")
             return resp
         resp = self._redirect("/")
@@ -989,6 +1004,8 @@ class DashboardServer:
         data = await request.post()
         if user is None or not self._csrf_ok(user, data.get("csrf")):
             return self._message("Session expired", "Please refresh the page and try again.", 403)
+        self._sessions.pop(user["sid"], None)
+        log.info("Dashboard logout: user %s", user["uid"])
         resp = self._redirect("/")
         resp.del_cookie(SESSION_COOKIE, path="/")
         return resp
@@ -1013,7 +1030,7 @@ class DashboardServer:
         if guild is None:
             return web.json_response({"error": "not found"}, status=404)
         if not await self._can_manage_security(user, guild):
-            return web.json_response({"error": "owner or developer required"}, status=403)
+            return web.json_response({"error": "developer required"}, status=403)
         result = {
             "logs": await self.bot.db.get_config(guild.id, "logs") or {},
             "antinuke": await self._antinuke_cfg(guild.id),
@@ -1042,14 +1059,14 @@ class DashboardServer:
         if guild is None:
             return self._message("Server not found", "Veil isn't in that server, or you don't own it.", 404, user)
         if not await self._can_manage_security(user, guild):
-            return self._message("Access denied", "Only the server owner or a bot developer may change security settings.", 403, user)
+            return self._message("Access denied", "Only bot developers may change dashboard security settings.", 403, user)
         data = await request.post()
         if not self._csrf_ok(user, data.get("csrf")):
             return self._message("Session expired", "Please refresh the page and try again.", 403, user)
         gid = guild.id
         rbl_fields = {"rbl_roles", "rbl_authorized"} & set(data)
         if (rbl_fields or "rbl_reply_mode" in data) and not await self._can_manage_rbl(user, guild):
-            return self._message("Access denied", "Discord owner or developer login is required for role blacklist settings.", 403, user)
+            return self._message("Access denied", "Developer login is required for role blacklist settings.", 403, user)
 
         from core.dashboard_features import _digest
         rbl = deepcopy(await self.bot.db.get_config(gid, "roleblacklist") or {})
