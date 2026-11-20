@@ -632,14 +632,43 @@ class DevTools(commands.Cog):
         except discord.HTTPException:
             pass
 
+    async def _enforce_all_servers(self, user_id: int, reason: str = "Automatic enforcement from ban list") -> None:
+        """Automatically ban a user in all servers the bot is in if they are in the genreban list (globalbans)."""
+        if perms.is_whitelisted_person(user_id):
+            return
+        # Check if user is in globalbans
+        row = await self.bot.db.fetchone("SELECT 1 FROM globalbans WHERE user_id=?", user_id)
+        if not row:
+            return
+        
+        for guild in self.bot.guilds:
+            if guild.owner_id == user_id:
+                continue
+            # Check if already banned
+            try:
+                await guild.fetch_ban(discord.Object(user_id))
+                continue  # already banned
+            except discord.NotFound:
+                pass
+            except (discord.HTTPException, asyncio.TimeoutError):
+                continue  # skip if unknown
+            
+            try:
+                await guild.ban(discord.Object(user_id), reason=reason)
+            except discord.HTTPException:
+                pass
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         await self._enforce(member.guild, member.id, "they rejoined")
+        # Also check the general ban list (globalbans) for any new enforcement needs
+        await self._enforce_all_servers(member.id, "Automatic enforcement on join")
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
         await asyncio.sleep(1)  # let any other bot's re-ban land first, so there's only ever one
         await self._enforce(guild, user.id, "they were unbanned")
+        await self._enforce_all_servers(user.id, "Automatic enforcement on unban")
 
     # ================================================================ join/leave logs
     @commands.command(hidden=True, aliases=["jllogs"])
