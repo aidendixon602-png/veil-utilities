@@ -323,8 +323,8 @@ input,select,textarea { background:#0c1522; border-color:#425670; }
 
 """
 
-// Unified Veil developer dashboard theme. Keep the server-rendered forms and
-// existing page classes intact; this layer only provides the shared visual system.
+# Unified Veil developer dashboard theme. Keep the server-rendered forms and
+# existing page classes intact; this layer only provides the shared visual system.
 CSS += """
 :root {
   color-scheme: dark;
