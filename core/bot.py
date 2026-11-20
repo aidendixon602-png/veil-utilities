@@ -261,8 +261,7 @@ class Veil(commands.AutoShardedBot):
             latency = getattr(self, "latency", 0.0)
             latency_ms = round(latency * 1000) if isinstance(latency, (int, float)) and latency == latency and latency != float("inf") else 0
             total_users = sum(g.member_count or 0 for g in self.guilds)
-            log.info("Heartbeat · %d guilds · %s users · %dms gateway",
-                     len(self.guilds), f"{total_users:,}", latency_ms)
+            print(f"[veil] Heartbeat · {len(self.guilds)} guilds · {total_users:,} users · {latency_ms}ms", flush=True)
         self._heartbeat_logged = True
 
     @presence_rotator.before_loop
