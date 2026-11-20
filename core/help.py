@@ -547,7 +547,6 @@ class CategorySelect(discord.ui.Select["HelpView"]):
 
     def __init__(self, labels: list[str], sizes: dict[str, int], current: str | None):
         options = [discord.SelectOption(label=label, value=label, default=label == current,
-                                        emoji=CATEGORY_EMOJIS.get(label),
                                         description=count(sizes.get(label, 0), "command")) for label in labels]
         super().__init__(placeholder="More categories", options=options[:25], min_values=1, max_values=1, row=0)
 
@@ -563,8 +562,8 @@ class CategoryButton(discord.ui.Button["HelpView"]):
     """Open a visible category from the help home screen."""
 
     def __init__(self, category: str, row: int):
-        super().__init__(label=category[:80], emoji=CATEGORY_EMOJIS.get(category),
-                         style=discord.ButtonStyle.secondary, row=row)
+        style = discord.ButtonStyle.danger if category == "Secret" else discord.ButtonStyle.secondary
+        super().__init__(label=category[:80], style=style, row=row)
         self.category = category
 
     async def callback(self, it: discord.Interaction):
@@ -847,11 +846,8 @@ class Help(commands.HelpCommand):
                    visible_categories: list[str] | None = None) -> discord.Embed:
         """Describe only categories already permitted by the menu's visibility checks."""
         p = self.context.clean_prefix
-        lines = ["Your guide to Veil Utilities.", "Select a category below to browse the commands available to you.",
-                 "", f"**Prefix**  `{p}`", f"**Command guide**  `{p}help <command>`"]
-        card = self._brand(discord.Embed(color=HELP_COLOR, title="Command center", description="\n".join(lines)))
-        card.set_footer(text="VEIL UTILITIES  •  Choose a category to get started")
-        return card
+        desc = f"Select a category below to view its commands.\n\n**prefix:** `{p}`"
+        return self._brand(discord.Embed(color=HELP_COLOR, description=desc))
 
     def command_line(self, cmd: commands.Command) -> str:
         """One command on a category page, with a marker for groups."""
