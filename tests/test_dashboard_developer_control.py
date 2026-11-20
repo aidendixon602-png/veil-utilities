@@ -145,3 +145,20 @@ def test_old_signed_cookie_and_actual_rate_bucket_are_denied():
             assert (await client.get('/login', allow_redirects=False)).status == 302
         assert (await client.get('/login', allow_redirects=False)).status == 429
     run(server, scenario)
+
+def test_overview_uses_veil_branding_and_does_not_display_discord_profile_name():
+    bot = make_bot()
+    server = login_server(bot)
+    _, headers = cookie(server, BOT_OWNER, name="private-profile-name")
+
+    async def scenario(client):
+        response = await client.get("/", headers=headers)
+        html = await response.text()
+        assert response.status == 200
+        assert "Welcome to" in html and "Veil Utilities" in html
+        assert "Developer access" in html
+        assert "private-profile-name" not in html
+        assert "Connected servers" in html
+        assert "Quick access" in html
+
+    run(server, scenario)
