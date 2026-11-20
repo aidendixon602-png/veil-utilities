@@ -18,7 +18,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 # Emit a flushed line before dependency imports: if an import stalls, a host console can still show
 # that this entry point actually started. Never include environment variables or command arguments here.
-print("[veil] Starting Veil Utilities; checking Python dependencies...", flush=True)
+print(f"[veil] Starting Veil Utilities (Python {sys.version.split()[0]})", flush=True)
 
 # Run from the bot's own folder no matter how it was started (e.g. `python veil-utilities/main.py` on a host),
 # so .env, veil.db, veil.log and the cogs are always found in the same place.
@@ -47,7 +47,7 @@ for module, package in REQUIRED.items():
             audioop_hint = audioop_hint or error.name == "audioop"
     except Exception as error:  # e.g. a compiled wheel built for a different Python or CPU
         broken.append(f"{package} ({type(error).__name__}: {error})")
-if missing or broken:
+    if missing or broken:
     lines = []
     if missing:
         lines.append("Missing Python packages: " + ", ".join(missing))
@@ -60,6 +60,8 @@ if missing or broken:
                      "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
     print("[veil] Dependency check failed; see the error output for details.", flush=True)
     sys.exit("\n".join(lines))
+else:
+    print("[veil] Dependencies: OK", flush=True)
 
 
 def load_env_file(path: str) -> None:
@@ -98,27 +100,23 @@ def auto_sync_git() -> None:
             print("[git] this folder isn't a git checkout, so nothing is pulled. Set the Git repo in the panel "
                   "or upload the files by hand.", flush=True)
             return
-        print("[git] checking for updates...", flush=True)
-        before = gitinfo.snapshot(ROOT)
-        if before.slug and before.slug.lower() != gitinfo.EXPECTED_REPO.lower():
-            print(f"[git] WARNING: this folder pulls from {before.slug}, not {gitinfo.EXPECTED_REPO}", flush=True)
+        print(f"[git] syncing... {before.slug or 'unknown'} -> {gitinfo.EXPECTED_REPO}", flush=True)
         if before.edited:
             patch = os.path.join(ROOT, time.strftime("local-edits-%Y%m%d-%H%M%S.patch"))
             try:
                 diff = gitinfo._git(ROOT, "diff", "HEAD").stdout
                 with open(patch, "w", encoding="utf-8") as f:
                     f.write(diff)
-                print(f"[git] {before.edited} file(s) were edited by hand; saved your changes to "
-                      f"{os.path.basename(patch)} and syncing anyway", flush=True)
+                print(f"[git] {before.edited} file(s) edited; saved to {os.path.basename(patch)} and syncing", flush=True)
             except Exception:
-                print(f"[git] {before.edited} file(s) were edited by hand and couldn't be saved; "
+                print(f"[git] {before.edited} file(s) edited and couldn't be saved; "
                       "not syncing (set AUTO_SYNC_GIT=0 to silence this)", flush=True)
                 return
         result = gitinfo.pull(ROOT)
         if not result.ok:
-            print(f"[git] sync FAILED, still running {before.short}: {result.error}", flush=True)
+            print(f"[git] sync FAILED: {result.error}", flush=True)
         elif result.updated:
-            print(f"[git] updated {result.old[:7]} -> {result.new[:7]}: {result.subject}", flush=True)
+            print(f"[git] synced {result.old[:7]} -> {result.new[:7]}: {result.subject}", flush=True)
             if result.changed is None or "main.py" in result.changed:
                 os.environ["VEIL_SYNCED"] = "1"  # main.py itself changed: start again so the new one runs
                 try:
@@ -136,7 +134,7 @@ def auto_sync_git() -> None:
             del sys.modules[name]
 
 
-print("[veil] Dependencies loaded; checking startup settings...", flush=True)
+    print("[veil] Dependencies loaded; checking startup settings...", flush=True)
 auto_sync_git()
 load_env_file(os.path.join(ROOT, ".env"))
 
@@ -199,9 +197,10 @@ async def run_bot(show_banner: bool = True) -> bool:
 
     if show_banner:
         use_color = os.environ.get("LOG_COLOR", "1") != "0"
-        print(render_startup_banner(color=use_color), flush=True)
-        print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
-    log.info("Connecting to Discord Gateway with auto-sharding...")
+        print(f"[veil] Configuration: OK | Intents: {', '.join(i[0] for i in intent_plans())}", flush=True)
+        # print(render_startup_banner(color=use_color), flush=True)
+        # print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
+            log.info("Connecting to Discord Gateway with auto-sharding...")
 
     # socket.has_ipv6 only means Python supports IPv6, not that this host has a working IPv6 route.
     # A proxy selects its own route, so trying the same proxy a second time cannot switch families.
