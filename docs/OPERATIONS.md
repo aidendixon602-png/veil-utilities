@@ -4,9 +4,9 @@
 
 ## Command navigation
 
-Use `,help` and the category buttons to browse commands, or `,help <command>` for a direct guide. If the
-category catalog outgrows Discord's button layout, the home screen uses a category selector instead. Paginated lists use the arrow buttons;
-the middle indicator shows the current page and the close button dismisses the menu. These controls are limited
+Use `,help` and the category buttons to browse commands, or `,help <command>` for a direct guide.
+Additional visible categories are available in the selector. Category pages use Previous/Next buttons when
+needed; direct command guides can use a paginated view. The home screen uses the active prefix. These controls are limited
 to the person who opened the menu, including when another user is a bot developer. Temporary staff, logging,
 Antinuke and blacklist menus also check their original user's current authorization where required. Other users
 can still read messages in channels they can access, and shared panels (such as tickets, giveaways, VoiceMaster,
@@ -14,6 +14,13 @@ and role buttons) remain shared according to their own access rules. Server and 
 controls. Permission assignment lists show **direct saved grants**, not a complete view of automatic or fake
 permissions. Some commands are omitted from category menus; use `,help <command>` for direct help if authorized.
 Presentation and help visibility do not replace the checks that run when a command is used.
+
+The `,botinfo` overview reports registered commands, process uptime, gateway latency, memory and runtime
+versions. Its memory reading may be peak rather than current when the optional process library is unavailable.
+The `,info` profile shows account creation and, for cached server members, join time and roles. Its join order
+is calculated from cached members with known join times and is not necessarily the true server-wide position.
+Long role lists show an omission count; role mentions do not notify their members. Profile banners depend on a
+Discord lookup and may be absent if the lookup fails.
 
 ## Bulk role shortcuts
 

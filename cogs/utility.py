@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import logging
+import math
 import operator
 import platform
 import re
@@ -27,6 +28,22 @@ CUSTOM_EMOJI = re.compile(r"<(a?):(\w+):(\d+)>")
 
 SNIPE_COLOR = 0x7C8B99  # a quiet slate strip: a snipe is a look back, not an alert
 IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+def _role_mentions(roles: list[str]) -> str:
+    """Fit whole role mentions in one Discord field, indicating omissions without pinging."""
+    if not roles:
+        return "No server roles"
+    shown = []
+    for role in roles:
+        remaining = len(roles) - len(shown) - 1
+        suffix = f"  ·  +{remaining:,} more" if remaining else ""
+        if len(" ".join([*shown, role]) + suffix) > 1024:
+            break
+        shown.append(role)
+    remaining = len(roles) - len(shown)
+    suffix = f"  ·  +{remaining:,} more" if remaining else ""
+    return " ".join(shown) + suffix if shown else f"{remaining:,} roles not shown"
 
 
 def _serverinfo_description(description: str | None) -> str | None:
@@ -329,27 +346,30 @@ class Utility(commands.Cog):
         except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError) as exc:
             log.warning("User info profile lookup failed (%s); using cached details", type(exc).__name__)
             fetched = user
-        e = discord.Embed(color=user.color if getattr(user, "color", None) and user.color.value else Colors.main)
-        e.set_author(name=f"{user} ({user.id})", icon_url=user.display_avatar.url)
+        e = discord.Embed(color=Colors.main, title="User profile",
+                          description=f"<@{user.id}>  ·  `ID {user.id}`")
+        e.set_author(name=shorten(str(user), 256), icon_url=user.display_avatar.url)
         e.set_thumbnail(url=user.display_avatar.url)
-        e.add_field(name="Created", value=f"{ts(user.created_at, 'D')}\n{ts(user.created_at)}")
+        e.add_field(name="Account created", value=f"{ts(user.created_at, 'D')}\n{ts(user.created_at)}")
         if isinstance(user, discord.Member):
-            if user.joined_at:
-                e.add_field(name="Joined", value=f"{ts(user.joined_at, 'D')}\n{ts(user.joined_at)}")
+            joined = f"{ts(user.joined_at, 'D')}\n{ts(user.joined_at)}" if user.joined_at else "Unavailable"
+            e.add_field(name="Joined server", value=joined)
             if user.premium_since:
                 e.add_field(name="Boosting since", value=ts(user.premium_since, "D"))
-            members = sorted(user.guild.members, key=lambda m: m.joined_at or discord.utils.utcnow())
-            pos = members.index(user) + 1 if user in members else None
             roles = [r.mention for r in user.roles[1:][::-1]]
-            e.add_field(name=f"Roles ({len(roles)})", value=shorten(" ".join(roles) or "none"), inline=False)
-            if pos:
-                e.set_footer(text=f"Join position #{pos:,}")
-        badges = [f.name.replace("_", " ") for f in user.public_flags.all()]
+            e.add_field(name=f"Server roles · {len(roles):,}", value=_role_mentions(roles), inline=False)
+            # Member cache can be incomplete; never present this as a definitive server-wide position.
+            members = sorted((m for m in user.guild.members if m.joined_at), key=lambda m: m.joined_at)
+            if user.joined_at and user in members:
+                e.set_footer(text=f"VEIL UTILITIES  •  Cached join order #{members.index(user) + 1:,}")
+        badges = [f.name.replace("_", " ").title() for f in user.public_flags.all()]
         if badges:
-            e.add_field(name="Badges", value=", ".join(badges), inline=False)
+            e.add_field(name="Discord badges", value=shorten(", ".join(badges)), inline=False)
+        if not e.footer.text:
+            e.set_footer(text="VEIL UTILITIES  •  User information")
         if getattr(fetched, "banner", None):
             e.set_image(url=fetched.banner.url)
-        await ctx.send(embed=e)
+        await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(aliases=["si", "guildinfo"])
     @commands.guild_only()
@@ -755,15 +775,19 @@ class Utility(commands.Cog):
         """About the bot"""
         b = self.bot
         from cogs.owner import memory_mb
-        e = discord.Embed(color=Colors.main, title=b.user.name)
+        e = discord.Embed(color=Colors.main, title="Bot overview",
+                          description="Your Veil Utilities runtime at a glance.")
+        e.set_author(name=b.user.name, icon_url=b.user.display_avatar.url)
         e.set_thumbnail(url=b.user.display_avatar.url)
-        e.add_field(name="Commands", value=str(sum(1 for _ in b.walk_commands())))
+        latency = b.latency * 1000
         e.add_field(name="Uptime", value=fmt_duration(time.time() - b.started_at))
-        e.add_field(name="Latency", value=f"{b.latency * 1000:.0f}ms")
-        e.add_field(name="Memory (RAM)", value=memory_mb())
+        e.add_field(name="Gateway latency", value=f"{latency:.0f} ms" if math.isfinite(latency) else "Unavailable")
+        e.add_field(name="Registered commands", value=f"{sum(1 for _ in b.walk_commands()):,}")
+        e.add_field(name="Memory", value=memory_mb())
         e.add_field(name="Library", value=f"discord.py {discord.__version__}")
-        e.add_field(name="Python", value=f"v{platform.python_version()}")
-        await ctx.send(embed=e)
+        e.add_field(name="Python", value=platform.python_version())
+        e.set_footer(text="VEIL UTILITIES  •  Current process")
+        await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(aliases=["up"])
     async def uptime(self, ctx: Context):

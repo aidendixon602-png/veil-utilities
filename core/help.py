@@ -65,7 +65,7 @@ MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the comma
 MAX_ALIAS_LENGTH = 10
 PER_PAGE = 10  # commands per category page
 SUBCOMMANDS_PER_PAGE = 15  # fits both the embed and a Discord select
-HELP_COLOR = 0xB10F2E  # Veil accent
+HELP_COLOR = Colors.main  # Veil accent
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
     "Utility": 0,       # Public
@@ -563,8 +563,8 @@ class CategoryButton(discord.ui.Button["HelpView"]):
     """Open a visible category from the help home screen."""
 
     def __init__(self, category: str, row: int):
-        super().__init__(label=category[:80],
-                         style=discord.ButtonStyle.danger if category == "Secret" else discord.ButtonStyle.secondary, row=row)
+        super().__init__(label=category[:80], emoji=CATEGORY_EMOJIS.get(category),
+                         style=discord.ButtonStyle.secondary, row=row)
         self.category = category
 
     async def callback(self, it: discord.Interaction):
@@ -847,8 +847,10 @@ class Help(commands.HelpCommand):
                    visible_categories: list[str] | None = None) -> discord.Embed:
         """Describe only categories already permitted by the menu's visibility checks."""
         p = self.context.clean_prefix
-        lines = ["Select a category below to view its commands.", "", f"**prefix:** `{p}`"]
-        card = self._brand(discord.Embed(color=HELP_COLOR, description="\n".join(lines)))
+        lines = ["Your guide to Veil Utilities.", "Select a category below to browse the commands available to you.",
+                 "", f"**Prefix**  `{p}`", f"**Command guide**  `{p}help <command>`"]
+        card = self._brand(discord.Embed(color=HELP_COLOR, title="Command center", description="\n".join(lines)))
+        card.set_footer(text="VEIL UTILITIES  •  Choose a category to get started")
         return card
 
     def command_line(self, cmd: commands.Command) -> str:
