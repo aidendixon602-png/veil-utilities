@@ -197,7 +197,18 @@ async def run_bot(show_banner: bool = True) -> bool:
 
     if show_banner:
         use_color = os.environ.get("LOG_COLOR", "1") != "0"
-        print(f"[veil] Configuration: OK | Intents: {', '.join(i[0] for i in intent_plans())}", flush=True)
+        intents_names = []
+        for intents, warning in intent_plans():
+            # Get the name of the intent plan (e.g., "full", "no_presence", "minimal", "bare")
+            # Since intent_plans() returns (discord.Intents, str), we can't easily get a name from the intents object itself.
+            # We'll just list the plan names based on the intent_plans() return order or a simple description.
+            # Actually, let's just list the intent flags that are True in the 'full' plan as a summary, 
+            # or simply "Full / No Presence / Minimal / Bare" based on the known plans.
+            # For a clean console output, let's list the plan names:
+            pass
+        # Simpler approach: list the known plan labels from the intent_plans() logic in core/bot.py
+        plan_labels = ["Full", "No Presence", "Minimal", "Bare"]
+        print(f"[veil] Configuration: OK | Intents: {', '.join(plan_labels)}", flush=True)
         # print(render_startup_banner(color=use_color), flush=True)
         # print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
         log.info("Connecting to Discord Gateway with auto-sharding...")
