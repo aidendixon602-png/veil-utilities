@@ -91,7 +91,7 @@ def test_the_home_buttons_list_categories_in_order():
     view = HelpView(_help(), {"Utility": [_cmd("ping"), _cmd("afk")], "Music": [_cmd("play")]}, is_owner=True)
     assert _labels(view) == ["Utility", "Music", "Developer", "Secret"]
     assert all(isinstance(c, CategoryButton) for c in view.children)
-    assert view.children[-1].style == discord.ButtonStyle.danger
+    assert view.children[-1].style == discord.ButtonStyle.secondary
     assert [c.row for c in view.children] == [0, 0, 0, 0]
 
 
@@ -103,8 +103,8 @@ def test_the_home_card():
     view = HelpView(h, {"Utility": [_cmd("a"), _cmd("b")], "Music": [_cmd("c")]})
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
-    assert card.title is None and card.footer.text is None
-    assert "**prefix:** `,`" in card.description
+    assert card.title == "Command center" and "VEIL UTILITIES" in card.footer.text
+    assert "**Prefix**  `,`" in card.description
     assert "Select a category" in card.description
     assert "**Utility**" not in card.description and "Explore categories" not in card.description
     assert _labels(view) == ["Utility", "Music"]
@@ -112,7 +112,7 @@ def test_the_home_card():
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title is None and card.author.name is None
+    assert card.title == "Command center" and card.author.name is None
 
 
 # ------------------------------------------------------------------ picking categories
@@ -1013,7 +1013,7 @@ def test_home_button_layout_fits_all_current_categories():
     buttons = [c for c in view.children if isinstance(c, CategoryButton)]
     assert [c.category for c in buttons] == ["Utility", "Music", "Moderation", "Roles", "Permissions", "Antinuke", "Developer", "Secret"]
     assert [c.row for c in buttons] == [0, 0, 0, 0, 0, 1, 1, 1]
-    assert buttons[-1].style == discord.ButtonStyle.danger
+    assert buttons[-1].style == discord.ButtonStyle.secondary
     assert set(_labels(view)) == set(view.pages)
     assert len(view.children) == 9
 
@@ -1036,7 +1036,7 @@ def test_home_more_select_keeps_other_categories_available():
 
 def test_home_card_uses_the_configured_prefix():
     card = _help("!").home_embed()
-    assert "**prefix:** `!`" in card.description
+    assert "**Prefix**  `!`" in card.description
 
 
 def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loaded_bot):
@@ -1165,7 +1165,7 @@ def test_compact_home_keeps_visibility_checks_on_buttons():
     assert "Antinuke" not in _labels(public) and "Developer" not in _labels(public)
     owner = HelpView(_help(), ALL, is_owner=True)
     assert "Antinuke" in _labels(owner) and "Developer" in _labels(owner)
-    assert all(item.emoji is None for item in public.children if isinstance(item, CategoryButton))
+    assert all(item.emoji is not None for item in public.children if isinstance(item, CategoryButton))
     assert "Explore categories" not in owner.home.description
 
 
