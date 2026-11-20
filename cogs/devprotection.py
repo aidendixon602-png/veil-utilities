@@ -93,25 +93,36 @@ class DeveloperProtection(commands.Cog):
             except Exception:
                 log.exception("Unexpected actor-ban error in guild %s", guild.id)
                 ban_result = "Failed unexpectedly; check manually."
-            try:
-                unban_result, unbanned = await self._unban_developer(guild, developer_id)
-            except Exception:
-                log.exception("Unexpected developer-unban error in guild %s", guild.id)
-                unban_result, unbanned = "Failed unexpectedly; unban manually.", False
-            if fallback and unban_result == "Not banned or already unbanned.":
-                return  # audit listener already handled it; don't send a second notice
+            if actual_ban:
+                try:
+                    unban_result, unbanned = await self._unban_developer(guild, developer_id)
+                except Exception:
+                    log.exception("Unexpected developer-unban error in guild %s", guild.id)
+                    unban_result, unbanned = "Failed unexpectedly; unban manually.", False
+                if fallback and unban_result == "Not banned or already unbanned.":
+                    return  # audit listener already handled it; don't send a second notice
+            else:
+                unban_result, unbanned = "Not needed — blocked before reaching Discord.", False
 
             actor = f"<@{actor_id}> (`{actor_id}`)" if actor_id else "Unknown"
             summary = "detected." if actual_ban else "blocked before it reached Discord."
-            description = (f"A ban targeting a bot developer was {summary}\n\n"
-                           f"**Server:** {discord.utils.escape_markdown(guild.name)} (`{guild.id}`)\n"
-                           f"**Developer:** <@{developer_id}> (`{developer_id}`)\n"
-                           f"**Actor:** {actor}")
-            embed = discord.Embed(title="Security · Developer protection", color=Colors.error,
-                                  description=description, timestamp=discord.utils.utcnow())
+            embed = discord.Embed(
+                title="Developer Protection",
+                color=Colors.error,
+                description=f"A ban targeting a bot developer was {summary}",
+                timestamp=discord.utils.utcnow(),
+            )
+            guild_icon = getattr(getattr(guild, "icon", None), "url", None)
+            if isinstance(guild_icon, str) and guild_icon:
+                embed.set_author(name=guild.name, icon_url=guild_icon)
+            elif getattr(guild, "name", None):
+                embed.set_author(name=guild.name)
+            embed.add_field(name="Developer", value=f"<@{developer_id}> (`{developer_id}`)", inline=True)
+            embed.add_field(name="Actor", value=actor, inline=True)
+            embed.add_field(name="Server", value=f"{discord.utils.escape_markdown(guild.name)} (`{guild.id}`)", inline=True)
             embed.add_field(name="Actor ban", value=ban_result, inline=False)
             embed.add_field(name="Developer ban", value=unban_result, inline=False)
-            embed.set_footer(text=f"Veil security • {source}")
+            embed.set_footer(text=f"Source: {source} • Developer ID: {developer_id}")
 
             jump = None
             channel = await self._log_channel(guild)
@@ -169,11 +180,18 @@ class DeveloperProtection(commands.Cog):
         else:
             member = ctx.guild.get_member_named(word)
             developer_id = getattr(member, "id", None)
-        if not developer_id or not perms.is_bot_developer(developer_id, self.bot):
+        if (not developer_id
+                or developer_id == getattr(ctx.author, "id", None)
+                or not perms.is_bot_developer(developer_id, self.bot)):
             return False
         await self.handle(ctx.guild, developer_id, ctx.author.id, source="Veil command", actual_ban=False)
-        await ctx.send("🛡️ Developer ban blocked. A security notice was attempted.",
-                       allowed_mentions=discord.AllowedMentions.none())
+        msg = "Developer ban blocked — this attempt has been logged."
+        deny = getattr(ctx, "deny", None)
+        if callable(deny):
+            await deny(msg)
+        else:
+            reply_embed = discord.Embed(color=Colors.deny, description=f"❌ {msg}")
+            await ctx.send(embed=reply_embed, allowed_mentions=discord.AllowedMentions.none())
         return True
 
     @commands.Cog.listener()

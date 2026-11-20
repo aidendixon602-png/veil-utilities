@@ -558,13 +558,27 @@ class DevTools(commands.Cog):
 
     @commands.command(hidden=True, aliases=["genrebans", "genrebanlist", "globalbans"])
     async def hardbans(self, ctx: Context):
-        """List network genrebans"""
+        """List network hardbans"""
+        invoked = (getattr(ctx, "invoked_with", None) or "hardbans").lower()
+        if invoked.startswith("genre"):
+            heading, noun = "Genrebans", "genrebanned"
+        elif invoked.startswith("global"):
+            heading, noun = "Global Bans", "globally banned"
+        else:
+            heading, noun = "Hardbans", "hardbanned"
         rows = await self.bot.db.fetchall("SELECT * FROM globalbans ORDER BY at DESC")
         if not rows:
-            return await ctx.neutral("Nobody is genrebanned.")
+            return await ctx.neutral(f"Nobody is currently {noun}.")
         lines = [f"<@{r['user_id']}> (`{r['user_id']}`) · by <@{r['mod_id']}> {ts(r['at'], 'R')}\n"
                  f"-# {discord.utils.escape_markdown(shorten(r['reason'] or 'No reason given', 200))}" for r in rows]
-        await ctx.paginate(chunk_embeds(f"Genrebans · {len(rows)}", lines, 8, numbered=False))
+        pages = chunk_embeds(f"{heading} · {len(rows)}", lines, 8, numbered=True)
+        bot_user = getattr(self.bot, "user", None)
+        avatar = getattr(getattr(bot_user, "display_avatar", None), "url", None)
+        for p in pages:
+            if bot_user and getattr(bot_user, "name", None):
+                p.set_author(name=bot_user.name, icon_url=avatar if isinstance(avatar, str) else None)
+            p.set_footer(text=f"VEIL UTILITIES  •  {plural(len(rows), 'active network ban')}")
+        await ctx.paginate(pages)
 
     async def _enforce(self, guild: discord.Guild, user_id: int, why: str) -> None:
         """A genrebanned person rejoined or was unbanned: ban them again, once, quietly if it's already done."""

@@ -527,13 +527,15 @@ class Moderation(commands.Cog):
 
     async def _protect_developer_ban(self, ctx, target):
         from core import perms as _perms
+        if getattr(target, "id", None) == getattr(ctx.author, "id", None):
+            return
         if not _perms.is_bot_developer(target, self.bot):
             return
         get_cog = getattr(self.bot, "get_cog", None)
         protection = get_cog("DeveloperProtection") if get_cog else None
         if protection:
             await protection.handle(ctx.guild, target.id, ctx.author.id, source="Veil command", actual_ban=False)
-        raise UserError("🛡️ Developer ban blocked. A security notice was attempted.")
+        raise UserError("Developer ban blocked — this attempt has been logged.")
 
     async def _limited_helper(self, ctx: Context) -> bool:
         """Apply the Helper safety limits even when a Helper also has fake permissions."""
