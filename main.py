@@ -48,20 +48,20 @@ for module, package in REQUIRED.items():
     except Exception as error:  # e.g. a compiled wheel built for a different Python or CPU
         broken.append(f"{package} ({type(error).__name__}: {error})")
     if missing or broken:
-    lines = []
-    if missing:
-        lines.append("Missing Python packages: " + ", ".join(missing))
-    if broken:
-        lines.append("Installed packages that won't load on this Python: " + ", ".join(broken))
-    lines.append("Install them with:  python -m pip install -r requirements.txt")
-    lines.append("(On a hosting panel, add them to the 'Additional Python Packages' field.)")
-    if audioop_hint:
-        lines.append("Hint: 'audioop' was removed in Python 3.13 — add audioop-lts to the packages "
-                     "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
-    print("[veil] Dependency check failed; see the error output for details.", flush=True)
-    sys.exit("\n".join(lines))
-else:
-    print("[veil] Dependencies: OK", flush=True)
+        lines = []
+        if missing:
+            lines.append("Missing Python packages: " + ", ".join(missing))
+        if broken:
+            lines.append("Installed packages that won't load on this Python: " + ", ".join(broken))
+        lines.append("Install them with:  python -m pip install -r requirements.txt")
+        lines.append("(On a hosting panel, add them to the 'Additional Python Packages' field.)")
+        if audioop_hint:
+            lines.append("Hint: 'audioop' was removed in Python 3.13 — add audioop-lts to the packages "
+                         "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
+        print("[veil] Dependency check failed; see the error output for details.", flush=True)
+        sys.exit("\n".join(lines))
+    else:
+        print("[veil] Dependencies: OK", flush=True)
 
 
 def load_env_file(path: str) -> None:
@@ -200,7 +200,7 @@ async def run_bot(show_banner: bool = True) -> bool:
         print(f"[veil] Configuration: OK | Intents: {', '.join(i[0] for i in intent_plans())}", flush=True)
         # print(render_startup_banner(color=use_color), flush=True)
         # print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
-            log.info("Connecting to Discord Gateway with auto-sharding...")
+        log.info("Connecting to Discord Gateway with auto-sharding...")
 
     # socket.has_ipv6 only means Python supports IPv6, not that this host has a working IPv6 route.
     # A proxy selects its own route, so trying the same proxy a second time cannot switch families.
