@@ -87,6 +87,7 @@ _ICON_PATHS = {
     "trusted": '<circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/>',
     "leveling": '<path d="M4 19h16M6 16v-3m6 3V9m6 7V5"/><path d="m5 9 5-4 4 2 5-4"/>',
     "tickets": '<path d="M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4V7Z"/><path d="M12 8v2m0 4v2"/>',
+    "roblox": '<path d="M5 5 18 2l3 13-13 3L5 5Z"/><path d="m11 8 4-1 1 4-4 1-1-4Z"/>',
     "blacklist": '<path d="M12 3 3 20h18L12 3Z"/><path d="M12 9v4m0 3v.1"/>',
 }
 
@@ -168,6 +169,8 @@ class DashboardServer:
         self._secret = (secret or secrets.token_hex(32)).encode()
         self._pending_revocations: dict[str, tuple[int, int, float]] = {}
         self._save_locks = [asyncio.Lock() for _ in range(64)]
+        self._roblox_locks = [asyncio.Lock() for _ in range(32)]
+        self._roblox_cache: dict[int, tuple[float, dict]] = {}
         self._http_session: aiohttp.ClientSession | None = None
         self.app = web.Application(middlewares=[self._security_middleware])
         self.runner: web.AppRunner | None = None
@@ -192,6 +195,8 @@ class DashboardServer:
         r.add_get("/servers", self.handle_home)
         r.add_get("/servers/{guild_id}", self.handle_server)
         r.add_get("/servers/{guild_id}/overview", self.handle_server_overview)
+        r.add_get("/servers/{guild_id}/roblox", self.handle_roblox)
+        r.add_post("/servers/{guild_id}/roblox", self.handle_roblox_save)
         r.add_get("/servers/{guild_id}/features", self.handle_features)
         r.add_post("/servers/{guild_id}/features/{feature}", self.handle_save_feature)
         r.add_get("/authorization", self.handle_authorization)
@@ -395,7 +400,8 @@ class DashboardServer:
                           ("automod", "Automod", f"{base}/features?section=automod", "✦"),
                           ("logging", "Logging & security", base, "≡"))),
             ("COMMUNITY", (("leveling", "Leveling", f"{base}/features?section=leveling", "↗"),
-                           ("tickets", "Tickets", f"{base}/features?section=tickets", "▣"))),
+                           ("tickets", "Tickets", f"{base}/features?section=tickets", "▣"),
+                           ("roblox", "Roblox group", f"{base}/roblox", "◇"))),
         )
         nav = f'<a class="server-switch" href="/" title="Switch server">{_server_avatar(guild)}<span><small>SERVER WORKSPACE</small><strong>{_esc(guild.name)}</strong></span><b aria-hidden="true">↕</b></a>'
         for label, links in groups:
@@ -892,6 +898,14 @@ class DashboardServer:
 
         return self._page(guild.name, body, user, subtitle=f"Server settings: <b>{_esc(guild.name)}</b>",
                           guild=guild, active="logging")
+
+    async def handle_roblox(self, request: web.Request) -> web.Response:
+        from core.dashboard_roblox import group_page
+        return await group_page(self, request)
+
+    async def handle_roblox_save(self, request: web.Request) -> web.Response:
+        from core.dashboard_roblox import save_group
+        return await save_group(self, request)
 
     async def handle_features(self, request: web.Request) -> web.Response:
         from core.dashboard_features import features_page
