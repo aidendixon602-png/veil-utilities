@@ -343,10 +343,11 @@ def message_deleted(m: discord.Message, actor=None) -> discord.Embed:
 def message_edited(before: discord.Message, after: discord.Message) -> discord.Embed:
     """A consistent edit card with before/after context, a jump link and identifiers."""
     sent = getattr(after, "created_at", None)
-    return field_card(Colors.blurple, "✏️ Message edited", subject=after.author,
-                      lead=f"{after.author.mention} · {after.channel.mention} · [Jump to message]({after.jump_url})",
+    return field_card(Colors.warn, "Message Edited", subject=after.author,
                       fields=[("Before", _message_content(before.content), False),
                               ("After", _message_content(after.content), False),
+                              ("Channel", after.channel.mention, True),
+                              ("Jump", f"[Open message]({after.jump_url})", True),
                               ("Sent", ts(sent, "R") if sent else None, True)],
                       ids=[("User ID", after.author.id), ("Message ID", after.id)])
 
@@ -491,9 +492,12 @@ def member_stripped(m, removed: Iterable = (), actor=None, *, hint: str | None =
 
 def timed_out(m: discord.Member, until, actor=None, reason: str | None = None) -> discord.Embed:
     left = (until - discord.utils.utcnow()).total_seconds()
-    return entry_card(Colors.warn, f"{m.mention} was timed out{_by_text(actor)}", subject=m, details=[
-        ("Duration", fmt_duration(round(left / 60) * 60 or left) if left > 0 else ""),
-        ("Ends", f"{ts(until, 'f')} ({ts(until, 'R')})"), ("Reason", reason or "no reason given"),
+    return field_card(Colors.orange, "Timeout Applied", subject=m, fields=[
+        ("User", with_id(m), True),
+        ("Until", f"{ts(until, 'f')} ({ts(until, 'R')})", True),
+        ("By", with_id(actor), True),
+        ("Duration", fmt_duration(round(left / 60) * 60 or left) if left > 0 else "", True),
+        ("Reason", reason or "no reason given", False),
     ], ids=[("User ID", m.id)])
 
 

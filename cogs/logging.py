@@ -1,4 +1,4 @@
-"""Server logs: one channel per category, detailed cards, set up and managed with `,logs`.
+"""Server logs: one or more destinations, detailed cards, set up and managed with `,logs`.
 
 The look of each log is in core/logembeds.py; this file decides which channel gets what, and who may change it.
 """
@@ -633,6 +633,52 @@ class Logging(commands.Cog):
                     break
             return report
 
+    async def organize_combined(self, guild: discord.Guild, expected: dict) -> SetupReport:
+        """Create one private destination only for routes that were unset and had no shared home."""
+        async with self._setup_locks.setdefault(guild.id, asyncio.Lock()):
+            report = SetupReport()
+            cfg = await self.config(guild)
+            if cfg != expected:
+                report.failures.append("Settings changed since preview. Nothing was created; start again.")
+                return report
+            todo = [key for key in TYPES if cfg.get(key) is None and _channel_for(guild, cfg, key) is None]
+            if not todo:
+                return report
+            me = getattr(guild, "me", None)
+            if not me or not getattr(me.guild_permissions, "manage_channels", False):
+                report.failures.append("Missing Manage Channels permission.")
+                return report
+            private = {guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
+                       me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True,
+                                                       attach_files=True)}
+            try:
+                report.category = await guild.create_category(CATEGORY_NAME, overwrites=private,
+                                                               reason="Veil Utilities: confirmed combined log setup")
+                channel = await guild.create_text_channel("veil-logs", category=report.category, overwrites=private,
+                    topic="Veil Utilities · combined server event logs",
+                    reason="Veil Utilities: confirmed combined log setup")
+                report.created.append(channel)
+            except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                report.failures.append(f"Creation failed or was not confirmed ({type(exc).__name__}). "
+                                       "Check Discord for created resources before retrying.")
+                return report
+            # Never overwrite a route edited during the Discord API calls.
+            if await self.config(guild) != expected:
+                report.failures.append(f"Settings changed; {channel.mention} was created but no routes were saved. "
+                                       "Review Discord and settings before retrying.")
+                return report
+            approved = cfg.get("approved_routes")
+            if not isinstance(approved, dict):
+                approved = cfg["approved_routes"] = {}
+            for key in todo:
+                cfg[key] = channel.id
+                approved[key] = channel.id
+            try:
+                await self.save(guild, cfg)
+            except Exception:
+                report.failures.append(f"Save not confirmed for {channel.mention}; review routes and Discord before retrying.")
+            return report
+
     async def auto_setup_enabled(self) -> bool:
         return False
 
@@ -725,25 +771,72 @@ class Logging(commands.Cog):
     @has_perms(manage_guild=True)
     @is_server_owner()
     async def logs_setup(self, ctx: Context, mode: str = None):
-        """Preview and confirm creation of channels for unset log categories"""
-        if mode is not None:
-            raise UserError("Automatic setup is unavailable. Use `logs setup` and confirm in each server.")
+        """Create one private channel for missing log routes"""
+        if mode not in (None, "split"):
+            raise UserError("Use `logs setup` for one channel, or `logs setup split` for separate channels.")
         cfg = await self.config(ctx.guild)
-        todo = [k for k in SETUP_KINDS if cfg.get(k) is None and _channel_for(ctx.guild, cfg, k) is None]
+        keys = SETUP_KINDS if mode == "split" else TYPES
+        todo = [k for k in keys if cfg.get(k) is None and _channel_for(ctx.guild, cfg, k) is None]
         if not todo:
-            return await ctx.neutral("No missing setup destinations. Existing, shared and disabled routes are unchanged.")
+            return await ctx.neutral("No missing setup destinations. Existing, shared and disabled routes are unchanged. "
+                                     "Use `logs combine #channel` to review moving routes to one existing channel.")
         if not ctx.guild.me.guild_permissions.manage_channels:
             raise UserError("I need Manage Channels to create log channels.")
-        if not await ctx.confirm("Create a private category and new channels for: " + ", ".join(KINDS[k].label for k in todo)
-                                 + "? Existing routes and channels are not changed.", timeout=120):
+        layout = "a private category and separate new channels" if mode == "split" else "a private category and one new #veil-logs channel"
+        if not await ctx.confirm(f"Create {layout} for: " + ", ".join(KINDS[k].label for k in todo)
+                                 + "? Existing routes, shared routes, disabled categories and channels stay unchanged. "
+                                   "Review who can read the new category.", timeout=120):
             return await ctx.neutral("Setup cancelled; nothing was created.")
-        report = await self.organize(ctx.guild, tuple(todo))
+        if not owner_or_developer(ctx.author, ctx.guild, ctx.bot) or not await ctx.command.can_run(ctx):
+            raise UserError("Your access changed. Nothing was created.")
+        if await self.config(ctx.guild) != cfg:
+            raise UserError("Settings changed since preview. Nothing was created; start again.")
+        report = (await self.organize(ctx.guild, tuple(todo)) if mode == "split"
+                  else await self.organize_combined(ctx.guild, cfg))
         cfg = await self.config(ctx.guild)
         lines = [f"{k.emoji} **{k.label}** — {describe(ctx.guild, cfg, k.key)}" for k in KINDS.values()]
-        lines.append(f"Created {len(report.created)} channel(s).")
+        lines.append(f"Created {len(report.created)} channel(s). Existing channels were not moved or deleted.")
         lines.extend(report.failures)
         await ctx.send(embed=discord.Embed(title="Logging setup results", description="\n".join(lines),
                                           color=Colors.error if report.failures else Colors.success))
+
+    @logs.command(name="combine")
+    @has_perms(manage_guild=True)
+    @is_server_owner()
+    async def logs_combine(self, ctx: Context, channel: discord.TextChannel):
+        """Preview combining server logs into one channel"""
+        if not can_post(channel):
+            raise UserError("I need View Channel, Send Messages and Embed Links in that channel.")
+        cfg = await self.config(ctx.guild)
+        selected = [key for key in TYPES if cfg.get(key) != OFF]
+        if not selected:
+            return await ctx.neutral("All categories are off; nothing to combine.")
+        lines = [f"• {KINDS[key].label}: {describe(ctx.guild, cfg, key)} → {channel.mention}" for key in selected]
+        preview = ("Move these server-log categories to " + channel.mention + ":\n" + "\n".join(lines)
+                   + "\nUnset categories will become active. Categories explicitly off stay off. "
+                     "Existing channels are not moved or deleted. Review channel readers and sensitive content. "
+                     "Separate Antinuke alert and case modlog settings are not changed.")
+        if not await ctx.confirm(preview, timeout=120):
+            return await ctx.neutral("Combine cancelled; nothing was changed.")
+        if not owner_or_developer(ctx.author, ctx.guild, ctx.bot) or not await ctx.command.can_run(ctx):
+            raise UserError("Your access changed. Nothing was saved.")
+        async with self._setup_locks.setdefault(ctx.guild.id, asyncio.Lock()):
+            if not owner_or_developer(ctx.author, ctx.guild, ctx.bot) or not await ctx.command.can_run(ctx):
+                raise UserError("Your access changed. Nothing was saved.")
+            if await self.config(ctx.guild) != cfg:
+                raise UserError("Settings changed since preview. Nothing was saved; start again.")
+            target = ctx.guild.get_channel(channel.id)
+            if not isinstance(target, discord.TextChannel) or not can_post(target):
+                raise UserError("That channel is no longer available or I cannot post there. Nothing was saved.")
+            approved = cfg.get("approved_routes")
+            if not isinstance(approved, dict):
+                approved = cfg["approved_routes"] = {}
+            for key in selected:
+                cfg[key] = target.id
+                approved[key] = target.id
+            await self.save(ctx.guild, cfg)
+        await ctx.approve(f"Combined {len(selected)} server-log categories in {target.mention}. "
+                          "Disabled categories and old channels were left unchanged.")
 
     @commands.command(name="setuplogs", aliases=["setupchannels", "autologs"])
     @has_perms(manage_guild=True)
