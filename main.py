@@ -6,6 +6,16 @@ import sys
 import time
 from logging.handlers import RotatingFileHandler
 
+# Force unbuffered, UTF-8 line-through output immediately so non-TTY hosting panels
+# (Wispbyte / Pterodactyl) stream console lines right away even without `python -u`.
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if callable(_reconfigure):
+        try:
+            _reconfigure(encoding="utf-8", errors="replace", line_buffering=True, write_through=True)
+        except Exception:
+            pass
+
 # Emit a flushed line before dependency imports: if an import stalls, a host console can still show
 # that this entry point actually started. Never include environment variables or command arguments here.
 print("[veil] Starting Veil Utilities; checking Python dependencies...", flush=True)
@@ -143,9 +153,23 @@ from core.bot import INTENT_HELP, Veil, intent_plans  # noqa: E402
 from core.diagnostics import ConsoleFormatter, format_box, get_system_diagnostics, render_startup_banner  # noqa: E402
 
 PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+class FlushingStreamHandler(logging.StreamHandler):
+    """StreamHandler that flushes the underlying stream on every record for non-TTY hosting panels."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self.flush()
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+
 # Some panel consoles display stdout but do not show stderr. Keep application logs on stdout;
 # Python startup errors still go to stderr and the rotating file remains independent.
-console = logging.StreamHandler(sys.stdout)
+console = FlushingStreamHandler(sys.stdout)
 console.setFormatter(ConsoleFormatter(color=os.environ.get("LOG_COLOR", "1") != "0"))
 try:
     logfile = RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8")

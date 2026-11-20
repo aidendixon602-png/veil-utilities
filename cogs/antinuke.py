@@ -337,36 +337,50 @@ def _bullets(lines: list[str]) -> str:
 
 
 def alert_embed(inc: Incident, footer: str) -> discord.Embed:
-    """The alert card: who, which limit, what happened to them, and what was put back, in that order."""
+    """Structured security incident card for antinuke alerts."""
+    from core import logembeds as fmt
+
     label = LABELS.get(inc.module, inc.module)
     name = getattr(inc.user, "name", None) or "Unknown user"
     if inc.test:
-        title, color = f"Antinuke test · {label}", Colors.warn
-        who = "`,testnuke` (a simulated attacker)"
+        title, color = f"Antinuke Test — {label}", Colors.warn
+        who = "`,testnuke` (Simulated)"
     else:
-        title, color = f"Antinuke · {label}", Colors.error
-        who = getattr(inc.user, "mention", None) or f"**{discord.utils.escape_markdown(name)}**"
-    lines = [f"{who} went over the **{label}** limit ({inc.threshold} in {inc.window}s)"
-             + (f" using `{inc.via}`" if inc.via else "") + ".",
-             "", f"**Punishment:** {inc.result}"]
-    if inc.test:
-        lines.append("-# nobody was punished: this was a test")
-    e = discord.Embed(title=title, color=color, description="\n".join(lines), timestamp=discord.utils.utcnow())
+        title, color = f"Antinuke — {label}", Colors.error
+        mention = getattr(inc.user, "mention", None) or (f"<@{inc.actor_id}>" if inc.actor_id else None)
+        who = mention or f"**{discord.utils.escape_markdown(name)}**"
+        if getattr(inc.user, "bot", False):
+            who = f"{who} (Bot)"
+
+    trigger = f"{inc.threshold} in {inc.window}s" + (f" (`{inc.via}`)" if inc.via else "")
+    action_taken = "Simulated (no punishment)" if inc.test else fmt.strip_lead_emoji(str(inc.result))
+    inline_action = len(action_taken) <= 42
+
+    e = discord.Embed(title=title, color=color, timestamp=discord.utils.utcnow())
+    if not inc.test and inc.user is not None:
+        e.set_author(name=shorten(name, 256), icon_url=fmt.avatar_of(inc.user))
+    elif getattr(inc.guild, "name", None):
+        e.set_author(name=shorten(inc.guild.name, 256), icon_url=fmt._icon(inc.guild))
+
+    e.add_field(name="Actor", value=who, inline=True)
+    e.add_field(name="Threshold", value=trigger, inline=True)
+    e.add_field(name="Punishment", value=shorten(action_taken, 1024), inline=inline_action)
+
     undone = collapse(inc.undone)
     if undone:
-        e.add_field(name="Response actions", value=_bullets(undone), inline=False)
+        e.add_field(name="Response Actions", value=_bullets(undone), inline=False)
     if inc.problems:
         e.add_field(name="Problems", value=_bullets(inc.problems), inline=False)
-    if not inc.test:
-        bot_tag = " 🤖" if getattr(inc.user, "bot", False) else ""
-        e.add_field(name="Attacker", value=f"{who}{bot_tag}\n-# {discord.utils.escape_markdown(name)} · {inc.actor_id}")
-        if inc.roles:
-            roles = ", ".join(inc.roles)
-            e.add_field(name="Their roles", value=(roles[:1020] + "…") if len(roles) > 1024 else roles)
+    if not inc.test and inc.roles:
+        unique_roles = list(dict.fromkeys(inc.roles))
+        roles_str = ", ".join(unique_roles)
+        e.add_field(name="Roles", value=(roles_str[:1020] + "…") if len(roles_str) > 1024 else roles_str, inline=False)
     if inc.count > 1:
         secs = max(1, int(inc.last - inc.first))
         e.add_field(name="Repeated", value=f"{inc.count} times in {secs}s", inline=False)
-    e.set_footer(text=f"{inc.guild.name} · {footer}")
+
+    footer_prefix = f"{inc.guild.name}" if inc.test else f"Actor ID: {inc.actor_id} • {inc.guild.name}"
+    e.set_footer(text=f"{footer_prefix} • {footer}")
     return e
 
 
@@ -674,14 +688,16 @@ class Antinuke(commands.Cog):
         channel = await self._log_channel(message.guild, cfg)
         if channel is None:
             return
-        e = discord.Embed(title="Antinuke · Webhook Spam", color=Colors.error, timestamp=discord.utils.utcnow(), description=(
-            f"the webhook **{name}** pinged @everyone {len(messages)} times in {window}s in "
-            f"{message.channel.mention}."))
-        if done:
-            e.add_field(name="Response actions", value="\n".join(f"• {d}" for d in done), inline=False)
-        if problems:
-            e.add_field(name="Problems", value="\n".join(f"• {p}" for p in problems), inline=False)
-        e.set_footer(text=f"{message.guild.name} · antinuke alert")
+        from core import logembeds as fmt
+        e = fmt.field_card(Colors.error, "Antinuke — Webhook Spam",
+                           header=message.guild.name, icon=fmt._icon(message.guild), fields=[
+                               ("Webhook", name, True),
+                               ("Channel", message.channel.mention, True),
+                               ("Trigger", f"{len(messages)} @everyone pings in {window}s", True),
+                               ("Response Actions", "\n".join(f"• {d}" for d in done) if done else None, False),
+                               ("Problems", "\n".join(f"• {p}" for p in problems) if problems else None, False),
+                           ])
+        e.set_footer(text=f"{message.guild.name} • Antinuke alert")
         try:
             await channel.send(embed=e)
         except discord.HTTPException:
@@ -705,9 +721,16 @@ class Antinuke(commands.Cog):
             pass
 
     async def _security_notice(self, guild: discord.Guild, actor, text: str) -> None:
-        e = discord.Embed(title="Antinuke · Settings changed", color=Colors.warn, timestamp=discord.utils.utcnow(),
-                          description=f"{getattr(actor, 'mention', actor)} {text}.")
-        e.set_footer(text=f"{getattr(guild, 'name', 'this server')} · security notice")
+        from core import logembeds as fmt
+        clean_text = text[:1].upper() + text[1:] if text else text
+        subject = actor if hasattr(actor, "name") else None
+        e = fmt.field_card(Colors.warn, "Antinuke Updated", subject=subject,
+                           header=None if subject else getattr(guild, "name", "Server"),
+                           icon=None if subject else fmt._icon(guild), fields=[
+                               ("Actor", getattr(actor, "mention", str(actor)), True),
+                               ("Change", clean_text, True),
+                           ])
+        e.set_footer(text=f"{getattr(guild, 'name', 'Server')} • Security notice")
         cfg = await self.cfg(guild.id)
         targets = [await self._log_channel(guild, cfg)]
         owner = getattr(guild, "owner", None)
@@ -754,15 +777,17 @@ class Antinuke(commands.Cog):
             state["invites"] = True
             done.append("paused invites and DMs between members")
         except (discord.HTTPException, TypeError):
-            done.append("⚠️ couldn't pause invites: I need Manage Server")
+            done.append("⚠️ couldn't pause invites: Manage Server required")
         cfg["panic"] = state
         await self.save(guild.id, cfg)
-        e = discord.Embed(title="Antinuke · Panic mode on", color=Colors.error, timestamp=discord.utils.utcnow(),
-                          description=f"{getattr(by, 'mention', 'Someone')} turned on panic mode"
-                                      + (f": {why}" if why else "") + ".")
-        e.add_field(name="What I did", value="\n".join(f"• {d}" for d in done), inline=False)
-        e.add_field(name="Ends", value="The server owner or a bot developer can run `,an unpanic`; recovery is best-effort and requires review.",
-                    inline=False)
+        from core import logembeds as fmt
+        e = fmt.field_card(Colors.error, "Panic Mode Enabled",
+                           subject=by if hasattr(by, "name") else None, fields=[
+                               ("Actor", getattr(by, "mention", "Unknown"), True),
+                               ("Reason", why or "None", True),
+                               ("Response Actions", "\n".join(f"• {fmt.strip_lead_emoji(d)}" for d in done), False),
+                               ("Recovery", "Run `,an unpanic` (owner or bot developer); review permissions afterwards.", False),
+                           ])
         await self._panic_post(guild, cfg, e)
         return done
 
@@ -794,15 +819,17 @@ class Antinuke(commands.Cog):
             except (discord.HTTPException, TypeError):
                 done.append("⚠️ couldn't resume invites, turn them back on in Server Settings")
         await self.save(guild.id, cfg)
-        e = discord.Embed(title="Antinuke · Panic mode off", color=Colors.success, timestamp=discord.utils.utcnow(),
-                          description=f"{getattr(by, 'mention', 'Someone')} lifted panic mode.")
-        if done:
-            e.add_field(name="Response actions", value="\n".join(f"• {d}" for d in done), inline=False)
+        from core import logembeds as fmt
+        e = fmt.field_card(Colors.success, "Panic Mode Disabled",
+                           subject=by if hasattr(by, "name") else None, fields=[
+                               ("Actor", getattr(by, "mention", "Unknown"), True),
+                               ("Response Actions", "\n".join(f"• {fmt.strip_lead_emoji(d)}" for d in done) if done else None, False),
+                           ])
         await self._panic_post(guild, cfg, e)
         return done
 
     async def _panic_post(self, guild: discord.Guild, cfg: dict, e: discord.Embed) -> None:
-        e.set_footer(text=f"{getattr(guild, 'name', 'this server')} · antinuke")
+        e.set_footer(text=f"{getattr(guild, 'name', 'Server')} • Antinuke")
         for dest in (await self._log_channel(guild, cfg), getattr(guild, "owner", None)):
             if dest is None:
                 continue
@@ -850,10 +877,10 @@ class Antinuke(commands.Cog):
                 continue
             try:
                 if not role < guild.me.top_role:
-                    lines.append(f"⚠️ @{display(role)} is above my role, so I couldn't change it")
+                    lines.append(f"⚠️ @{display(role)} is above bot role hierarchy; could not modify")
                     continue
             except Exception:
-                lines.append(f"⚠️ couldn't verify whether @{display(role)} is manageable; check manually")
+                lines.append(f"⚠️ Could not verify hierarchy for @{display(role)}; review manually")
                 continue
             try:
                 if getattr(role, "managed", False):  # the bot's own role: take the permissions off it
@@ -861,31 +888,34 @@ class Antinuke(commands.Cog):
                     await role.edit(permissions=discord.Permissions(role.permissions.value & ~DANGEROUS_MASK.value),
                                     reason="Antinuke: new bot quarantined until the owner approves it")
                     record["roles"][str(role.id)] = removed
-                    lines.append(f"took the dangerous permissions off its role @{display(role)}")
+                    lines.append(f"Removed elevated permissions from managed role @{display(role)}")
                 else:
                     await member.remove_roles(role, reason="Antinuke: new bot quarantined until the owner approves it")
                     record["removed"].append(role.id)
-                    lines.append(f"removed @{display(role)} from it")
+                    lines.append(f"Removed role @{display(role)}")
             except discord.HTTPException as e:
-                lines.append(f"⚠️ couldn't change @{display(role)} (Discord said {e.status})")
+                lines.append(f"⚠️ Failed to modify @{display(role)} (HTTP {e.status})")
         changed = bool(record["roles"] or record["removed"])
         if not changed and not lines:
             return  # no dangerous roles were found
         if changed:
             cfg.setdefault("quarantined_bots", {})[str(member.id)] = record
             await self.save(guild.id, cfg)
+        from core import logembeds as fmt
         partial = any(line.startswith("⚠️") for line in lines)
-        title = "Antinuke · New bot quarantined" if changed else "Antinuke · Bot quarantine failed"
-        description = (f"{member.mention} joined"
-                       + (f", added by {adder.mention}" if adder is not None else "") + ".\n\n"
-                       + ("**Action required:** some changes failed; the bot may retain dangerous permissions."
-                          if partial else "Dangerous permissions were reduced on the roles listed below. "
-                          "Review its remaining permissions before approval."))
-        e = discord.Embed(title=title, color=Colors.warn if changed and not partial else Colors.error,
-                          timestamp=discord.utils.utcnow(), description=description)
-        e.add_field(name="Response", value=shorten("\n".join(f"• {x}" for x in lines), 1024), inline=False)
-        e.set_footer(text=(f"{guild.name} · approve with the button or ,an approve @bot" if changed
-                           else f"{guild.name} · review the bot and role hierarchy manually"))
+        title = "Bot Quarantined" if changed else "Bot Quarantine Failed"
+        status_note = ("Some role updates failed — review permissions manually"
+                       if partial else "Elevated permissions restricted pending owner approval")
+        clean_lines = "\n".join(f"• {fmt.strip_lead_emoji(x)}" for x in lines)
+        e = fmt.field_card(Colors.warn if changed and not partial else Colors.error, title,
+                           subject=member if hasattr(member, "name") else None, fields=[
+                               ("Bot", member.mention, True),
+                               ("Added By", adder.mention if adder is not None else "Unknown", True),
+                               ("Status", status_note, False),
+                               ("Response Actions", shorten(clean_lines, 1024), False),
+                           ])
+        e.set_footer(text=(f"Bot ID: {member.id} • {guild.name} • Approve via button or ,an approve @bot" if changed
+                           else f"Bot ID: {member.id} • {guild.name} • Manual review required"))
         view = discord.ui.View(timeout=None).add_item(ApproveBotButton(guild.id, member.id)) if changed else None
         for dest in (await self._log_channel(guild, cfg), getattr(guild, "owner", None)):
             if dest is None:

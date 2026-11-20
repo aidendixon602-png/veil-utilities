@@ -185,11 +185,14 @@ class Veil(commands.AutoShardedBot):
         self._maintenance_channel_id = g.get("maintenance_channel_id")
         self.killswitch = set(g.get("killswitch", []))
         self.dev_channels = dict(g.get("dev_channels", {}))
+        loaded_extensions = 0
         for ext in EXTENSIONS:
             try:
                 await self.load_extension(ext)
+                loaded_extensions += 1
             except Exception:
                 log.exception("Failed to load %s", ext)
+        log.info("Loaded %d/%d extensions", loaded_extensions, len(EXTENSIONS))
         self.add_check(self._global_check)
         self.incident_manager.start()
         if not self.presence_rotator.is_running():
@@ -254,6 +257,13 @@ class Veil(commands.AutoShardedBot):
     @resilient
     async def presence_rotator(self):
         await self.update_dynamic_status()
+        if getattr(self, "_heartbeat_logged", False) and os.environ.get("CONSOLE_HEARTBEAT", "1") != "0":
+            latency = getattr(self, "latency", 0.0)
+            latency_ms = round(latency * 1000) if isinstance(latency, (int, float)) and latency == latency and latency != float("inf") else 0
+            total_users = sum(g.member_count or 0 for g in self.guilds)
+            log.info("Heartbeat · %d guilds · %s users · %dms gateway",
+                     len(self.guilds), f"{total_users:,}", latency_ms)
+        self._heartbeat_logged = True
 
     @presence_rotator.before_loop
     async def before_presence_rotator(self):

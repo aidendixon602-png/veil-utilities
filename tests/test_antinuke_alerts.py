@@ -59,8 +59,7 @@ def field(embed, name):
 
 def punishment(embed):
     """What the card says happened to the attacker."""
-    line = next(line for line in embed.description.splitlines() if line.startswith("**Punishment:**"))
-    return line.removeprefix("**Punishment:** ")
+    return field(embed, "Punishment") or ""
 
 
 def test_repeats_update_one_card_instead_of_sending_new_ones():
@@ -83,18 +82,19 @@ def test_ban_victim_does_not_get_the_roles_removed_notice():
     attacker.send.assert_not_awaited()
     attacker.ban.assert_awaited_once()
     card = sent[0][0]["embed"]
-    assert card.title == "Antinuke · Mass Ban"
+    assert card.title == "Antinuke — Mass Ban"
     assert punishment(card) == "Banned"
-    assert field(card, "Their roles") == "Admin"
-    assert "went over the **Mass Ban** limit" in card.description
-    assert field(card, "Attacker").endswith("-# rogue · 5")
+    assert field(card, "Roles") == "Admin"
+    assert "1 in 60s" in field(card, "Threshold")
+    assert "<@5>" in field(card, "Actor")
+    assert f"Actor ID: {ATTACKER}" in card.footer.text
 
 
 def test_result_is_honest_when_the_attacker_is_above_the_bot():
     cog, guild, attacker, victim, sent = setup(attacker_top=99)
     respond(cog, guild, "ban", SimpleNamespace(target=victim, action=discord.AuditLogAction.ban))
     attacker.ban.assert_not_awaited()
-    assert punishment(sent[0][0]["embed"]).startswith("⚠️ Not punished: their top role is above mine")
+    assert punishment(sent[0][0]["embed"]).startswith("Not punished: their top role is above mine")
 
 
 def test_permission_grant_strips_and_tells_the_attacker_why():
@@ -112,7 +112,7 @@ def test_failed_punishment_is_reported_as_a_failure():
     response = MagicMock(status=403, reason="Forbidden")
     attacker.ban.side_effect = discord.Forbidden(response, "Missing Permissions")
     respond(cog, guild, "ban", SimpleNamespace(target=victim, action=discord.AuditLogAction.ban))
-    assert punishment(sent[0][0]["embed"]) == "⚠️ Ban failed (Discord said 403)"
+    assert punishment(sent[0][0]["embed"]) == "Ban failed (Discord said 403)"
 
 
 def test_the_log_channel_copy_has_no_button_but_dms_do():
@@ -130,7 +130,7 @@ def test_no_roles_means_no_roles_field():
     cog, guild, attacker, victim, sent = setup()
     attacker.roles = [attacker.roles[0]]  # only @everyone
     respond(cog, guild, "ban", SimpleNamespace(target=victim, action=discord.AuditLogAction.ban))
-    assert field(sent[0][0]["embed"], "Their roles") is None
+    assert field(sent[0][0]["embed"], "Roles") is None
 
 
 def test_real_incident_is_queued_once_with_truthful_result_and_owner_not_duplicated():

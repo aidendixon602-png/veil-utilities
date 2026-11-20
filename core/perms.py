@@ -56,11 +56,25 @@ WHITELISTED_PEOPLE: dict[int, str] = {
     843909457616044092: "thesimisear",
 }
 
+# Users explicitly authorized to use the Unban / Reban buttons on moderation log cards in any server.
+BAN_BUTTON_USERS: frozenset[int] = frozenset({
+    843909457616044092,
+    1062243262909390988,
+})
+
 
 def is_whitelisted_person(user_or_id) -> bool:
     uid = getattr(user_or_id, "id", user_or_id)
     try:
         return int(uid) in WHITELISTED_PEOPLE
+    except (TypeError, ValueError):
+        return False
+
+
+def is_ban_button_user(user_or_id) -> bool:
+    uid = getattr(user_or_id, "id", user_or_id)
+    try:
+        return int(uid) in BAN_BUTTON_USERS
     except (TypeError, ValueError):
         return False
 

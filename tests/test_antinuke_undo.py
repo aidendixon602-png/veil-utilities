@@ -176,8 +176,8 @@ def test_a_mass_ban_unbans_everyone_they_banned():
     attacker.ban.assert_awaited_once()
     assert [c.args[0].id for c in guild.unban.await_args_list] == [100, 101, 102]
     card = guild.sent[0][0]["embed"]
-    assert "**Punishment:** Banned" in card.description
-    assert field(card, "Response actions") == "• unbanned 3 people they banned: victim0, victim1, victim2"
+    assert field(card, "Punishment") == "Banned"
+    assert field(card, "Response Actions") == "• unbanned 3 people they banned: victim0, victim1, victim2"
 
 
 def test_below_the_limit_nothing_is_undone():
@@ -208,7 +208,7 @@ def test_deleted_channels_are_rebuilt_with_category_overwrites_and_order():
     assert made_rules.kw["topic"] == "be nice" and made_rules.kw["slowmode_delay"] == 5
     overwrites = made_rules.kw["overwrites"]
     assert overwrites[guild.default_role].send_messages is False and overwrites[staff].send_messages is True
-    assert "rebuilt 2 deleted channels: #Info, #rules" in field(guild.sent[0][0]["embed"], "Response actions")
+    assert "rebuilt 2 deleted channels: #Info, #rules" in field(guild.sent[0][0]["embed"], "Response Actions")
 
 
 def test_deleted_roles_come_back_with_their_members_and_channel_overwrites():
@@ -226,7 +226,7 @@ def test_deleted_roles_come_back_with_their_members_and_channel_overwrites():
     alice.add_roles.assert_awaited_once_with(new_role, reason="Antinuke: Deleting roles")
     lounge.set_permissions.assert_awaited_once()
     assert lounge.set_permissions.await_args.args[0] is new_role
-    assert "rebuilt 1 deleted role: @VIP (given back to 1 member)" in field(guild.sent[0][0]["embed"], "Response actions")
+    assert "rebuilt 1 deleted role: @VIP (given back to 1 member)" in field(guild.sent[0][0]["embed"], "Response Actions")
 
 
 def test_a_channel_that_pointed_at_a_deleted_role_points_at_the_rebuilt_one():
@@ -268,7 +268,7 @@ def test_channels_roles_webhooks_and_invites_they_made_are_deleted():
     raid_role.delete.assert_awaited_once()
     hook.delete.assert_awaited_once()
     cog.bot.delete_invite.assert_awaited_once_with("abc123", reason="Antinuke: Mass banning members")
-    undone = field(guild.sent[0][0]["embed"], "Response actions")
+    undone = field(guild.sent[0][0]["embed"], "Response Actions")
     for line in ("deleted 1 channel they made: #spam", "deleted 1 role they made: @raid",
                  "deleted 1 webhook they made: Hook", "deleted 1 invite they made: abc123",
                  "unbanned 1 person they banned: victim"):
@@ -283,7 +283,7 @@ def test_anything_still_in_flight_after_they_are_caught_is_undone_too():
     feed(cog, entry(guild, A.channel_create, SimpleNamespace(id=late.id)))
     late.delete.assert_awaited_once()
     _, msg = guild.sent[0]
-    assert "deleted 1 channel they made: #late" in field(msg.edit.await_args.kwargs["embed"], "Response actions")
+    assert "deleted 1 channel they made: #late" in field(msg.edit.await_args.kwargs["embed"], "Response Actions")
     assert len(guild.sent) == 1  # one alert, updated
 
 

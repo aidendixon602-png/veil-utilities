@@ -30,16 +30,17 @@ repository. If the panel accepts a full command and dependencies are already ins
 environment variables in separate fields. Set `AUTO_SYNC_GIT=0` in the process environment, not just
 `.env`. Do not start a second instance alongside a running bot.
 
-After a controlled restart, current Veil code prints `[veil] Starting Veil Utilities` to stdout before
-checking dependencies. Normal application logs go to stdout as well as `LOG_FILE` (default `veil.log`);
-Python tracebacks and some startup errors still go to stderr. The entry point replaces pre-existing Python
-root logging handlers with Veil's stdout and file handlers, so a host/library's earlier configuration cannot
-silently suppress Veil INFO logs. This does not ensure a hosting panel captures either stream. `-u` or
-`PYTHONUNBUFFERED=1` helps with buffering, but cannot repair a panel that is not launching the script or capturing its streams. If the
-line is absent, check the command, working directory and panel output capture with the host; check the
-file manager for `veil.log` too. An older deployment may not contain the early startup line. If the line
-appears but startup stops, inspect stderr and the log file, redacting tokens, secrets and database URLs
-before sharing. Do not delete `.env` or databases while troubleshooting.
+After a controlled restart, current Veil code reconfigures `stdout` and `stderr` with UTF-8 `line_buffering=True`
+and `write_through=True`, then prints `[veil] Starting Veil Utilities` to stdout before checking dependencies.
+Normal application logs (including startup diagnostics, command execution summaries without arguments, and a
+5-minute status heartbeat) go to stdout as well as `LOG_FILE` (default `veil.log`); Python tracebacks and some
+startup errors still go to stderr. The entry point replaces pre-existing Python root logging handlers with Veil's
+flushing stdout and file handlers, so a host/library's earlier configuration cannot silently suppress Veil INFO
+logs. Note that web hosting consoles such as Wispbyte only stream lines emitted while the console tab is open (or
+since the most recent restart): clicking **Restart** in the panel will display the full startup sequence, and live
+commands / 5-minute heartbeats keep the console populated afterwards. If `0 lines` persists immediately after
+clicking **Restart**, verify the panel's **Configuration → Startup / Entry File** points to `main.py` and check
+`veil.log` in the file manager. Do not delete `.env` or databases while troubleshooting.
 
 ## Updating
 

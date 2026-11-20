@@ -1,21 +1,10 @@
-"""Log cards: one clean shape for every event, built in one place so the logs look alike and can be tested.
+"""Structured audit-log embeds for Veil Utilities.
 
-Every card reads the same way, top to bottom:
-
-    [avatar]  Role deleted · testnuke-role-1        <- header: what happened, and to what/whom
-    by @Veil Utilities                              <- who, where (mentions, so they're clickable)
-    > Antinuke test (,testnuke)                     <- the reason or the message text, quoted, when there is one
-    -# position 1 · was shown separately           <- small grey details
-    Role ID: 1564424937685393469 · Today at 4:46 PM <- IDs live in the footer only, next to Discord's own time
-
-No thumbnails, no IDs in code blocks: the header says what it is, the body says who and why. The header's icon is
-the face that matters: the member a member event is about, or whoever did it for roles, channels and the server.
-When the audit log doesn't say who did something, the card just doesn't name anyone.
-
-Strips and role changes use `field_card` instead: the same header and footer, but the who/what sits in labelled
-fields, two to a row like Discord's own audit log (see `member_stripped` and `roles_updated`).
-
-The cog (cogs/logging.py) decides where each card goes; everything here returns a discord.Embed.
+Every log channel shares one consistent visual layout:
+- Author line: clean username handle and avatar (or server name/icon for server-wide events)
+- Title: concise event name in Title Case with no decorative emojis
+- Fields: scannable inline metadata on the top row, full-width content/lists underneath
+- Footer: resource IDs (and command timing when applicable), paired with Discord's native timestamp
 """
 from __future__ import annotations
 
@@ -28,23 +17,24 @@ import discord
 from core import redact
 from core.utils import Colors, fmt_duration, shorten, shorten_md, ts
 
+SLATE = 0x4E5D6C  # restrained steel-slate for neutral edits and state updates
 AUDIT_SETTLE = 0.6  # seconds to let Discord write the audit-log entry before we look for it
 AUDIT_WINDOW = 15.0  # an entry older than this isn't about the event we just saw
 QUOTE_LIMIT = 900
-LIST_LIMIT = 950  # characters kept for a list before "+N more"
+LIST_LIMIT = 950
 NEW_ACCOUNT_DAYS = 7
-GROUP_SHOWN = 25  # names listed on a grouped card before "+N more"
-# permissions worth a warning when a role that has them is handed out
+GROUP_SHOWN = 25
 DANGEROUS = ("administrator", "manage_guild", "manage_roles", "manage_channels", "manage_webhooks", "ban_members",
              "kick_members", "mention_everyone", "moderate_members", "manage_messages")
+
+_LEAD_SYMBOL = re.compile(r"^(?:[^\w\s`<@#\[(\"'-]+\s*)+")
 
 
 # ---------------------------------------------------------------- building blocks
 
 def name_of(user) -> str:
-    """`Jacob (ham6600y)` when the display name differs from the username, else just the username."""
-    display = getattr(user, "display_name", None) or user.name
-    return display if display == user.name else f"{display} ({user.name})"
+    """Clean username handle without appending duplicate parenthetical nicknames."""
+    return getattr(user, "name", None) or getattr(user, "display_name", None) or "Unknown"
 
 
 def avatar_of(user) -> str | None:
@@ -57,40 +47,68 @@ def _icon(guild) -> str | None:
     return getattr(icon, "url", None)
 
 
+def strip_lead_emoji(text: str) -> str:
+    """Strip leading status emojis (e.g. `❌ 🔒 ...`) so structured fields stay clean."""
+    cleaned = _LEAD_SYMBOL.sub("", (text or "").strip())
+    return cleaned or (text or "").strip()
+
+
 def quote(text: str | None, limit: int = QUOTE_LIMIT) -> str:
     """Markdown block quote, cut to `limit` characters."""
     text = shorten((text or "").replace("\r", ""), limit)
-    return "\n".join(f"> {line}" if line else ">" for line in text.split("\n"))
+    return "\n".join(f"> {line}" if line else "> " for line in text.split("\n"))
+
+
+def _dedup(items: Iterable) -> list:
+    seen: set = set()
+    out = []
+    for item in items:
+        key = getattr(item, "id", item)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def role_pills(items: Iterable, limit: int = 1000) -> str:
+    """Space-separated mention pills, deduplicated and cut safely at whole-mention boundaries."""
+    unique = _dedup(items)
+    if not unique:
+        return ""
+    shown: list[str] = []
+    for item in unique:
+        remaining = len(unique) - len(shown) - 1
+        suffix = f"  ·  +{remaining} more" if remaining else ""
+        candidate = (" ".join([*shown, item.mention]) + suffix) if shown else (item.mention + suffix)
+        if len(candidate) > limit:
+            break
+        shown.append(item.mention)
+    remaining = len(unique) - len(shown)
+    suffix = f"  ·  +{remaining} more" if remaining else ""
+    return (" ".join(shown) + suffix) if shown else f"+{remaining} more"
 
 
 def mentions(items: Iterable, limit: int = 900) -> str:
-    return shorten_md(", ".join(i.mention for i in items), limit)
+    return role_pills(items, limit)
 
 
 def mention_list(items: Iterable, limit: int = 1000) -> str:
-    """Mentions joined with `, `; what doesn't fit becomes `+N more` instead of a half-written mention."""
-    items = list(items)
-    out, used = [], 0
-    for i, item in enumerate(items):
-        step = len(item.mention) + 2
-        if used + step > limit - 16:
-            out.append(f"*+{len(items) - i} more*")
-            break
-        out.append(item.mention)
-        used += step
-    return ", ".join(out)
+    return role_pills(items, limit)
 
 
 def footer(ids: Iterable[tuple[str, object]]) -> str:
-    return " · ".join(f"{label}: {value}" for label, value in ids)
+    parts = [f"{label}: {value}" if label else str(value)
+             for label, value in ids if value not in (None, "")]
+    return " • ".join(parts)
 
 
 def bullets(lines: list[str], limit: int = LIST_LIMIT) -> str:
-    """One line each, cut with "+N more" instead of overflowing."""
+    """One line each, cut with `+N more` instead of overflowing."""
     out, used = [], 0
     for i, line in enumerate(lines):
         if used + len(line) + 1 > limit - 16:
-            out.append(f"*+{len(lines) - i} more*")
+            out.append(f"+{len(lines) - i} more")
             break
         out.append(line)
         used += len(line) + 1
@@ -98,30 +116,31 @@ def bullets(lines: list[str], limit: int = LIST_LIMIT) -> str:
 
 
 def small(*parts) -> str:
-    """A grey detail line (`-# a · b · c`); empty parts are dropped, nothing left means no line."""
     kept = [str(p) for p in parts if p]
     return "-# " + " · ".join(kept) if kept else ""
 
 
 def by(actor, verb: str = "by") -> str:
-    """`by @mod`, or nothing when the audit log didn't say who."""
     return f"{verb} {actor.mention}" if actor is not None else ""
 
 
 def joined(*parts) -> str:
-    """Parts of one line, joined with ` · `, empty ones left out."""
-    return " · ".join(str(p) for p in parts if p)
+    return " • ".join(str(p) for p in parts if p)
 
 
 def person(user) -> str:
-    """`@mention` and the username, for places where a mention alone might not resolve."""
     if user is None:
-        return "*unknown*"
+        return "Unknown"
     return f"{user.mention} (`{user.name}`)"
 
 
+def with_id(user) -> str:
+    if user is None:
+        return ""
+    return f"{user.mention} (`{user.id}`)"
+
+
 def when(dt) -> str:
-    """`Oct 26, 2026 (3 days ago)`."""
     return f"{ts(dt, 'D')} ({ts(dt, 'R')})"
 
 
@@ -130,7 +149,6 @@ def age_of(dt) -> str:
 
 
 def short_age(dt) -> str:
-    """The biggest unit only: `3 days`, `2 hours`, `40 seconds`."""
     return age_of(dt).split(", ")[0]
 
 
@@ -139,11 +157,10 @@ def plural(n: int, word: str, many: str | None = None) -> str:
 
 
 def hex_color(value: int) -> str:
-    return f"#{value:06X}" if value else "default"
+    return f"#{value:06X}" if value else "Default"
 
 
 def dangerous(role) -> list[str]:
-    """Permission names on a role that deserve a warning (just `administrator` when it has that)."""
     perms = getattr(role, "permissions", None)
     if perms is None:
         return []
@@ -152,32 +169,72 @@ def dangerous(role) -> list[str]:
     return [p.replace("_", " ") for p in DANGEROUS if getattr(perms, p, False)]
 
 
+FIELD_ROW = 78
+FIELD_MIN = 10
+FIELD_GAP = 3
+
+
+def field_card(color: int, title: str, *, subject=None, icon: str | None = None, lead: str | None = None,
+               fields: Iterable[tuple[str, object, bool]] = (), details: Iterable[tuple[str, object]] = (),
+               ids: Iterable[tuple] = (), header: str | None = None) -> discord.Embed:
+    """Standard structured audit embed: author handle + avatar, bold title, clean fields, ID footer."""
+    embed = discord.Embed(color=color, title=shorten(title, 256), timestamp=discord.utils.utcnow())
+    if lead:
+        embed.description = shorten_md(lead, 4096)
+    name = header or (name_of(subject) if subject is not None else None)
+    if name:
+        embed.set_author(name=shorten(name, 256), icon_url=icon or (avatar_of(subject) if subject is not None else None))
+    room = 0
+    for label, value, inline in fields:
+        if value in (None, ""):
+            continue
+        text = shorten_md(str(value), 1024)
+        if not text:
+            continue
+        if inline and room >= FIELD_MIN:
+            room -= len(str(label)) + len(text) + FIELD_GAP
+        else:
+            room = FIELD_ROW - len(str(label)) - len(text) if inline else -1
+        embed.add_field(name=shorten(str(label), 256), value=text, inline=inline)
+    for label, value in details:
+        if value not in (None, ""):
+            embed.add_field(name=shorten(str(label), 256), value=shorten_md(str(value), 1024), inline=False)
+    footer_text = footer(ids)
+    if footer_text:
+        embed.set_footer(text=shorten(footer_text, 2048))
+    return embed
+
+
 def log_card(color: int, header: str, *, icon: str | None = None, lines: Iterable[str] = (),
              ids: Iterable[tuple] = ()) -> discord.Embed:
-    """The one shape every log uses: header (with an icon), body lines, IDs in the footer, Discord's timestamp."""
     body = "\n".join(line for line in lines if line)
-    embed = discord.Embed(color=color, description=shorten(body, 4000) if body else None,
-                          timestamp=discord.utils.utcnow())
-    embed.set_author(name=shorten(header, 256), icon_url=icon)
-    ids = list(ids)
-    if ids:
-        embed.set_footer(text=shorten(footer(ids), 2048))
-    return embed
+    return field_card(color, header, icon=icon, lead=body or None, ids=ids)
 
 
 def card(color: int, subject=None, text: str = "", *, ids: Iterable[tuple] = (), header: str | None = None
          ) -> discord.Embed:
-    """A one-line note (e.g. `,logs test`), in the same shape as the logs."""
-    title = header or (name_of(subject) if subject is not None else "Veil Utilities")
-    return log_card(color, title, icon=avatar_of(subject) if subject is not None else None, lines=[text], ids=ids)
+    return field_card(color, header or "Log Test", subject=subject, lead=text or None, ids=ids)
+
+
+def entry_card(color: int, sentence: str, *, subject=None, icon: str | None = None,
+               details: Iterable[tuple[str, object]] = (), quoted: str | None = None,
+               ids: Iterable[tuple] = (), header: str | None = None) -> discord.Embed:
+    """Backwards-compatible card builder using the clean structured layout."""
+    lead = f"{sentence}\n\n{redact.scrub(quoted)}" if quoted else sentence
+    return field_card(color, header or "Audit Entry", subject=subject, icon=icon,
+                      lead=lead, details=details, ids=ids)
+
+
+def feed_line(emoji: str, text: str) -> str:
+    prefix = f"{emoji} " if emoji else ""
+    return shorten_md(f"{ts(discord.utils.utcnow(), 't')} {prefix}{text}", 1900)
 
 
 _ON_BEHALF = re.compile(r"^(?:(?P<what>.+?) by )?(?P<name>.+?) \((?P<id>\d{15,21})\)(?:: (?P<reason>.*))?$", re.S)
 
 
 def on_behalf(guild, actor, reason: str | None):
-    """The bot did it because someone ran a command (`,timeout`, `,ban`...): credit that person, and keep only what
-    they wrote as the reason. The audit reason says who (see core.utils.audit_reason); anything else is left alone."""
+    """Credit the staff member who invoked a bot moderation command rather than the bot itself."""
     me = getattr(guild, "me", None)
     if actor is None or me is None or getattr(actor, "id", None) != me.id or not reason:
         return actor, reason
@@ -186,14 +243,14 @@ def on_behalf(guild, actor, reason: str | None):
     if member is None:
         return actor, reason
     said = (match["reason"] or "").strip()
-    said = "" if said == "None" else said  # older commands wrote "name: None" when no reason was given
+    said = "" if said == "None" else said
     what = (match["what"] or "").strip()
     return member, (f"{what}: {said}" if what and said else what or said or None)
 
 
 async def audit_actor(guild, action: discord.AuditLogAction, target_id: int, *,
                       check: Callable | None = None) -> tuple[discord.abc.User | None, str | None]:
-    """Who caused an event, from the audit log: `(user, reason)`, or `(None, None)` when we can't tell."""
+    """Resolve `(actor, reason)` from Discord's audit log when unambiguous."""
     me = getattr(guild, "me", None)
     if not me or not getattr(me.guild_permissions, "view_audit_log", False):
         return None, None
@@ -211,103 +268,13 @@ async def audit_actor(guild, action: discord.AuditLogAction, target_id: int, *,
                 continue
             matches.append(entry)
             if len(matches) > 1:
-                return None, None  # multiple plausible entries cannot be attributed safely
-    except Exception:  # missing access, rate limit, library quirks: the log is still worth sending
+                return None, None
+    except Exception:
         return None, None
     if len(matches) == 1:
         entry = matches[0]
         return on_behalf(guild, entry.user, entry.reason)
     return None, None
-
-
-# ---------------------------------------------------------------- the two shapes
-#
-# A card (bans, joins, roles, channels...): the person's avatar and name on top, one bold sentence that says what
-# happened with clickable mentions, then labelled lines (**Reason:** ...), IDs in the footer and Discord's own time.
-# A line (commands and voice): one short text line in the log channel, like Discord's own audit log; the cog
-# gathers lines that arrive close together into one message.
-
-def entry_card(color: int, sentence: str, *, subject=None, icon: str | None = None,
-               details: Iterable[tuple[str, object]] = (), quoted: str | None = None,
-               ids: Iterable[tuple] = (), header: str | None = None) -> discord.Embed:
-    """`sentence` in bold, the quoted text (a message, a reason) under it, then `**Label:** value` lines."""
-    lines = [f"**{sentence}**"]
-    detail_lines = [f"**{label}:** {value}" for label, value in details if value not in (None, "")]
-    if quoted:
-        lines.extend(("", quote(quoted)))
-    if detail_lines:
-        lines.extend(("", *detail_lines))
-    embed = discord.Embed(color=color, description=shorten_md("\n".join(lines), 4000),
-                          timestamp=discord.utils.utcnow())
-    name = header or (name_of(subject) if subject is not None else None)
-    if name:
-        embed.set_author(name=shorten(name, 256), icon_url=icon or (avatar_of(subject) if subject is not None else None))
-    ids = list(ids)
-    if ids:
-        embed.set_footer(text=shorten(footer(ids), 2048))
-    return embed
-
-
-FIELD_ROW = 78  # label + value characters that sit side by side on one row of inline fields
-FIELD_MIN = 10  # stop a row before the fields left on it would get narrower than this
-FIELD_GAP = 3  # space between two inline fields: the gap Discord leaves, plus the label's own padding
-
-
-def field_card(color: int, title: str, *, subject=None, icon: str | None = None, lead: str | None = None,
-               fields: Iterable[tuple[str, object, bool]] = (), details: Iterable[tuple[str, object]] = (),
-               ids: Iterable[tuple] = (), header: str | None = None) -> discord.Embed:
-    """The two-column audit shape: a small author line, a bold `title`, optional bold `lead` text, then
-    labelled field groups (as many side by side as fit on one row) and small grey detail lines.
-
-    Fields are `(label, value, inline)`. Inline fields sit next to each other while they fit, like Discord's own
-    audit log; a label with no value is left out, so a field the event doesn't have never shows as empty. The
-    footer carries the IDs and Discord shows the time, so the card never repeats either.
-    """
-    embed = discord.Embed(color=color, title=shorten(title, 256), timestamp=discord.utils.utcnow())
-    if lead:
-        embed.description = shorten_md(lead, 4096)
-    name = header or (name_of(subject) if subject is not None else None)
-    if name:
-        embed.set_author(name=shorten(name, 256), icon_url=icon or (avatar_of(subject) if subject is not None else None))
-    room = 0  # label + value characters left on the current row of inline fields
-    for label, value, inline in fields:
-        if not value:
-            continue
-        text = shorten_md(str(value), 1024)
-        if inline and room >= FIELD_MIN:
-            room -= len(str(label)) + len(text) + FIELD_GAP
-        else:
-            room = FIELD_ROW - len(str(label)) - len(text) if inline else -1
-        embed.add_field(name=shorten(label, 256), value=text, inline=inline)
-    kept = [(label, str(value)) for label, value in details if value not in (None, "")]
-    if kept:
-        more = "\n".join(small(label, value) for label, value in kept)
-        embed.description = shorten_md(f"{embed.description}\n\n{more}" if embed.description else more, 4096)
-    ids = list(ids)
-    if ids:
-        embed.set_footer(text=shorten(footer(ids), 2048))
-    return embed
-
-
-def feed_line(emoji: str, text: str) -> str:
-    """One audit-feed entry: `<t:..:t> ⌨️ @x ran ,ban in #general`. Sent with mentions switched off."""
-    return shorten_md(f"{ts(discord.utils.utcnow(), 't')} {emoji} {text}", 1900)
-
-
-def _by_text(actor) -> str:
-    return f" by {actor.mention}" if actor is not None else ""
-
-
-def _age(dt) -> str:
-    return f"{ts(dt, 'R')} ({ts(dt, 'D')})" if dt else ""
-
-
-def _account(user) -> str:
-    created = getattr(user, "created_at", None)
-    if not created:
-        return ""
-    young = (discord.utils.utcnow() - created).days < NEW_ACCOUNT_DAYS
-    return f"created {_age(created)}" + (" ⚠️ **new account**" if young else "")
 
 
 # ---------------------------------------------------------------- messages
@@ -316,56 +283,72 @@ def _attachments(m) -> str:
     files = list(getattr(m, "attachments", None) or [])
     if not files:
         return ""
-    shown = " · ".join(f"[{a.filename}]({a.url})" for a in files[:5])
-    return shown + (f" +{len(files) - 5} more" if len(files) > 5 else "")
+    shown = " • ".join(f"[{a.filename}]({a.url})" for a in files[:5])
+    return shown + (f" (+{len(files) - 5} more)" if len(files) > 5 else "")
 
 
-def _message_content(text: str | None) -> str:
-    """Compact quoted content that fits safely within a Discord embed field."""
-    if not text:
-        return "*No text*"
-    return quote(redact.scrub(text), limit=700)
+def _message_content(text: str | None, limit: int = 950) -> str:
+    """Clean scrubbed message content without nested `>` blockquotes that break user formatting."""
+    cleaned = redact.scrub((text or "").replace("\r", "")).strip()
+    if not cleaned:
+        return "*Empty*"
+    return shorten_md(cleaned, limit)
 
 
 def message_deleted(m: discord.Message, actor=None) -> discord.Embed:
-    """A compact event summary and readable details rather than a dense paragraph."""
     deleter = actor if actor is not None and actor.id != m.author.id else None
     sent = getattr(m, "created_at", None)
-    return field_card(Colors.error, "🗑️ Message deleted", subject=m.author,
-                      lead=f"{m.author.mention} · {m.channel.mention}", fields=[
-                          ("Message", _message_content(m.content), False),
-                          ("Deleted by", deleter.mention if deleter else None, True),
-                          ("Sent", ts(sent, "R") if sent else None, True),
-                          ("Attachments", _attachments(m), False),
-                      ], ids=[("User ID", m.author.id), ("Message ID", m.id)])
+    attachments = _attachments(m)
+    has_text = bool((m.content or "").strip())
+    top_row: list[tuple[str, object, bool]] = [
+        ("Author", m.author.mention, True),
+        ("Channel", m.channel.mention, True),
+    ]
+    if deleter is not None:
+        top_row.append(("Deleted By", deleter.mention, True))
+    elif sent:
+        top_row.append(("Sent", ts(sent, "R"), True))
+    extra_fields: list[tuple[str, object, bool]] = []
+    if has_text or not attachments:
+        extra_fields.append(("Content", _message_content(m.content), False))
+    if attachments:
+        extra_fields.append(("Attachments", attachments, False))
+    if deleter is not None and sent:
+        extra_fields.append(("Sent", ts(sent, "R"), False))
+    return field_card(Colors.error, "Message Deleted", subject=m.author,
+                      fields=[*top_row, *extra_fields],
+                      ids=[("User ID", m.author.id), ("Message ID", m.id)])
 
 
 def message_edited(before: discord.Message, after: discord.Message) -> discord.Embed:
-    """A consistent edit card with before/after context, a jump link and identifiers."""
     sent = getattr(after, "created_at", None)
-    return field_card(Colors.blurple, "✏️ Message edited", subject=after.author,
-                      lead=f"{after.author.mention} · {after.channel.mention} · [Jump to message]({after.jump_url})",
-                      fields=[("Before", _message_content(before.content), False),
-                              ("After", _message_content(after.content), False),
-                              ("Sent", ts(sent, "R") if sent else None, True)],
-                      ids=[("User ID", after.author.id), ("Message ID", after.id)])
+    jump = getattr(after, "jump_url", None)
+    channel_val = f"{after.channel.mention} ([Jump]({jump}))" if jump else after.channel.mention
+    return field_card(SLATE, "Message Edited", subject=after.author, fields=[
+        ("Author", after.author.mention, True),
+        ("Channel", channel_val, True),
+        ("Sent", ts(sent, "R") if sent else None, True),
+        ("Before", _message_content(before.content), False),
+        ("After", _message_content(after.content), False),
+    ], ids=[("User ID", after.author.id), ("Message ID", after.id)])
 
 
 def bulk_deleted(messages: list[discord.Message]) -> discord.Embed:
     channel = messages[0].channel
+    guild = getattr(channel, "guild", None)
     counts: dict[int, list] = {}
     for m in messages:
         counts.setdefault(m.author.id, [m.author, 0])[1] += 1
     top = sorted(counts.values(), key=lambda pair: -pair[1])
-    authors = ", ".join(f"{a.mention} ×{n}" for a, n in top[:8]) + (f" +{len(top) - 8} more" if len(top) > 8 else "")
+    authors = ", ".join(f"{a.mention} ({n})" for a, n in top[:8]) + (f", +{len(top) - 8} more" if len(top) > 8 else "")
     times = [m.created_at for m in messages if getattr(m, "created_at", None)]
-    return field_card(Colors.error, "🗑️ Messages deleted", header=f"#{getattr(channel, 'name', '?')}",
-                      icon=_icon(getattr(channel, "guild", None)),
-                      lead=f"**{plural(len(messages), 'message')}** · {channel.mention}",
-                      fields=[("Authors", authors, False),
-                              ("Sent", f"{ts(min(times), 'f')} – {ts(max(times), 't')}" if times else None, True),
-                              ("Transcript", "Attached", True)], ids=[("Channel ID", channel.id)])
-
+    header = getattr(guild, "name", None) or f"#{getattr(channel, 'name', 'channel')}"
+    return field_card(Colors.error, "Messages Purged", header=header, icon=_icon(guild), fields=[
+        ("Channel", channel.mention, True),
+        ("Deleted", plural(len(messages), "message"), True),
+        ("Time Span", f"{ts(min(times), 't')} – {ts(max(times), 't')}" if times else None, True),
+        ("Authors", authors, False),
+    ], ids=[("Channel ID", channel.id), ("", "Transcript attached")])
 
 
 def transcript(messages: list[discord.Message]) -> str:
@@ -373,172 +356,178 @@ def transcript(messages: list[discord.Message]) -> str:
                      for m in sorted(messages, key=lambda x: x.id))
 
 
-# ---------------------------------------------------------------- members
+# ---------------------------------------------------------------- members & moderation
 
 def member_joined(m: discord.Member) -> discord.Embed:
     count = getattr(m.guild, "member_count", None)
-    return entry_card(Colors.success, f"{m.mention} joined the server", subject=m, details=[
-        ("Member", f"#{count:,}" if count else ""), ("Account", _account(m)),
-        ("Bot", "yes" if getattr(m, "bot", False) else ""),
+    created = getattr(m, "created_at", None)
+    young = bool(created and (discord.utils.utcnow() - created).days < NEW_ACCOUNT_DAYS)
+    is_bot = bool(getattr(m, "bot", False))
+    return field_card(Colors.success, "Bot Added" if is_bot else "Member Joined", subject=m, fields=[
+        ("Member", m.mention, True),
+        ("Account Created", f"{ts(created, 'D')} ({ts(created, 'R')})" if created else None, True),
+        ("Member Count", f"#{count:,}" if count else None, True),
+        ("Flag", f"New account ({short_age(created)} old)" if young and created else None, False),
     ], ids=[("User ID", m.id)])
 
 
 def member_left(m: discord.Member, kicked_by=None, reason: str | None = None) -> discord.Embed:
     kicked = kicked_by is not None
     joined_at = getattr(m, "joined_at", None)
-    roles = [r for r in getattr(m, "roles", []) if not r.is_default()]
+    roles = _dedup([r for r in reversed(list(getattr(m, "roles", []))) if not r.is_default()])
     count = getattr(m.guild, "member_count", None)
-    sentence = f"{m.mention} was kicked{_by_text(kicked_by)}" if kicked else f"{m.mention} left the server"
-    return entry_card(Colors.warn if kicked else Colors.error, sentence, subject=m, details=[
-        ("Reason", reason if kicked and reason else ""),
-        ("Joined", f"{ts(joined_at, 'R')} (was here {short_age(joined_at)})" if joined_at else ""),
-        ("Roles", mentions(reversed(roles), 700) if roles else ""),
-        ("Members now", f"{count:,}" if count and not kicked else ""),
+    if kicked:
+        reason_text = shorten(reason, 300) if reason else "None"
+        return field_card(Colors.warn, "Member Kicked", subject=m, fields=[
+            ("Target", m.mention, True),
+            ("Moderator", kicked_by.mention, True),
+            ("Reason", reason_text, len(reason_text) <= 42),
+            (f"Roles ({len(roles)})", role_pills(roles) if roles else None, False),
+        ], ids=[("User ID", m.id)])
+    return field_card(Colors.error, "Member Left", subject=m, fields=[
+        ("Member", m.mention, True),
+        ("Joined", ts(joined_at, "R") if joined_at else None, True),
+        ("Members", f"{count:,}" if count else None, True),
+        (f"Roles ({len(roles)})", role_pills(roles) if roles else None, False),
     ], ids=[("User ID", m.id)])
 
 
-def _ban_card(color: int, word: str, user, mod, reason: str | None, clicked: bool) -> discord.Embed:
-    return entry_card(color, f"{user.mention} was {word}{_by_text(mod)}", subject=user, details=[
-        ("Reason", reason or ("" if clicked else "no reason given")),
-        ("How", "the button on the ban log" if clicked else ""),
-        ("Account", _account(user)),
+def _ban_card(color: int, title: str, user, mod, reason: str | None, clicked: bool) -> discord.Embed:
+    reason_text = shorten(reason, 300) if reason else ("Log button" if clicked else "None")
+    return field_card(color, title, subject=user, fields=[
+        ("Target", user.mention, True),
+        ("Moderator", mod.mention if mod else "Unknown", True),
+        ("Reason", reason_text, len(reason_text) <= 42),
     ], ids=[("User ID", user.id)])
 
 
 def user_banned(user, mod=None, reason: str | None = None, *, clicked: bool = False) -> discord.Embed:
-    return _ban_card(Colors.error, "banned", user, mod, reason, clicked)
+    return _ban_card(Colors.error, "Member Banned", user, mod, reason, clicked)
 
 
 def user_unbanned(user, mod=None, reason: str | None = None, *, clicked: bool = False) -> discord.Embed:
-    return _ban_card(Colors.success, "unbanned", user, mod, reason, clicked)
+    return _ban_card(Colors.success, "Member Unbanned", user, mod, reason, clicked)
 
 
 def nickname_changed(m: discord.Member, old: str | None, new: str | None, actor=None) -> discord.Embed:
-    show = lambda nick: f"`{nick}`" if nick else "*none*"  # noqa: E731
+    fmt_nick = lambda nick: f"`{nick}`" if nick else "None"  # noqa: E731
     other = actor if actor is not None and actor.id != m.id else None
-    return entry_card(Colors.blurple, f"{m.mention}'s nickname was changed{_by_text(other)}", subject=m,
-                      details=[("Before", show(old)), ("After", show(new))], ids=[("User ID", m.id)])
-
-
-def _role_warnings(roles) -> str:
-    warns = [f"{r.mention} has {', '.join(dangerous(r))}" for r in roles if dangerous(r)]
-    return "; ".join(warns)
-
-
-def roles_changed(m: discord.Member, added: list, removed: list, actor=None, reason: str | None = None) -> discord.Embed:
-    if added and not removed:
-        color, verb = Colors.success, "was given roles"
-    elif removed and not added:
-        color, verb = Colors.error, "had roles taken"
-    else:
-        color, verb = Colors.blurple, "had their roles changed"
-    return entry_card(color, f"{m.mention} {verb}{_by_text(actor)}", subject=m, details=[
-        ("Added", mentions(added) if added else ""), ("Removed", mentions(removed) if removed else ""),
-        ("Reason", reason or ""), ("⚠️ Dangerous", _role_warnings(added)),
+    return field_card(SLATE, "Nickname Changed", subject=m, fields=[
+        ("Member", m.mention, True),
+        ("Changed By", other.mention if other else None, True),
+        ("Nickname", f"{fmt_nick(old)} → {fmt_nick(new)}", False),
     ], ids=[("User ID", m.id)])
 
 
-def with_id(user) -> str:
-    """`@mention (`id`)`: the mention to click, and the ID that still works once the account is gone."""
-    if user is None:
-        return ""
-    return f"{user.mention} (`{user.id}`)"
+def _role_warnings(roles) -> str:
+    warns = [f"{r.mention}: {', '.join(p.title() for p in dangerous(r))}" for r in _dedup(roles) if dangerous(r)]
+    return "\n".join(warns)
+
+
+def roles_changed(m: discord.Member, added: list, removed: list, actor=None, reason: str | None = None) -> discord.Embed:
+    return roles_updated(m, added, removed, actor, reason)
 
 
 def roles_updated(m: discord.Member, added: list, removed: list, actor=None, reason: str | None = None,
                   *, total: int | None = None) -> discord.Embed:
-    """One card for a member's roles changing: who they are, who changed it, and what was given or taken.
-
-    `total` is how many roles they had before the change: when a large share of them goes at once, that is a
-    strip rather than an ordinary edit, and the card says so.
-    """
-    # a strip takes (nearly) everything they had at once; anything smaller is an ordinary edit
+    added = _dedup(added)
+    removed = _dedup(removed)
     strip = bool(removed) and not added and bool(total) and len(removed) >= max(3, total - 1)
     if strip:
         color, title = Colors.orange, "Member Stripped"
     elif added and not removed:
         color, title = Colors.success, "Roles Updated"
+    elif removed and not added:
+        color, title = Colors.error, "Roles Updated"
     else:
-        color, title = Colors.blurple, "Roles Updated"
+        color, title = SLATE, "Roles Updated"
     lead = None
-    if strip:
-        left = total - len(removed)
-        lead = (f"Stripped **{plural(len(removed), 'role')}** from {m.mention}"
-                + (f", leaving {plural(left, 'role')}." if left else ", every role they had."))
+    if strip and total is not None:
+        left = max(0, total - len(removed))
+        lead = (f"Removed **{plural(len(removed), 'role')}** from {m.mention} ({plural(left, 'role')} remaining)."
+                if left else f"Removed all **{plural(len(removed), 'role')}** from {m.mention}.")
     return field_card(color, title, subject=m, lead=lead, fields=[
-        ("User", with_id(m), True),
-        ("Changed By", with_id(actor), True),
-        ("Added" if removed else f"Added ({len(added)})", mention_list(added) if added else "", False),
-        ("Removed" if added else f"Removed ({len(removed)})", mention_list(removed) if removed else "", False),
+        ("Member", m.mention, True),
+        ("Changed By", actor.mention if actor else None, True),
+        (f"Added ({len(added)})", role_pills(added) if added else None, False),
+        (f"Removed ({len(removed)})", role_pills(removed) if removed else None, False),
+        ("Elevated Permissions", _role_warnings(added) or None, False),
         ("Reason", reason, False),
-        ("⚠️ Dangerous", _role_warnings(added), False),
     ], ids=[("User ID", m.id)])
 
 
 def member_stripped(m, removed: Iterable = (), actor=None, *, hint: str | None = None) -> discord.Embed:
-    """The staff-role strip card: the member in the header, who ran it, and the roles that came off.
-
-    `hint` is the small line that says how to undo it. Each caller knows who can put the roles back, so the card
-    never names a command its readers can't run; without a hint it falls back to plain advice.
-    """
-    removed = list(removed)
-    hint = hint or "Give the role(s) above back to undo this."
+    removed = _dedup(removed)
     return field_card(Colors.orange, "Member Stripped", subject=m, fields=[
-        ("User", with_id(m), True), ("By", with_id(actor), True),
-        ("Roles removed", mention_list(removed) if removed else "", False),
-    ], details=[("How to undo", hint)], ids=[("User ID", m.id)])
+        ("Member", m.mention, True),
+        ("Moderator", actor.mention if actor else None, True),
+        (f"Roles Removed ({len(removed)})" if removed else "Roles Removed", role_pills(removed) if removed else None, False),
+        ("Recovery", hint, False),
+    ], ids=[("User ID", m.id)])
 
 
 def timed_out(m: discord.Member, until, actor=None, reason: str | None = None) -> discord.Embed:
     left = (until - discord.utils.utcnow()).total_seconds()
-    return entry_card(Colors.warn, f"{m.mention} was timed out{_by_text(actor)}", subject=m, details=[
-        ("Duration", fmt_duration(round(left / 60) * 60 or left) if left > 0 else ""),
-        ("Ends", f"{ts(until, 'f')} ({ts(until, 'R')})"), ("Reason", reason or "no reason given"),
+    dur = fmt_duration(round(left / 60) * 60 or left) if left > 0 else ""
+    reason_text = shorten(reason, 300) if reason else "None"
+    return field_card(Colors.warn, "Member Timed Out", subject=m, fields=[
+        ("Target", m.mention, True),
+        ("Moderator", actor.mention if actor else "Unknown", True),
+        ("Duration", f"{dur} ({ts(until, 'R')})" if dur else ts(until, "R"), True),
+        ("Reason", reason_text, False),
     ], ids=[("User ID", m.id)])
 
 
 def timeout_removed(m: discord.Member, actor=None) -> discord.Embed:
-    return entry_card(Colors.success, f"{m.mention}'s timeout was removed{_by_text(actor)}", subject=m,
-                      ids=[("User ID", m.id)])
+    return field_card(Colors.success, "Timeout Removed", subject=m, fields=[
+        ("Target", m.mention, True),
+        ("Moderator", actor.mention if actor else None, True),
+    ], ids=[("User ID", m.id)])
 
 
 # ---------------------------------------------------------------- roles
 
 def _role_facts(r, *more) -> str:
     color = getattr(getattr(r, "color", None), "value", 0)
-    return " · ".join(str(x) for x in (
-        f"colour {hex_color(color)}" if color else "",
-        f"position {r.position}" if getattr(r, "position", None) is not None else "",
-        "shown separately" if getattr(r, "hoist", False) else "",
-        "mentionable" if getattr(r, "mentionable", False) else "", *more) if x)
+    return " • ".join(str(x) for x in (
+        hex_color(color) if color else "",
+        f"Position {r.position}" if getattr(r, "position", None) is not None else "",
+        "Hoisted" if getattr(r, "hoist", False) else "",
+        "Mentionable" if getattr(r, "mentionable", False) else "",
+        *more,
+    ) if x)
 
 
-def _who(actor, guild) -> str | None:
-    """The header icon for server-object events: whoever did it, else the server's icon."""
-    return avatar_of(actor) if actor is not None else _icon(guild)
-
-
-def _actor_header(actor) -> str | None:
-    return name_of(actor) if actor is not None else None
+def _server_header(actor, guild) -> tuple[str | None, str | None]:
+    if actor is not None:
+        return name_of(actor), avatar_of(actor)
+    return getattr(guild, "name", None), _icon(guild)
 
 
 def role_created(r: discord.Role, actor=None, reason: str | None = None) -> discord.Embed:
     warn = dangerous(r)
-    return entry_card(r.color.value or Colors.success, f"The role {r.mention} was created{_by_text(actor)}",
-                      header=_actor_header(actor) or r.name, icon=_who(actor, r.guild), details=[
-                          ("Details", _role_facts(r)), ("⚠️ Dangerous", ", ".join(warn) if warn else ""),
-                          ("Reason", reason or ""),
-                      ], ids=[("Role ID", r.id)])
+    header, icon = _server_header(actor, getattr(r, "guild", None))
+    return field_card(r.color.value or Colors.success, "Role Created", header=header, icon=icon, fields=[
+        ("Role", r.mention, True),
+        ("Created By", actor.mention if actor else None, True),
+        ("Properties", _role_facts(r) or None, True),
+        ("Elevated Permissions", ", ".join(p.title() for p in warn) if warn else None, False),
+        ("Reason", reason, False),
+    ], ids=[("Role ID", r.id)])
 
 
 def role_deleted(r: discord.Role, actor=None, reason: str | None = None) -> discord.Embed:
     members = getattr(r, "members", None)
     warn = dangerous(r)
-    return entry_card(Colors.error, f"The role {_gone('@' + r.name)} was deleted{_by_text(actor)}",
-                      header=_actor_header(actor) or r.name, icon=_who(actor, r.guild), details=[
-                          ("Details", _role_facts(r, f"{plural(len(members), 'member')} had it" if members else "")),
-                          ("⚠️ Dangerous", ", ".join(warn) if warn else ""), ("Reason", reason or ""),
-                      ], ids=[("Role ID", r.id)])
+    header, icon = _server_header(actor, getattr(r, "guild", None))
+    member_note = plural(len(members), "member") if members else ""
+    return field_card(Colors.error, "Role Deleted", header=header, icon=icon, fields=[
+        ("Role", f"`@{r.name}`", True),
+        ("Deleted By", actor.mention if actor else None, True),
+        ("Properties", _role_facts(r, member_note) or None, True),
+        ("Elevated Permissions", ", ".join(p.title() for p in warn) if warn else None, False),
+        ("Reason", reason, False),
+    ], ids=[("Role ID", r.id)])
 
 
 def role_changes(before: discord.Role, after: discord.Role) -> list[str]:
@@ -546,43 +535,43 @@ def role_changes(before: discord.Role, after: discord.Role) -> list[str]:
     if before.name != after.name:
         out.append(f"Name: `{before.name}` → `{after.name}`")
     if before.color != after.color:
-        out.append(f"Colour: `{hex_color(before.color.value)}` → `{hex_color(after.color.value)}`")
+        out.append(f"Color: `{hex_color(before.color.value)}` → `{hex_color(after.color.value)}`")
     if before.hoist != after.hoist:
-        out.append(f"Shown separately: `{'yes' if after.hoist else 'no'}`")
+        out.append(f"Hoisted: {'Yes' if after.hoist else 'No'}")
     if before.mentionable != after.mentionable:
-        out.append(f"Mentionable: `{'yes' if after.mentionable else 'no'}`")
+        out.append(f"Mentionable: {'Yes' if after.mentionable else 'No'}")
     if before.permissions != after.permissions:
-        gained = [p.replace("_", " ") for p, v in after.permissions if v and not getattr(before.permissions, p)]
-        lost = [p.replace("_", " ") for p, v in before.permissions if v and not getattr(after.permissions, p)]
+        gained = [p.replace("_", " ").title() for p, v in after.permissions if v and not getattr(before.permissions, p)]
+        lost = [p.replace("_", " ").title() for p, v in before.permissions if v and not getattr(after.permissions, p)]
         if gained:
-            out.append("Permissions added: " + ", ".join(f"`{p}`" for p in gained))
+            out.append("Permissions Added: " + ", ".join(gained))
         if lost:
-            out.append("Permissions removed: " + ", ".join(f"`{p}`" for p in lost))
+            out.append("Permissions Removed: " + ", ".join(lost))
     return out
 
 
-def _changes(changes: list[str]) -> list[tuple[str, str]]:
-    """`Name: a → b` lines become labelled lines (`**Name:** a → b`)."""
-    out = []
+def _changes(changes: list[str]) -> list[tuple[str, str, bool]]:
+    out: list[tuple[str, str, bool]] = []
     for change in changes:
         label, sep, rest = change.partition(": ")
-        out.append((label, rest) if sep else ("Change", change))
+        out.append((label, rest, False) if sep else ("Change", change, False))
     return out
 
 
 def role_updated(after: discord.Role, changes: list[str], actor=None) -> discord.Embed:
-    warn = dangerous(after)
-    return entry_card(after.color.value or Colors.blurple, f"The role {after.mention} was updated{_by_text(actor)}",
-                      header=_actor_header(actor) or after.name, icon=_who(actor, after.guild),
-                      details=_changes(changes) + [("⚠️ Dangerous now", ", ".join(warn) if warn else "")],
-                      ids=[("Role ID", after.id)])
+    header, icon = _server_header(actor, getattr(after, "guild", None))
+    return field_card(after.color.value or SLATE, "Role Updated", header=header, icon=icon, fields=[
+        ("Role", after.mention, True),
+        ("Updated By", actor.mention if actor else None, True),
+        *_changes(changes),
+    ], ids=[("Role ID", after.id)])
 
 
 # ---------------------------------------------------------------- channels and server
 
 _CHANNEL_KINDS = ((discord.CategoryChannel, "Category"), (discord.ForumChannel, "Forum"),
-                  (discord.StageChannel, "Stage channel"), (discord.VoiceChannel, "Voice channel"),
-                  (discord.TextChannel, "Text channel"))
+                  (discord.StageChannel, "Stage Channel"), (discord.VoiceChannel, "Voice Channel"),
+                  (discord.TextChannel, "Text Channel"))
 
 
 def channel_kind(c) -> str:
@@ -594,63 +583,85 @@ def _hash(c) -> str:
 
 
 def _gone(name: str) -> str:
-    """A deleted channel or role (no mention left to show) as `code`, which reads cleanly inside a bold sentence."""
     return f"`{name.replace('`', chr(0x2018))}`"
 
 
-def _channel_details(c) -> list[tuple[str, str]]:
+def channel_created(c, actor=None, reason: str | None = None) -> discord.Embed:
     category = getattr(c, "category", None)
     slow = getattr(c, "slowmode_delay", 0) or 0
     topic = getattr(c, "topic", None)
-    return [("Type", channel_kind(c)), ("Category", category.name if category else "none"),
-            ("Topic", shorten(topic, 200) if topic else ""), ("Slowmode", f"{slow}s" if slow else ""),
-            ("Age-restricted", "yes" if getattr(c, "nsfw", False) else "")]
-
-
-def channel_created(c, actor=None, reason: str | None = None) -> discord.Embed:
-    return entry_card(Colors.success, f"The channel {c.mention} was created{_by_text(actor)}",
-                      header=_actor_header(actor) or f"{_hash(c)}{c.name}", icon=_who(actor, c.guild),
-                      details=_channel_details(c) + [("Reason", reason or "")], ids=[("Channel ID", c.id)])
+    header, icon = _server_header(actor, getattr(c, "guild", None))
+    top_row: list[tuple[str, object, bool]] = [("Channel", c.mention, True)]
+    if actor is not None:
+        top_row.append(("Created By", actor.mention, True))
+    else:
+        top_row.append(("Type", channel_kind(c), True))
+    top_row.append(("Category", category.name if category else "None", True))
+    extra: list[tuple[str, object, bool]] = []
+    if actor is not None:
+        extra.append(("Type", channel_kind(c) + (f" • {slow}s slowmode" if slow else ""), False))
+    elif slow:
+        extra.append(("Slowmode", f"{slow}s", False))
+    if getattr(c, "nsfw", False):
+        extra.append(("Age-Restricted", "Yes", False))
+    if topic:
+        extra.append(("Topic", shorten(topic, 200), False))
+    if reason:
+        extra.append(("Reason", reason, False))
+    return field_card(Colors.success, "Channel Created", header=header, icon=icon,
+                      fields=[*top_row, *extra], ids=[("Channel ID", c.id)])
 
 
 def channel_deleted(c, actor=None, reason: str | None = None) -> discord.Embed:
-    return entry_card(Colors.error, f"The channel {_gone(_hash(c) + c.name)} was deleted{_by_text(actor)}",
-                      header=_actor_header(actor) or f"{_hash(c)}{c.name}", icon=_who(actor, c.guild),
-                      details=_channel_details(c) + [("Reason", reason or "")], ids=[("Channel ID", c.id)])
+    category = getattr(c, "category", None)
+    header, icon = _server_header(actor, getattr(c, "guild", None))
+    top_row: list[tuple[str, object, bool]] = [("Channel", _gone(f"{_hash(c)}{c.name}"), True)]
+    if actor is not None:
+        top_row.append(("Deleted By", actor.mention, True))
+    else:
+        top_row.append(("Type", channel_kind(c), True))
+    top_row.append(("Category", category.name if category else "None", True))
+    return field_card(Colors.error, "Channel Deleted", header=header, icon=icon,
+                      fields=[*top_row, ("Reason", reason, False)], ids=[("Channel ID", c.id)])
 
 
 def channel_changes(before, after) -> list[str]:
     out = []
     if before.name != after.name:
-        out.append(f"Name: `#{before.name}` → `#{after.name}`")
+        out.append(f"Name: `{_hash(before)}{before.name}` → `{_hash(after)}{after.name}`")
     if getattr(before, "category", None) != getattr(after, "category", None):
         old, new = getattr(before, "category", None), getattr(after, "category", None)
-        out.append(f"Category: `{old.name if old else 'none'}` → `{new.name if new else 'none'}`")
+        out.append(f"Category: {old.name if old else 'None'} → {new.name if new else 'None'}")
     if getattr(before, "topic", None) != getattr(after, "topic", None):
-        out.append(f"Topic: `{shorten(before.topic or 'none', 80)}` → `{shorten(after.topic or 'none', 80)}`")
+        out.append(f"Topic: `{shorten(before.topic or 'None', 80)}` → `{shorten(after.topic or 'None', 80)}`")
     if getattr(before, "slowmode_delay", None) != getattr(after, "slowmode_delay", None):
         out.append(f"Slowmode: `{before.slowmode_delay}s` → `{after.slowmode_delay}s`")
     if getattr(before, "nsfw", None) != getattr(after, "nsfw", None):
-        out.append(f"Age-restricted: `{'yes' if after.nsfw else 'no'}`")
+        out.append(f"Age-Restricted: {'Yes' if after.nsfw else 'No'}")
     if getattr(before, "user_limit", None) != getattr(after, "user_limit", None):
-        out.append(f"User limit: `{before.user_limit or 'none'}` → `{after.user_limit or 'none'}`")
+        out.append(f"User Limit: `{before.user_limit or 'Unlimited'}` → `{after.user_limit or 'Unlimited'}`")
     overwrites_before, overwrites_after = before.overwrites, after.overwrites
     touched = [t for t in {*overwrites_before, *overwrites_after} if overwrites_before.get(t) != overwrites_after.get(t)]
     if touched:
-        out.append("Permissions changed for " + mentions(touched, 300))
+        out.append("Permission Overwrites: " + role_pills(touched, 450))
     return out
 
 
 def channel_updated(after, changes: list[str], actor=None) -> discord.Embed:
-    return entry_card(Colors.blurple, f"The channel {after.mention} was updated{_by_text(actor)}",
-                      header=_actor_header(actor) or f"{_hash(after)}{after.name}", icon=_who(actor, after.guild),
-                      details=_changes(changes), ids=[("Channel ID", after.id)])
+    header, icon = _server_header(actor, getattr(after, "guild", None))
+    return field_card(SLATE, "Channel Updated", header=header, icon=icon, fields=[
+        ("Channel", after.mention, True),
+        ("Updated By", actor.mention if actor else None, True),
+        *_changes(changes),
+    ], ids=[("Channel ID", after.id)])
 
 
 def server_updated(after: discord.Guild, changes: list[str], actor=None) -> discord.Embed:
-    return entry_card(Colors.blurple, f"The server was updated{_by_text(actor)}",
-                      header=_actor_header(actor) or after.name, icon=_who(actor, after),
-                      details=_changes(changes), ids=[("Server ID", after.id)])
+    header, icon = _server_header(actor, after)
+    return field_card(SLATE, "Server Updated", header=header, icon=icon, fields=[
+        ("Updated By", actor.mention if actor else None, True),
+        *_changes(changes),
+    ], ids=[("Server ID", after.id)])
 
 
 def server_changes(before: discord.Guild, after: discord.Guild) -> list[str]:
@@ -658,95 +669,136 @@ def server_changes(before: discord.Guild, after: discord.Guild) -> list[str]:
     if before.name != after.name:
         out.append(f"Name: `{before.name}` → `{after.name}`")
     if before.vanity_url_code != after.vanity_url_code:
-        out.append(f"Vanity URL: `{before.vanity_url_code or 'none'}` → `{after.vanity_url_code or 'none'}`")
+        out.append(f"Vanity URL: `{before.vanity_url_code or 'None'}` → `{after.vanity_url_code or 'None'}`")
     if before.icon != after.icon:
-        out.append("Icon: changed")
+        out.append("Icon: Updated")
     if before.banner != after.banner:
-        out.append("Banner: changed")
+        out.append("Banner: Updated")
     if before.verification_level != after.verification_level:
-        out.append(f"Verification level: `{before.verification_level.name}` → `{after.verification_level.name}`")
+        out.append(f"Verification: `{before.verification_level.name.title()}` → `{after.verification_level.name.title()}`")
     return out
 
 
 def _invite_limits(inv) -> tuple[str, str]:
-    uses = plural(inv.max_uses, "use") if inv.max_uses else "unlimited"
+    uses = str(inv.max_uses) if inv.max_uses else "Unlimited"
     if not inv.max_age:
-        return uses, "never"
-    hours = inv.max_age // 3600
-    return uses, f"in {hours}h" if hours else f"in {max(1, inv.max_age // 60)}m"
+        return uses, "Never"
+    return uses, fmt_duration(inv.max_age)
 
 
 def invite_created(inv: discord.Invite) -> discord.Embed:
     uses, expires = _invite_limits(inv)
     inviter = getattr(inv, "inviter", None)
-    where = f" for {inv.channel.mention}" if getattr(inv, "channel", None) else ""
-    return entry_card(Colors.success, f"An invite{where} was created{_by_text(inviter)}",
-                      header=_actor_header(inviter) or inv.code, icon=_who(inviter, inv.guild), details=[
-                          ("Link", f"discord.gg/{inv.code}"), ("Uses", uses), ("Expires", expires),
-                          ("Temporary", "yes" if getattr(inv, "temporary", False) else ""),
-                      ], ids=[("Code", inv.code)])
+    channel = getattr(inv, "channel", None)
+    header, icon = _server_header(inviter, getattr(inv, "guild", None))
+    limits = f"{uses} uses • Expires in {expires}" if expires != "Never" else f"{uses} uses • Never expires"
+    if uses == "Unlimited":
+        limits = f"Unlimited uses • Expires in {expires}" if expires != "Never" else "Unlimited uses • Never expires"
+    if getattr(inv, "temporary", False):
+        limits += " • Temporary"
+    return field_card(Colors.success, "Invite Created", header=header, icon=icon, fields=[
+        ("Code", f"`{inv.code}`", True),
+        ("Channel", channel.mention if channel else None, True),
+        ("Created By", inviter.mention if inviter else None, True),
+        ("Limits", limits, False),
+    ], ids=[("Invite Code", inv.code)])
 
 
 def invite_deleted(inv: discord.Invite) -> discord.Embed:
     inviter = getattr(inv, "inviter", None)
     uses = getattr(inv, "uses", None)
-    where = f" for {inv.channel.mention}" if getattr(inv, "channel", None) else ""
-    return entry_card(Colors.error, f"An invite{where} was deleted", header=_actor_header(inviter) or inv.code,
-                      icon=_who(inviter, inv.guild), details=[
-                          ("Link", f"discord.gg/{inv.code}"), ("Made by", inviter.mention if inviter else ""),
-                          ("Used", plural(uses, "time") if uses is not None else ""),
-                      ], ids=[("Code", inv.code)])
+    channel = getattr(inv, "channel", None)
+    header, icon = _server_header(inviter, getattr(inv, "guild", None))
+    return field_card(Colors.error, "Invite Deleted", header=header, icon=icon, fields=[
+        ("Code", f"`{inv.code}`", True),
+        ("Channel", channel.mention if channel else None, True),
+        ("Uses", str(uses) if uses is not None else None, True),
+        ("Created By", inviter.mention if inviter else None, False),
+    ], ids=[("Invite Code", inv.code)])
 
 
 def emojis_changed(guild: discord.Guild, added: list, removed: list) -> discord.Embed:
-    return entry_card(Colors.blurple, "The server's emojis changed", header=guild.name, icon=_icon(guild), details=[
-        ("Added", shorten_md(" ".join(f"{e} `:{e.name}:`" for e in added[:20]), 1500) if added else ""),
-        ("Removed", shorten_md(" ".join(f"`:{e.name}:`" for e in removed[:20]), 1500) if removed else ""),
+    return field_card(SLATE, "Emojis Updated", header=guild.name, icon=_icon(guild), fields=[
+        (f"Added ({len(added)})", shorten_md(" ".join(f"{e} `:{e.name}:`" for e in added[:20]), 1000) if added else None, False),
+        (f"Removed ({len(removed)})", shorten_md(" ".join(f"`:{e.name}:`" for e in removed[:20]), 1000) if removed else None, False),
     ], ids=[("Server ID", guild.id)])
 
 
 # ---------------------------------------------------------------- bursts (many of the same thing at once)
 
 _GROUP_WORDS = {
-    "role_create": ("role", "created", Colors.success), "role_delete": ("role", "deleted", Colors.error),
-    "channel_create": ("channel", "created", Colors.success), "channel_delete": ("channel", "deleted", Colors.error),
+    "role_create": ("Role", "Roles Created", "Created By", Colors.success, True),
+    "role_delete": ("Role", "Roles Deleted", "Deleted By", Colors.error, False),
+    "channel_create": ("Channel", "Channels Created", "Created By", Colors.success, True),
+    "channel_delete": ("Channel", "Channels Deleted", "Deleted By", Colors.error, False),
 }
 
 
 def grouped(kind: str, items: list, actor=None, reason: str | None = None) -> discord.Embed:
-    """One card for a burst: "6 roles were deleted by @x" with the names listed, instead of six cards."""
-    noun, verb, color = _GROUP_WORDS[kind]
-    alive = verb == "created"
-
-    def label(obj) -> str:
-        if alive:
-            return obj.mention
-        return re.sub(r"([*_`~|\\>])", r"\\\1", f"{_hash(obj) if noun == 'channel' else '@'}{obj.name}")
-
-    names = [label(o) for o in items[:GROUP_SHOWN]]
-    more = f" +{len(items) - GROUP_SHOWN} more" if len(items) > GROUP_SHOWN else ""
+    noun, title, by_label, color, alive = _GROUP_WORDS[kind]
     guild = getattr(items[0], "guild", None)
-    return entry_card(color, f"{plural(len(items), noun)} were {verb}{_by_text(actor)}",
-                      header=_actor_header(actor) or f"{plural(len(items), noun)} {verb}", icon=_who(actor, guild),
-                      details=[(f"{noun.title()}s", shorten_md(", ".join(names), 3000) + more), ("Reason", reason or "")])
+    header, icon = _server_header(actor, guild)
+    if alive:
+        listing = role_pills(items, 1000)
+    else:
+        shown = [f"`{_hash(o) if noun == 'Channel' else '@'}{o.name}`" for o in items[:GROUP_SHOWN]]
+        more = f"  ·  +{len(items) - GROUP_SHOWN} more" if len(items) > GROUP_SHOWN else ""
+        listing = shorten_md(", ".join(shown) + more, 1000)
+    return field_card(color, title, header=header, icon=icon, fields=[
+        (by_label, actor.mention if actor else None, True),
+        ("Count", str(len(items)), True),
+        (f"{noun}s ({len(items)})", listing, False),
+        ("Reason", reason, False),
+    ])
 
 
-# ---------------------------------------------------------------- voice and commands (feed lines)
+# ---------------------------------------------------------------- voice and commands
 
-def voice_changed(m: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> str | None:
-    """A feed line for voice joins, leaves, moves and server mutes/deafens; None when nothing worth logging changed."""
+def voice_embed(m: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> discord.Embed | None:
+    """Structured voice state card matching the rest of the server log channels."""
     if before.channel != after.channel:
         if not before.channel:
-            return feed_line("🔊", f"{m.mention} joined {after.channel.mention}")
+            return field_card(Colors.success, "Voice Joined", subject=m, fields=[
+                ("Member", m.mention, True),
+                ("Channel", after.channel.mention, True),
+            ], ids=[("User ID", m.id)])
         if not after.channel:
-            return feed_line("🔇", f"{m.mention} left {before.channel.mention}")
-        return feed_line("↪️", f"{m.mention} moved {before.channel.mention} → {after.channel.mention}")
+            return field_card(SLATE, "Voice Left", subject=m, fields=[
+                ("Member", m.mention, True),
+                ("Channel", before.channel.mention, True),
+            ], ids=[("User ID", m.id)])
+        return field_card(SLATE, "Voice Moved", subject=m, fields=[
+            ("Member", m.mention, True),
+            ("From", before.channel.mention, True),
+            ("To", after.channel.mention, True),
+        ], ids=[("User ID", m.id)])
+    for attr, on_title, off_title in (("mute", "Voice Server Muted", "Voice Server Unmuted"),
+                                      ("deaf", "Voice Server Deafened", "Voice Server Undeafened")):
+        if getattr(before, attr) != getattr(after, attr):
+            now_on = getattr(after, attr)
+            where = after.channel or before.channel
+            return field_card(Colors.warn if now_on else Colors.success,
+                              on_title if now_on else off_title, subject=m, fields=[
+                                  ("Member", m.mention, True),
+                                  ("Channel", where.mention if where else None, True),
+                              ], ids=[("User ID", m.id)])
+    return None
+
+
+def voice_changed(m: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> str | None:
+    """Plain-text fallback line for voice events with no duplicate speaker emojis."""
+    if before.channel != after.channel:
+        if not before.channel:
+            return feed_line("", f"{m.mention} joined {after.channel.mention}")
+        if not after.channel:
+            return feed_line("", f"{m.mention} left {before.channel.mention}")
+        return feed_line("", f"{m.mention} moved {before.channel.mention} → {after.channel.mention}")
     for attr, on, off in (("mute", "was server muted", "was server unmuted"),
                           ("deaf", "was server deafened", "was server undeafened")):
         if getattr(before, attr) != getattr(after, attr):
             now_on = getattr(after, attr)
             where = f" in {after.channel.mention}" if after.channel else ""
-            return feed_line("🔕" if now_on else "🔔", f"{m.mention} {on if now_on else off}{where}")
+            return feed_line("", f"{m.mention} {on if now_on else off}{where}")
     return None
 
 
@@ -757,48 +809,63 @@ def _took(ms: float | None) -> str:
 
 
 def _command_text(ctx) -> str:
-    """What was run, safe to show to server admins."""
+    """Command string safe to display to server staff."""
     command = getattr(ctx, "command", None)
     prefix = getattr(ctx, "prefix", "") or ""
     action = getattr(ctx, "panel_action", None)
-    if action:  # a button on the ,mod / ,admin panel: which button, on which panel
+    if action:
         return f"{action} ({prefix}{getattr(ctx, 'panel_name', None) or 'panel'} panel)"
     if getattr(command, "qualified_name", None) == "gv":
         words = ctx.message.content.split()
         if len(words) > 1 and words[1].lower() in ("dev", "network"):
             return f"{prefix}gv {words[1].lower()} · arguments hidden"
     if command is not None and (getattr(command, "hidden", False) or getattr(command, "cog_name", None) == "Owner"):
-        # developer commands can carry code, queries or secrets, and these cards are readable by server admins
         return f"{prefix}{command.qualified_name} · arguments hidden"
     return redact.scrub(ctx.message.content.strip()).replace("\n", " ").replace("`", "'")
 
 
 def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = None, ms: float | None = None,
                  error: str | None = None) -> discord.Embed:
-    """A clear audit card with a compact summary and separate command, outcome and access details."""
+    """Compact structured command audit card with zero emoji clutter."""
     jump = getattr(ctx, "panel_jump", None) if getattr(ctx, "panel_action", None) else None
     jump = jump or getattr(ctx.message, "jump_url", None)
     failed = error is not None
-    command = shorten(_command_text(ctx).replace("`", "'"), 900)
-    level = shorten(str(permission).replace("\n", " "), 200) if permission and permission != "None" else "no level"
-    grant = shorten(redact.scrub(str(granted_by)).replace("\n", " "), 250) if granted_by else ""
-    grant = grant if grant and grant != "-" else "Not assigned"
-    if failed:
-        result = "❌ " + shorten(redact.scrub(error).replace("\n", " "), 300)
-    elif getattr(ctx, "command_log_outcome", None):
-        result = shorten(redact.scrub(str(ctx.command_log_outcome)).replace("\n", " "), 300)
-        took = _took(ms)
-        result += f" · {took}" if took else ""
-    else:
-        took = _took(ms)
-        result = "✅ done" + (f" in {took}" if took else "")
-    channel = shorten(ctx.channel.mention, 100) + (f" · [Jump to command]({shorten(str(jump), 500)})" if jump else "")
     warning = bool(getattr(ctx, "command_log_warning", False))
-    return field_card(Colors.deny if failed else Colors.caution if warning else Colors.approve,
-                      "⚠️ Command failed" if failed else "⚠️ Command needs attention" if warning else "⌨️ Command used", subject=ctx.author,
-                      lead=f"👤 {ctx.author.mention}", fields=[("Command", f"`{command}`", False), ("Channel", channel, True),
-                              ("Permission level", level, True), ("Granted by", grant, True),
-                              ("Result", result, False)], ids=[("User ID", ctx.author.id)])
+    command = shorten(_command_text(ctx).replace("`", "'"), 900)
+    level = shorten(str(permission).replace("\n", " "), 120) if permission and permission != "None" else "None"
+    raw_grant = redact.scrub(str(granted_by or "")).replace("\n", " ").strip()
+    if raw_grant in ("", "-", "Not assigned"):
+        grant = ""
+    elif raw_grant == "Permissions attached to user":
+        grant = "Direct"
+    else:
+        grant = shorten(raw_grant, 160)
+    access = level if (level == "None" or not grant) else f"{level} • {grant}"
+    channel = shorten(ctx.channel.mention, 100) + (f" ([Jump]({shorten(str(jump), 500)}))" if jump else "")
+    took = _took(ms)
+
+    detail_field: tuple[str, str | None, bool] = ("Outcome", None, False)
+    if failed:
+        cleaned_err = shorten(strip_lead_emoji(redact.scrub(error).replace("\n", " ")), 400)
+        detail_field = ("Error", cleaned_err, False)
+    elif getattr(ctx, "command_log_outcome", None):
+        cleaned_out = shorten(strip_lead_emoji(redact.scrub(str(ctx.command_log_outcome)).replace("\n", " ")), 400)
+        if took:
+            cleaned_out = f"{cleaned_out} ({took})"
+        detail_field = ("Outcome", cleaned_out, False)
+
+    footer_ids: list[tuple[str, object]] = [("User ID", ctx.author.id)]
+    if took and not failed and not getattr(ctx, "command_log_outcome", None):
+        footer_ids.append(("", took))
+
+    title = "Command Failed" if failed else "Command Warning" if warning else "Command Executed"
+    color = Colors.deny if failed else Colors.caution if warning else Colors.approve
+    return field_card(color, title, subject=ctx.author, lead=f"`{command}`", fields=[
+        ("User", ctx.author.mention, True),
+        ("Channel", channel, True),
+        ("Access", access, True),
+        detail_field,
+    ], ids=footer_ids)
 
 
 # ---------------------------------------------------------------- moderation cases
@@ -807,12 +874,18 @@ NO_CASE_NUMBER = {"ban", "unban", "softban"}
 
 
 def case_card(num: int, action: str, target, moderator, reason: str | None) -> discord.Embed:
-    """The mod-log card for a case (`,ban`, `,warn`...)."""
     named = target if hasattr(target, "mention") and hasattr(target, "name") else None
     who = named.mention if named else f"<@{target.id}>"
-    if action.lower() in NO_CASE_NUMBER:  # bans read cleaner without one; the case is still kept for `,cases`
-        return entry_card(Colors.main, f"{action.title()}: {who}{_by_text(moderator)}",
-                          subject=named, details=[("Reason", reason or "no reason given")], ids=[("User ID", target.id)])
-    return entry_card(Colors.main, f"Case #{num} · {action.title()}: {who}{_by_text(moderator)}",
-                      subject=named, details=[("Reason", reason or "no reason given")],
-                      ids=[("User ID", target.id), ("Case", num)])
+    reason_text = shorten(reason, 300) if reason else "None"
+    label = action.title()
+    if action.lower() in NO_CASE_NUMBER:
+        return field_card(Colors.main, label, subject=named, fields=[
+            ("Target", who, True),
+            ("Moderator", moderator.mention if moderator else "Unknown", True),
+            ("Reason", reason_text, len(reason_text) <= 42),
+        ], ids=[("User ID", target.id)])
+    return field_card(Colors.main, f"Case #{num} — {label}", subject=named, fields=[
+        ("Target", who, True),
+        ("Moderator", moderator.mention if moderator else "Unknown", True),
+        ("Reason", reason_text, len(reason_text) <= 42),
+    ], ids=[("User ID", target.id), ("Case", f"#{num}")])
