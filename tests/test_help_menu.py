@@ -12,6 +12,7 @@ import pytest
 from discord.ext import commands, tasks
 
 from core.bot import EXTENSIONS, Veil
+from core.utils import Colors
 from core.help import (
     CATEGORIES,
     CategoryButton,
@@ -19,10 +20,15 @@ from core.help import (
     Help,
     HelpView,
     alias_hint,
+    alias_chips,
     blurb,
+    chips_columns,
     description,
     developer_commands,
     example_for,
+    script,
+    section,
+    sectioned,
     sentence,
     short_args,
 )
@@ -110,13 +116,93 @@ def test_the_home_card():
     card = view.home
     assert card.author.name == "Veil Utilities" and card.thumbnail.url is None
     assert card.title is None and card.footer.text is None
-    assert card.description == "Select a category below to view its commands.\n\n**prefix:** `,`"
+    assert card.description == ("**Command reference**\n"
+                                "Pick a category to browse; each card lists only commands you can use.\n\n"
+                                "-# • prefix `,` · 3 commands across 2 categories")
     assert _labels(view) == ["Utility", "Music"]
 
 
 def test_the_home_card_copes_with_a_bot_that_has_no_user_yet():
     card = _help().home_embed(0, {})
-    assert card.title is None and card.author.name is None
+    assert card.title is None and card.author.name == "Veil Utilities"  # no avatar to fall back on
+
+
+
+# ------------------------------------------------------------------ the card system
+#
+# Every card is built from the same parts: a `>` headline, a quiet `-# ◇ Use` block, one `Access` line, and
+# `command · text` entries for subcommands. These tests pin the parts, so a future card can't drift.
+
+def test_sections_have_a_bold_and_a_quiet_form():
+    assert section("Subcommands") == "**Subcommands**"
+    assert section("Use", quiet=True) == "-# ◇ Use"  # subtext: secondary to the command's own words
+
+
+def test_a_usage_block_becomes_plain_lines_only_when_a_line_would_wrap_on_a_phone():
+    assert script([",ban @user spamming"]) == ["```bash\n,ban @user spamming\n```"]
+    long = ",antinuke timeout [count] [punishment] [timeframe] [flags]"
+    assert script([long]) == [f"-# `{long}`"]  # inside a fence the reader would have to scroll sideways
+    assert script([]) == []
+
+
+def test_chip_columns_fill_each_line_without_going_over_the_width():
+    names = [",an admin", ",an admins", ",an approve", ",an ban", ",an botadd", ",an botquarantine"]
+    lines = chips_columns(names, limit=40)
+    assert all(len(line) <= 40 for line in lines) and len(lines) < len(names)
+    assert " · ".join(f"`{n}`" for n in names) == " · ".join(lines)  # nothing lost or reordered
+
+
+def test_sectioned_entries_keep_their_description_only_when_it_fits_on_one_line():
+    long_text = "Configure the way this category is announced to everyone on the server, in detail"
+    lines = sectioned([("Commands", [(",role add", "Add a role to a member"), (",role humans", long_text)])])
+    assert lines == ["**Commands**", "`,role add` · Add a role to a member", "`,role humans`"]
+
+
+def test_aliases_become_short_qualified_chips():
+    @commands.command(aliases=["a", "b", "c", "d", "e"])
+    async def thing(ctx):
+        """Thing"""
+
+    assert alias_chips(thing) == "`a` `b` `c` `d` +1"
+
+    @commands.command()
+    async def plain(ctx):
+        """Plain"""
+
+    assert alias_chips(plain) == ""
+
+
+def test_a_subcommand_group_card_lists_what_each_subcommand_does_without_wrapping(loaded_bot):
+    h = Help()
+    h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
+    lines = h.command_embed(loaded_bot.get_command("role")).description.splitlines()
+    start = lines.index("**Subcommands**")
+    entries = lines[start + 1:]
+    assert entries[0] == "`,role add` · Add a role to a member"
+    assert all(len(line) <= 62 for line in entries), entries  # one line each on mobile
+    assert "" not in entries  # nothing spills onto a ragged second line
+
+
+def test_a_card_says_what_a_command_needs_and_offers_something_to_copy(loaded_bot):
+    h = Help()
+    h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
+    card = h.command_embed(loaded_bot.get_command("help"))
+    assert card.description.startswith("> Show help for a command or category")
+    assert "-# ◇ Use" in card.description and ",help" in card.description
+    assert "Rank " not in card.description  # a public command names no rank
+    assert "n/a" not in card.description
+
+
+def test_the_role_blacklist_center_names_all_three_tiers(loaded_bot):
+    h = Help()
+    h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
+    card = h.command_embed(loaded_bot.get_command("roleblacklist"))
+    assert card.title == "Role blacklist" and card.author.name == "Veil Utilities · Control center"
+    assert card.color.value == Colors.caution
+    for tier in ("Ordinary blacklist", "Rate-limited bypass", "Hard blacklist"):
+        assert f"**{tier}**" in card.description
+    assert ",rbl add <role>" in card.description and ",bypass list" in card.description
+    _fits(card)
 
 
 # ------------------------------------------------------------------ picking categories
@@ -300,11 +386,13 @@ def test_command_card_has_aliases_parameters_information_and_usage():
     card = h.command_embed(cog.ban)
     lines = card.description.splitlines()
     assert card.title == ",ban" and not card.fields
-    assert lines[0] == "**About**" and lines[1] == "Ban a member, or anyone by user ID"
-    assert lines[2] == "" and lines[3].startswith("Add `--purge`") and lines[4] == ""
-    assert lines[5] == "**Usage** `,ban <user> [reason]`"  # no default values in the syntax
-    assert lines[6] == "**Example** `,ban @user spamming`"
-    assert lines[7].startswith("**Requires** Admin level")
+    assert card.author.name == "Veil Utilities · Command reference"
+    assert lines[0] == "> Ban a member, or anyone by user ID"  # the headline
+    assert lines[1] == "" and lines[2].startswith("-# Add `--purge`")  # detail stays quiet
+    assert lines[3] == "" and lines[4] == "-# ◇ Use"
+    assert lines[5:10] == ["```bash", ",ban <user> [reason]", ",ban @user spamming", "```", ""]
+    assert lines[10] == "-# ◇ Access"
+    assert lines[11].startswith("Rank **Admin**")
     assert card.footer.text == "Moderation · <required> [optional]"  # the grouping changes, not the required rank
 
 
@@ -315,7 +403,8 @@ def test_a_card_only_shows_what_applies():
 
     ping.cog = None
     card = _help().command_embed(ping)
-    assert card.description == "**About**\nCheck latency\n\n**Usage** `,ping`\n**Aliases** `pong`"  # no "n/a" anywhere
+    assert card.description == ("> Check latency\n\n-# ◇ Use\n```bash\n,ping\n```\n\n"
+                                "-# ◇ Access\n**Aliases** `pong`")  # no rank, no "n/a" anywhere
     assert "n/a" not in card.description
 
 
@@ -323,8 +412,10 @@ def test_default_values_never_show_in_the_syntax(loaded_bot):
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     for cmd in loaded_bot.walk_commands():
-        usage_line = next(line for line in h.command_embed(cmd).description.splitlines() if line.startswith("**Usage**"))
-        assert "=" not in usage_line, cmd.qualified_name
+        lines = h.command_embed(cmd).description.splitlines()
+        start = next((i for i, line in enumerate(lines) if line == "-# ◇ Use" or line.startswith("> ")), 0)
+        syntax = lines[start + 1]  # the bare block's first line, or a plain line when the block would wrap
+        assert "=" not in syntax, cmd.qualified_name
 
 
 # ------------------------------------------------------------------ typos
@@ -406,6 +497,7 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     for label, page in view.pages.items():
         _fits(page)
         assert "```" not in page.description and "**Commands**" in page.description, label
+        assert page.author.name.startswith("Veil Utilities · ")  # Security has its own author section
         for extra in view.books[label][1:]:
             _fits(extra)
 
@@ -488,8 +580,8 @@ def test_subcommands_are_filed_under_their_group(loaded_bot):
 def test_rank_is_not_repeated_as_a_permission(loaded_bot):
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
-    line = next(x for x in h.command_embed(loaded_bot.get_command("ban")).description.splitlines() if x.startswith("**Requires**"))
-    assert line.startswith("**Requires** Admin level") and "Uperm" not in line
+    line = next(x for x in h.command_embed(loaded_bot.get_command("ban")).description.splitlines() if x.startswith("Rank "))
+    assert line.startswith("Rank **Admin**") and "Uperm" not in line
 
 
 def test_placeholder_argument_names_never_become_fake_examples(loaded_bot):
@@ -529,7 +621,7 @@ def test_parameters_come_from_a_commands_own_usage_line():
     async def role(ctx, *, text: str):
         """Give or take a role"""
 
-    assert "**Usage** `,role <member> <role>`" in _help().command_embed(role).description
+    assert ",role <member> <role>" in _help().command_embed(role).description
 
 
 def test_long_categories_get_page_buttons(loaded_bot):
@@ -1001,12 +1093,12 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
         h.context.send = AsyncMock()
         await h.send_command_help(child)
         description = h.context.send.await_args.kwargs["embed"].description
-        assert "**Requires** Senior Mod level, Manage Messages" in description
+        assert "Rank **Senior Mod**" in description and "Manage Messages" in description
         access = await h.help_access(5)
         view = HelpView(h, {"Community": [toolbox]}, start="Community", author_rank=5, access=access)
         await view.show_command(_it(), "toolbox")
         await view.show_subcommand(_it(), "toolbox child")
-        assert "**Requires** Senior Mod level, Manage Messages" in view.embed().description
+        assert "Rank **Senior Mod**" in view.embed().description and "Manage Messages" in view.embed().description
 
     asyncio.run(go())
 
@@ -1042,7 +1134,7 @@ def test_home_more_select_keeps_other_categories_available():
 
 def test_home_card_uses_the_configured_prefix():
     card = _help("!").home_embed()
-    assert "**prefix:** `!`" in card.description
+    assert "prefix `!`" in card.description
 
 
 def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loaded_bot):
