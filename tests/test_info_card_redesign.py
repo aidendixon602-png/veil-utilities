@@ -123,7 +123,8 @@ def test_help_home_brand_prefix_and_aliases_remain_intact():
     h.context = SimpleNamespace(clean_prefix='!', author=SimpleNamespace(id=5), bot=bot, guild=None)
     view = HelpView(h, {'Utility': []})
     assert view.home.title is None and view.home.color.value == Colors.main
-    assert view.home.description == 'Select a category below to view its commands.\n\n**prefix:** `!`'
+    assert view.home.description.startswith('**Command reference**')
+    assert 'prefix `!`' in view.home.description
     assert view.home.footer.text is None
     assert_fits(view.home)
     view.stop()

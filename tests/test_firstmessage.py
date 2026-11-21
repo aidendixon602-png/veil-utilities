@@ -90,7 +90,7 @@ def test_network_ban_help_explains_required_target_and_confirmation():
     card = help_command.command_embed(DevTools.genreban)
     assert "user mention or ID" in card.description
     assert "confirm before any action" in card.description
-    assert "**Usage** `,genreban <user> [reason]`" in card.description
+    assert ",genreban <user> [reason]" in card.description  # the syntax sits in the Use block
     assert "cannot guarantee" in card.description
     assert DevTools.genreban.hidden
 

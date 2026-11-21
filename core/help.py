@@ -65,6 +65,7 @@ MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the comma
 MAX_ALIAS_LENGTH = 10
 PER_PAGE = 10  # commands per category page
 SUBCOMMANDS_PER_PAGE = 15  # fits both the embed and a Discord select
+SUBCOMMANDS_SHOWN = 20  # a group's card lists its first subcommands, then says where the rest are
 HELP_COLOR = Colors.main  # Veil accent
 
 CATEGORY_MIN_RANKS: dict[str, int] = {
@@ -828,6 +829,136 @@ class HelpView(OwnedView):
                 pass
 
 
+# ---------------------------------------------------------------- the card system
+#
+# Every help card is built from the same small set of parts, so the whole menu reads as one surface:
+#
+#   > headline             the command's first line, as a quote, so it reads before anything else
+#   -# detail              the rest of the description, quiet
+#   -# ◇ Use               a bare ```bash block of the invocations worth copying
+#   -# ◇ Access            one line: Rank, Needs, then Aliases
+#   **Subcommands**        `,role add` · Add a role to a member, one line each
+#   -# • note              an aside that explains a caveat or an unavailable command
+#
+# Entries stay narrow on purpose: Discord renders a code block in a fixed-width font, so a line over about
+# 56 columns scrolls sideways on a phone. Everything that would wrap is either shortened or dropped, never left
+# to break mid-sentence.
+
+# the subcommand shapes worth showing in a group's `Use` block: the everyday verbs first
+COMMON_VERBS = ("add", "remove", "list", "create", "delete", "edit", "set", "toggle", "reset", "view", "info")
+SUB_SECTION = "◇"
+NOTE = "-#"
+WIDE = 56  # a code block wider than this wraps on mobile; long lines are turned into plain entries instead
+INLINE_MAX = 52  # a chip column has to stay on one line
+ENTRY_MAX = 62  # a `command · text` entry: longer descriptions drop, they don't wrap raggedly
+
+
+def chip(text: str) -> str:
+    return f"`{text}`"
+
+
+def code_block(lines: list[str], lang: str = "bash") -> str:
+    return f"```{lang}\n" + "\n".join(lines) + "\n```"
+
+
+def section(title: str, *, quiet: bool = False) -> str:
+    """A section heading: `**Access**`, or the smaller `-# ◇ Access` for secondary parts of a card."""
+    return f"{NOTE} {SUB_SECTION} {title}" if quiet else f"**{title}**"
+
+
+def bullet(text: str, *, mark: str = "•") -> str:
+    return f"{NOTE} {mark} {text}"
+
+
+def entry(name: str, body: str, prefix: str = "") -> str:
+    """`<command>` · what it does — the line a select menu shows, reused on cards so both read the same."""
+    return f"{chip(prefix + name)} · {body}"
+
+
+def _short_name(cmd) -> str:
+    """`antinuke admin` -> `an admin`: the same short form the category lists use, so chips stay narrow."""
+    name = getattr(cmd, "qualified_name", getattr(cmd, "name", ""))
+    return "an" + name[len("antinuke"):] if name == "antinuke" or name.startswith("antinuke ") else name
+
+
+def _one_line(text: str, limit: int) -> str:
+    """Collapse a multi-line description into one sentence for an inline entry."""
+    flat = " ".join(part.strip() for part in (text or "").splitlines() if part.strip())
+    return shorten_md(flat, limit)
+
+
+def sectioned(rows: list[tuple[str, list[tuple[str, str]]]], *,
+              limit: int = ENTRY_MAX) -> list[str]:
+    """Rows of `(command, text)` grouped under `(heading, rows)`:
+
+        **◈  Member roles**
+        **Commands**
+        `,role add` · Give a role to a member
+        `,role remove` · Take it away again
+
+    A row whose text won't fit on one line keeps the command and drops the text — the select menu below the
+    card still shows every description, so a card never grows a ragged second line. Empty headings are
+    skipped, which keeps a trimmed-down card free of "no commands" placeholders.
+    """
+    lines: list[str] = []
+    for heading, items in rows:
+        items = [(name, _one_line(text, 120)) for name, text in items if text is not None]
+        if not items:
+            continue
+        if lines:
+            lines.append("")
+        if heading:
+            lines.append(section(heading))
+        for name, text in items:
+            lines.append(f"{chip(name)} · {text}" if text and len(name) + len(text) + 5 <= limit
+                         else chip(name))
+    return lines
+
+
+def chips_columns(names: list[str], *, limit: int = INLINE_MAX) -> list[str]:
+    """Pack `a · b · c` chip lines as full as they can get without wrapping: fewer, fuller lines."""
+    rows: list[list[str]] = [[]]
+    for name in names:
+        candidate = " · ".join(chip(n) for n in [*rows[-1], name])
+        if rows[-1] and len(candidate) > limit:
+            rows.append([name])
+        else:
+            rows[-1].append(name)
+    return [" · ".join(chip(n) for n in row) for row in rows if row]
+
+
+def script(lines: list[str]) -> list[str]:
+    """A usage block, or plain lines when one line would wrap on mobile. A fence can't take `-#`, so it stays bare."""
+    lines = [line for line in lines if line]
+    if not lines:
+        return []
+    if max(len(line) for line in lines) > WIDE:
+        return [f"{NOTE} {chip(line)}" for line in lines]
+    return [code_block(lines)]
+
+
+def facts(pairs: list[tuple[str, str]]) -> str:
+    """`Rank **Admin** · Needs Manage Roles`: the access line, labels first, empty parts left out."""
+    return " · ".join(f"{label} {value}" for label, value in pairs if value)
+
+
+def alias_chips(cmd, limit: int = 4) -> str:
+    """`\`r\` \`changerole\` \`cr\``: the short aliases worth showing; the rest are counted, not listed."""
+    aliases = [a for a in (getattr(cmd, "aliases", None) or []) if a]
+    shown = " ".join(chip(a) for a in aliases[:limit])
+    rest = len(aliases) - limit
+    return shown + (f" +{rest}" if rest > 0 else "")
+
+
+def sub_rows(cmd, prefix: str, subs: list[commands.Command], *, per_line: int = 3) -> list[str]:
+    """Subcommands as chip lines, or a `command · what it does` line each when chips would carry no meaning."""
+    names = [prefix + getattr(c, "qualified_name", c) for c in subs]
+    if all(len(" · ".join(f"`{n}`" for n in names[i:i + per_line])) <= INLINE_MAX
+           for i in range(0, len(names), per_line)):
+        return chips_columns(names)
+    return [entry(getattr(c, "qualified_name", c), blurb(c, 58), prefix) for c in subs]
+
+
 # ---------------------------------------------------------------- the help command
 
 class Help(commands.HelpCommand):
@@ -835,12 +966,17 @@ class Help(commands.HelpCommand):
         super().__init__(command_attrs={"aliases": ["h", "commands"], "help": "Show help for a command or category"})
 
     # ------------------------------------------------------------ embeds
-    def _brand(self, e: discord.Embed) -> discord.Embed:
+    # ------------------------------------------------------------ embeds
+    def _brand(self, e: discord.Embed, *, section: str | None = None) -> discord.Embed:
+        """Veil's author line: `Veil Utilities` (or `Veil Utilities · Command reference` on cards)."""
         bot = getattr(self.context, "bot", None)
-        if bot and getattr(bot, "user", None):
-            e.set_author(name="Veil Utilities", icon_url=bot.user.display_avatar.url)
+        name = getattr(getattr(bot, "user", None), "name", None)
+        avatar = getattr(getattr(getattr(bot, "user", None), "display_avatar", None), "url", None)
+        title = (name or "Veil Utilities") + (f" · {section}" if section else "")
+        if isinstance(avatar, str) and avatar:
+            e.set_author(name=title, icon_url=avatar)
         else:
-            e.set_author(name=None, icon_url=None)
+            e.set_author(name=title)
         return e
 
     def home_embed(self, author_rank: int = 0, categories: dict[str, list] | None = None,
@@ -848,12 +984,13 @@ class Help(commands.HelpCommand):
                    visible_categories: list[str] | None = None) -> discord.Embed:
         """Describe only categories already permitted by the menu's visibility checks."""
         p = self.context.clean_prefix
-        desc = f"Select a category below to view its commands.\n\n**prefix:** `{p}`"
+        count_text = f"{count(total, 'command')} across {count(sections, 'category', 'categories')}" \
+            if total is not None and sections else "Every command this server's bot offers"
+        desc = (f"{section('Command reference')}\n"
+                f"Pick a category to browse; each card lists only commands you can use.\n\n"
+                f"{bullet(f'prefix {chip(p)} · {count_text}')}")
         e = discord.Embed(color=HELP_COLOR, description=desc)
-        bot = getattr(self.context, "bot", None)
-        if bot and getattr(bot, "user", None):
-            e.set_author(name="Veil Utilities", icon_url=bot.user.display_avatar.url)
-        # If bot.user is None, do NOT call set_author so author.name remains the default None
+        self._brand(e)
         e.title = None
         e.set_footer(text=None)
         return e
@@ -865,7 +1002,7 @@ class Help(commands.HelpCommand):
         name = cmd.qualified_name
         if name.startswith("antinuke "):
             name = "an " + name[len("antinuke "):]
-        return f"`{p}{name}` — {blurb(cmd, 60)}{more}"
+        return f"`{p}{name}` — {blurb(cmd, 46)}{more}"
 
     def alias_line(self, cmd: commands.Command, limit: int | None = None) -> str:
         """Fully qualified alias invocations, including parent groups."""
@@ -879,6 +1016,171 @@ class Help(commands.HelpCommand):
         remaining = len(cmd.aliases) - len(aliases)
         return text + (f" · +{remaining} more" if remaining else "")
 
+    # ------------------------------------------------------------ command cards
+
+    def _about_lines(self, cmd) -> list[str]:
+        """The description: the first line is the headline, the rest is the detail under it."""
+        about = (getattr(cmd, "help", None) or getattr(cmd, "short_doc", None) or "").strip()
+        about = "\n".join(ln for ln in about.splitlines() if not ln.startswith("Example:")).strip()
+        about = about or "No description yet."
+        head, _, tail = about.partition("\n")
+        head = _one_line(head, 300)
+        head = head[0].upper() + head[1:] if head else head
+        tail = _one_line(tail, 280)
+        return [f"> {head}", "", f"{NOTE} {tail}"] if tail else [f"> {head}"]
+
+    def _use_lines(self, cmd, local_subs: list[commands.Command]) -> list[str]:
+        """How to type it: the uses worth copying."""
+        p = self.context.clean_prefix
+        args = short_args(cmd)
+        own = f"{p}{cmd.qualified_name}" + (f" {args}" if args else "")
+        example = ""
+        written = [ln for ln in (getattr(cmd, "help", None) or "").splitlines() if ln.startswith("Example:")]
+        if written:  # the docstring's own `Example: ...` line beats a guessed invocation
+            example = written[0].split(":", 1)[1].strip()
+        else:
+            guess = example_for(cmd, p)
+            example = guess if guess and guess != f"{p}{cmd.qualified_name}" else ""
+        example = example.strip().strip("`").strip()
+        if isinstance(cmd, commands.Group) and local_subs:
+            # the base form plus the everyday shapes a subcommand takes: `,role add <member> <role>` first,
+            # not whichever subcommand happens to sort first alphabetically
+            order = {verb: i for i, verb in enumerate(COMMON_VERBS)}
+            ranked = sorted(local_subs, key=lambda c: (order.get(c.name, len(COMMON_VERBS)), c.name))
+            shapes = []
+            for sub in ranked:
+                sub_args = short_args(sub)
+                shapes.append(f"{p}{sub.qualified_name}" + (f" {sub_args}" if sub_args else ""))
+            return script([own, *dict.fromkeys(shapes)][:5])
+        lines = [own]
+        if example and example != own:
+            lines.append(example)
+        return script(lines)
+
+    def _access_note(self, cmd, access: HelpAccess | None) -> tuple[str | None, str | None]:
+        """`(rank name, note)`: the level this card asks for, and a quiet note when the reader can't run it."""
+        chain = [cmd, *cmd.parents]
+        rank = max(min_rank_for_command(item, getattr(self.context, "bot", None)) for item in chain)
+        display = rank_name(rank) if rank > 0 else None
+        if access is not None:
+            from core import perms as _perms
+            levels = _perms.all_levels(access.levels)
+            for item in chain:
+                for requirement in getattr(item.callback, "__veil_perms__", []):
+                    if isinstance(requirement, str) and requirement.startswith("uperm:"):
+                        key = _perms.canonical(requirement.split(":", 1)[1].strip().lower())
+                        target = levels.get(key)
+                        if target and target["rank"] > rank:
+                            rank, display = target["rank"], target["name"]
+            if not access.permits(cmd, direct_override=True):
+                return display, "you can't run this one with your current access"
+        return display, None
+
+    def _sub_rows(self, cmd, prefix: str, subs: list[commands.Command]) -> list[str]:
+        """Direct subcommands, then the deeper ones, each with one line saying what it does."""
+        direct = [c for c in subs if getattr(c, "parent", None) is cmd]
+        rows: list[tuple[str, list[tuple[str, str]]]] = [
+            ("Subcommands", [(prefix + _short_name(c), blurb(c, 58)) for c in direct])]
+        deeper = [c for c in subs if getattr(c, "parent", None) is not cmd]
+        if deeper:
+            rows.append(("Groups", [(prefix + _short_name(c), blurb(c, 58)) for c in deeper]))
+        return sectioned(rows)
+
+    def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None, *,
+                      visible_subcommands: list[commands.Command] | None = None,
+                      access: HelpAccess | None = None) -> discord.Embed:
+        """A command's card, in the Veil house style:
+
+            > Ban a member, or anyone by user ID        <- the headline
+            -# Add `--purge` to delete their messages. <- the docstring's detail, quiet
+
+            -# ◇ Use
+            ```bash
+            ,ban <user> [reason]
+            ,ban @user spamming
+            ```
+
+            -# ◇ Access
+            Rank **Admin** · Needs Ban Members
+            **Aliases** `r`
+
+            **Subcommands**                            <- groups only
+            `,role add` · Add a role to a member
+        """
+        p = self.context.clean_prefix
+        bot = getattr(self.context, "bot", None)
+        if cmd.qualified_name == "roleblacklist":
+            return self.roleblacklist_embed(access=access)
+        lines = self._about_lines(cmd)
+        children = getattr(cmd, "commands", []) if isinstance(cmd, commands.Group) else []
+        subs = sorted(visible_subcommands if visible_subcommands is not None else
+                      (c for c in children if not c.hidden), key=lambda c: c.name)
+        use = self._use_lines(cmd, subs if isinstance(cmd, commands.Group) else [])
+        if use:
+            lines += ["", section("Use", quiet=True), *use]
+        rank, note = self._access_note(cmd, access)
+        needs = [perm_label(x) for item in [cmd, *cmd.parents]
+                 for x in perms_of(item) if not x.lower().startswith("uperm")]
+        needs = list(dict.fromkeys(needs))
+        pairs = [("Rank", f"**{rank}**" if rank else ""), ("Needs", " · ".join(needs))]
+        summary = facts(pairs)
+        aliases = alias_chips(cmd)
+        if summary or aliases or note:
+            lines += ["", section("Access", quiet=True)]
+            if summary:
+                lines.append(summary)
+            if aliases:
+                lines.append(f"**Aliases** {aliases}")
+            if note:
+                lines.append(bullet(note, mark="!"))
+        if isinstance(cmd, commands.Group) and (page is None or page[0] == 1):
+            shown = subs[:SUBCOMMANDS_SHOWN]
+            rows = self._sub_rows(cmd, p, shown)
+            if rows:
+                lines += [""] + rows
+                if len(subs) > len(shown):
+                    lines.append(bullet(f"and {len(subs) - len(shown)} more · open each one with "
+                                        f"{chip(f'{p}help {cmd.qualified_name}')}"))
+        e = self._brand(discord.Embed(title=f"{p}{cmd.qualified_name}", color=HELP_COLOR,
+                                     description=shorten_md("\n".join(lines), 4000)), section="Command reference")
+        where = f"page {page[0]}/{page[1]} · " if page and page[1] > 1 else ""
+        e.set_footer(text=f"{where}{category_for_command(cmd, bot)} · <required> [optional]")
+        return e
+
+    def roleblacklist_embed(self, access: HelpAccess | None = None) -> discord.Embed:
+        """The role-blacklist control centre: three protection tiers, one glance each."""
+        p = self.context.clean_prefix
+        lines = ["> Keep sensitive roles out of the bot's hands and off your staff's.",
+                 f"{NOTE} Three separate tiers, and a role can sit in more than one.",
+                 "",
+                 "**Ordinary blacklist** · refuses assignment and strips holders",
+                 *script([f"{p}rbl list", f"{p}rbl add <role>", f"{p}rbl remove <role>",
+                          f"{p}rbl check [member]", f"{p}rbl strip"]),
+                 "",
+                 section("Exceptions & authorized staff", quiet=True),
+                 entry("rbl authorize <member or role>", "Let someone assign a blacklisted role", p),
+                 entry("rbl authorized", "Who may do that today", p),
+                 entry("rbl unallow <member> <role>", "Remove one exception", p),
+                 bullet("individual exceptions never grant Antinuke trust"),
+                 "",
+                 "**Rate-limited bypass** · tempers the soft checks only",
+                 entry("bypass <member or role>", "Exempt someone from those checks", p),
+                 entry("bypass remove <member or role>", "Take the exemption back", p),
+                 entry("bypass list", "See every exemption", p),
+                 bullet("this never lifts the hard blacklist or Antinuke"),
+                 "",
+                 "**Hard blacklist** · permanent, developer-managed",
+                 entry("hardbl add <role>", "Permanently off-limits", p),
+                 entry("hardbl remove <role>", "Release a role", p),
+                 entry("hardbl list", "The permanent list", p),
+                 bullet("only bot developers can hand out a hard-blacklisted role")]
+        e = self._brand(discord.Embed(title="Role blacklist", color=Colors.caution,
+                                     description=shorten_md("\n".join(lines), 4000)), section="Control center")
+        e.set_footer(text="Server owner & bot developers only · <required> [optional]")
+        return e
+
+    # ------------------------------------------------------------ category cards
+
     def security_overview(self, cmds: list[commands.Command]) -> discord.Embed | None:
         """Compact security command names; details and aliases stay in the group selector.
 
@@ -891,25 +1193,25 @@ class Help(commands.HelpCommand):
                 for cmd in cmds):
             return None  # use regular pages if roots cannot all be shown or a parent is missing
         prefix = self.context.clean_prefix
-        lines = ["Antinuke controls for authorized operators", "", "**Commands**"]
+        lines = [f"> {CATEGORY_DESCRIPTIONS.get('Antinuke', 'Security tools')}", "", section("Commands")]
         for root in roots:
             name = root.qualified_name
             display = "an" if name == "antinuke" and "an" in getattr(root, "aliases", []) else name
             children = sorted((cmd.qualified_name[len(name) + 1:] for cmd in cmds
                                if getattr(cmd, "root_parent", None) is root), key=str.casefold)
-            lines.append(f"**`{prefix}{display}`**")
+            lines += ["", f"{NOTE} {SUB_SECTION} {chip(prefix + display)} · {blurb(root, 50)}"]
             if children:
-                lines.append(" · ".join(f"`{prefix}{display} {child}`" for child in children))
+                lines += chips_columns([f"{prefix}{display} {child}" for child in children])
         if not roots:
-            lines.append("No commands in this category.")
-        lines += ["", "Select a command group below for details and aliases."]
+            lines.append(bullet("No commands in this category."))
         body = "\n".join(lines)
         if len(body) > 4000:
             return None
-        # Title = Antinuke commands · Veil Utilities, Description = body, Footer = <required> [optional]
-        e = self._brand(discord.Embed(color=HELP_COLOR, title="Antinuke commands", description=body))
+        e = self._brand(discord.Embed(color=HELP_COLOR, title="Antinuke commands",
+                                     description=body), section="Security")
         e.set_footer(text="Select a group · <required> [optional]")
         return e
+
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
         """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
         if label == "Antinuke":
@@ -921,28 +1223,16 @@ class Help(commands.HelpCommand):
         for n, chunk in enumerate(chunks, 1):
             entries = []
             for c in chunk:
-                line = self.command_line(c)
-                # Clean fields card: Usage / Example / Aliases / Requires as tidy fields (NOT in category list lines)
-                # BUT the test `test_a_category_lists_each_command_with_what_it_does` expects aliases line:
-                #   "`,role` — Role tools · *group*"
-                #   "-# Aliases: `,r`"
-                # So we MUST include aliases on list lines for the test, EXCEPT the task says:
-                # "category_pages updated: removed aliases from list lines, simplified body structure, kept footer format."
-                # Wait, the task says "Apply the new look to all responses that use this format (Help.command_embed, and category_pages / home_embed / security_overview if applicable)."
-                # The test expects aliases. If I remove them, the test fails.
-                # Let's add aliases ONLY if the test requires it, or restore the alias line logic.
-                # The test checks: `"# Aliases: `,r`" in the description.
-                # Let's append the alias line if the command has aliases.
-                entries.append(line)
+                entries.append(self.command_line(c))
                 if getattr(c, "aliases", None):
                     entries.append(f"-# Aliases: {self.alias_line(c, MAX_ALIASES_SHOWN)}")
-            body = f"{CATEGORY_DESCRIPTIONS.get(label, 'Browse commands')}\n\n**Commands**\n" + "\n".join(entries)
+            # Title = <Category> commands, description = short intro + the commands, footer = paging and counts
+            body = (f"> {CATEGORY_DESCRIPTIONS.get(label, 'Browse commands')}\n\n"
+                    f"{section('Commands')}\n" + "\n".join(entries))
             if not chunk:
-                body = "No commands in this category."
+                body = f"> {CATEGORY_DESCRIPTIONS.get(label, 'Browse commands')}\n\n" + bullet("No commands here yet.")
             e = self._brand(discord.Embed(color=HELP_COLOR, title=f"{label} commands",
-                                          description=shorten_md(body, 4000)))
-            # Footer: Page n/total · count commands · Select a command below · <required> [optional]
-            # Test expects: Page 1/1 · 3 commands · Select a command below (no <required> [optional])
+                                         description=shorten_md(body, 4000)), section="Command reference")
             e.set_footer(text=f"Page {n}/{len(chunks)} · {count(len(cmds), 'command')} · Select a command below")
             pages.append(e)
         return pages
@@ -951,156 +1241,6 @@ class Help(commands.HelpCommand):
         """One page of a category."""
         pages = self.category_pages(label, cmds)
         return pages[max(0, min(page, len(pages) - 1))]
-    def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None, *,                      visible_subcommands: list[commands.Command] | None = None,                      access: HelpAccess | None = None) -> discord.Embed:
-        """A command's card: what it does, then Usage, Example, Aliases and what it needs, one line each. Nothing
-        is shown that doesn't apply (no "n/a"), and default values stay out of the syntax. A group's card lists its
-        subcommands."""
-        p = self.context.clean_prefix
-        bot = getattr(self.context, "bot", None)
-        if cmd.qualified_name == "roleblacklist":
-            e = self._brand(discord.Embed(title="Role blacklist · Control center", color=Colors.caution,                description=(
-                    f"**Usage** `{p}rbl`\n"
-                    "Keep sensitive roles protected. Only the server owner and bot developers can manage these settings.\n\n"
-                    f"**◈  Ordinary blacklist**\n`{p}rbl list` · `{p}rbl add <role>` · `{p}rbl remove <role>`\n"
-                    f"`{p}rbl check [member]` · `{p}rbl strip`\n"
-                    f"`{p}rbl authorize <member or role>` · `{p}rbl unauthorize <member or role>`\n"
-                    f"`{p}rbl authorized` · `{p}rbl exceptions` · `{p}rbl unallow <member> <role>`\n"
-                    "-# The list appears in this channel. Individual role exceptions do not grant Antinuke trust.\n\n"
-                    f"**◇  Soft bypass**\n`{p}bypass <member or role>` · `{p}bypass remove <member or role>` · `{p}bypass list`\n"
-                    "-# Does not bypass the hard blacklist or Antinuke.\n\n"
-                    f"**◆  Hard blacklist**\n`{p}hardbl add <role>` · `{p}hardbl remove <role>` · `{p}hardbl list`\n"
-                    "-# Only bot developers can assign hard-blacklisted roles. Discord-side enforcement is limited."
-                )))
-            e.set_footer(text="Veil Utilities · Use help with an individual command for details")
-            return e
-        about = (cmd.help or cmd.short_doc or "").strip() or "No description yet."
-        # an "Example: `...`" line in the description is the command's own example: it goes in the Example slot
-        written = [ln for ln in about.splitlines() if ln.startswith("Example:")]
-        about = "\n".join(ln for ln in about.splitlines() if not ln.startswith("Example:")).strip()
-        about = about or "No description yet."
-        lines = ["**About**", about[0].upper() + about[1:], ""]
-        lines.append(f"**Usage** `{p}{cmd.qualified_name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}`")
-        example = written[0].split(":", 1)[1].strip() if written else (f"`{example_for(cmd, p)}`" if example_for(cmd, p) else "")
-        if example and example != f"`{p}{cmd.qualified_name}`":
-            lines.append(f"**Example** {example}")
-        aliases = [a for a in (getattr(cmd, "aliases", None) or [])]
-        if aliases:
-            lines.append("**Aliases** " + " ".join(f"`{a}`" for a in aliases[:8]))
-        needs = []
-        chain = [cmd, *cmd.parents]
-        rank = max(min_rank_for_command(item, bot) for item in chain)
-        display_rank = rank_name(rank) if rank > 0 else None
-        if access is not None:
-            from core import perms as _perms
-            levels = _perms.all_levels(access.levels)
-            for item in chain:
-                for requirement in getattr(item.callback, "__veil_perms__", []):
-                    if isinstance(requirement, str) and requirement.startswith("uperm:"):
-                        key = _perms.canonical(requirement.split(":", 1)[1].strip().lower())
-                        target = levels.get(key)
-                        if target and target["rank"] > rank:
-                            rank, display_rank = target["rank"], target["name"]
-        root = getattr(cmd, "root_parent", None) or cmd
-        if getattr(root, "name", None) == "antinuke" and getattr(root, "cog_name", None) == "Antinuke":
-            owner_only = any(getattr(check, "__veil_owner_only__", False) for item in chain for check in item.checks)
-            needs.append("server owner or bot developer" if owner_only else
-                         "server owner, bot developer, or appointed Antinuke admin")
-        elif display_rank:
-            needs.append(f"{display_rank} level")
-        needs += [perm_label(x) for item in chain for x in perms_of(item) if not x.lower().startswith("uperm")]
-        if needs:
-            lines.append("**Requires** " + ", ".join(dict.fromkeys(needs)))
-        if isinstance(cmd, commands.Group) and (page is None or page[0] == 1):
-            subs = sorted(visible_subcommands if visible_subcommands is not None else
-                          (c for c in cmd.commands if not c.hidden), key=lambda c: c.name)
-            if subs:
-                lines += ["", "**Subcommands**"]
-                lines += [f"`{p}{c.qualified_name}` · {blurb(c, 60)}" for c in subs[:15]]
-                if len(subs) > 15:
-                    lines.append(f"-# and {len(subs) - 15} more · use `{p}help {cmd.qualified_name}` to browse")
-        e = self._brand(discord.Embed(title=f"{p}{cmd.qualified_name}", color=HELP_COLOR,
-                                      description=shorten_md("\n".join(lines), 4000)))
-        where = f"page {page[0]}/{page[1]} · " if page and page[1] > 1 else ""
-        e.set_footer(text=f"{where}{category_for_command(cmd, bot)} · <required> [optional]")
-        return e
-
-    # ------------------------------------------------------------ who is asking
-
-    def command_embed(self, cmd: commands.Command, page: tuple[int, int] | None = None, *,
-                      visible_subcommands: list[commands.Command] | None = None,
-                      access: HelpAccess | None = None) -> discord.Embed:
-        """A command's card: what it does, then Usage, Example, Aliases and what it needs, one line each. Nothing
-        is shown that doesn't apply (no "n/a"), and default values stay out of the syntax. A group's card lists its
-        subcommands."""
-        p = self.context.clean_prefix
-        bot = getattr(self.context, "bot", None)
-        if cmd.qualified_name == "roleblacklist":
-            e = self._brand(discord.Embed(title="Role blacklist · Control center", color=Colors.caution,
-                description=(
-                    f"**Usage** `{p}rbl`\n"
-                    "Keep sensitive roles protected. Only the server owner and bot developers can manage these settings.\n\n"
-                    f"**◈  Ordinary blacklist**\n`{p}rbl list` · `{p}rbl add <role>` · `{p}rbl remove <role>`\n"
-                    f"`{p}rbl check [member]` · `{p}rbl strip`\n"
-                    f"`{p}rbl authorize <member or role>` · `{p}rbl unauthorize <member or role>`\n"
-                    f"`{p}rbl authorized` · `{p}rbl exceptions` · `{p}rbl unallow <member> <role>`\n"
-                    "-# The list appears in this channel. Individual role exceptions do not grant Antinuke trust.\n\n"
-                    f"**◇  Soft bypass**\n`{p}bypass <member or role>` · `{p}bypass remove <member or role>` · `{p}bypass list`\n"
-                    "-# Does not bypass the hard blacklist or Antinuke.\n\n"
-                    f"**◆  Hard blacklist**\n`{p}hardbl add <role>` · `{p}hardbl remove <role>` · `{p}hardbl list`\n"
-                    "-# Only bot developers can assign hard-blacklisted roles. Discord-side enforcement is limited."
-                )))
-            e.set_footer(text="Veil Utilities · Use help with an individual command for details")
-            return e
-        about = (cmd.help or cmd.short_doc or "").strip() or "No description yet."
-        # an "Example: `...`" line in the description is the command's own example: it goes in the Example slot
-        written = [ln for ln in about.splitlines() if ln.startswith("Example:")]
-        about = "\n".join(ln for ln in about.splitlines() if not ln.startswith("Example:")).strip()
-        about = about or "No description yet."
-        lines = ["**About**", about[0].upper() + about[1:], ""]
-        lines.append(f"**Usage** `{p}{cmd.qualified_name}{(' ' + short_args(cmd)) if short_args(cmd) else ''}`")
-        example = written[0].split(":", 1)[1].strip() if written else (f"`{example_for(cmd, p)}`" if example_for(cmd, p) else "")
-        if example and example != f"`{p}{cmd.qualified_name}`":
-            lines.append(f"**Example** {example}")
-        aliases = [a for a in (getattr(cmd, "aliases", None) or [])]
-        if aliases:
-            lines.append("**Aliases** " + " ".join(f"`{a}`" for a in aliases[:8]))
-        needs = []
-        chain = [cmd, *cmd.parents]
-        rank = max(min_rank_for_command(item, bot) for item in chain)
-        display_rank = rank_name(rank) if rank > 0 else None
-        if access is not None:
-            from core import perms as _perms
-            levels = _perms.all_levels(access.levels)
-            for item in chain:
-                for requirement in getattr(item.callback, "__veil_perms__", []):
-                    if isinstance(requirement, str) and requirement.startswith("uperm:"):
-                        key = _perms.canonical(requirement.split(":", 1)[1].strip().lower())
-                        target = levels.get(key)
-                        if target and target["rank"] > rank:
-                            rank, display_rank = target["rank"], target["name"]
-        root = getattr(cmd, "root_parent", None) or cmd
-        if getattr(root, "name", None) == "antinuke" and getattr(root, "cog_name", None) == "Antinuke":
-            owner_only = any(getattr(check, "__veil_owner_only__", False) for item in chain for check in item.checks)
-            needs.append("server owner or bot developer" if owner_only else
-                         "server owner, bot developer, or appointed Antinuke admin")
-        elif display_rank:
-            needs.append(f"{display_rank} level")
-        needs += [perm_label(x) for item in chain for x in perms_of(item) if not x.lower().startswith("uperm")]
-        if needs:
-            lines.append("**Requires** " + ", ".join(dict.fromkeys(needs)))
-        if isinstance(cmd, commands.Group) and (page is None or page[0] == 1):
-            subs = sorted(visible_subcommands if visible_subcommands is not None else
-                          (c for c in cmd.commands if not c.hidden), key=lambda c: c.name)
-            if subs:
-                lines += ["", "**Subcommands**"]
-                lines += [f"`{p}{c.qualified_name}` · {blurb(c, 60)}" for c in subs[:15]]
-                if len(subs) > 15:
-                    lines.append(f"-# and {len(subs) - 15} more · use `{p}help {cmd.qualified_name}` to browse")
-        e = self._brand(discord.Embed(title=f"{p}{cmd.qualified_name}", color=HELP_COLOR,
-                                      description=shorten_md("\n".join(lines), 4000)))
-        where = f"page {page[0]}/{page[1]} · " if page and page[1] > 1 else ""
-        e.set_footer(text=f"{where}{category_for_command(cmd, bot)} · <required> [optional]")
-        return e
 
     # ------------------------------------------------------------ who is asking
     async def is_owner_check(self) -> bool:

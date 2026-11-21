@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Help cards rebuilt.** `,help` and every command card now share one layout: the description opens as a
+  quoted headline, copy-ready syntax sits in a quiet `Use` block, aliases, rank and required permissions
+  collapse into a single `Access` line, and a group's subcommands follow as `,command · what it does`
+  entries. Long entries drop their description instead of wrapping raggedly, so cards stay readable on a
+  phone. The `,role` card answers the usual question first — give, take and change a role — and the
+  `,roleblacklist` control centre now shows its three protection tiers with their commands. Category pages
+  and the Antinuke overview use the same headings and author line.
+
 - **Role blacklist and security cards.** `,rbl list` now displays a requester-controlled paginated card in
   the invoking channel, even when other RBL replies use DMs; channel viewers can see the listed roles.
   Refreshed RBL help, invite, quarantine and incident cards; quarantine failures are now alerted rather
