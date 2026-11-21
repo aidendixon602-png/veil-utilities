@@ -651,10 +651,14 @@ class DevTools(commands.Cog):
         pages = chunk_embeds(f"{heading} · {len(rows)}", lines, 8, numbered=True)
         bot_user = getattr(self.bot, "user", None)
         avatar = getattr(getattr(bot_user, "display_avatar", None), "url", None)
+        p_prefix = getattr(ctx, "clean_prefix", ",")
+        intro = (f"> Active cross-server network bans enforced automatically on join and unban.\n"
+                 f"-# Lift a ban with `{p_prefix}ungenreban <user>`")
         for p in pages:
+            p.description = f"{intro}\n\n{p.description}"
             if bot_user and getattr(bot_user, "name", None):
-                p.set_author(name=bot_user.name, icon_url=avatar if isinstance(avatar, str) else None)
-            p.set_footer(text=f"VEIL UTILITIES  •  {plural(len(rows), 'active network ban')}")
+                p.set_author(name=f"{bot_user.name} · Security", icon_url=avatar if isinstance(avatar, str) else None)
+            p.set_footer(text=f"{plural(len(rows), 'active network ban')} · {p_prefix}ungenreban <user> to lift")
         await ctx.paginate(pages)
 
     async def _enforce(self, guild: discord.Guild, user_id: int, why: str) -> None:
