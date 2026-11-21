@@ -18,7 +18,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 # Emit a flushed line before dependency imports: if an import stalls, a host console can still show
 # that this entry point actually started. Never include environment variables or command arguments here.
-print(f"[veil] Starting Veil Utilities (Python {sys.version.split()[0]})", flush=True)
+print(f"[veil] Starting Veil Utilities; checking Python dependencies... (Python {sys.version.split()[0]})", flush=True)
 
 # Run from the bot's own folder no matter how it was started (e.g. `python veil-utilities/main.py` on a host),
 # so .env, veil.db, veil.log and the cogs are always found in the same place.
@@ -47,21 +47,21 @@ for module, package in REQUIRED.items():
             audioop_hint = audioop_hint or error.name == "audioop"
     except Exception as error:  # e.g. a compiled wheel built for a different Python or CPU
         broken.append(f"{package} ({type(error).__name__}: {error})")
-    if missing or broken:
-        lines = []
-        if missing:
-            lines.append("Missing Python packages: " + ", ".join(missing))
-        if broken:
-            lines.append("Installed packages that won't load on this Python: " + ", ".join(broken))
-        lines.append("Install them with:  python -m pip install -r requirements.txt")
-        lines.append("(On a hosting panel, add them to the 'Additional Python Packages' field.)")
-        if audioop_hint:
-            lines.append("Hint: 'audioop' was removed in Python 3.13 — add audioop-lts to the packages "
-                         "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
-        print("[veil] Dependency check failed; see the error output for details.", flush=True)
-        sys.exit("\n".join(lines))
-    else:
-        print("[veil] Dependencies: OK", flush=True)
+
+if missing or broken:
+    lines = []
+    if missing:
+        lines.append("Missing Python packages: " + ", ".join(missing))
+    if broken:
+        lines.append("Installed packages that won't load on this Python: " + ", ".join(broken))
+    lines.append("Install them with:  python -m pip install -r requirements.txt")
+    lines.append("(On a hosting panel, add them to the 'Additional Python Packages' field.)")
+    if audioop_hint:
+        lines.append("Hint: 'audioop' was removed in Python 3.13 — add audioop-lts to the packages "
+                     "(already in requirements.txt) or switch the server to Python 3.11/3.12.")
+    print("[veil] Dependency check failed; see the error output for details.", flush=True)
+    sys.exit("\n".join(lines))
+print("[veil] Dependencies: OK", flush=True)
 
 
 def load_env_file(path: str) -> None:
@@ -100,6 +100,7 @@ def auto_sync_git() -> None:
             print("[git] this folder isn't a git checkout, so nothing is pulled. Set the Git repo in the panel "
                   "or upload the files by hand.", flush=True)
             return
+        before = gitinfo.snapshot(ROOT)
         print(f"[git] syncing... {before.slug or 'unknown'} -> {gitinfo.EXPECTED_REPO}", flush=True)
         if before.edited:
             patch = os.path.join(ROOT, time.strftime("local-edits-%Y%m%d-%H%M%S.patch"))
@@ -134,9 +135,9 @@ def auto_sync_git() -> None:
             del sys.modules[name]
 
 
-    print("[veil] Dependencies loaded; checking startup settings...", flush=True)
-auto_sync_git()
+print("[veil] Dependencies loaded; checking startup settings...", flush=True)
 load_env_file(os.path.join(ROOT, ".env"))
+auto_sync_git()
 
 from core.config import ConfigError  # noqa: E402  (must load after .env)
 
@@ -148,7 +149,7 @@ except ConfigError as error:
     sys.exit(f"{error}\n\nFix these in your .env file (see .env.example) and start again.")
 
 from core.bot import INTENT_HELP, Veil, intent_plans  # noqa: E402
-from core.diagnostics import ConsoleFormatter, format_box, get_system_diagnostics, render_startup_banner  # noqa: E402
+from core.diagnostics import ConsoleFormatter, render_startup_banner  # noqa: E402, F401
 
 PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
@@ -196,21 +197,8 @@ async def run_bot(show_banner: bool = True) -> bool:
     import discord
 
     if show_banner:
-        use_color = os.environ.get("LOG_COLOR", "1") != "0"
-        intents_names = []
-        for intents, warning in intent_plans():
-            # Get the name of the intent plan (e.g., "full", "no_presence", "minimal", "bare")
-            # Since intent_plans() returns (discord.Intents, str), we can't easily get a name from the intents object itself.
-            # We'll just list the plan names based on the intent_plans() return order or a simple description.
-            # Actually, let's just list the intent flags that are True in the 'full' plan as a summary, 
-            # or simply "Full / No Presence / Minimal / Bare" based on the known plans.
-            # For a clean console output, let's list the plan names:
-            pass
-        # Simpler approach: list the known plan labels from the intent_plans() logic in core/bot.py
         plan_labels = ["Full", "No Presence", "Minimal", "Bare"]
         print(f"[veil] Configuration: OK | Intents: {', '.join(plan_labels)}", flush=True)
-        # print(render_startup_banner(color=use_color), flush=True)
-        # print(format_box("System Startup Diagnostics", get_system_diagnostics(settings), color=use_color), flush=True)
         log.info("Connecting to Discord Gateway with auto-sharding...")
 
     # socket.has_ipv6 only means Python supports IPv6, not that this host has a working IPv6 route.

@@ -943,7 +943,7 @@ def facts(pairs: list[tuple[str, str]]) -> str:
 
 
 def alias_chips(cmd, limit: int = 4) -> str:
-    """`\`r\` \`changerole\` \`cr\``: the short aliases worth showing; the rest are counted, not listed."""
+    r"""`\`r\` \`changerole\` \`cr\``: the short aliases worth showing; the rest are counted, not listed."""
     aliases = [a for a in (getattr(cmd, "aliases", None) or []) if a]
     shown = " ".join(chip(a) for a in aliases[:limit])
     rest = len(aliases) - limit

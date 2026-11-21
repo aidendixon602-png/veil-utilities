@@ -428,10 +428,10 @@ class Permissions(commands.Cog):
             section("Use", quiet=True),
             *use,
         ])
-        lines = [f"`{i:02}` **{name}**\n{text}" for i, (name, text) in enumerate(rows, 1)]
+        lines = [f"`{i:02}` **{name}**\n{text}\n" for i, (name, text) in enumerate(rows, 1)]
         pages = chunk_embeds("Permission levels", lines, per_page=9, numbered=False)
         for page in pages:
-            page.description = f"{intro}\n\n{page.description}"
+            page.description = f"{intro}\n\n{page.description.rstrip()}"
             page.set_footer(text=f"Automatic access and saved assignments are separate · {p}fp for role grants")
         await ctx.paginate(pages)
 
