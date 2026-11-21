@@ -34,10 +34,11 @@ reviewed for each deployment.
 - **Server owner** is recognized from the Discord server. Bot developers are recognized from `OWNER_IDS` and
   the Discord application owner/team discovered at startup; developers have broad cross-server privileges.
 - **Veil levels** are assigned to users or roles and saved per server. They supply bot permissions and a rank
-  used by some checks. The default levels, in ascending order, are Helper, Mod, Admin, Head Admin, Overseer,
-  Bot Manager and Supreme Leader. They do not confer developer or Antinuke access. Bot Manager and Overseer
-  currently have the same default standard bot permissions, but have different ranks. Server-specific overrides
-  and fake permissions remain in effect; `,permlevels` shows the configured levels.
+  used by some checks. The default levels, in ascending order, are Helper (`helper`), Moderator (`moderator`),
+  Admin (`admin`), Head Admin (`headadmin`), Manager (`manager`), Bot Manager (`bot_manager`) and Co-Owner
+  (`coowner`). They do not confer developer or Antinuke access. Bot Manager and Manager currently have the same
+  default standard bot permissions, but have different ranks. Server-specific overrides and fake permissions
+  remain in effect; `,permlevels` shows the configured levels.
 - **Fake permissions** are role-based grants used by Veil; they do not grant native Discord permissions to a
   person or role. They are not a replacement for Discord access controls. Use `,fakepermissions add @role
   ban_members`, `,fakepermissions list [@role]`, or `,fakepermissions remove @role ban_members`. Resetting all
@@ -62,10 +63,9 @@ developer may turn off protection or appoint admins. A staff level, fake Adminis
 Administrator alone is not an appointment. Existing Antinuke admins, whitelists, and protection settings are
 not removed or changed.
 
-**Existing assignments:** Supreme Leader, Overseer and Head Admin keep their saved keys but use their new
-display names; custom names and permission/rank overrides are retained. Overseer's default rank changes from 6
-to 5, while the permissions category threshold also changes from 6 to 5. Review custom rank overrides and
-hierarchy-sensitive assignments. Bot Manager is a new distinct key (`bot_manager`): older `botmanager` keys
+**Existing assignments:** Co-Owner (`coowner`), Manager (`manager`), Moderator (`moderator`) and Head Admin
+(`headadmin`) automatically migrate legacy saved keys (`supremeleader`, `overseer`, `mod`) while preserving
+custom permission and rank overrides. Bot Manager uses the distinct key `bot_manager`: older `botmanager` keys
 continue to migrate to Head Admin as before, avoiding an automatic promotion. Assignments that an earlier version
 already converted to Head Admin cannot be distinguished or automatically restored. Review `,perm list` and
 manually reassign them if appropriate. Earlier versions do not recognize `bot_manager`; before rollback, review

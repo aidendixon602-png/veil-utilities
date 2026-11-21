@@ -55,7 +55,7 @@ class FakePermPicker(OwnedView):
     def __init__(self, cog: "Settings", ctx: Context, role: discord.Role):
         super().__init__(ctx.author.id, timeout=120)
         self.cog, self.ctx, self.role = cog, ctx, role
-        options = [discord.SelectOption(label=perm_label(p), value=p) for p in PICKER_PERMS]
+        options = [discord.SelectOption(label=perm_label(p), value=p, description=p) for p in PICKER_PERMS]
         select = discord.ui.Select(placeholder="Choose permissions to give…", options=options,
                                    min_values=1, max_values=len(options))
         select.callback = self.picked
@@ -505,8 +505,10 @@ class Settings(commands.Cog):
         if not lines:
             return await ctx.warn(f"no roles have fake permissions yet, give some with `{ctx.clean_prefix}fp add`")
         pages = chunk_embeds("Fake permissions", lines, per_page=5, numbered=False)
+        intro = ("> Bot-only permissions assigned to roles.\n"
+                 f"-# Grant with `{ctx.clean_prefix}fp add <role> <permission>` · never grants native Discord permissions.")
         for page in pages:
-            page.description = f"Bot-only permissions assigned to roles.\n\n{page.description}"
+            page.description = f"{intro}\n\n{page.description}"
             page.set_footer(text=f"{len(lines)} {'role' if len(lines) == 1 else 'roles'}")
         await ctx.paginate(pages)
 

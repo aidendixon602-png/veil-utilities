@@ -170,33 +170,33 @@ class TestPermissionHierarchy:
     def test_hierarchy_order_and_ranks(self):
         from core import perms
 
-        assert perms.HIERARCHY_KEYS == ["developer", "owner", "supremeleader", "bot_manager", "overseer",
+        assert perms.HIERARCHY_KEYS == ["developer", "owner", "coowner", "bot_manager", "manager",
                                         "headadmin", "admin", "moderator", "helper"]
-        assert perms.HIERARCHY_ORDER == ["Developer", "Server Owner", "Supreme Leader", "Bot Manager", "Overseer",
-                                         "Head Admin", "Admin", "Mod", "Helper"]
+        assert perms.HIERARCHY_ORDER == ["Developer", "Server Owner", "Co-Owner", "Bot Manager", "Manager",
+                                         "Head Admin", "Admin", "Moderator", "Helper"]
         levels = perms.PRESETS
         assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 5, 4, 3, 2, 1]
-        assert levels["supremeleader"][1] == perms.COOWNER_RANK
-        assert "administrator" in levels["supremeleader"][2]
-        assert set(levels["overseer"][2]) == {p for p in perms.ALL_BOT_PERMS if p != "administrator"}
-        assert set(levels["headadmin"][2]) < set(levels["overseer"][2])
+        assert levels["coowner"][1] == perms.COOWNER_RANK
+        assert "administrator" in levels["coowner"][2]
+        assert set(levels["manager"][2]) == {p for p in perms.ALL_BOT_PERMS if p != "administrator"}
+        assert set(levels["headadmin"][2]) < set(levels["manager"][2])
 
     def test_old_level_names_still_work_and_are_migrated(self):
         from core import perms
-        cfg = {"users": {"1": "coowner", "2": "manager", "4": "mod", "5": "admin"},
-               "roles": {"9": "mod"}, "overrides": {"coowner": {"name": "Co-Owner", "rank": 8},
+        cfg = {"users": {"1": "supremeleader", "2": "overseer", "4": "mod", "5": "admin"},
+               "roles": {"9": "mod"}, "overrides": {"supremeleader": {"name": "Supreme Leader", "rank": 8},
                                                     "mod": {"perms": ["manage_messages"]}}}
-        assert perms.user_key(cfg, 1) == "supremeleader" and perms.role_key(cfg, 9) == "moderator"
+        assert perms.user_key(cfg, 1) == "coowner" and perms.role_key(cfg, 9) == "moderator"
         assert perms.migrate(cfg) is True
-        assert cfg["users"] == {"1": "supremeleader", "2": "overseer", "4": "moderator", "5": "admin"}
+        assert cfg["users"] == {"1": "coowner", "2": "manager", "4": "moderator", "5": "admin"}
         assert cfg["roles"] == {"9": "moderator"}
-        assert cfg["overrides"] == {"supremeleader": {"rank": 8}, "moderator": {"perms": ["manage_messages"]}}
-        assert perms.all_levels(cfg)["supremeleader"]["name"] == "Supreme Leader"
+        assert cfg["overrides"] == {"coowner": {"rank": 8}, "moderator": {"perms": ["manage_messages"]}}
+        assert perms.all_levels(cfg)["coowner"]["name"] == "Co-Owner"
         assert perms.migrate(cfg) is False
-        # typed names: the new names, and every old one, mean what they say now (saved keys never changed)
-        for typed, key in (("Co-Owner", "overseer"), ("coowner", "overseer"),
-                           ("Server Manager", "headadmin"), ("Supreme Leader", "supremeleader"),
-                           ("Overseer", "overseer"), ("Head Admin", "headadmin"), ("Manager", "headadmin"),
+        # typed names: the new names, and every old one, mean what they say now
+        for typed, key in (("Co-Owner", "coowner"), ("coowner", "coowner"),
+                           ("Server Manager", "headadmin"), ("Supreme Leader", "coowner"),
+                           ("Overseer", "manager"), ("Head Admin", "headadmin"), ("Manager", "manager"),
                            ("Bot Manager", "bot_manager"), ("mod", "moderator"), ("Moderator", "moderator")):
             assert perms.resolve_key({}, typed) == key, typed
         for typed in ("Owner", "Server Owner", "guild owner", "Bot Developer", "dev", "Developer"):
@@ -295,6 +295,6 @@ class TestPermissionHierarchy:
         ctx = SimpleNamespace(guild=guild, author=author, bot=bot)
 
         # Admin cannot assign an Administrator role
-        with pytest.raises(UserError, match=r"\*\*Supreme Leader\*\* level can give out roles with Administrator"):
+        with pytest.raises(UserError, match=r"\*\*Co-Owner\*\* level can give out roles with Administrator"):
             asyncio.run(check_role_assignable(ctx, admin_role))
 

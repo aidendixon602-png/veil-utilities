@@ -80,9 +80,9 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Roles": 3,         # Admin+
     "Server": 4,        # Head Admin+
     "Automod": 4,       # Head Admin+
-    "Permissions": 5,   # Overseer+
+    "Permissions": 5,   # Manager+
     "Antinuke": 7,      # Explicit appointment, server owner or developer (checked separately)
-    "Security": 7,      # Supreme Leader+ for existing Antiraid / Anti-Alt checks
+    "Security": 7,      # Co-Owner+ for existing Antiraid / Anti-Alt checks
     "Ghost Vanguard": 0,  # everyone can type ,gv: Ghost Vanguard checks its own ranks for each command
 }
 

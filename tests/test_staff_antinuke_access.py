@@ -13,7 +13,7 @@ from core.help import Help, category_labels, visible_command
 from core.utils import UserError, antinuke_admin
 from test_antinuke_panel import open_panel, press, setup
 
-STAFF_LEVELS = ('helper', 'moderator', 'admin', 'headadmin', 'overseer', 'bot_manager', 'supremeleader')
+STAFF_LEVELS = ('helper', 'moderator', 'admin', 'headadmin', 'manager', 'bot_manager', 'coowner')
 
 
 def test_new_bot_manager_is_distinct_and_old_saved_key_is_not_promoted():
@@ -25,7 +25,7 @@ def test_new_bot_manager_is_distinct_and_old_saved_key_is_not_promoted():
     cfg['users']['4'] = perms.resolve_key(cfg, 'botmanager')
     assert not perms.migrate(cfg)
     assert cfg['users']['4'] == 'bot_manager'
-    assert perms.PRESETS['headadmin'][1] < perms.PRESETS['overseer'][1] < perms.PRESETS['bot_manager'][1] < perms.PRESETS['supremeleader'][1]
+    assert perms.PRESETS['headadmin'][1] < perms.PRESETS['manager'][1] < perms.PRESETS['bot_manager'][1] < perms.PRESETS['coowner'][1]
 
 
 @pytest.mark.parametrize('level', STAFF_LEVELS)
@@ -119,8 +119,8 @@ def test_help_hides_antinuke_even_with_extreme_custom_rank_and_shows_appointed_a
     async def go():
         bot = commands.Bot(command_prefix=',', intents=discord.Intents.default())
         bot.owner_ids = set()
-        store = {'antinuke': {'admins': []}, 'permlevels': {'users': {'20': 'supremeleader'},
-                 'overrides': {'supremeleader': {'rank': 10000}}}, 'fakeperms': {}, 'settings': {},
+        store = {'antinuke': {'admins': []}, 'permlevels': {'users': {'20': 'coowner'},
+                 'overrides': {'coowner': {'rank': 10000}}}, 'fakeperms': {}, 'settings': {},
                  'command_restrictions': {}}
         bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda gid, module, default=None: store.get(module, {})))
         await bot.add_cog(Antinuke(bot))

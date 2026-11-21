@@ -125,7 +125,7 @@ def test_uperm_rejects_role_self_grant_and_higher_veil_level():
     from cogs.permissions import Permissions
 
     async def go():
-        store = {"users": {"20": "headadmin"}, "roles": {"55": "supremeleader"}}
+        store = {"users": {"20": "headadmin"}, "roles": {"55": "coowner"}}
         db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda gid, mod, default=None: store if mod == "permlevels" else {}),
                              set_config_committed=AsyncMock())
         bot = SimpleNamespace(db=db, owner_ids=set(), is_owner=AsyncMock(return_value=False))

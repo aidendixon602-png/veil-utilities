@@ -167,12 +167,12 @@ def test_botperms_command_registered():
 
 def test_code_defined_permissions():
     from core import perms
-    perms.CODE_USERS[12345] = "supremeleader"
+    perms.CODE_USERS[12345] = "coowner"
     perms.CODE_ROLES["Admin Role"] = "admin"
     try:
         u = SimpleNamespace(id=12345, roles=[])
         name, source, rank = perms.member_level_info({}, u)
-        assert name == "Supreme Leader"
+        assert name == "Co-Owner"
         assert source == "Built-in"
         assert rank == 7
 

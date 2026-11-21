@@ -61,7 +61,7 @@ def test_declining_or_timing_out_does_not_assign(answer):
 
 def test_nonprivileged_cannot_override_blacklist_or_assign_held_role():
     cog, ctx, role, store = setup(owner=False)
-    store['permlevels']['users']['20'] = 'supremeleader'
+    store['permlevels']['users']['20'] = 'coowner'
     with pytest.raises(UserError, match='blacklisted'):
         run(Permissions.up_add.callback(cog, ctx, role, level='admin'))
     ctx.author.roles = [role]

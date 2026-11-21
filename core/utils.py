@@ -618,15 +618,13 @@ def has_perms(**perms: bool):
             needed_ranks = []
             for p in still:
                 if p == "administrator":
-                    needed_ranks.append(("Supreme Leader", 7))
-                elif p in ("manage_guild", "manage_webhooks"):
+                    needed_ranks.append(("Co-Owner", 7))
+                elif p in ("manage_guild", "manage_webhooks", "manage_expressions", "mention_everyone"):
                     needed_ranks.append(("Head Admin", 4))
                 elif p in ("manage_roles", "ban_members", "manage_channels"):
                     needed_ranks.append(("Admin", 3))
-                elif p in ("kick_members", "moderate_members", "manage_nicknames"):
-                    needed_ranks.append(("Mod", 2))
-                elif p in ("manage_messages",):
-                    needed_ranks.append(("Mod", 2))
+                elif p in ("kick_members", "moderate_members", "manage_nicknames", "manage_messages"):
+                    needed_ranks.append(("Moderator", 2))
                 elif p in ("veil_warn", "veil_timeout", "veil_cases"):
                     needed_ranks.append(("Helper", 1))
 
@@ -986,7 +984,7 @@ async def check_role_assignable(ctx: Context, role: discord.Role, *, scoped_admi
         pl_cfg = await db.get_config(ctx.guild.id, "permlevels") if (ctx.guild and db) else {}
         author_rank = _perms.rank_of(pl_cfg, ctx.author, is_owner=is_owner, is_dev=is_dev, has_admin=False)
         if getattr(role.permissions, "administrator", False) and not (is_dev or is_owner or scoped_admin_grant or author_rank >= _perms.COOWNER_RANK):
-            raise AdminRoleGrantRequired("🔒 Only the server owner, the bot's developers or someone with the **Supreme Leader** level can give out roles with Administrator.")
+            raise AdminRoleGrantRequired("🔒 Only the server owner, the bot's developers or someone with the **Co-Owner** level can give out roles with Administrator.")
         if getattr(role.permissions, "manage_guild", False) and not (is_dev or is_owner or author_rank >= 4):
             raise UserError("🔒 Assigning roles with Server Management permissions requires the **Head Admin** level or higher.")
         if (getattr(role.permissions, "manage_roles", False) or getattr(role.permissions, "ban_members", False)) and not (is_dev or is_owner or author_rank >= 3):
