@@ -14,6 +14,39 @@ from core.utils import (Colors, Context, MissingRank, UserError, chunk_embeds, h
 
 log = logging.getLogger("veil.permissions")
 
+_CLEAN_PERMS: dict[str, str] = {
+    "manage_guild": "manage server",
+    "moderate_members": "timeout members",
+    "manage_emojis": "manage expressions",
+    "manage_emojis_and_stickers": "manage expressions",
+    "external_emojis": "use external emojis",
+    "veil_warn": "warn",
+    "veil_timeout": "timeout",
+    "veil_cases": "view cases",
+}
+
+_ACTION_ALIASES: dict[str, str] = {
+    "warn": "veil_warn",
+    "veil_warn": "veil_warn",
+    "timeout": "veil_timeout",
+    "veil_timeout": "veil_timeout",
+    "cases": "veil_cases",
+    "case": "veil_cases",
+    "view_cases": "veil_cases",
+    "view cases": "veil_cases",
+    "veil_cases": "veil_cases",
+}
+
+
+def clean_perm(name: str) -> str:
+    """Clean, underscore-free permission name for display chips."""
+    return _CLEAN_PERMS.get(name.lower(), name.lower().replace("_", " "))
+
+
+def clean_key(key: str) -> str:
+    """Clean, single-word level key for display chips (`bot_manager` -> `botmanager`)."""
+    return key.replace("_", "")
+
 
 def can_view_assignments():
     """Admin-level staff can read assignments; preserve existing bot Administrator grants."""
@@ -49,7 +82,7 @@ def assignment_pages(title: str, members: list[tuple[str, str]], roles: list[tup
         return [page]
     pages = []
     for start in range(0, len(entries), 8):
-        lines = [f"`{i:02}` {mention} — **{levels.get(key, {}).get('name', key)}** · {kind.lower()} (`{key}`)"
+        lines = [f"`{i:02}` {mention} — **{levels.get(key, {}).get('name', key)}** · {kind.lower()} (`{clean_key(key)}`)"
                  for i, (kind, mention, key) in enumerate(entries[start:start + 8], start + 1)]
         page = discord.Embed(title=title, color=Colors.main, description=f"{note}\n\n" + "\n".join(lines))
         page.set_footer(text=summary)
@@ -300,9 +333,9 @@ class Permissions(commands.Cog):
             )
             rname = levels[rkey]["name"] if (rkey and rkey in levels) else None
             role_fp = [p for p in (fp.get(str(target.id)) or []) if p]
-            fp_line = f"\n{NOTE} Fake permissions: {' · '.join(chip(p) for p in role_fp)}" if role_fp else ""
+            fp_line = f"\n{NOTE} Fake permissions: {' · '.join(chip(clean_perm(p)) for p in role_fp)}" if role_fp else ""
             if rname:
-                return await ctx.neutral(f"{target.mention} has the **{rname}** (`{rkey}`) permission level{fp_line}")
+                return await ctx.neutral(f"{target.mention} has the **{rname}** (`{clean_key(rkey)}`) permission level{fp_line}")
             return await ctx.neutral(f"{target.mention} has no permission level{fp_line}")
 
         if target != ctx.author:
@@ -317,10 +350,10 @@ class Permissions(commands.Cog):
             is_dev=perms.is_bot_developer(target, self.bot) or await self.bot.is_owner(target),
         )
         member_fp = sorted({p for r in getattr(target, "roles", []) for p in (fp.get(str(r.id)) or []) if p})
-        fp_line = f"\n{NOTE} Fake permissions: {' · '.join(chip(p) for p in member_fp)}" if member_fp else ""
+        fp_line = f"\n{NOTE} Fake permissions: {' · '.join(chip(clean_perm(p)) for p in member_fp)}" if member_fp else ""
         if name:
             lkey = next((k for k, v in levels.items() if v["name"] == name), None)
-            label = f"**{name}** (`{lkey}`)" if lkey else f"**{name}**"
+            label = f"**{name}** (`{clean_key(lkey)}`)" if lkey else f"**{name}**"
             src_line = f"\n{NOTE} Source: {source}" if source else ""
             return await ctx.neutral(f"{target.mention} has the {label} permission level{src_line}{fp_line}")
         await ctx.neutral(f"{target.mention} has no permission level{fp_line}")
@@ -356,9 +389,9 @@ class Permissions(commands.Cog):
             "moderator": (["manage_messages", "kick_members", "moderate_members", "manage_nicknames"], "Helper"),
         }
         action_labels = {
-            "veil_warn": "`veil_warn` (warn)",
-            "veil_timeout": "`veil_timeout` (1h max)",
-            "veil_cases": "`veil_cases` (cases)",
+            "veil_warn": "`warn`",
+            "veil_timeout": "`timeout` (1h max)",
+            "veil_cases": "`view cases`",
         }
 
         def grants(key: str, info: dict) -> str:
@@ -370,10 +403,10 @@ class Permissions(commands.Cog):
                 return "permissions & audit log · everything except Administrator"
             if key in preset_incremental and info["perms"] == list(perms.PRESETS[key][2]):
                 added, base_name = preset_incremental[key]
-                return f"{' · '.join(chip(p) for p in added)} + {base_name}"
-            items = [chip(p) for p in info["perms"]]
+                return f"{' · '.join(chip(clean_perm(p)) for p in added)} + {base_name}"
+            items = [chip(clean_perm(p)) for p in info["perms"]]
             if not info["perms"] or "moderate_members" not in info["perms"]:
-                items.extend(action_labels.get(a, chip(a)) for a in info.get("actions", []))
+                items.extend(action_labels.get(a, chip(clean_perm(a))) for a in info.get("actions", []))
             return " · ".join(items) or "no permissions"
 
         def holders(key: str) -> str:
@@ -385,7 +418,7 @@ class Permissions(commands.Cog):
 
         rows = [(perms.DEV_NAME, "automatic · the bot's developers"),
                 (perms.OWNER_NAME, "automatic · whoever owns the server")]
-        rows += [(f"{info['name']} (`{key}`)", grants(key, info) + holders(key)) for key, info in levels]
+        rows += [(f"{info['name']} (`{clean_key(key)}`)", grants(key, info) + holders(key)) for key, info in levels]
         p = ctx.clean_prefix
         use = script([f"{p}perm add <member|role> <level>", f"{p}fp add <role> <permission>"])
         intro = "\n".join([
@@ -439,13 +472,13 @@ class Permissions(commands.Cog):
             f"{NOTE} Top role {me.top_role.mention} · position {me.top_role.position}/{len(ctx.guild.roles)}",
         ]
         if missing and not gp.administrator:
-            body.append(f"{NOTE} ! Missing: {' · '.join(chip(p) for p in missing)}")
+            body.append(f"{NOTE} ! Missing: {' · '.join(chip(clean_perm(p)) for p in missing)}")
 
         for heading, items in groups:
             body.extend(["", section(heading)])
             for key, granted, desc in items:
                 mark = "✓" if granted else "✗"
-                body.append(f"`{mark}` {chip(key)} · {desc}")
+                body.append(f"`{mark}` {chip(clean_perm(key))} · {desc}")
 
         embed = discord.Embed(
             title="Bot permissions",
@@ -497,20 +530,22 @@ class Permissions(commands.Cog):
     @is_server_owner()
     async def pl_grant(self, ctx: Context, key: str, permission: str):
         """Toggle a bot-permission a level grants (server owner)"""
-        from cogs.settings import VALID_PERMS
+        from cogs.settings import VALID_PERMS, parse_perms
         cfg = await self.cfg(ctx.guild.id)
         key = self._level(cfg, key)
         levels = perms.all_levels(cfg)
-        permission = permission.lower().replace(" ", "_")
-        if permission not in VALID_PERMS:
-            raise UserError(f"`{permission}` isn't a valid permission")
+        parsed, unknown = parse_perms(permission)
+        raw = permission.lower().replace(" ", "_")
+        target_perm = parsed[0] if (parsed and not unknown and len(parsed) == 1) else raw
+        if target_perm not in VALID_PERMS:
+            raise UserError(f"`{raw}` isn't a valid permission")
         current = list(levels[key]["perms"])
-        if permission in current:
-            current.remove(permission)
-            msg = f"`{key}` no longer grants `{permission}`"
+        if target_perm in current:
+            current.remove(target_perm)
+            msg = f"`{clean_key(key)}` no longer grants `{target_perm}`"
         else:
-            current.append(permission)
-            msg = f"`{key}` now grants `{permission}`"
+            current.append(target_perm)
+            msg = f"`{clean_key(key)}` now grants `{target_perm}`"
         cfg.setdefault("overrides", {}).setdefault(key, {})["perms"] = current
         await self.save(ctx.guild.id, cfg)
         await ctx.approve(msg)
@@ -520,26 +555,26 @@ class Permissions(commands.Cog):
     async def pl_action(self, ctx: Context, key: str, action: str):
         """Toggle a narrow moderation action for a level (server owner)
 
-        Actions: veil_warn, veil_timeout, veil_cases. Helper timeouts are capped at one hour.
+        Actions: warn, timeout, cases. Helper timeouts are capped at one hour.
         """
         cfg = await self.cfg(ctx.guild.id)
         key = self._level(cfg, key)
-        action = action.lower()
-        if action not in perms.MODERATION_ACTIONS:
-            raise UserError("action must be `veil_warn`, `veil_timeout` or `veil_cases`")
+        canonical_action = _ACTION_ALIASES.get(action.strip().lower())
+        if canonical_action not in perms.MODERATION_ACTIONS:
+            raise UserError("action must be `warn`, `timeout` or `cases`")
         level = perms.all_levels(cfg)[key]
         if "administrator" in level["perms"]:
             raise UserError("this level has Administrator and bypasses action checks; change that grant first")
         current = list(level["actions"])
-        if action in current:
-            current.remove(action)
+        if canonical_action in current:
+            current.remove(canonical_action)
             enabled = False
         else:
-            current.append(action)
+            current.append(canonical_action)
             enabled = True
         cfg.setdefault("overrides", {}).setdefault(key, {})["actions"] = current
         await self.save(ctx.guild.id, cfg)
-        await ctx.approve(f"`{key}` {'now grants' if enabled else 'no longer grants'} `{action}`")
+        await ctx.approve(f"`{clean_key(key)}` {'now grants' if enabled else 'no longer grants'} `{clean_perm(canonical_action)}`")
 
 
 async def setup(bot):

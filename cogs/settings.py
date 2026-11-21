@@ -24,8 +24,38 @@ PICKER_PERMS = ["ban_members", "kick_members", "moderate_members", "manage_messa
                 "mute_members", "deafen_members", "administrator"]
 
 
+_DISPLAY_PERMS = {
+    "manage_guild": "manage server",
+    "moderate_members": "timeout members",
+}
+
+PERM_ALIASES = {
+    "manage_server": "manage_guild",
+    "timeout_members": "moderate_members",
+    "timeout": "moderate_members",
+    "Ban": "ban_members",
+    "ban": "ban_members",
+    "kick": "kick_members",
+    "roles": "manage_roles",
+    "channels": "manage_channels",
+    "messages": "manage_messages",
+    "nicknames": "manage_nicknames",
+    "webhooks": "manage_webhooks",
+    "expressions": "manage_expressions",
+    "emojis": "manage_expressions",
+    "events": "manage_events",
+    "threads": "manage_threads",
+    "audit_log": "view_audit_log",
+    "everyone": "mention_everyone",
+    "mute": "mute_members",
+    "deafen": "deafen_members",
+    "move": "move_members",
+    "admin": "administrator",
+}
+
+
 def perm_label(perm: str) -> str:
-    return perm.replace("_", " ")
+    return _DISPLAY_PERMS.get(perm, perm.replace("_", " "))
 
 
 def parse_perms(text: str) -> tuple[list[str], list[str]]:
@@ -37,6 +67,7 @@ def parse_perms(text: str) -> tuple[list[str], list[str]]:
     while i < len(words):
         for size in range(min(6, len(words) - i), 0, -1):
             joined = "_".join(words[i:i + size]).replace("-", "_")
+            joined = PERM_ALIASES.get(joined, joined)
             if joined in flags:
                 key = canonical.get(flags[joined], joined)
                 if key not in found:
@@ -55,7 +86,7 @@ class FakePermPicker(OwnedView):
     def __init__(self, cog: "Settings", ctx: Context, role: discord.Role):
         super().__init__(ctx.author.id, timeout=120)
         self.cog, self.ctx, self.role = cog, ctx, role
-        options = [discord.SelectOption(label=perm_label(p), value=p, description=p) for p in PICKER_PERMS]
+        options = [discord.SelectOption(label=perm_label(p), value=p) for p in PICKER_PERMS]
         select = discord.ui.Select(placeholder="Choose permissions to give…", options=options,
                                    min_values=1, max_values=len(options))
         select.callback = self.picked

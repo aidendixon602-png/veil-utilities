@@ -40,10 +40,14 @@ def test_the_level_list_is_numbered_highest_first():
         assert len(pages) == 1
         text = "\n".join(page.description for page in pages)
         order = [line.split("**")[1] for line in text.splitlines() if line.startswith("`") and "**" in line]
-        assert order == ["Developer", "Server Owner", "Co-Owner (`coowner`)", "Bot Manager (`bot_manager`)",
+        assert order == ["Developer", "Server Owner", "Co-Owner (`coowner`)", "Bot Manager (`botmanager`)",
                          "Manager (`manager`)", "Head Admin (`headadmin`)", "Admin (`admin`)",
                          "Moderator (`moderator`)", "Helper (`helper`)"]
         assert "everything except Administrator\n-# 2 members" in text
+        assert "`manage server` · `manage webhooks`" in text
+        assert "`timeout members`" in text
+        assert "`warn` · `timeout` (1h max) · `view cases`" in text
+        assert "veil_warn" not in text and "manage_guild" not in text and "bot_manager" not in text
         assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
         assert "```bash" in text and ",perm add <member|role> <level>" in text
         assert ",fp add <role> <permission>" in text
