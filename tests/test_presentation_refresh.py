@@ -23,7 +23,7 @@ def test_permission_assignment_pages_show_every_saved_entry_and_clear_scope():
         assert len(pages) == 3
         text = "\n".join(page.description for page in pages)
         assert text.count("Automatic access and fake permissions are not shown") == 3
-        assert "<@&77> — **Admin** · role" in text and "<@&78> — **Mod** · role" in text
+        assert "<@&77> — **Admin** · role" in text and "<@&78> — **Moderator** · role" in text
         for i in range(100, 115):
             assert text.count(f"<@{i}>") == 1
         assert all(page.footer.text == "15 members · 2 roles" for page in pages)
@@ -112,4 +112,56 @@ def test_fake_permissions_list_keeps_all_roles_across_pages():
         assert all("Bot-only" in page.description and page.footer.text == "12 roles" for page in pages)
         assert content.count("`ban members`") == 12
         db.set_config.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_up_check_surfaces_level_key_source_and_fake_permissions():
+    async def run():
+        store = {
+            "permlevels": {"users": {"20": "admin"}, "roles": {"55": "moderator"}, "overrides": {}},
+            "fakeperms": {"55": ["ban_members", "manage_roles"]},
+        }
+        db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda gid, mod, default=None: store.get(mod, default or {})),
+                             set_config_committed=AsyncMock())
+        bot = SimpleNamespace(db=db, owner_ids=set(), is_owner=AsyncMock(return_value=False))
+        cog = Permissions(bot)
+        role = MagicMock(spec=discord.Role)
+        role.id, role.name, role.mention = 55, "Staff", "<@&55>"
+        member = MagicMock(spec=discord.Member)
+        member.id, member.mention, member.roles = 20, "<@20>", [role]
+        ctx = SimpleNamespace(guild=SimpleNamespace(id=1, owner_id=10), author=member, neutral=AsyncMock())
+
+        await Permissions.up_check.callback(cog, ctx, role)
+        role_msg = ctx.neutral.await_args.args[0]
+        assert "**Moderator** (`moderator`)" in role_msg
+        assert "Fake permissions: `ban_members` · `manage_roles`" in role_msg
+
+        ctx.neutral.reset_mock()
+        await Permissions.up_check.callback(cog, ctx, member)
+        member_msg = ctx.neutral.await_args.args[0]
+        assert "**Admin** (`admin`)" in member_msg
+        assert "Source: Permissions attached to user" in member_msg
+        assert "Fake permissions: `ban_members` · `manage_roles`" in member_msg
+    asyncio.run(run())
+
+
+def test_botperms_uses_grouped_house_card_and_lists_missing_chips():
+    async def run():
+        bot = SimpleNamespace(user=SimpleNamespace(name="Veil Utilities",
+                                                   display_avatar=SimpleNamespace(url="https://cdn.example/v.png")))
+        cog = Permissions(bot)
+        gp = discord.Permissions(manage_roles=True, kick_members=True, ban_members=True)
+        cp = discord.Permissions(manage_messages=True, embed_links=True)
+        me = SimpleNamespace(guild_permissions=gp, top_role=SimpleNamespace(mention="<@&9>", position=4))
+        ctx = SimpleNamespace(guild=SimpleNamespace(name="Test Server", me=me, roles=[1, 2, 3, 4, 5]),
+                              channel=SimpleNamespace(permissions_for=lambda _: cp),
+                              clean_prefix=",", send=AsyncMock())
+        await Permissions.cmd_botperms.callback(cog, ctx)
+        embed = ctx.send.await_args.kwargs["embed"]
+        assert embed.title == "Bot permissions"
+        assert "**Server & security**" in embed.description
+        assert "**Moderation**" in embed.description
+        assert "**This channel**" in embed.description
+        assert "Missing:" in embed.description and "`manage_guild`" in embed.description
+        assert "`✓` `ban_members`" in embed.description and "`✗` `manage_guild`" in embed.description
     asyncio.run(run())

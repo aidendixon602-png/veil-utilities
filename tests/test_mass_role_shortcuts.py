@@ -14,13 +14,14 @@ from test_roleblacklist_enforcement import _mock_context, _mock_guild, _mock_mem
 
 
 async def setup():
+    import cogs.moderation
     bot = commands.Bot(command_prefix=',', intents=discord.Intents.none())
     store = {}
     async def config(gid, module, default=None):
         return store.get(module, default or {})
     bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=config))
     bot.owner_ids = set()
-    await bot.add_cog(Moderation(bot))
+    await bot.add_cog(cogs.moderation.Moderation(bot))
     guild = _mock_guild(1)
     author = _mock_member(guild.owner_id)
     role = _mock_role(123456789012345, 'Cool Team', pos=10)
@@ -221,7 +222,7 @@ def test_scoped_admin_role_authorization_does_not_enable_bulk_grants():
         role.permissions.administrator = True
         store['admin_role_granters'] = {str(actor.id): True}
         store['permlevels'] = {'users': {str(actor.id): 'admin'}}
-        with pytest.raises(UserError, match='Supreme Leader'):
+        with pytest.raises(UserError, match='Co-Owner'):
             await invoke(bot, ctx, 'humans', '"Cool Team"')
         ctx.confirm.assert_not_awaited()
         human.add_roles.assert_not_awaited()

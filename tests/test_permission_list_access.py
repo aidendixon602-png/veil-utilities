@@ -91,7 +91,7 @@ def test_role_mutations_remain_at_prior_permissions_gate_with_fake_administrator
                 command = bot.get_command(name)
                 assert command_category_gate(command, bot) == 5
                 ctx = make_ctx(bot, level='headadmin', fake={'55': ['administrator']})
-                with pytest.raises(MissingRank, match='Overseer'):
+                with pytest.raises(MissingRank, match='Manager'):
                     await command.can_run(ctx)
             bot.db.set_config_committed.assert_not_awaited()
         finally:

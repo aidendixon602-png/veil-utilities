@@ -1000,7 +1000,7 @@ def test_commands_shown_at_each_level_pass_their_user_permission_checks(loaded_b
         ctx = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=author, guild=guild, channel=channel)
         h.context = ctx
         cases = [("helper", 1, {}), ("moderator", 2, {}), ("admin", 3, {}),
-                 ("headadmin", 4, {}), ("overseer", 6, {}), ("supremeleader", 7, {}),
+                 ("headadmin", 4, {}), ("manager", 6, {}), ("coowner", 7, {}),
                  ("helper", 1, {"helper": {"perms": []}})]
         for level, rank, overrides in cases:
             cfg = {"users": {"500": level}, "roles": {}, "overrides": overrides}
@@ -1038,7 +1038,7 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                                     send=sent)
         h.is_owner_check = AsyncMock(return_value=False)
         levels = [("helper", 1), ("moderator", 2), ("admin", 3), ("headadmin", 4),
-                  ("overseer", 5), ("bot_manager", 6), ("supremeleader", 7)]
+                  ("manager", 5), ("bot_manager", 6), ("coowner", 7)]
         for key, rank in levels:
             store = {"permlevels": {"roles": {"900": key}}, "fakeperms": {}, "settings": {}}
             with patch.object(loaded_bot.db, "get_config", AsyncMock(side_effect=lambda gid, module: store.get(module, {}))):

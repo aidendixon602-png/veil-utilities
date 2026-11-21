@@ -671,15 +671,13 @@ class Veil(commands.AutoShardedBot):
                 perms_list = error.missing_permissions
                 needed_rank = "Admin"
                 if "administrator" in perms_list:
-                    needed_rank = "Supreme Leader"
-                elif any(p in perms_list for p in ("manage_guild", "manage_webhooks")):
+                    needed_rank = "Co-Owner"
+                elif any(p in perms_list for p in ("manage_guild", "manage_webhooks", "manage_expressions", "mention_everyone")):
                     needed_rank = "Head Admin"
                 elif any(p in perms_list for p in ("manage_roles", "ban_members", "manage_channels")):
                     needed_rank = "Admin"
-                elif any(p in perms_list for p in ("kick_members", "moderate_members", "manage_nicknames")):
-                    needed_rank = "Mod"
-                elif any(p in perms_list for p in ("manage_messages",)):
-                    needed_rank = "Helper"
+                elif any(p in perms_list for p in ("kick_members", "moderate_members", "manage_nicknames", "manage_messages")):
+                    needed_rank = "Moderator"
 
                 return await ctx.deny(f"you need the **{needed_rank}** level or higher to use this")
             if isinstance(error, commands.BotMissingPermissions):

@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Permission levels and cards rebuilt.** Renamed the assignable staff ladder to **Co-Owner** (`coowner`),
+  **Bot Manager** (`bot_manager`), **Manager** (`manager`), **Head Admin** (`headadmin`), **Admin** (`admin`),
+  **Moderator** (`moderator`) and **Helper** (`helper`), migrating legacy `supremeleader`, `overseer` and `mod`
+  entries automatically while keeping legacy `botmanager` assignments mapped to Head Admin. Rebuilt `,perms` /
+  `,permlevels`, `,perm list` / `,perm roles`, `,perm check`, `,botperms` and `,fakepermissions` in the house
+  card style with `snake_case` permission chips, incremental ladder summaries and fake-permission cross-references.
+
 - **Help cards rebuilt.** `,help` and every command card now share one layout: the description opens as a
   quoted headline, copy-ready syntax sits in a quiet `Use` block, aliases, rank and required permissions
   collapse into a single `Access` line, and a group's subcommands follow as `,command · what it does`

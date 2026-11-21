@@ -13,14 +13,14 @@ def test_saved_levels_are_migrated_when_the_cog_loads():
         db = Database(":memory:")
         await db.connect()
         try:
-            await db.set_config(10, "permlevels", {"users": {"1": "coowner", "2": "manager", "3": "botmanager"},
+            await db.set_config(10, "permlevels", {"users": {"1": "supremeleader", "2": "overseer", "3": "botmanager"},
                                                    "roles": {"3": "mod"}, "overrides": {}})
             await db.set_config(11, "permlevels", {"users": {"4": "admin"}})
             db._cache.clear()  # as after a restart: nothing cached yet
             cog = Permissions(SimpleNamespace(db=db))
             await cog.cog_load()
             db._cache.clear()
-            assert (await db.get_config(10, "permlevels"))["users"] == {"1": "supremeleader", "2": "overseer", "3": "headadmin"}
+            assert (await db.get_config(10, "permlevels"))["users"] == {"1": "coowner", "2": "manager", "3": "headadmin"}
             assert (await db.get_config(10, "permlevels"))["roles"] == {"3": "moderator"}
             assert (await db.get_config(11, "permlevels"))["users"] == {"4": "admin"}
         finally:
@@ -30,20 +30,23 @@ def test_saved_levels_are_migrated_when_the_cog_loads():
 
 def test_the_level_list_is_numbered_highest_first():
     async def go():
-        db = SimpleNamespace(get_config=AsyncMock(return_value={"users": {"5": "overseer", "6": "overseer"},
+        db = SimpleNamespace(get_config=AsyncMock(return_value={"users": {"5": "manager", "6": "manager"},
                                                                 "roles": {"7": "moderator"}}),
                              set_config=AsyncMock())
         cog = Permissions(SimpleNamespace(db=db))
         ctx = SimpleNamespace(guild=SimpleNamespace(id=10), clean_prefix=",", paginate=AsyncMock())
         await Permissions.permlevels.callback(cog, ctx)
         pages = ctx.paginate.await_args.args[0]
+        assert len(pages) == 1
         text = "\n".join(page.description for page in pages)
         order = [line.split("**")[1] for line in text.splitlines() if line.startswith("`") and "**" in line]
-        assert order == ["Developer", "Server Owner", "Supreme Leader (`supremeleader`)", "Bot Manager (`bot_manager`)",
-                         "Overseer (`overseer`)", "Head Admin (`headadmin`)", "Admin (`admin`)",
-                         "Mod (`moderator`)", "Helper (`helper`)"]
+        assert order == ["Developer", "Server Owner", "Co-Owner (`coowner`)", "Bot Manager (`bot_manager`)",
+                         "Manager (`manager`)", "Head Admin (`headadmin`)", "Admin (`admin`)",
+                         "Moderator (`moderator`)", "Helper (`helper`)"]
         assert "everything except Administrator\n-# 2 members" in text
         assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
+        assert "```bash" in text and ",perm add <member|role> <level>" in text
+        assert ",fp add <role> <permission>" in text
     asyncio.run(go())
 
 
