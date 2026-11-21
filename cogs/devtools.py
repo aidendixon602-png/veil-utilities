@@ -30,7 +30,7 @@ def plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
-WORKING_FOR = 2.0  # seconds a network ban shows "Genrebanning..." at the least
+WORKING_FOR = 45.0  # seconds a network ban / unban shows "Processing..." at the least
 
 
 class _Working:
@@ -366,6 +366,15 @@ class DevTools(commands.Cog):
         typing = ctx.typing() if hasattr(ctx, "typing") else contextlib.nullcontext()
         return _Working(typing, time.monotonic())
 
+    async def _actor_level(self, ctx: Context) -> str:
+        db = getattr(self.bot, "db", None)
+        cfg = (await db.get_config(ctx.guild.id, "permlevels")) if (ctx.guild and db and hasattr(db, "get_config")) else {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        is_dev = perms.is_bot_developer(ctx.author, self.bot) or await self.bot.is_owner(ctx.author)
+        is_owner = bool(ctx.guild and getattr(ctx.guild, "owner_id", None) == getattr(ctx.author, "id", None))
+        return perms.label(cfg, ctx.author, is_owner=is_owner, is_dev=is_dev) or perms.DEV_NAME
+
     @staticmethod
     def _who(user) -> str:
         return f"**{discord.utils.escape_markdown(getattr(user, 'name', None) or str(user.id))}** (`{user.id}`)"
@@ -489,11 +498,18 @@ class DevTools(commands.Cog):
         banned, already, failed = 0, 0, []
         embed.title = "Network Ban · In Progress"
         embed.color = Colors.caution
+        step_delay = min(2.0, WORKING_FOR / max(len(guilds), 1)) if WORKING_FOR > 0 else 0.0
         async with await self._working(ctx, msg, embed, f"Applying network ban to {self._who(user)} across "
-                                                        f"**{plural(len(guilds), 'server')}**…"):
+                                                        f"**{plural(len(guilds), 'server')}**…\n\nProcessing..."):
             for g in guilds:
+                if step_delay > 0:
+                    await asyncio.sleep(step_delay)
                 if g.owner_id == user.id:
                     owned.append(g)
+                    continue
+                me = getattr(g, "me", None)
+                if me is not None and hasattr(me, "guild_permissions") and not me.guild_permissions.ban_members:
+                    failed.append(f"{g.name} (missing permissions)")
                     continue
                 status = await self._banned_in(g, user.id)
                 if status is True:
@@ -505,6 +521,8 @@ class DevTools(commands.Cog):
                 try:  # the ban logs read who ran it from this reason, so they credit them instead of the bot
                     await g.ban(discord.Object(user.id), reason=audit_reason(ctx.author, clean_reason, "genreban"))
                     banned += 1
+                except discord.Forbidden:
+                    failed.append(f"{g.name} (missing permissions)")
                 except discord.HTTPException:
                     failed.append(g.name)
         embed.description = f"{self._who(user)} has been network-banned."
@@ -524,6 +542,11 @@ class DevTools(commands.Cog):
             embed.add_field(
                 name="Unconfirmed",
                 value=f"Ban not confirmed in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}",
+                inline=False,
+            )
+            embed.add_field(
+                name=f"Failed ({len(failed)})",
+                value=shorten("\n".join(failed), 300),
                 inline=False,
             )
         embed.title = "Network Ban · Partial" if failed else "Network Ban Recorded"
@@ -567,33 +590,48 @@ class DevTools(commands.Cog):
 
         await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user.id)
         lifted, failed = 0, []
-        embed.title = "Network Ban · Lifting"
-        async with await self._working(ctx, msg, embed, f"Lifting network ban on {self._who(user)} across "
-                                                        f"**{plural(len(guilds), 'server')}**…"):
+        processing_embed = discord.Embed(description="Processing...", color=Colors.caution)
+        step_delay = min(2.0, WORKING_FOR / max(len(guilds), 1)) if WORKING_FOR > 0 else 0.0
+        async with await self._working(ctx, msg, processing_embed, "Processing..."):
             for g in guilds:
+                if step_delay > 0:
+                    await asyncio.sleep(step_delay)
+                me = getattr(g, "me", None)
+                if me is not None and hasattr(me, "guild_permissions") and not me.guild_permissions.ban_members:
+                    failed.append(f"{g.name} (missing permissions)")
+                    continue
                 try:
                     await g.unban(discord.Object(user.id), reason=audit_reason(ctx.author, None, "ungenreban"))
                     lifted += 1
                 except discord.NotFound:
                     pass
+                except discord.Forbidden:
+                    failed.append(f"{g.name} (missing permissions)")
                 except discord.HTTPException:
-                    failed.append(g.name)
-        embed.title = "Network Ban Lifted"
-        embed.description = f"Lifted the network ban on {self._who(user)}."
-        embed.add_field(
-            name="Unbanned",
-            value=plural(lifted, "server") if lifted else "Not banned in any joined server",
-            inline=True,
+                    failed.append(f"{g.name} (failed)")
+
+        me_user = getattr(self.bot, "user", None)
+        bot_name = getattr(me_user, "name", None) or getattr(me_user, "display_name", None) or "Veil Utilities"
+        avatar = getattr(getattr(me_user, "display_avatar", None), "url", None)
+        result = discord.Embed(
+            description=f"Ungenrebanned {getattr(user, 'mention', f'<@{user.id}>')}",
+            color=Colors.caution if failed else Colors.approve,
+            timestamp=discord.utils.utcnow(),
         )
+        if isinstance(avatar, str) and avatar:
+            result.set_author(name=bot_name, icon_url=avatar)
+        else:
+            result.set_author(name=bot_name)
         if failed:
-            embed.add_field(
-                name="Failed",
-                value=f"Couldn't unban in {plural(len(failed), 'server')}: {shorten(', '.join(failed), 300)}",
+            result.add_field(
+                name=f"Failed ({len(failed)})",
+                value=shorten("\n".join(failed), 1000),
                 inline=False,
             )
-        embed.color = Colors.caution if failed else Colors.approve
-        embed.timestamp = discord.utils.utcnow()
-        await msg.edit(embed=embed, view=None)
+        actor_level = await self._actor_level(ctx)
+        cmd_name = f"{getattr(ctx, 'clean_prefix', ',')}{getattr(ctx, 'invoked_with', None) or 'ungenreban'}"
+        result.set_footer(text=f"{cmd_name} · {actor_level}")
+        await msg.edit(embed=result, view=None)
 
     @commands.command(hidden=True, aliases=["genrebans", "genrebanlist", "globalbans"])
     async def hardbans(self, ctx: Context):

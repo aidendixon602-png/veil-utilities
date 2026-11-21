@@ -500,3 +500,34 @@ def test_network_ban_uses_only_still_joined_previewed_servers():
     remains.ban.assert_awaited_once()
     result_fields = {f.name: f.value for f in ctx.prompt.edit.await_args.kwargs['embed'].fields}
     assert 'no longer joined' in result_fields['Skipped']
+
+
+def test_ungenreban_processing_and_result_card_with_permission_failure():
+    from cogs.devtools import WORKING_FOR
+    assert 30.0 <= WORKING_FOR <= 60.0
+
+    ok_guild = server(8, 999)
+    ok_guild.unban = AsyncMock()
+    denied_guild = server(9, 999)
+    denied_guild.name = "Ministry Of Admissions"
+    denied_guild.unban = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "Missing Permissions"))
+    ctx = make_ctx(guilds=[ok_guild, denied_guild])
+    ctx.clean_prefix = ","
+    ctx.invoked_with = "ungenreban"
+    ctx.bot.db.fetchone = AsyncMock(return_value={"user_id": OTHER, "mod_id": AUTHOR, "reason": "raid", "at": 1_700_000_000})
+    ctx.bot.db.get_config = AsyncMock(return_value={"users": {str(AUTHOR): "coowner"}})
+    tools = DevTools.__new__(DevTools)
+    tools.bot = ctx.bot
+    seen = []
+    ctx.prompt.edit = AsyncMock(side_effect=lambda **k: seen.append(discord.Embed.from_dict(deepcopy(k["embed"].to_dict()))))
+    target = SimpleNamespace(id=OTHER, mention=f"<@{OTHER}>", name="NKHX123")
+    with patch.dict(DevTools.ungenreban.callback.__globals__, {"DangerConfirm": _Answer, "WORKING_FOR": 0}):
+        asyncio.run(DevTools.ungenreban.callback(tools, ctx, target))
+    assert len(seen) == 2
+    processing_card, result_card = seen
+    assert processing_card.description == "Processing..."
+    assert result_card.description == f"Ungenrebanned <@{OTHER}>"
+    fields = {f.name: f.value for f in result_card.fields}
+    assert fields["Failed (1)"] == "Ministry Of Admissions (missing permissions)"
+    assert result_card.footer.text.startswith(",ungenreban · ")
+    assert result_card.timestamp is not None
