@@ -134,14 +134,14 @@ def test_up_check_surfaces_level_key_source_and_fake_permissions():
         await Permissions.up_check.callback(cog, ctx, role)
         role_msg = ctx.neutral.await_args.args[0]
         assert "**Moderator** (`moderator`)" in role_msg
-        assert "Fake permissions: `ban_members` · `manage_roles`" in role_msg
+        assert "Fake permissions: `ban members` · `manage roles`" in role_msg
 
         ctx.neutral.reset_mock()
         await Permissions.up_check.callback(cog, ctx, member)
         member_msg = ctx.neutral.await_args.args[0]
         assert "**Admin** (`admin`)" in member_msg
         assert "Source: Permissions attached to user" in member_msg
-        assert "Fake permissions: `ban_members` · `manage_roles`" in member_msg
+        assert "Fake permissions: `ban members` · `manage roles`" in member_msg
     asyncio.run(run())
 
 
@@ -162,6 +162,7 @@ def test_botperms_uses_grouped_house_card_and_lists_missing_chips():
         assert "**Server & security**" in embed.description
         assert "**Moderation**" in embed.description
         assert "**This channel**" in embed.description
-        assert "Missing:" in embed.description and "`manage_guild`" in embed.description
-        assert "`✓` `ban_members`" in embed.description and "`✗` `manage_guild`" in embed.description
+        assert "Missing:" in embed.description and "`manage server`" in embed.description
+        assert "`✓` `ban members`" in embed.description and "`✗` `manage server`" in embed.description
+        assert "manage_guild" not in embed.description and "moderate_members" not in embed.description
     asyncio.run(run())

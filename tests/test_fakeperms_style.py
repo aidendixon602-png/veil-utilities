@@ -12,6 +12,9 @@ from core.utils import UserError
 
 def test_permission_names_can_be_typed_naturally():
     assert parse_perms("ban members, kick_members manage roles") == (["ban_members", "kick_members", "manage_roles"], [])
+    assert parse_perms("manage server, timeout members, ban, roles") == (
+        ["manage_guild", "moderate_members", "ban_members", "manage_roles"], []
+    )
     assert parse_perms("Ban Members,ban_members") == (["ban_members"], [])
     assert parse_perms("ban members fly") == (["ban_members"], ["fly"])
 
