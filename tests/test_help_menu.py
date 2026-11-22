@@ -1038,7 +1038,7 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                                     send=sent)
         h.is_owner_check = AsyncMock(return_value=False)
         levels = [("helper", 1), ("moderator", 2), ("admin", 3), ("headadmin", 4),
-                  ("manager", 5), ("bot_manager", 6), ("coowner", 7)]
+                  ("manager", 6), ("coowner", 7)]
         for key, rank in levels:
             store = {"permlevels": {"roles": {"900": key}}, "fakeperms": {}, "settings": {}}
             with patch.object(loaded_bot.db, "get_config", AsyncMock(side_effect=lambda gid, module: store.get(module, {}))):

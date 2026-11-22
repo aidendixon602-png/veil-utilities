@@ -217,7 +217,7 @@ def rank_name(rank: int) -> str:
         return DEV_NAME
     if rank >= OWNER_RANK:
         return OWNER_NAME
-    return next((name for name, r, _ in PRESETS.values() if r == rank), f"Rank {rank}")
+    return next((name for name, r, _ in sorted(PRESETS.values(), key=lambda item: item[1]) if r >= rank), f"Rank {rank}")
 
 
 def perms_of(cmd: commands.Command) -> list[str]:

@@ -13,19 +13,19 @@ from core.help import Help, category_labels, visible_command
 from core.utils import UserError, antinuke_admin
 from test_antinuke_panel import open_panel, press, setup
 
-STAFF_LEVELS = ('helper', 'moderator', 'admin', 'headadmin', 'manager', 'bot_manager', 'coowner')
+STAFF_LEVELS = ('helper', 'moderator', 'admin', 'headadmin', 'manager', 'coowner')
 
 
 def test_new_bot_manager_is_distinct_and_old_saved_key_is_not_promoted():
-    cfg = {'users': {'1': 'botmanager', '2': 'headadmin'}, 'roles': {'3': 'botmanager'}}
+    cfg = {'users': {'1': 'botmanager', '2': 'headadmin', '4': 'bot_manager'}, 'roles': {'3': 'botmanager'}}
     assert perms.migrate(cfg)
-    assert cfg['users'] == {'1': 'headadmin', '2': 'headadmin'}
+    assert cfg['users'] == {'1': 'headadmin', '2': 'headadmin', '4': 'manager'}
     assert cfg['roles'] == {'3': 'headadmin'}
-    assert perms.resolve_key(cfg, 'Bot Manager') == 'bot_manager'
+    assert perms.resolve_key(cfg, 'Bot Manager') == 'manager'
     cfg['users']['4'] = perms.resolve_key(cfg, 'botmanager')
     assert not perms.migrate(cfg)
-    assert cfg['users']['4'] == 'bot_manager'
-    assert perms.PRESETS['headadmin'][1] < perms.PRESETS['manager'][1] < perms.PRESETS['bot_manager'][1] < perms.PRESETS['coowner'][1]
+    assert cfg['users']['4'] == 'manager'
+    assert perms.PRESETS['headadmin'][1] < perms.PRESETS['manager'][1] < perms.PRESETS['coowner'][1]
 
 
 @pytest.mark.parametrize('level', STAFF_LEVELS)

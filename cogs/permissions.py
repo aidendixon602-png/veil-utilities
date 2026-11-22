@@ -8,21 +8,20 @@ import discord
 from discord.ext import commands
 
 from core import perms
-from core.help import NOTE, chip, section, script
+from core.help import NOTE, chip, section
 from core.utils import (Colors, Context, MissingRank, UserError, chunk_embeds, has_perms, human_join,
                         is_server_owner, missing_perms, requires_uperm, role_protection_ids)
 
 log = logging.getLogger("veil.permissions")
 
 _CLEAN_PERMS: dict[str, str] = {
-    "manage_guild": "manage server",
-    "moderate_members": "timeout members",
-    "manage_emojis": "manage expressions",
-    "manage_emojis_and_stickers": "manage expressions",
-    "external_emojis": "use external emojis",
+    "manage_server": "manage_guild",
+    "timeout_members": "moderate_members",
+    "manage_emojis": "manage_expressions",
+    "manage_emojis_and_stickers": "manage_expressions",
     "veil_warn": "warn",
     "veil_timeout": "timeout",
-    "veil_cases": "view cases",
+    "veil_cases": "cases",
 }
 
 _ACTION_ALIASES: dict[str, str] = {
@@ -39,12 +38,13 @@ _ACTION_ALIASES: dict[str, str] = {
 
 
 def clean_perm(name: str) -> str:
-    """Clean, underscore-free permission name for display chips."""
-    return _CLEAN_PERMS.get(name.lower(), name.lower().replace("_", " "))
+    """Single-token permission name (bleed style, no spaces inside backticks)."""
+    key = name.strip().lower().replace(" ", "_")
+    return _CLEAN_PERMS.get(key, key)
 
 
 def clean_key(key: str) -> str:
-    """Clean, single-word level key for display chips (`bot_manager` -> `botmanager`)."""
+    """Clean, single-word level key (`bot_manager` -> `botmanager`)."""
     return key.replace("_", "")
 
 
@@ -69,20 +69,19 @@ def can_view_assignments():
 
 
 def assignment_pages(title: str, members: list[tuple[str, str]], roles: list[tuple[str, str]], levels: dict) -> list[discord.Embed]:
-    """Compact, paginated direct assignments in the Veil house card style; no claims about effective access."""
+    """Compact, paginated direct assignments; no claims about effective access."""
     entries = [("Role", f"<@&{rid}>", key) for rid, key in roles]
     entries += [("Member", f"<@{uid}>", key) for uid, key in members]
     summary = f"{len(members)} {'member' if len(members) == 1 else 'members'} · {len(roles)} {'role' if len(roles) == 1 else 'roles'}"
-    note = ("> Direct Veil assignments in this server.\n"
-            f"{NOTE} Direct Veil assignments only. Automatic access and fake permissions are not shown.")
+    note = f"{NOTE} Direct Veil assignments only. Automatic access and fake permissions are not shown."
     if not entries:
         page = discord.Embed(title=title, color=Colors.main,
-                             description=f"{note}\n\nNo direct assignments yet.\n{NOTE} Assign a level with `,perm add <member|role> <level>`")
+                             description=f"{note}\n\nNo direct assignments yet.")
         page.set_footer(text=summary)
         return [page]
     pages = []
     for start in range(0, len(entries), 8):
-        lines = [f"`{i:02}` {mention} — **{levels.get(key, {}).get('name', key)}** · {kind.lower()} (`{clean_key(key)}`)"
+        lines = [f"`{i}` {mention} — **{levels.get(key, {}).get('name', key)}** · {kind.lower()}"
                  for i, (kind, mention, key) in enumerate(entries[start:start + 8], start + 1)]
         page = discord.Embed(title=title, color=Colors.main, description=f"{note}\n\n" + "\n".join(lines))
         page.set_footer(text=summary)
@@ -335,7 +334,7 @@ class Permissions(commands.Cog):
             role_fp = [p for p in (fp.get(str(target.id)) or []) if p]
             fp_line = f"\n{NOTE} Fake permissions: {' · '.join(chip(clean_perm(p)) for p in role_fp)}" if role_fp else ""
             if rname:
-                return await ctx.neutral(f"{target.mention} has the **{rname}** (`{clean_key(rkey)}`) permission level{fp_line}")
+                return await ctx.neutral(f"{target.mention} has the **{rname}** permission level{fp_line}")
             return await ctx.neutral(f"{target.mention} has no permission level{fp_line}")
 
         if target != ctx.author:
@@ -352,10 +351,8 @@ class Permissions(commands.Cog):
         member_fp = sorted({p for r in getattr(target, "roles", []) for p in (fp.get(str(r.id)) or []) if p})
         fp_line = f"\n{NOTE} Fake permissions: {' · '.join(chip(clean_perm(p)) for p in member_fp)}" if member_fp else ""
         if name:
-            lkey = next((k for k, v in levels.items() if v["name"] == name), None)
-            label = f"**{name}** (`{clean_key(lkey)}`)" if lkey else f"**{name}**"
             src_line = f"\n{NOTE} Source: {source}" if source else ""
-            return await ctx.neutral(f"{target.mention} has the {label} permission level{src_line}{fp_line}")
+            return await ctx.neutral(f"{target.mention} has the **{name}** permission level{src_line}{fp_line}")
         await ctx.neutral(f"{target.mention} has no permission level{fp_line}")
 
     # ============================================================ levels
@@ -390,49 +387,46 @@ class Permissions(commands.Cog):
         }
         action_labels = {
             "veil_warn": "`warn`",
-            "veil_timeout": "`timeout` (1h max)",
-            "veil_cases": "`view cases`",
+            "veil_timeout": "`timeout` (1h)",
+            "veil_cases": "`cases`",
         }
 
         def grants(key: str, info: dict) -> str:
             if "administrator" in info["perms"]:
-                return "`administrator` · all standard bot permissions (not Antinuke or developer access)"
+                return "`administrator` (all bot permissions)"
             if set(info["perms"]) >= {p for p in perms.ALL_BOT_PERMS if p != "administrator"}:
-                if key == "bot_manager":
-                    return "senior staff · everything except Administrator"
-                return "permissions & audit log · everything except Administrator"
+                return "all bot permissions except `administrator`"
             if key in preset_incremental and info["perms"] == list(perms.PRESETS[key][2]):
                 added, base_name = preset_incremental[key]
-                return f"{' · '.join(chip(clean_perm(p)) for p in added)} + {base_name}"
+                return f"{', '.join(chip(clean_perm(p)) for p in added)} + {base_name}"
             items = [chip(clean_perm(p)) for p in info["perms"]]
             if not info["perms"] or "moderate_members" not in info["perms"]:
                 items.extend(action_labels.get(a, chip(clean_perm(a))) for a in info.get("actions", []))
-            return " · ".join(items) or "no permissions"
+            return ", ".join(items) or "no permissions"
 
         def holders(key: str) -> str:
             ucnt, rcnt = user_counts.get(key, 0), role_counts.get(key, 0)
             parts = [f"{ucnt} member{'s' if ucnt != 1 else ''}"] if ucnt else []
             if rcnt:
                 parts.append(f"{rcnt} role{'s' if rcnt != 1 else ''}")
-            return f"\n{NOTE} {' · '.join(parts)}" if parts else ""
+            return f" · {' · '.join(parts)}" if parts else ""
 
-        rows = [(perms.DEV_NAME, "automatic · the bot's developers"),
-                (perms.OWNER_NAME, "automatic · whoever owns the server")]
-        rows += [(f"{info['name']} (`{clean_key(key)}`)", grants(key, info) + holders(key)) for key, info in levels]
+        rows = [(perms.DEV_NAME, "bot developers (automatic)"),
+                (perms.OWNER_NAME, "server owner (automatic)")]
+        rows += [(info["name"], grants(key, info) + holders(key)) for key, info in levels]
         p = ctx.clean_prefix
-        use = script([f"{p}perm add <member|role> <level>", f"{p}fp add <role> <permission>"])
-        intro = "\n".join([
-            "> Assign staff levels to members or roles, or grant individual permissions with fakeperms.",
-            f"{NOTE} Highest to lowest · staff levels do not grant Antinuke or developer access.",
-            "",
-            section("Use", quiet=True),
-            *use,
-        ])
-        lines = [f"`{i:02}` **{name}**\n{text}\n" for i, (name, text) in enumerate(rows, 1)]
-        pages = chunk_embeds("Permission levels", lines, per_page=9, numbered=False)
-        for page in pages:
-            page.description = f"{intro}\n\n{page.description.rstrip()}"
-            page.set_footer(text=f"Automatic access and saved assignments are separate · {p}fp for role grants")
+        lines = [f"`{i}` **{name}** — {text}" for i, (name, text) in enumerate(rows, 1)]
+        pages = chunk_embeds("Permission levels", lines, per_page=10, numbered=False)
+        author = getattr(ctx, "author", None)
+        author_name = getattr(author, "display_name", None) or getattr(author, "name", None)
+        author_icon = getattr(getattr(author, "display_avatar", None), "url", None)
+        for idx, page in enumerate(pages, 1):
+            if author_name:
+                if isinstance(author_icon, str) and author_icon:
+                    page.set_author(name=author_name, icon_url=author_icon)
+                else:
+                    page.set_author(name=author_name)
+            page.set_footer(text=f"Page {idx}/{len(pages)} ({len(rows)} entries) · {p}perm add <member|role> <level>")
         await ctx.paginate(pages)
 
     @commands.command(name="botperms", aliases=["botpermissions", "botperm"])

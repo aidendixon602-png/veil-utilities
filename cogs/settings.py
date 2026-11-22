@@ -532,12 +532,12 @@ class Settings(commands.Cog):
             if not permissions:
                 return await ctx.warn(f"{role.mention} has no fake permissions")
             fp = {str(role.id): permissions}
-        lines = [f"**<@&{r}>**\n{', '.join(f'`{perm_label(p)}`' for p in ps)}" for r, ps in fp.items() if ps]
+        lines = [f"`{i}` <@&{r}> — {', '.join(f'`{p}`' for p in ps)}"
+                 for i, (r, ps) in enumerate(((r, ps) for r, ps in fp.items() if ps), 1)]
         if not lines:
             return await ctx.warn(f"no roles have fake permissions yet, give some with `{ctx.clean_prefix}fp add`")
         pages = chunk_embeds("Fake permissions", lines, per_page=5, numbered=False)
-        intro = ("> Bot-only permissions assigned to roles.\n"
-                 f"-# Grant with `{ctx.clean_prefix}fp add <role> <permission>` · never grants native Discord permissions.")
+        intro = f"-# Bot-only permissions assigned to roles · `{ctx.clean_prefix}fp add <role> <permission>`"
         for page in pages:
             page.description = f"{intro}\n\n{page.description}"
             page.set_footer(text=f"{len(lines)} {'role' if len(lines) == 1 else 'roles'}")
