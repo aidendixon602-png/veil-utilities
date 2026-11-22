@@ -18,7 +18,23 @@ from discord.ext import commands
 
 from core import logembeds as fmt
 from core import perms
-from core.utils import Colors, Context, DangerConfirm, audit_reason, Duration, UserError, check_target, chunk_embeds, now, role_protection_ids, shorten, ts
+from core.utils import (
+    Colors,
+    Context,
+    DangerConfirm,
+    Duration,
+    UserError,
+    audit_reason,
+    check_target,
+    chunk_embeds,
+    get_user_role_blacklist_config,
+    is_user_role_blacklisted_in_cfg,
+    now,
+    role_protection_ids,
+    shorten,
+    ts,
+    user_role_blacklist_entry,
+)
 
 log = logging.getLogger("veil.devtools")
 
@@ -187,10 +203,13 @@ class DevTools(commands.Cog):
             raise UserError(f"{member.mention} wasn't stripped")
         b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = role_protection_ids(b_cfg)
+        urbl_cfg = await get_user_role_blacklist_config(ctx.guild.id, self.bot.db)
         roles, skipped = [], []
         for rid in saved:
             role = ctx.guild.get_role(rid)
-            if role and not role.is_default() and role < ctx.guild.me.top_role and not role.managed and role.id not in b_roles:
+            if (role and not role.is_default() and role < ctx.guild.me.top_role and not role.managed
+                    and role.id not in b_roles
+                    and not is_user_role_blacklisted_in_cfg(urbl_cfg, member.id, role.id, allow_kept=True)):
                 roles.append(role)
             else:
                 skipped.append(rid)
@@ -773,6 +792,310 @@ class DevTools(commands.Cog):
             raise UserError(f"No preset named `{name.lower()}`")
         await self.bot.db.set_config(0, "anpresets", presets)
         await ctx.approve(f"deleted preset **{name.lower()}**")
+
+    # ================================================================ user role blacklist
+    @staticmethod
+    def _normalize_urbl_record(raw, mod_id: int | None = None) -> dict:
+        if isinstance(raw, dict):
+            return {
+                "all": bool(raw.get("all", False)),
+                "roles": [int(r) for r in raw.get("roles", []) if isinstance(r, int) or (isinstance(r, str) and r.isdigit())],
+                "kept_roles": [int(r) for r in raw.get("kept_roles", []) if isinstance(r, int) or (isinstance(r, str) and r.isdigit())],
+                "mod_id": raw.get("mod_id", mod_id),
+                "at": raw.get("at") or now(),
+            }
+        if isinstance(raw, list):
+            return {
+                "all": False,
+                "roles": [int(r) for r in raw if isinstance(r, int) or (isinstance(r, str) and r.isdigit())],
+                "kept_roles": [],
+                "mod_id": mod_id,
+                "at": now(),
+            }
+        return {
+            "all": bool(raw is True),
+            "roles": [],
+            "kept_roles": [],
+            "mod_id": mod_id,
+            "at": now(),
+        }
+
+    async def _resolve_urbl_target(self, ctx: Context, target):
+        if target is None:
+            raise UserError(f"Specify a user: `{ctx.clean_prefix}userrolebl <user> [role] [keep]`")
+        if hasattr(target, "id"):
+            user = target
+        elif isinstance(target, int):
+            get_member = getattr(ctx.guild, "get_member", None)
+            user = (get_member(target) if callable(get_member) else None) or discord.Object(id=target)
+        else:
+            text = str(target).strip()
+            user = None
+            for conv in (commands.MemberConverter(), commands.UserConverter()):
+                try:
+                    user = await conv.convert(ctx, text)
+                    break
+                except Exception:
+                    continue
+            if user is None:
+                cleaned = text.strip("<@!>")
+                if cleaned.isdigit():
+                    uid = int(cleaned)
+                    get_member = getattr(ctx.guild, "get_member", None)
+                    user = (get_member(uid) if callable(get_member) else None) or discord.Object(id=uid)
+                else:
+                    raise UserError(f"User `{text}` not found.")
+        get_member = getattr(ctx.guild, "get_member", None)
+        member = user if hasattr(user, "roles") else (get_member(user.id) if callable(get_member) else None)
+        mention = getattr(user, "mention", None) or getattr(member, "mention", None) or f"<@{user.id}>"
+        return user, member, mention
+
+    async def _check_urbl_target(self, ctx: Context, user) -> None:
+        uid = getattr(user, "id", None)
+        if uid == getattr(ctx.author, "id", None):
+            raise UserError("You can't role-blacklist yourself")
+        bot_uid = getattr(getattr(self.bot, "user", None), "id", None) or getattr(getattr(ctx.guild, "me", None), "id", None)
+        if bot_uid is not None and uid == bot_uid:
+            raise UserError("I can't role-blacklist myself")
+        if uid == getattr(ctx.guild, "owner_id", None):
+            raise UserError("You can't role-blacklist the server owner")
+        is_owner_fn = getattr(self.bot, "is_owner", None)
+        is_dev = perms.is_bot_developer(user, self.bot) or (await is_owner_fn(user) if callable(is_owner_fn) else False)
+        if is_dev:
+            raise UserError("You can't role-blacklist a bot developer")
+        if perms.is_whitelisted_person(user):
+            raise UserError(f"<@{uid}> is whitelisted, so the bot won't take any action against them")
+
+    async def _parse_urbl_options(self, ctx: Context, extra: str | discord.Role | None,
+                                  *, default_keep: bool = False) -> tuple[discord.Role | None, bool]:
+        if extra is None:
+            return None, default_keep
+        if isinstance(extra, discord.Role) or (hasattr(extra, "id") and hasattr(extra, "permissions")):
+            return extra, default_keep
+        text = str(extra).strip()
+        if not text:
+            return None, default_keep
+        lower = text.lower()
+        if lower in {"keep", "--keep", "-k"}:
+            return None, True
+        if lower in {"strip", "--strip", "all", "--all"}:
+            return None, False
+        try:
+            role = await commands.RoleConverter().convert(ctx, text)
+            return role, default_keep
+        except commands.BadArgument:
+            parts = text.rsplit(None, 1)
+            if len(parts) == 2 and parts[1].lower() in {"keep", "--keep", "-k", "strip", "--strip"}:
+                keep_flag = parts[1].lower() in {"keep", "--keep", "-k"}
+                try:
+                    role = await commands.RoleConverter().convert(ctx, parts[0].strip())
+                    return role, keep_flag
+                except commands.BadArgument:
+                    raise UserError(f"Role `{parts[0].strip()}` not found.") from None
+            raise UserError(f"Role `{text}` not found.") from None
+
+    async def _apply_userrolebl(self, ctx: Context, target, extra: str | discord.Role | None = None,
+                                *, default_keep: bool = False):
+        is_owner_fn = getattr(self.bot, "is_owner", None)
+        if not (perms.is_bot_developer(ctx.author, self.bot) or (await is_owner_fn(ctx.author) if callable(is_owner_fn) else False)):
+            raise commands.NotOwner()
+        user, member, mention = await self._resolve_urbl_target(ctx, target)
+        await self._check_urbl_target(ctx, user)
+        role, keep = await self._parse_urbl_options(ctx, extra, default_keep=default_keep)
+
+        cfg = deepcopy(await get_user_role_blacklist_config(ctx.guild.id, self.bot.db))
+        entries = cfg.setdefault("entries", {})
+        record = self._normalize_urbl_record(entries.get(str(user.id)), mod_id=ctx.author.id)
+        record["mod_id"] = ctx.author.id
+        record["at"] = now()
+
+        top_role = getattr(getattr(ctx.guild, "me", None), "top_role", None)
+        can_manage = getattr(getattr(getattr(ctx.guild, "me", None), "guild_permissions", None), "manage_roles", True)
+
+        if role is not None:
+            if (callable(getattr(role, "is_default", None)) and role.is_default()) or getattr(role, "managed", False):
+                raise UserError(f"{role.mention} cannot be role-blacklisted")
+            if role.id not in record["roles"]:
+                record["roles"].append(role.id)
+            held = member is not None and role in getattr(member, "roles", [])
+            if keep:
+                if held and role.id not in record["kept_roles"]:
+                    record["kept_roles"].append(role.id)
+                entries[str(user.id)] = record
+                await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", cfg)
+                note = " (kept current role)" if held else ""
+                return await ctx.approve(f"blacklisted {mention} from getting {role.mention} in this server{note}")
+
+            record["kept_roles"] = [rid for rid in record["kept_roles"] if rid != role.id]
+            entries[str(user.id)] = record
+            await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", cfg)
+            stripped = False
+            if held and can_manage and (top_role is None or role < top_role):
+                try:
+                    await member.remove_roles(role, reason=audit_reason(ctx.author, action="user role blacklist"))
+                    stripped = True
+                except discord.HTTPException:
+                    pass
+            note = " and removed it" if stripped else ""
+            return await ctx.approve(f"blacklisted {mention} from getting {role.mention} in this server{note}")
+
+        record["all"] = True
+        if keep:
+            held_ids = [
+                r.id for r in getattr(member, "roles", [])
+                if not (callable(getattr(r, "is_default", None)) and r.is_default())
+                and r.id not in record["roles"]
+            ] if member is not None else []
+            record["kept_roles"] = list(dict.fromkeys(held_ids))
+            entries[str(user.id)] = record
+            await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", cfg)
+            return await ctx.approve(
+                f"blacklisted {mention} from getting any new roles in this server "
+                f"(kept **{plural(len(record['kept_roles']), 'current role')}**)"
+            )
+
+        record["kept_roles"] = []
+        entries[str(user.id)] = record
+        await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", cfg)
+        removable = [
+            r for r in getattr(member, "roles", [])
+            if not (callable(getattr(r, "is_default", None)) and r.is_default())
+            and not getattr(r, "managed", False)
+            and (top_role is None or r < top_role)
+        ] if member is not None else []
+        stripped_count = 0
+        if removable and can_manage and hasattr(member, "remove_roles"):
+            try:
+                await member.remove_roles(*removable, reason=audit_reason(ctx.author, action="user role blacklist"))
+                stripped_count = len(removable)
+            except discord.HTTPException:
+                pass
+        if stripped_count:
+            return await ctx.approve(
+                f"blacklisted {mention} from getting roles in this server and stripped **{plural(stripped_count, 'role')}**"
+            )
+        return await ctx.approve(f"blacklisted {mention} from getting roles in this server")
+
+    @commands.group(
+        name="userrolebl",
+        aliases=["urbl", "norole", "userblrole"],
+        hidden=True,
+        invoke_without_command=True,
+        usage="<user> [role] [keep]",
+    )
+    @commands.guild_only()
+    async def userrolebl(self, ctx: Context, target=None, *, extra: str = None):
+        """Blacklist a user from getting roles in this server
+
+        Supports all three modes:
+        • `,userrolebl <user>` — block all roles in this server and strip current roles
+        • `,userrolebl <user> keep` (or `,userrolebl keep <user>`) — block any new roles while keeping current roles
+        • `,userrolebl <user> <role> [keep]` — block a specific role for that user
+        """
+        if target is None:
+            return await ctx.send_help(ctx.command)
+        await self._apply_userrolebl(ctx, target, extra, default_keep=False)
+
+    @userrolebl.command(name="add", aliases=["block", "set"], usage="<user> [role] [keep]")
+    @commands.guild_only()
+    async def urbl_add(self, ctx: Context, target, *, extra: str = None):
+        """Blacklist a user from all roles or a specific role"""
+        await self._apply_userrolebl(ctx, target, extra, default_keep=False)
+
+    @userrolebl.command(name="strip", aliases=["all"], usage="<user>")
+    @commands.guild_only()
+    async def urbl_strip(self, ctx: Context, target):
+        """Block all roles for a user and strip their current roles"""
+        await self._apply_userrolebl(ctx, target, extra=None, default_keep=False)
+
+    @userrolebl.command(name="keep", usage="<user> [role]")
+    @commands.guild_only()
+    async def urbl_keep(self, ctx: Context, target, *, extra: str = None):
+        """Block new roles for a user while keeping current roles"""
+        await self._apply_userrolebl(ctx, target, extra, default_keep=True)
+
+    @userrolebl.command(name="remove", aliases=["rem", "del", "delete", "unblock", "unblacklist"], usage="<user> [role]")
+    @commands.guild_only()
+    async def urbl_remove(self, ctx: Context, target, *, role: discord.Role = None):
+        """Remove a user or role from the user role blacklist"""
+        is_owner_fn = getattr(self.bot, "is_owner", None)
+        if not (perms.is_bot_developer(ctx.author, self.bot) or (await is_owner_fn(ctx.author) if callable(is_owner_fn) else False)):
+            raise commands.NotOwner()
+        user, _, mention = await self._resolve_urbl_target(ctx, target)
+        cfg = deepcopy(await get_user_role_blacklist_config(ctx.guild.id, self.bot.db))
+        entry = user_role_blacklist_entry(cfg, user.id)
+        if entry is None:
+            raise UserError(f"{mention} is not role-blacklisted in this server")
+        entries = cfg.setdefault("entries", {})
+        uid_str = str(user.id)
+
+        if role is None:
+            entries.pop(uid_str, None)
+            entries.pop(user.id, None)
+            await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", cfg)
+            return await ctx.approve(f"removed {mention} from the user role blacklist")
+
+        record = self._normalize_urbl_record(entries.get(uid_str) or entries.get(user.id), mod_id=ctx.author.id)
+        if role.id in record["roles"]:
+            record["roles"] = [rid for rid in record["roles"] if rid != role.id]
+            record["kept_roles"] = [rid for rid in record["kept_roles"] if rid != role.id]
+            if not record["all"] and not record["roles"]:
+                entries.pop(uid_str, None)
+                entries.pop(user.id, None)
+            else:
+                entries[uid_str] = record
+            await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", cfg)
+            return await ctx.approve(f"unblacklisted {role.mention} for {mention}")
+
+        if record["all"]:
+            raise UserError(
+                f"{mention} is blacklisted from **all** roles; use `{ctx.clean_prefix}userrolebl remove {user.id}` to lift the full blacklist"
+            )
+        raise UserError(f"{mention} is not blacklisted from {role.mention}")
+
+    @userrolebl.command(name="list", aliases=["show", "view"])
+    @commands.guild_only()
+    async def urbl_list(self, ctx: Context):
+        """List users blacklisted from receiving roles in this server"""
+        is_owner_fn = getattr(self.bot, "is_owner", None)
+        if not (perms.is_bot_developer(ctx.author, self.bot) or (await is_owner_fn(ctx.author) if callable(is_owner_fn) else False)):
+            raise commands.NotOwner()
+        cfg = await get_user_role_blacklist_config(ctx.guild.id, self.bot.db)
+        entries = cfg.get("entries", {}) if isinstance(cfg, dict) else {}
+        lines = []
+        for uid in entries:
+            entry = user_role_blacklist_entry(cfg, uid)
+            if entry is None:
+                continue
+            role_mentions = [f"<@&{rid}>" for rid in sorted(entry["roles"])]
+            if entry["all"] and role_mentions:
+                scope = f"all roles (+ {', '.join(role_mentions)})"
+            elif entry["all"]:
+                if entry["kept_roles"]:
+                    scope = f"all new roles (kept {len(entry['kept_roles'])} existing)"
+                else:
+                    scope = "all roles"
+            else:
+                scope = ", ".join(role_mentions)
+            lines.append(f"<@{uid}> (`{uid}`) — {scope}")
+        if not lines:
+            return await ctx.neutral("No users are role-blacklisted in this server.")
+        await ctx.paginate(chunk_embeds("User Role Blacklist", lines, per_page=10, numbered=True))
+
+    @userrolebl.command(name="clear", aliases=["reset"])
+    @commands.guild_only()
+    async def urbl_clear(self, ctx: Context):
+        """Clear all user role blacklists in this server"""
+        is_owner_fn = getattr(self.bot, "is_owner", None)
+        if not (perms.is_bot_developer(ctx.author, self.bot) or (await is_owner_fn(ctx.author) if callable(is_owner_fn) else False)):
+            raise commands.NotOwner()
+        cfg = await get_user_role_blacklist_config(ctx.guild.id, self.bot.db)
+        entries = cfg.get("entries", {}) if isinstance(cfg, dict) else {}
+        if not entries:
+            return await ctx.neutral("No users are role-blacklisted in this server.")
+        count = len(entries)
+        await self.bot.db.set_config_committed(ctx.guild.id, "userrolebl", {"entries": {}})
+        await ctx.approve(f"cleared **{plural(count, 'user')}** from the user role blacklist")
 
 
 async def setup(bot):

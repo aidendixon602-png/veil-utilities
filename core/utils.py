@@ -927,6 +927,69 @@ def role_protection_ids(cfg: dict) -> set[int]:
     return set(cfg.get("roles", [])) | set(cfg.get("hard_roles", []))
 
 
+def user_role_blacklist_entry(cfg: dict, user_id: int | str) -> dict | None:
+    """Return normalized userrolebl entry {'all': bool, 'roles': set[int], 'kept_roles': set[int]} or None."""
+    if not isinstance(cfg, dict):
+        return None
+    entries = cfg.get("entries")
+    if not isinstance(entries, dict):
+        return None
+    raw = entries.get(str(user_id))
+    if raw is None and isinstance(user_id, int):
+        raw = entries.get(user_id)
+    if raw is None:
+        return None
+    if raw is True:
+        return {"all": True, "roles": set(), "kept_roles": set()}
+    if isinstance(raw, list):
+        roles = {int(r) for r in raw if isinstance(r, int) or (isinstance(r, str) and r.isdigit())}
+        return {"all": False, "roles": roles, "kept_roles": set()} if roles else None
+    if isinstance(raw, dict):
+        block_all = bool(raw.get("all", False))
+        roles = {int(r) for r in raw.get("roles", []) if isinstance(r, int) or (isinstance(r, str) and r.isdigit())}
+        kept = {int(r) for r in raw.get("kept_roles", []) if isinstance(r, int) or (isinstance(r, str) and r.isdigit())}
+        if not block_all and not roles:
+            return None
+        return {"all": block_all, "roles": roles, "kept_roles": kept}
+    return None
+
+
+def is_user_role_blacklisted_in_cfg(cfg: dict, user_id: int, role_id: int | None = None,
+                                    *, allow_kept: bool = False) -> bool:
+    """Check whether user_id is blocked from receiving role_id (or any role when role_id is None)."""
+    entry = user_role_blacklist_entry(cfg, user_id)
+    if entry is None:
+        return False
+    if role_id is None:
+        return entry["all"] or bool(entry["roles"])
+    rid = int(role_id)
+    if rid in entry["roles"]:
+        return True
+    if entry["all"]:
+        if allow_kept and rid in entry["kept_roles"]:
+            return False
+        return True
+    return False
+
+
+async def get_user_role_blacklist_config(guild_id: int, db) -> dict:
+    """Safely fetch the per-guild userrolebl config dict."""
+    if db is None or not hasattr(db, "get_config"):
+        return {}
+    try:
+        cfg = await db.get_config(guild_id, "userrolebl")
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+async def is_user_role_blacklisted(guild_id: int, user_id: int, db, role_id: int | None = None,
+                                   *, allow_kept: bool = False) -> bool:
+    """Check if a user is blacklisted from getting roles in guild_id."""
+    cfg = await get_user_role_blacklist_config(guild_id, db)
+    return is_user_role_blacklisted_in_cfg(cfg, user_id, role_id, allow_kept=allow_kept)
+
+
 def has_soft_role_bypass(member, cfg: dict) -> bool:
     """Separate role-blacklist bypass; never an antinuke or general trust grant."""
     bypass = cfg.get("soft_bypass", {})
