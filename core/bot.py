@@ -559,7 +559,31 @@ class Veil(commands.AutoShardedBot):
         except Exception:
             return False
 
+    async def bypasses_command_cooldown(self, ctx: Context) -> bool:
+        """True if the author is a bot developer or an explicitly authorized/whitelisted user."""
+        author = getattr(ctx, "author", None)
+        if author is None:
+            return False
+        uid = getattr(author, "id", None)
+        from core import perms as _perms
+        if _perms.is_bot_developer(author, self) or await self.is_owner(author):
+            return True
+        if _perms.is_whitelisted_person(author) or _perms.is_ban_button_user(author):
+            return True
+        if uid is not None and (uid in _perms.CODE_USERS or str(uid) in _perms.CODE_USERS):
+            return True
+        if ctx.guild and getattr(self, "db", None) is not None and uid is not None:
+            try:
+                rbl = await self.db.get_config(ctx.guild.id, "roleblacklist") or {}
+                if str(uid) in {str(x) for x in rbl.get("authorized_users", [])}:
+                    return True
+            except Exception:
+                pass
+        return False
+
     # ------------------------------------------------------------- checks
+    COMMAND_COOLDOWN = 5.0
+
     async def _global_check(self, ctx: Context) -> bool:
         if ctx.guild is None and ctx.cog is not None and ctx.cog.qualified_name in GUILD_ONLY_COGS:
             raise commands.NoPrivateMessage()
@@ -613,23 +637,6 @@ class Veil(commands.AutoShardedBot):
                 channel_list = ", ".join(f"<#{c}>" for c in allowed_channels)
                 raise UserError(f"Commands in this server are restricted to {channel_list}")
 
-        # anti-spam command cooldown for regular users to prevent chat floods
-        if ctx.guild and not await self.is_staff_member(ctx):
-            now = time.monotonic()
-            uid = ctx.author.id
-            history = [t for t in self._cmd_cooldowns[uid] if now - t < 5.0]
-            self._cmd_cooldowns[uid] = history
-            if len(history) >= 4:
-                last_warn = self._spam_warned.get(uid, 0.0)
-                if now - last_warn > 8.0:
-                    self._spam_warned[uid] = now
-                    try:
-                        await ctx.send("⏳ **Slow down!** You are sending commands too quickly.", delete_after=3.5)
-                    except discord.HTTPException:
-                        pass
-                raise Ignored()
-            history.append(now)
-
         disabled = settings.get("disabled", [])
         root = ctx.command.root_parent.name if ctx.command.root_parent else ctx.command.name
         if ctx.command.qualified_name in disabled or root in disabled:
@@ -643,6 +650,31 @@ class Veil(commands.AutoShardedBot):
             role_ids = {str(role.id) for role in getattr(ctx.author, "roles", [])}
             if not roles_allow_command(ctx.command, role_ids, restrictions):
                 raise UserError(f"`{ctx.command.qualified_name}` is restricted to specific roles")
+
+        # 5-second command cooldown between each command use; developers and authorized users bypass
+        if ctx.guild and not getattr(ctx, "_skip_cooldown", False) and not getattr(ctx, "_cooldown_passed", False):
+            if not await self.bypasses_command_cooldown(ctx):
+                now = time.monotonic()
+                uid = ctx.author.id
+                window = getattr(self, "COMMAND_COOLDOWN", 5.0)
+                history = [t for t in self._cmd_cooldowns[uid] if now - t < window]
+                self._cmd_cooldowns[uid] = history
+                if history:
+                    retry_after = max(0.1, window - (now - history[-1]))
+                    last_warn = self._spam_warned.get(uid, 0.0)
+                    if now - last_warn > 4.0:
+                        self._spam_warned[uid] = now
+                        try:
+                            if hasattr(ctx, "warn"):
+                                await ctx.warn(f"Slow down, try again in **{retry_after:.1f}s**", delete_after=3.5)
+                            elif hasattr(ctx, "send"):
+                                await ctx.send(f"⏳ Slow down, try again in **{retry_after:.1f}s**", delete_after=3.5)
+                        except discord.HTTPException:
+                            pass
+                    raise Ignored()
+                history.append(now)
+            if getattr(ctx, "message", None) is not None:
+                ctx._cooldown_passed = True
         return True
 
     # ------------------------------------------------------------- errors
