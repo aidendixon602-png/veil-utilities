@@ -196,16 +196,17 @@ def test_command_anti_spam_cooldown():
         # Mock is_owner
         bot.is_owner = AsyncMock(return_value=False)
 
-        # First 4 commands are allowed (0, 1, 2, 3)
-        for _ in range(4):
-            allowed = await bot._global_check(ctx_regular)
-            assert allowed is True
+        # First command is allowed
+        allowed = await bot._global_check(ctx_regular)
+        assert allowed is True
 
-        # 5th command within the 5s window triggers spam rate limit and raises Ignored
+        # Immediate 2nd command within the 5s cooldown window triggers warning and raises Ignored
         with pytest.raises(Ignored):
             await bot._global_check(ctx_regular)
+        ctx_regular.send.assert_awaited_once()
+        assert "Slow down, try again in" in ctx_regular.send.await_args.args[0]
 
-        # Native Discord privileges do not exempt an unassigned user.
+        # Native Discord privileges or ordinary staff levels do not bypass the cooldown.
         staff_author = SimpleNamespace(
             id=600,
             guild_permissions=SimpleNamespace(
@@ -225,15 +226,19 @@ def test_command_anti_spam_cooldown():
             send=AsyncMock(),
         )
 
-        for _ in range(4):
-            assert await bot._global_check(ctx_staff)
+        assert await bot._global_check(ctx_staff)
         with pytest.raises(Ignored):
             await bot._global_check(ctx_staff)
-        # An explicit Veil staff assignment does exempt them.
-        await db.set_config(100, "permlevels", {"users": {"600": "helper"}})
-        for _ in range(10):
+
+        # Developers and explicitly authorized / whitelisted users bypass the cooldown.
+        await db.set_config(100, "roleblacklist", {"authorized_users": [600]})
+        for _ in range(5):
             allowed = await bot._global_check(ctx_staff)
             assert allowed is True
+
+        bot.is_owner = AsyncMock(return_value=True)
+        for _ in range(5):
+            assert await bot._global_check(ctx_regular) is True
     run(_run)
 
 

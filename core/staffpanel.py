@@ -46,8 +46,10 @@ async def can_use(ctx: Context, name: str) -> bool:
     cmd = ctx.bot.get_command(name)
     if cmd is None:
         return False
+    probe = copy.copy(ctx)
+    probe._skip_cooldown = True
     try:
-        return await cmd.can_run(ctx)
+        return await cmd.can_run(probe)
     except (commands.CommandError, UserError):
         return False
     except Exception:

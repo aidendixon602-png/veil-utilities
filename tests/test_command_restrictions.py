@@ -65,6 +65,7 @@ def test_global_check_denies_missing_roles_and_does_not_grant_permissions():
         with pytest.raises(UserError, match="restricted to specific roles"):
             await bot._global_check(ctx)
         guild.owner_id = author.id
+        bot._cmd_cooldowns.clear()
         assert await bot._global_check(ctx)
         guild.owner_id = 7
         bot.is_owner = AsyncMock(return_value=True)
@@ -74,6 +75,7 @@ def test_global_check_denies_missing_roles_and_does_not_grant_permissions():
         with pytest.raises(UserError, match="restricted to specific roles"):
             await bot._global_check(ctx)
         store["command_restrictions"] = {}
+        bot._cmd_cooldowns.clear()
         assert await bot._global_check(ctx)
 
     asyncio.run(go())
