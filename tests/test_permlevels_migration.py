@@ -34,23 +34,25 @@ def test_the_level_list_is_numbered_highest_first():
                                                                 "roles": {"7": "moderator"}}),
                              set_config=AsyncMock())
         cog = Permissions(SimpleNamespace(db=db))
-        ctx = SimpleNamespace(guild=SimpleNamespace(id=10), clean_prefix=",", paginate=AsyncMock())
+        ctx = SimpleNamespace(guild=SimpleNamespace(id=10), clean_prefix=",",
+                              author=SimpleNamespace(display_name="weba_waz",
+                                                     display_avatar=SimpleNamespace(url="https://cdn.example/a.png")),
+                              paginate=AsyncMock())
         await Permissions.permlevels.callback(cog, ctx)
         pages = ctx.paginate.await_args.args[0]
         assert len(pages) == 1
         text = "\n".join(page.description for page in pages)
         order = [line.split("**")[1] for line in text.splitlines() if line.startswith("`") and "**" in line]
-        assert order == ["Developer", "Server Owner", "Co-Owner (`coowner`)", "Bot Manager (`botmanager`)",
-                         "Manager (`manager`)", "Head Admin (`headadmin`)", "Admin (`admin`)",
-                         "Moderator (`moderator`)", "Helper (`helper`)"]
-        assert "everything except Administrator\n-# 2 members" in text
-        assert "`manage server` · `manage webhooks`" in text
-        assert "`timeout members`" in text
-        assert "`warn` · `timeout` (1h max) · `view cases`" in text
-        assert "veil_warn" not in text and "manage_guild" not in text and "bot_manager" not in text
-        assert "-# 1 role" in text and "rank 7" not in text  # internal numbers stay internal
-        assert "```bash" in text and ",perm add <member|role> <level>" in text
-        assert ",fp add <role> <permission>" in text
+        assert order == ["Developer", "Server Owner", "Co-Owner", "Manager", "Head Admin",
+                         "Admin", "Moderator", "Helper"]
+        assert "all bot permissions except `administrator` · 2 members" in text
+        assert "`manage_guild`, `manage_webhooks`, `manage_expressions`, `mention_everyone` + Admin" in text
+        assert "`moderate_members`" in text
+        assert "`warn`, `timeout` (1h), `cases`" in text
+        assert "veil_warn" not in text and "bot_manager" not in text
+        assert "· 1 role" in text and "rank 7" not in text  # internal numbers stay internal
+        assert pages[0].author.name == "weba_waz"
+        assert "Page 1/1 (8 entries) · ,perm add <member|role> <level>" == pages[0].footer.text
     asyncio.run(go())
 
 

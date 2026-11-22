@@ -15,7 +15,7 @@ from core import help as H
 from core import perms as P
 from core.utils import MissingRank, UserError, level_gate
 
-LEVELS = ["helper", "moderator", "admin", "headadmin", "manager", "bot_manager", "coowner"]
+LEVELS = ["helper", "moderator", "admin", "headadmin", "manager", "coowner"]
 MEMBER = 500
 
 
@@ -90,9 +90,7 @@ def test_help_shows_each_level_exactly_what_it_can_run(audit):
 
 def test_every_level_up_sees_and_can_run_strictly_more(audit):
     for lower, higher in zip(LEVELS, LEVELS[1:]):
-        assert audit[lower][0] <= audit[higher][0], (lower, higher)  # shown in help
-        if (lower, higher) != ("manager", "bot_manager"):
-            assert audit[lower][0] < audit[higher][0], (lower, higher)
+        assert audit[lower][0] < audit[higher][0], (lower, higher)  # shown in help
         assert audit[lower][1] <= audit[higher][1], (lower, higher)  # can run (never less)
 
 
@@ -127,4 +125,4 @@ def test_the_level_gate():
 
 def test_owner_only_commands_are_shown_to_the_owner_only():
     assert H.rank_name(P.OWNER_RANK) == "Server Owner" and H.rank_name(P.DEV_RANK) == "Developer"
-    assert H.rank_name(7) == "Co-Owner" and H.rank_name(6) == "Bot Manager" and H.rank_name(4) == "Head Admin"
+    assert H.rank_name(7) == "Co-Owner" and H.rank_name(6) == "Manager" and H.rank_name(4) == "Head Admin"

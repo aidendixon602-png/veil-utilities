@@ -6,12 +6,12 @@ needing dangerous native Discord permissions. Config lives per-guild under the "
 
     {"users": {"<user id>": "<level key>"}, "roles": {"<role id>": "<level key>"}, "overrides": {...}}
 
-The hierarchy, highest first: Developer, Server Owner, Co-Owner, Bot Manager, Manager,
+The hierarchy, highest first: Developer, Server Owner, Co-Owner, Manager,
 Head Admin, Admin, Moderator and Helper. Developer and Server Owner are automatic. Staff levels do not
 grant Antinuke or developer access; an explicit Antinuke admin appointment is separate.
 
-Legacy `botmanager` assignments continue to resolve to Head Admin, as they did before this change.
-The newly assignable Bot Manager has a distinct saved key, `bot_manager`, to avoid silently promoting them.
+Legacy `botmanager` assignments continue to resolve to Head Admin, as they did before this change, while
+`bot_manager` and `overseer` resolve to Manager.
 """
 from __future__ import annotations
 
@@ -192,16 +192,15 @@ CODE_ROLES: dict[int | str, str] = {}
 # key -> (display name, rank, granted bot-permissions). Assignable with `perm add` / `uperm add`.
 # Ranks only order the levels (higher = more power); servers can change them with `permlevels rank`.
 PRESETS: dict[str, tuple[str, int, list[str]]] = {
-    "helper":      ("Helper", 1, []),
-    "moderator":   ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
-    "admin":       ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                                  "manage_nicknames", "manage_roles", "manage_channels"]),
-    "headadmin":   ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
-                                      "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
-                                      "manage_webhooks", "manage_expressions", "mention_everyone"]),
-    "manager":     ("Manager", 5, [p for p in ALL_BOT_PERMS if p != "administrator"]),
-    "bot_manager": ("Bot Manager", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
-    "coowner":     ("Co-Owner", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
+    "helper":    ("Helper", 1, []),
+    "moderator": ("Moderator", 2, ["manage_messages", "kick_members", "moderate_members", "manage_nicknames"]),
+    "admin":     ("Admin", 3, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                               "manage_nicknames", "manage_roles", "manage_channels"]),
+    "headadmin": ("Head Admin", 4, ["manage_messages", "kick_members", "ban_members", "moderate_members",
+                                    "manage_nicknames", "manage_roles", "manage_channels", "manage_guild",
+                                    "manage_webhooks", "manage_expressions", "mention_everyone"]),
+    "manager":   ("Manager", 6, [p for p in ALL_BOT_PERMS if p != "administrator"]),
+    "coowner":   ("Co-Owner", COOWNER_RANK, ["administrator"] + ALL_BOT_PERMS),
 }
 
 # Old SAVED level keys -> the level that replaced them (saved assignments are migrated on startup).
@@ -209,20 +208,20 @@ PRESETS: dict[str, tuple[str, int, list[str]]] = {
 LEGACY_KEYS: dict[str, str] = {
     "mod": "moderator",
     "botmanager": "headadmin",  # Bot Manager was removed: its holders became Head Admins (nobody gains access)
+    "bot_manager": "manager",
     "supremeleader": "coowner",
     "overseer": "manager",
 }
 
-# Legacy and shorthand typed names continue to resolve safely. `botmanager` as a typed name is the new display
-# name; saved legacy `botmanager` keys still migrate to Head Admin instead of being promoted.
+# Legacy and shorthand typed names continue to resolve safely.
 TYPED_NAMES: dict[str, str] = {
     "mod": "moderator",
     "moderator": "moderator",
     "trialmod": "helper",
     "trialmoderator": "helper",
     "administrator": "admin",
-    "botmanager": "bot_manager",
-    "bot_manager": "bot_manager",
+    "botmanager": "manager",
+    "bot_manager": "manager",
     "manager": "manager",
     "overseer": "manager",
     "servermanager": "headadmin",
@@ -245,7 +244,6 @@ HIERARCHY_ORDER: list[str] = [
     DEV_NAME,
     OWNER_NAME,
     "Co-Owner",
-    "Bot Manager",
     "Manager",
     "Head Admin",
     "Admin",
@@ -258,7 +256,6 @@ HIERARCHY_KEYS: list[str] = [
     "developer",
     "owner",
     "coowner",
-    "bot_manager",
     "manager",
     "headadmin",
     "admin",

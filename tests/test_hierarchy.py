@@ -170,12 +170,12 @@ class TestPermissionHierarchy:
     def test_hierarchy_order_and_ranks(self):
         from core import perms
 
-        assert perms.HIERARCHY_KEYS == ["developer", "owner", "coowner", "bot_manager", "manager",
+        assert perms.HIERARCHY_KEYS == ["developer", "owner", "coowner", "manager",
                                         "headadmin", "admin", "moderator", "helper"]
-        assert perms.HIERARCHY_ORDER == ["Developer", "Server Owner", "Co-Owner", "Bot Manager", "Manager",
+        assert perms.HIERARCHY_ORDER == ["Developer", "Server Owner", "Co-Owner", "Manager",
                                          "Head Admin", "Admin", "Moderator", "Helper"]
         levels = perms.PRESETS
-        assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 5, 4, 3, 2, 1]
+        assert [levels[k][1] for k in perms.HIERARCHY_KEYS[2:]] == [7, 6, 4, 3, 2, 1]
         assert levels["coowner"][1] == perms.COOWNER_RANK
         assert "administrator" in levels["coowner"][2]
         assert set(levels["manager"][2]) == {p for p in perms.ALL_BOT_PERMS if p != "administrator"}
@@ -197,7 +197,7 @@ class TestPermissionHierarchy:
         for typed, key in (("Co-Owner", "coowner"), ("coowner", "coowner"),
                            ("Server Manager", "headadmin"), ("Supreme Leader", "coowner"),
                            ("Overseer", "manager"), ("Head Admin", "headadmin"), ("Manager", "manager"),
-                           ("Bot Manager", "bot_manager"), ("mod", "moderator"), ("Moderator", "moderator")):
+                           ("Bot Manager", "manager"), ("mod", "moderator"), ("Moderator", "moderator")):
             assert perms.resolve_key({}, typed) == key, typed
         for typed in ("Owner", "Server Owner", "guild owner", "Bot Developer", "dev", "Developer"):
             assert perms.is_reserved(typed) in ("Server Owner", "Developer")
