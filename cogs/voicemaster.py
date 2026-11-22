@@ -5,7 +5,7 @@ import discord
 from discord.ext import commands
 
 from core.role_safety import require_safe_automatic_roles, unsafe_automatic_roles
-from core.utils import Colors, Context, UserError, has_perms, check_role, role_protection_ids
+from core.utils import Colors, Context, UserError, has_perms, check_role, is_user_role_blacklisted, role_protection_ids
 
 
 def vm_embed(desc: str, color=Colors.main):
@@ -194,7 +194,7 @@ class VoiceMaster(commands.Cog):
             return
         if role:
             denied = await unsafe_automatic_roles(self.bot.db, guild, [role])
-            if role.id not in denied:
+            if role.id not in denied and not await is_user_role_blacklisted(guild.id, member.id, self.bot.db, role.id):
                 try:
                     await member.add_roles(role, reason="VoiceMaster role")
                 except discord.HTTPException:

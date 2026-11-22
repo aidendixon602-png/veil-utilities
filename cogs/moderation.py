@@ -28,9 +28,11 @@ if not hasattr(_cu, "check_role_assignable"):
 from core import perms as perms_mod
 from core.utils import (DANGEROUS_PERMS, AdminRoleGrantRequired, Colors, Context, Duration, Paginator, UserError, antinuke_guard, audit_reason,
                         check_hierarchy_async, check_target,
-                        check_role, check_role_assignable, chunk_embeds, fmt_duration, has_perms, has_discord_administrator, is_dangerous, missing_perms, now, parse_duration, shorten,
+                        check_role, check_role_assignable, chunk_embeds, fmt_duration, get_user_role_blacklist_config,
+                        has_perms, has_discord_administrator, is_dangerous, is_user_role_blacklisted,
+                        is_user_role_blacklisted_in_cfg, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
-                        has_soft_role_bypass, role_protection_ids)
+                        has_soft_role_bypass, role_protection_ids, user_role_blacklist_entry)
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -491,6 +493,23 @@ class Moderation(commands.Cog):
         allowed = exceptions.get(str(member.id), [])
         return [role for role in roles if role.id in cfg.get("roles", [])
                 and (role.id not in allowed or role.id in cfg.get("hard_roles", []))]
+
+    async def _prune_userrolebl_kept_roles(self, guild_id: int, member_id: int, removed_role_ids: list[int]) -> None:
+        urbl_cfg = await get_user_role_blacklist_config(guild_id, getattr(self.bot, "db", None))
+        entry = user_role_blacklist_entry(urbl_cfg, member_id)
+        if not entry or not entry["kept_roles"]:
+            return
+        removed_set = {int(rid) for rid in removed_role_ids}
+        if not (entry["kept_roles"] & removed_set):
+            return
+        updated = deepcopy(urbl_cfg)
+        raw = updated.get("entries", {}).get(str(member_id))
+        if isinstance(raw, dict) and isinstance(raw.get("kept_roles"), list):
+            raw["kept_roles"] = [rid for rid in raw["kept_roles"] if int(rid) not in removed_set]
+            try:
+                await self.bot.db.set_config_committed(guild_id, "userrolebl", updated)
+            except Exception:
+                pass
 
     async def cog_before_invoke(self, ctx: Context):
         from core.help import is_rbl_command
@@ -1289,6 +1308,8 @@ class Moderation(commands.Cog):
         await self._role_member_hierarchy(ctx, member, allow_self=True)
         if role in member.roles:
             raise UserError("they already have it")
+        if await is_user_role_blacklisted(ctx.guild.id, member.id, getattr(self.bot, "db", None), role.id):
+            raise UserError(f"{member.mention} is blacklisted from receiving {role.mention} in this server")
         if scoped:
             if not role.permissions.administrator:
                 raise UserError("This role no longer has Administrator; no role was assigned")
@@ -1367,6 +1388,8 @@ class Moderation(commands.Cog):
             await self._role_member_hierarchy(ctx, member)
             if role in member.roles:
                 raise UserError("they already have it")
+            if await is_user_role_blacklisted(ctx.guild.id, member.id, getattr(self.bot, "db", None), role.id):
+                raise UserError(f"{member.mention} is blacklisted from receiving {role.mention} in this server")
             await self._claim_admin_grant_slot(ctx.guild.id, ctx.author.id)
             return await self._apply_single_role(ctx, member, role, scoped=True)
 
@@ -1624,8 +1647,12 @@ class Moderation(commands.Cog):
 
         async def eligible(current):
             selected, excluded = [], 0
+            urbl_cfg = await get_user_role_blacklist_config(ctx.guild.id, getattr(self.bot, "db", None)) if add else {}
             for member in ctx.guild.members:
                 if not which(member) or ((current in member.roles) if add else (current not in member.roles)):
+                    continue
+                if add and is_user_role_blacklisted_in_cfg(urbl_cfg, member.id, current.id):
+                    excluded += 1
                     continue
                 try:
                     await self._role_member_hierarchy(ctx, member)
@@ -2676,6 +2703,7 @@ class Moderation(commands.Cog):
             async with self._exception_lock(after.guild.id):
                 if removed:
                     await self._change_role_exceptions(after.guild.id, after.id, [r.id for r in removed], add=False)
+                    await self._prune_userrolebl_kept_roles(after.guild.id, after.id, [r.id for r in removed])
                 if added:
                     cfg = await self.bot.db.get_config(after.guild.id, "roleblacklist")
                     exceptions = await self._role_exceptions(after.guild.id)
@@ -2690,6 +2718,17 @@ class Moderation(commands.Cog):
                                 denied = self._unauthorized_bled_roles(after.guild, after, cfg, exceptions, added)
                             except Exception:
                                 logging.getLogger("veil").exception("Could not save role-specific owner exception for guild %s", after.guild.id)
+                    urbl_cfg = await get_user_role_blacklist_config(after.guild.id, getattr(self.bot, "db", None))
+                    if (urbl_cfg and not perms_mod.is_bot_developer(after, self.bot)
+                            and not perms_mod.is_whitelisted_person(after)
+                            and after.id != getattr(after.guild, "owner_id", None)):
+                        urbl_denied = [
+                            r for r in added
+                            if not getattr(r, "managed", False) and not (callable(getattr(r, "is_default", None)) and r.is_default())
+                            and is_user_role_blacklisted_in_cfg(urbl_cfg, after.id, r.id, allow_kept=False)
+                            and r not in denied
+                        ]
+                        denied = [*denied, *urbl_denied]
                     top_pos = getattr(getattr(after.guild.me, "top_role", None), "position", 999999)
                     to_strip = [r for r in denied if getattr(r, "position", 0) < top_pos]
                     if to_strip and after.guild.me.guild_permissions.manage_roles:
@@ -2774,7 +2813,12 @@ class Moderation(commands.Cog):
             raise UserError(f"{member.mention} isn't jailed")
         rbl = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = role_protection_ids(rbl)
-        roles = [r for r in (ctx.guild.get_role(i) for i in saved) if r and r < ctx.guild.me.top_role and r.id not in b_roles]
+        urbl_cfg = await get_user_role_blacklist_config(ctx.guild.id, getattr(self.bot, "db", None))
+        roles = [
+            r for r in (ctx.guild.get_role(i) for i in saved)
+            if r and r < ctx.guild.me.top_role and r.id not in b_roles
+            and not is_user_role_blacklisted_in_cfg(urbl_cfg, member.id, r.id, allow_kept=True)
+        ]
         jail_role = ctx.guild.get_role(cfg.get("role", 0))
         new = [r for r in member.roles if r != jail_role] + roles
         await member.edit(roles=list(dict.fromkeys(new)), reason=audit_reason(ctx.author, reason, "unjailed"))
@@ -2802,11 +2846,28 @@ class Moderation(commands.Cog):
             missing = [rid for rid in exceptions.get(str(member.id), []) if rid not in held_ids]
             if missing:
                 await self._change_role_exceptions(member.guild.id, member.id, missing, add=False)
+            urbl_cfg = await get_user_role_blacklist_config(member.guild.id, getattr(self.bot, "db", None))
+            entry = user_role_blacklist_entry(urbl_cfg, member.id)
+            if entry and entry["kept_roles"]:
+                missing_kept = [rid for rid in entry["kept_roles"] if rid not in held_ids]
+                if missing_kept:
+                    await self._prune_userrolebl_kept_roles(member.guild.id, member.id, missing_kept)
+                    urbl_cfg = await get_user_role_blacklist_config(member.guild.id, getattr(self.bot, "db", None))
 
         # strip any blacklisted roles if member rejoins or has them
         rbl = await self._cfg(member.guild.id, "roleblacklist")
         exceptions = await self._role_exceptions(member.guild.id)
         denied = self._unauthorized_bled_roles(member.guild, member, rbl, exceptions, getattr(member, "roles", []))
+        if (urbl_cfg and not perms_mod.is_bot_developer(member, self.bot)
+                and not perms_mod.is_whitelisted_person(member)
+                and member.id != getattr(member.guild, "owner_id", None)):
+            urbl_denied = [
+                r for r in getattr(member, "roles", [])
+                if not getattr(r, "managed", False) and not (callable(getattr(r, "is_default", None)) and r.is_default())
+                and is_user_role_blacklisted_in_cfg(urbl_cfg, member.id, r.id, allow_kept=True)
+                and r not in denied
+            ]
+            denied = [*denied, *urbl_denied]
         top_pos = getattr(getattr(member.guild.me, "top_role", None), "position", 999999)
         if denied and member.guild.me.guild_permissions.manage_roles:
             to_remove = [r for r in denied if getattr(r, "position", 0) < top_pos]
@@ -2895,10 +2956,12 @@ class Moderation(commands.Cog):
         b_cfg = await self.bot.db.get_config(ctx.guild.id, "roleblacklist")
         b_roles = set(b_cfg.get("roles", []))
         protected = role_protection_ids(b_cfg)
+        urbl_cfg = await get_user_role_blacklist_config(ctx.guild.id, getattr(self.bot, "db", None))
 
         restore_roles = [
             r for r in (ctx.guild.get_role(i) for i in saved)
             if r and r < ctx.guild.me.top_role and r.id not in protected
+            and not is_user_role_blacklisted_in_cfg(urbl_cfg, member.id, r.id, allow_kept=True)
         ]
         q_role = ctx.guild.get_role(cfg.get("role", 0))
         cleaned = [r for r in member.roles if r != q_role and r.id not in b_roles] + restore_roles

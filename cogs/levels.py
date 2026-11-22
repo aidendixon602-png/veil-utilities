@@ -10,7 +10,8 @@ from discord.ext import commands, tasks
 
 from core.loops import resilient
 from core.role_safety import require_safe_automatic_roles, unsafe_automatic_roles
-from core.utils import (Colors, Context, UserError, build_vars, check_role, chunk_embeds, has_perms,
+from core.utils import (Colors, Context, UserError, build_vars, check_role, chunk_embeds,
+                        get_user_role_blacklist_config, has_perms, is_user_role_blacklisted_in_cfg,
                         role_protection_ids, send_script)
 
 
@@ -94,7 +95,11 @@ class Levels(commands.Cog):
         if not candidates:
             return
         denied = await unsafe_automatic_roles(self.bot.db, member.guild, list(candidates.values()))
-        rewards = {lvl: role for lvl, role in candidates.items() if role.id not in denied}
+        urbl_cfg = await get_user_role_blacklist_config(member.guild.id, self.bot.db)
+        rewards = {
+            lvl: role for lvl, role in candidates.items()
+            if role.id not in denied and not is_user_role_blacklisted_in_cfg(urbl_cfg, member.id, role.id)
+        }
         earned = list(rewards.values())
         if not earned:
             return

@@ -12,7 +12,9 @@ from discord.ext import commands, tasks
 from core.loops import resilient
 from core.role_safety import require_safe_automatic_roles, unsafe_automatic_roles
 from core.utils import (Colors, Context, UserError, build_message, build_vars, check_role,
-                        chunk_embeds, has_perms, is_dangerous, now, role_protection_ids, send_script, shorten)
+                        chunk_embeds, get_user_role_blacklist_config, has_perms, is_dangerous,
+                        is_user_role_blacklisted, is_user_role_blacklisted_in_cfg, now,
+                        role_protection_ids, send_script, shorten)
 
 log = logging.getLogger("veil.config")
 
@@ -46,6 +48,8 @@ class RoleButton(discord.ui.DynamicItem[discord.ui.Button], template=r"rb:(?P<ro
                 return await it.response.send_message("I can't verify role protections right now.", ephemeral=True)
             if self.role_id in denied:
                 return await it.response.send_message(f"❌ {role.mention} {denied[self.role_id]}.", ephemeral=True)
+            if await is_user_role_blacklisted(it.guild.id, it.user.id, getattr(it.client, "db", None), self.role_id):
+                return await it.response.send_message(f"❌ You are blacklisted from receiving {role.mention}.", ephemeral=True)
         try:
             if role in it.user.roles:
                 await it.user.remove_roles(role, reason="button role")
@@ -246,7 +250,11 @@ class Config(commands.Cog):
             roles = [current_role for old in roles if old.id in allowed
                      if (current_role := member.guild.get_role(old.id)) is not None]
             denied = await unsafe_automatic_roles(self.bot.db, member.guild, roles)
-            roles = [r for r in roles if r.id not in denied]
+            urbl_cfg = await get_user_role_blacklist_config(member.guild.id, self.bot.db)
+            roles = [
+                r for r in roles
+                if r.id not in denied and not is_user_role_blacklisted_in_cfg(urbl_cfg, current_member.id, r.id)
+            ]
             if not roles:
                 return
             try:
@@ -268,7 +276,7 @@ class Config(commands.Cog):
             await self._greet_send(after, "boost")
             if role:
                 denied = await unsafe_automatic_roles(self.bot.db, after.guild, [role])
-                if role.id not in denied:
+                if role.id not in denied and not await is_user_role_blacklisted(after.guild.id, after.id, self.bot.db, role.id):
                     try:
                         await after.add_roles(role, reason="booster reward")
                     except discord.HTTPException:
@@ -407,7 +415,7 @@ class Config(commands.Cog):
         if member and role and not member.bot:
             if add:
                 denied = await unsafe_automatic_roles(self.bot.db, guild, [role])
-                if role.id in denied:
+                if role.id in denied or await is_user_role_blacklisted(guild.id, member.id, self.bot.db, role.id):
                     return
             try:
                 await (member.add_roles if add else member.remove_roles)(role, reason="reaction role")
@@ -875,7 +883,7 @@ class Config(commands.Cog):
         try:
             if a and role not in after.roles:
                 denied = await unsafe_automatic_roles(self.bot.db, after.guild, [role])
-                if role.id in denied:
+                if role.id in denied or await is_user_role_blacklisted(after.guild.id, after.id, self.bot.db, role.id):
                     return
                 await after.add_roles(role, reason="vanity reward")
             elif not a and role in after.roles and after.status != discord.Status.offline:

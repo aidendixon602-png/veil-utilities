@@ -33,6 +33,13 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,strip <member>` | Remove every role from a member and log the strip |
 | `,ungenreban <user>` (unreban, unhardban, globalunban, unhb) | Lift a network genreban in every server |
 | `,unstrip <member>` (restore) | Give back the roles a strip removed |
+| `,userrolebl [target] [extra]` (urbl, norole, userblrole) | Blacklist a user from getting roles in this server |
+| `,userrolebl add <target> [extra]` (block, set) | Blacklist a user from all roles or a specific role |
+| `,userrolebl clear` (reset) | Clear all user role blacklists in this server |
+| `,userrolebl keep <target> [extra]` | Block new roles for a user while keeping current roles |
+| `,userrolebl list` (show, view) | List users blacklisted from receiving roles in this server |
+| `,userrolebl remove <target> [role]` (rem, del, delete, unblock, unblacklist) | Remove a user or role from the user role blacklist |
+| `,userrolebl strip <target>` (all) | Block all roles for a user and strip their current roles |
 
 ## Owner
 
