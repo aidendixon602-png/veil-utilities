@@ -182,8 +182,9 @@ class DeveloperProtection(commands.Cog):
             developer_id = getattr(member, "id", None)
         if (not developer_id
                 or developer_id == getattr(ctx.author, "id", None)
-                or not perms.is_bot_developer(developer_id, self.bot)):
-            return False
+                or not perms.is_bot_developer(developer_id, self.bot)
+                or perms.is_whitelisted_person(developer_id)):
+            return False  # protected people get the plain "can't moderate" refusal instead
         await self.handle(ctx.guild, developer_id, ctx.author.id, source="Veil command", actual_ban=False)
         msg = "Developer ban blocked — this attempt has been logged."
         deny = getattr(ctx, "deny", None)
@@ -199,7 +200,7 @@ class DeveloperProtection(commands.Cog):
         if entry.action != discord.AuditLogAction.ban:
             return
         developer_id = getattr(getattr(entry, "target", None), "id", None)
-        if not perms.is_bot_developer(developer_id, self.bot):
+        if not perms.is_bot_developer(developer_id, self.bot) or perms.is_whitelisted_person(developer_id):
             return
         created = getattr(entry, "created_at", None)
         if created is None or not -10 <= (discord.utils.utcnow() - created).total_seconds() <= AUDIT_MAX_AGE:
@@ -217,7 +218,7 @@ class DeveloperProtection(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild, user):
-        if not perms.is_bot_developer(user.id, self.bot):
+        if not perms.is_bot_developer(user.id, self.bot) or perms.is_whitelisted_person(user.id):
             return
         # The exact audit event is preferred for actor attribution. If it never arrives, restore without guessing.
         started = time.monotonic()

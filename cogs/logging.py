@@ -355,7 +355,9 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
             return await it.response.send_message("You are not in this guild", ephemeral=True)
 
         from core import perms as _perms
-        if not self.is_banned and it.user.id != self.user_id and _perms.is_bot_developer(self.user_id, it.client):
+        if (not self.is_banned and it.user.id != self.user_id and _perms.is_bot_developer(self.user_id, it.client)
+                and not _perms.is_whitelisted_person(self.user_id)):
+            # Protected people are refused by the shared moderation message below, never the developer path.
             protection = it.client.get_cog("DeveloperProtection")
             if protection:
                 await it.response.defer(ephemeral=True)
@@ -376,7 +378,7 @@ class BanLogButton(discord.ui.DynamicItem[discord.ui.Button], template=r"banlog:
         if it.user.id == self.user_id:
             return await it.response.send_message("❌ You cannot ban or unban yourself with this button.", ephemeral=True)
         if not self.is_banned and _perms.is_whitelisted_person(self.user_id):
-            return await it.response.send_message("❌ That user is whitelisted and cannot be banned.", ephemeral=True)
+            return await it.response.send_message(f"❌ {_perms.PROTECTED_MODERATION_MESSAGE}.", ephemeral=True)
         if not self.is_banned and self.user_id == guild.owner_id:
             return await it.response.send_message("❌ You cannot ban the server owner.", ephemeral=True)
 

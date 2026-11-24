@@ -1832,11 +1832,11 @@ def test_ban_button_exempt_users_work_when_uncached_and_respect_safety_guards(au
         assert "server owner" in owner_it.response.send_message.await_args.args[0]
         owner_guild.ban.assert_not_awaited()
 
-        # Cannot reban whitelisted person
+        # Cannot reban a protected person: one shared refusal, never the developer-protection path
         monkeypatch.setattr(perms, "WHITELISTED_PEOPLE", {777: "protected"})
         wl_it, wl_guild = button_interaction(authorized_uid)
         await BanLogButton(1, 777, False).callback(wl_it)
-        assert "whitelisted" in wl_it.response.send_message.await_args.args[0]
+        assert "can't moderate this user" in wl_it.response.send_message.await_args.args[0]
         wl_guild.ban.assert_not_awaited()
     asyncio.run(go())
 

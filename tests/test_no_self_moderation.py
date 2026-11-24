@@ -271,7 +271,7 @@ def test_thesimisear_is_whitelisted_from_everything():
     simi = 843909457616044092
     assert perms.is_whitelisted_person(simi) and perms.WHITELISTED_PEOPLE[simi] == "thesimisear"
     for actor in (AUTHOR, OWNER, DEV):  # not even the server owner or a developer
-        with pytest.raises(UserError, match="whitelisted"):
+        with pytest.raises(UserError, match="can't moderate this user"):
             check_target(make_ctx(author=actor), discord.Object(simi), "ban")
     cog = Mod.__new__(Mod)
     cog.bot = SimpleNamespace(owner_ids=set(), owner_id=None)

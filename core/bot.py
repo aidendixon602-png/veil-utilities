@@ -15,6 +15,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core import redact
+from core import perms as _perms
 from core.config import settings
 from core.help import Help
 from core.loops import resilient
@@ -565,7 +566,6 @@ class Veil(commands.AutoShardedBot):
         if author is None:
             return False
         uid = getattr(author, "id", None)
-        from core import perms as _perms
         if _perms.is_bot_developer(author, self) or await self.is_owner(author):
             return True
         if _perms.is_whitelisted_person(author) or _perms.is_ban_button_user(author):
@@ -591,7 +591,9 @@ class Veil(commands.AutoShardedBot):
         # guessing a command's name reveals nothing. Runs before every other check.
         cmd = ctx.command
         if cmd is not None and (cmd.hidden or any(p.hidden for p in cmd.parents)) \
-                and not await self.is_owner(ctx.author):
+                and not _perms.is_app_operator(ctx.author, self):
+            # `is_owner` is intentionally broad (it includes the protected rank), so secrecy of
+            # operator commands is decided by the strict operator check alone.
             raise commands.CommandNotFound()
         if await self.is_owner(ctx.author):
             return True

@@ -136,11 +136,23 @@ The current source includes global entries in [`core/perms.py`](../core/perms.py
 
 - **Ghost Vanguard**, bot ID `1555002091162837022`, is in `TRUSTED_BOTS`. Antinuke trusts it, its addition is
   exempted from the relevant bot-add response, it is not quarantined on join, and it may hold blacklisted roles.
-- **thesimisear**, user ID `843909457616044092`, is in `WHITELISTED_PEOPLE`. Veil's moderation target checks and
-  several antinuke, automod, antiraid, role-blacklist and network-ban paths exempt this account. This is not a
-  developer permission grant.
-- **Ban-log button accounts**, user IDs `843909457616044092` and `1062243262909390988`, are in `BAN_BUTTON_USERS`
-  and may use the Unban and Reban buttons on moderation log cards without a per-server Admin level.
+- **Protected people** are listed in `WHITELISTED_PEOPLE` and hold the developer rank through
+  `PROTECTED_RANKS = {"developer"}`: **weba_wa2** (`1277709272041394187`), **thesimisear**
+  (`843909457616044092`) and **protected account** (`1062243262909390988`). In every server they pass every
+  ordinary command check — staff-only mode, ignored channels, disabled commands, role restrictions, blacklist
+  and hierarchy checks — without a Veil level, fake grant or Discord permission. No moderation command can
+  target them, not even a developer's or the server owner's; kick, ban, softban, timeout, warn, strip, jail,
+  quarantine and the ban-log buttons all refuse with one message: **"You can't moderate this user or these
+  users"**. Antinuke, automod, anti-raid, role-blacklist and network-ban paths exempt them, and they may hold
+  blacklisted roles.
+- **What stays operator-only.** The protected rank is deliberately narrower than a real developer. The hidden
+  developer commands, the Owner and DevTools cogs, the dashboard, antinuke configuration and the
+  Developer/Secret `,help` categories are gated on `is_app_operator` (real developers, `OWNER_IDS` and the
+  application owner/team), so protected people cannot see tokens, logs, `.env` values, traces or the server
+  inventory, and cannot switch protection off.
+- **Ban-log button accounts**, user IDs `1277709272041394187`, `843909457616044092` and `1062243262909390988`,
+  are in `BAN_BUTTON_USERS` and may use the Unban and Reban buttons on moderation log cards without a
+  per-server Admin level.
 
 These are code-level, cross-server exceptions, separate from per-server whitelist settings. Their implications
 and removal/replacement remain under review. They must not be treated as proof that all behavior is safe or that
@@ -154,7 +166,9 @@ empty in the current source, but the runtime environment and database can contai
 
 ## Security boundaries and limits
 
-Global developer access and the built-in exemptions are powerful. Restrict `OWNER_IDS`, protect the Discord
+Global developer access and the built-in exemptions are powerful. The protected rank is the strongest
+exemption in the codebase: anyone added to `WHITELISTED_PEOPLE` can run every non-operator command in every
+server the bot joins. Restrict `OWNER_IDS`, protect the Discord
 application owner and team, and review antinuke-trusted users and per-server trusted roles. A trusted account
 can still be compromised. Antinuke detection and recovery depend on Discord events, permissions and hierarchy;
 no bot can guarantee prevention or full restoration. Refer to the [antinuke guide](ANTINUKE.md) and

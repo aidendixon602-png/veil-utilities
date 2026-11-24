@@ -38,8 +38,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Role blacklist section. Empty control-center pages now list servers to open instead of
   showing a lone dropdown.
 
+### Added
+
+- **Protected people are now the strongest exemption in the bot.** Three accounts —
+  `1277709272041394187` (weba_wa2), `843909457616044092` (thesimisear) and
+  `1062243262909390988` — are listed in `WHITELISTED_PEOPLE` with `PROTECTED_RANKS = {"developer"}`.
+  They hold the developer rank in every server: staff-only mode, ignored channels, disabled
+  commands, role restrictions, blacklist and hierarchy checks all pass without a Veil level,
+  fake grant or Discord permission. All three also keep the Unban/Reban button rights.
+- **One refusal for every moderation attempt on a protected person.** `check_target` and
+  `check_hierarchy` — the funnel for kick, ban, softban, timeout, warn, strip, jail, quarantine
+  and the ban-log buttons — now answer **"You can't moderate this user or these users"**. The
+  server owner and bot developers get the same message; the pre-command developer-protection
+  path steps aside so protected people never trigger a fake "developer ban blocked" alert.
+
 ### Changed
 
+- **Developer-only surfaces stay operator-only.** A new `is_app_operator` check (real developers,
+  `OWNER_IDS`, the application owner/team) gates the hidden developer commands, the Owner and
+  DevTools cogs, the dashboard, antinuke configuration and the Developer/Secret `,help`
+  categories. Protected people never see tokens, logs, `.env` values, traces or the server
+  inventory, and cannot switch antinuke off — `bot.is_owner` alone is no longer enough there.
 - **Dashboard design system rebuilt as one stylesheet.** `core/dashboard_assets.py` had grown
   six stacked "theme layers" that each redefined the `:root` tokens and re-declared components,
   so the final colours were an accident of cascade order (a teal background with blue button
