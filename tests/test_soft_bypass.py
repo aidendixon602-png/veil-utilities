@@ -215,7 +215,8 @@ def test_hard_blacklist_blocks_antinuke_role_restoration(role_bot):  # noqa: F81
     asyncio.run(run())
 
 
-def test_soft_bypass_does_not_promote_a_globally_trusted_actor_to_legacy_grant(role_bot, monkeypatch):  # noqa: F811
+def test_protected_actor_can_assign_blacklisted_roles_without_a_legacy_grant(role_bot, monkeypatch):  # noqa: F811
+    """Protected people hold the developer rank, so they can hand out a blacklisted role like a developer can."""
     async def run():
         from core import perms
         bot = role_bot
@@ -225,14 +226,12 @@ def test_soft_bypass_does_not_promote_a_globally_trusted_actor_to_legacy_grant(r
         protected = _mock_role(888)
         cfg = {"roles": [888], "authorized": [], "soft_bypass": {"users": [555]}}
         bot._storage[(123, "roleblacklist")] = cfg
-        monkeypatch.setattr(perms, "WHITELISTED_PEOPLE", {555: "existing trusted account"})
+        monkeypatch.setattr(perms, "WHITELISTED_PEOPLE", {555: "protected account"})
         ctx = _mock_context(bot, guild, author)
         cog = Moderation(bot)
-        with pytest.raises(UserError, match="already has a bypass"):
-            await cog._authorize_bled_target(ctx, target, protected)
-        with pytest.raises(UserError, match="Cannot mass-assign"):
-            await cog._mass_role(ctx, "add", protected, lambda m: True, "everyone")
-        assert cfg["authorized"] == []
+        # A protected actor is not blocked by the soft-bypass rule or the owner/developer gate.
+        await cog._authorize_bled_target(ctx, target, protected)
+        assert cfg["authorized"] == []  # the exception lives in roleblacklist, never the legacy list
     asyncio.run(run())
 
 

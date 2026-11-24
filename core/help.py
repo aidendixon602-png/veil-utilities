@@ -1244,11 +1244,13 @@ class Help(commands.HelpCommand):
         author = getattr(self.context, "author", None)
         if not author:
             return False
-        if _perms.is_bot_developer(author, bot):
+        if _perms.is_app_operator(author, bot):
             return True
         if bot:
             try:
-                if await bot.is_owner(author):
+                # `is_owner` is broad (it includes protected people), so the Developer/Secret
+                # categories are gated on the strict operator check: no protected person sees them.
+                if await bot.is_owner(author) and not _perms.is_whitelisted_person(author):
                     return True
             except Exception:
                 pass
@@ -1298,10 +1300,10 @@ class Help(commands.HelpCommand):
             fake = await db.get_config(guild.id, "fakeperms") or {}
             settings = await db.get_config(guild.id, "settings") or {}
             restrictions = await db.get_config(guild.id, "command_restrictions")
-            # Antinuke is visible to its actual operators only: the owner or a configured
-            # developer. Appointed admins are trusted by antinuke but cannot configure it, so
-            # a saved appointment no longer reveals the category.
-            appointed = author.id == getattr(guild, "owner_id", None) or _perms.is_bot_developer(author, bot)
+            # Antinuke is visible to its actual operators only: the server owner or a real developer.
+            # Appointed admins are trusted but cannot configure it, and protected people hold the
+            # developer rank without the operator surfaces, so neither reveals the category.
+            appointed = author.id == getattr(guild, "owner_id", None) or _perms.is_app_operator(author, bot)
             granted = _perms.level_perms(cfg, author)
             fake_grants = {p for role in getattr(author, "roles", []) for p in fake.get(str(role.id), [])}
             from core.utils import expand_permission_aliases, native_permission_names

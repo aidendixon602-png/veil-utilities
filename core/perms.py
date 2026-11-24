@@ -50,14 +50,23 @@ TRUSTED_BOTS: dict[int, str] = {
 # =====================================================================
 # WHITELISTED PEOPLE (Editable directly in this file)
 # =====================================================================
-# People the bot never takes any action against, in any server: no moderation command can target them (not even a
-# developer's), and the antinuke, automod, anti-raid, role blacklist and network bans all leave them alone.
+# Fully protected people: in every server they rank as bot developers, so every command check, staff-only mode,
+# ignored channel, disabled command and role restriction passes for them. No moderation command can target them
+# (not even a developer's), and the antinuke, automod, anti-raid, role blacklist and network bans all leave them
+# alone. They do not see the developer-only Developer/Secret command groups in `,help`.
+PROTECTED_RANKS: frozenset[str] = frozenset({"developer"})
 WHITELISTED_PEOPLE: dict[int, str] = {
+    1277709272041394187: "weba_wa2",
     843909457616044092: "thesimisear",
+    1062243262909390988: "protected account",
 }
+
+# What anyone who tries to moderate a protected person is told.
+PROTECTED_MODERATION_MESSAGE = "You can't moderate this user or these users"
 
 # Users explicitly authorized to use the Unban / Reban buttons on moderation log cards in any server.
 BAN_BUTTON_USERS: frozenset[int] = frozenset({
+    1277709272041394187,
     843909457616044092,
     1062243262909390988,
 })
@@ -97,15 +106,13 @@ def is_trusted_bot(user_or_id) -> bool:
         return False
 
 
-def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:
-    """Check if a user is a recognized bot developer.
+def is_app_operator(user_or_id: int | discord.abc.User | discord.Member | None,
+                    bot: discord.Client | None = None) -> bool:
+    """A real bot developer or application owner, without the protected-people rank.
 
-    Devs are automatically authorized for everything across the bot, including:
-    - Built-in Bot Developer permission rank (rank 10,000)
-    - Role Blacklist (BLED) immunity and authorization to hold/assign blacklisted roles
-    - Immunity to quarantine, jail, mute, kick, ban, and moderation hierarchy
-    - Antinuke, Antiraid, Antialt, and Automod whitelist bypass
-    - Global bot blacklist bypass
+    Sensitive surfaces use this stricter check: the hidden developer commands, the Owner and DevTools
+    cogs, the dashboard, antinuke configuration and the Developer/Secret help categories. Protected
+    people pass ordinary command checks through `is_bot_developer` but never see those.
     """
     if user_or_id is None:
         return False
@@ -129,6 +136,29 @@ def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None,
         if getattr(bot, "owner_id", None) and uid == bot.owner_id:
             return True
     return False
+
+
+def is_bot_developer(user_or_id: int | discord.abc.User | discord.Member | None, bot: discord.Client | None = None) -> bool:
+    """Check if a user is a recognized bot developer, or a protected person with the developer rank.
+
+    Devs are automatically authorized for everything across the bot, including:
+    - Built-in Bot Developer permission rank (rank 10,000)
+    - Role Blacklist (BLED) immunity and authorization to hold/assign blacklisted roles
+    - Immunity to quarantine, jail, mute, kick, ban, and moderation hierarchy
+    - Antinuke, Antiraid, Antialt, and Automod whitelist bypass
+    - Global bot blacklist bypass
+
+    Protected people with the `developer` rank are included here so every ordinary command check
+    passes for them; `is_app_operator` stays developer/owner only for the sensitive surfaces.
+    """
+    if is_app_operator(user_or_id, bot):
+        return True
+    uid = getattr(user_or_id, "id", user_or_id) if user_or_id is not None else None
+    try:
+        uid = int(uid)
+    except (TypeError, ValueError):
+        return False
+    return bool(is_whitelisted_person(uid) and "developer" in PROTECTED_RANKS)
 
 # =====================================================================
 # ALL BOT PERMISSIONS

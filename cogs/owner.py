@@ -113,7 +113,9 @@ class Owner(commands.Cog):
 
     async def cog_check(self, ctx: Context) -> bool:
         from core import perms as _perms
-        if await self.bot.is_owner(ctx.author) or _perms.is_bot_developer(ctx.author, self.bot):
+        # Operator-only: the protected rank passes ordinary command checks but not these tools.
+        if _perms.is_app_operator(ctx.author, self.bot) or (
+                await self.bot.is_owner(ctx.author) and not _perms.is_whitelisted_person(ctx.author)):
             return True
         raise commands.NotOwner()
 
@@ -471,7 +473,7 @@ class Owner(commands.Cog):
         if _perms.is_bot_developer(target_id, self.bot):
             raise UserError("A bot developer can't be blacklisted.")
         if _perms.is_whitelisted_person(target_id):
-            raise UserError(f"<@{target_id}> is whitelisted, so the bot won't take any action against them")
+            raise UserError(_perms.PROTECTED_MODERATION_MESSAGE)
         if target_id in self.bot.blacklist:
             # Running it again used to lift the blacklist; now it only says it's already in place.
             row = await self.bot.db.fetchone("SELECT reason FROM blacklist WHERE id=?", target_id)

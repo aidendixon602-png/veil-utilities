@@ -187,10 +187,15 @@ class SingleMemberBledView(discord.ui.View):
 
         embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed()
         from core import perms as _perms
+        if _perms.is_whitelisted_person(self.target):
+            embed.color = Colors.error
+            embed.description = f"⚠️ {_perms.PROTECTED_MODERATION_MESSAGE}."
+            embed.set_footer(text="Veil • Protected account")
+            return await interaction.response.edit_message(embed=embed, view=self)
         if _perms.is_bot_developer(self.target, self.cog.bot):
             embed.color = Colors.error
             embed.description = "⚠️ Cannot strip roles from a bot developer."
-            embed.set_footer(text="Veil Utilities • Developer Immunity")
+            embed.set_footer(text="Veil • Developer Immunity")
             return await interaction.response.edit_message(embed=embed, view=self)
 
         embed.color = Colors.warn
@@ -1291,7 +1296,7 @@ class Moderation(commands.Cog):
             # Only individual role commands may opt in. Retain bot hierarchy and the
             # independent global protected-person rule; other moderation stays unchanged.
             if perms_mod.is_whitelisted_person(member.id):
-                raise UserError(f"<@{member.id}> is whitelisted, so the bot won't take any action against them")
+                raise UserError(perms_mod.PROTECTED_MODERATION_MESSAGE)
             bot_id = getattr(ctx.guild.me, "id", None)
             if member.id == bot_id:
                 raise UserError("I can't modify my own roles")

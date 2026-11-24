@@ -22,8 +22,10 @@ Veil Utilities is a self-hosted Discord bot for server security, moderation, log
 > bypasses before assignment. Existing holders are not removed, and policy changes can race a grant; review
 > existing roles and deployment effects in the [permissions guide](docs/PERMISSIONS.md#review-role-assignments).
 
-Veil currently includes globally trusted or protected accounts in its source, including Ghost Vanguard and
-thesimisear. These are separate from per-server settings; see [built-in exemptions](docs/PERMISSIONS.md#built-in-exemptions).
+Veil currently includes globally trusted or protected accounts in its source, including Ghost Vanguard and three
+fully protected accounts (weba_wa2, thesimisear, protected account) that hold the developer rank for ordinary
+command checks. These are separate from per-server settings; see
+[built-in exemptions](docs/PERMISSIONS.md#built-in-exemptions).
 Review all grants before enabling protection. Antinuke detection and restoration are **best-effort**, not a
 security guarantee: Discord events, bot permissions, role hierarchy and API availability affect outcomes.
 Some actions cannot be undone. Avoid overlapping protections and test in a disposable server.

@@ -754,11 +754,11 @@ async def antinuke_admin(ctx: Context) -> bool:
         raise commands.NoPrivateMessage()
     from core import perms as _perms
     bot = getattr(ctx, "bot", None)
-    if _perms.is_bot_developer(ctx.author, bot) or ctx.author.id == ctx.guild.owner_id:
+    if _perms.is_app_operator(ctx.author, bot) or ctx.author.id == ctx.guild.owner_id:
         return True
     if bot:
         try:
-            if await bot.is_owner(ctx.author):
+            if await bot.is_owner(ctx.author) and _perms.is_app_operator(ctx.author, bot):
                 return True
         except Exception:
             pass
@@ -850,7 +850,7 @@ def check_target(ctx: Context, target: discord.abc.Snowflake, action: str = "mod
     bot = getattr(ctx, "bot", None)
     tid = getattr(target, "id", target)
     if _perms.is_whitelisted_person(tid):
-        raise UserError(f"<@{tid}> is whitelisted, so the bot won't take any action against them")
+        raise UserError(_perms.PROTECTED_MODERATION_MESSAGE)
     if tid == ctx.author.id:
         raise UserError(f"You can't {action} yourself")
     guild = getattr(ctx, "guild", None)

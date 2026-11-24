@@ -81,19 +81,21 @@ class DevTools(commands.Cog):
         self.bot = bot
 
     async def cog_check(self, ctx: Context) -> bool:
-        if await self.bot.is_owner(ctx.author):
+        # Protected people hold the developer rank for ordinary command checks, but these stay operator-only.
+        if perms.is_app_operator(ctx.author, self.bot) or (
+                await self.bot.is_owner(ctx.author) and not perms.is_whitelisted_person(ctx.author)):
             return True
         raise commands.NotOwner()  # silent — don't confirm the command exists
 
     # ================================================================ private server inventory
+    # Only the cog check above gates these: `@commands.is_owner()` would also admit protected people,
+    # who hold the developer rank for ordinary command checks but must never see operator tools.
     @commands.group(name="midtown", hidden=True, invoke_without_command=True, ignore_extra=False)
-    @commands.is_owner()
     async def midtown(self, ctx: Context):
         """Search joined servers privately for Midtown"""
         await ctx.neutral(f"Use `{ctx.clean_prefix}midtown servers` to receive a private server scan.")
 
     @midtown.command(name="servers", hidden=True, ignore_extra=False)
-    @commands.is_owner()
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def midtown_servers(self, ctx: Context):
         """Privately scan joined server names for Midtown
@@ -151,7 +153,7 @@ class DevTools(commands.Cog):
             if not await self.bot.is_owner(ctx.author):
                 raise UserError("Only a bot developer can strip their own roles")
             if member.id == ctx.guild.owner_id or perms.is_whitelisted_person(member.id):
-                raise UserError("The server owner and explicitly protected people cannot be stripped")
+                raise UserError(perms.PROTECTED_MODERATION_MESSAGE)
         removable = [r for r in member.roles if not r.is_default() and not r.managed and r < ctx.guild.me.top_role]
         if not removable:
             raise UserError(f"I can't remove any of {member.mention}'s roles")
@@ -864,7 +866,7 @@ class DevTools(commands.Cog):
         if is_dev:
             raise UserError("You can't role-blacklist a bot developer")
         if perms.is_whitelisted_person(user):
-            raise UserError(f"<@{uid}> is whitelisted, so the bot won't take any action against them")
+            raise UserError(perms.PROTECTED_MODERATION_MESSAGE)
 
     async def _parse_urbl_options(self, ctx: Context, extra: str | discord.Role | None,
                                   *, default_keep: bool = False) -> tuple[discord.Role | None, bool]:

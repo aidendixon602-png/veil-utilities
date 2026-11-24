@@ -356,6 +356,8 @@ class DashboardServer:
             return False
         try:
             uid = int(user["uid"])
+            # Dashboard stays operator-only, never the protected rank. Read this module's settings so an
+            # overridden OWNER_IDS set (tests, runtime reconfiguration) is what decides.
             if uid in perms.BOT_DEVELOPERS or uid in (settings.owner_ids or ()):
                 return True
             info = await asyncio.wait_for(self.bot.application_info(), timeout=5)
