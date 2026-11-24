@@ -914,14 +914,14 @@ class DashboardServer:
       <span class="hint">Events that include a user will not be logged for these users.</span></div></div>
   </section>
   <section class="card" id="antinuke"><div class="card-head"><span class="section-icon" aria-hidden="true">04</span>
-    <div><h2>Antinuke</h2><p>Manage the default response and the people who administer protection.</p></div></div>
+    <div><h2>Antinuke</h2><p>Manage the default response and who protection trusts.</p></div></div>
     <div class="note">Protection is currently <strong>{'on' if an_cfg.get("enabled") else 'off'}</strong>.
       Enable or disable protection and manage individual rules in <a href="/servers/{_esc(guild.id)}/features?section=rules">Antinuke rules</a>.</div>
     <div class="form-grid"><div class="form-group"><label for="an_punishment">Default punishment</label>
       <select id="an_punishment" name="an_punishment">{options}</select><span class="hint">Used by modules without their own punishment.</span></div>
-    <div class="form-group"><label for="an_admins">Antinuke admin user IDs</label>
+    <div class="form-group"><label for="an_admins">Antinuke-trusted user IDs</label>
       <input id="an_admins" type="text" name="an_admins" value="{ids(an_cfg.get("admins"))}" placeholder="User IDs, separated by commas">
-      <span class="hint">Admins can configure antinuke and are exempt from punishment.</span></div></div>
+      <span class="hint">Trusted users are exempt from punishment. Only the server owner and bot developers can change antinuke settings.</span></div></div>
   </section>
   <section class="card" id="trusted"><div class="card-head"><span class="section-icon" aria-hidden="true">05</span>
     <div><h2>Trusted identities</h2><p>Antinuke exclusions for trusted users and roles.</p></div></div>

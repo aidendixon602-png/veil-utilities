@@ -89,7 +89,7 @@ def test_the_home_card_shows_the_state_and_offers_the_main_controls():
     assert labels(panel) == ["Turn on", "Default", "Strict", "Relaxed", "Advanced"]
     (select,) = [i for i in panel.children if isinstance(i, RuleSelect)]
     assert len(select.options) == 12 and select.options[0].label == "Ban"
-    assert {f.name for f in embed.fields} == {"Trusted", "Operators", "Alert Feed"}
+    assert {f.name for f in embed.fields} == {"Trusted", "Can configure", "Alert Feed"}
 
 
 def test_turning_it_on_fills_in_every_rule_and_flips_the_button():
@@ -164,22 +164,29 @@ def test_fixed_rules_lock_the_buttons_that_dont_apply():
     assert "always 1" in fields["Threshold"]
 
 
-def test_only_antinuke_admins_can_press_anything():
+def test_only_the_owner_and_developers_can_press_anything():
     cog, guild = setup()
     panel, _ = open_panel(cog, guild)
-    panel.author_id = STRANGER  # even the person who opened it needs to be an antinuke admin
+    panel.author_id = STRANGER  # opening the panel is owner/dev only too
     it = press(panel, "Turn on", user=STRANGER)
     it.response.send_message.assert_awaited_once()
     assert it.response.send_message.await_args.kwargs["ephemeral"] is True
     assert "antinuke" not in cog.bot.db.store or not saved(cog).get("enabled")
 
 
-def test_antinuke_admins_listed_in_the_config_can_use_it():
+def test_an_appointed_admin_is_trusted_but_cannot_change_settings():
     cog, guild = setup()
     cog.bot.db.store["antinuke"] = {"admins": [STRANGER], "modules": {}}
     panel, _ = open_panel(cog, guild)
     panel.author_id = STRANGER
-    press(panel, "Turn on", user=STRANGER)
+    it = press(panel, "Turn on", user=STRANGER)
+    it.response.send_message.assert_awaited_once()
+    assert not saved(cog).get("enabled")
+    # The appointment still exempts them from antinuke enforcement.
+    assert asyncio.run(cog._trusted(guild, saved(cog), STRANGER)) is True
+    # The server owner still can, on a panel opened by them.
+    owner_panel, _ = open_panel(cog, guild)
+    press(owner_panel, "Turn on", user=OWNER)
     assert saved(cog)["enabled"] is True
 
 
@@ -253,7 +260,7 @@ def test_the_panel_counts_whitelisted_roles():
     _, embed = open_panel(cog, guild)
     fields = {f.name: f.value for f in embed.fields}
     assert fields["Trusted"] == "1 user + 2 roles"
-    assert fields["Operators"] == "Owner only"
+    assert fields["Can configure"] == "Owner + devs"
 
 
 def test_alert_feed_auto_detects_antinuke_logs_and_branding():
@@ -302,13 +309,13 @@ def test_overlapping_protection_warning_survives_panel_navigation():
     cog, guild = setup()
     guild.get_member = lambda uid: SimpleNamespace(id=uid) if uid == GHOST_VANGUARD_ID else None
     panel, embed = open_panel(cog, guild)
-    assert embed.description.count("avoid duplicate actions") == 1
+    assert embed.description.count("punished twice") == 1
     press(panel, "Turn on")
-    assert panel.embed().description.count("avoid duplicate actions") == 1
+    assert panel.embed().description.count("punished twice") == 1
     press(panel, "Ban")
-    assert panel.embed().description.count("avoid duplicate actions") == 1
+    assert panel.embed().description.count("punished twice") == 1
     press(panel, "← Back")
-    assert panel.embed().description.count("avoid duplicate actions") == 1
+    assert panel.embed().description.count("punished twice") == 1
 
 
 def test_rule_selector_pages_cover_every_rule_without_saving():

@@ -23,8 +23,8 @@ log = logging.getLogger("veil.antinuke")
 class TrustLookupError(Exception):
     """Trust could not be verified; do not punish on an uncertain exemption."""
 
-OVERLAP_NOTE = ("⚠️ Ghost Vanguard is present. For Veil-first protection, disable matching rules in Ghost "
-                "Vanguard yourself to avoid duplicate actions. Veil cannot read or change Ghost Vanguard's settings.")
+OVERLAP_NOTE = ("⚠️ Another protection bot is also running here. Turn off its overlapping rules so the same "
+                "action isn't punished twice. Veil can only read and change its own settings.")
 
 # verbs for the "that would … at once" message
 VERBS = {"ban": "ban", "kick": "kick", "channeldelete": "delete channels for", "roledelete": "delete roles for",
@@ -705,11 +705,9 @@ class Antinuke(commands.Cog):
 
     # ================================================================ hardening: off switch, notices, panic, bots
     def _owner_to_turn_off(self, guild: discord.Guild, user_id: int) -> None:
-        """Only the owner (or a developer) can switch the antinuke off: an attacker with an antinuke-admin account
-        would otherwise just turn it off first."""
+        """Only the owner (or a developer) can switch the antinuke off."""
         if not is_owner_or_dev(self.bot, guild, user_id):
-            raise UserError("Only the **server owner** can turn the antinuke off. Antinuke admins can still change "
-                            "rules and turn it on.")
+            raise UserError("Only the **server owner** or a **bot developer** can turn the antinuke off")
 
     async def security_notice(self, guild: discord.Guild, actor, text: str) -> None:
         """Someone changed who the antinuke trusts, or switched protection off: post it in the antinuke log and DM
@@ -1092,7 +1090,7 @@ class Antinuke(commands.Cog):
             if not q:
                 self.hits.pop(key, None)
             raise UserError(f"🛡️ That would {VERBS.get(module, module)} **{amount}** at once — over this server's "
-                            f"antinuke limit ({threshold} per {window}s). The server owner or an antinuke admin "
+                            f"antinuke limit ({threshold} per {window}s). The server owner or a bot developer "
                             f"has to do this.")
         if len(q) + amount >= threshold:
             del self.hits[key]
@@ -2244,11 +2242,14 @@ class Antinuke(commands.Cog):
 
     @antinuke.command(name="admins", aliases=["adminlist", "details"])
     async def an_admins_list(self, ctx: Context):
-        """List antinuke admins and whitelisted accounts"""
+        """List who antinuke trusts, and who can configure it"""
         await antinuke_admin(ctx)
         cfg = await self.cfg(ctx.guild.id)
-        embed = discord.Embed(title="Antinuke Trusted Accounts", color=Colors.mint)
-        embed.add_field(name="Admins", value=", ".join(f"<@{u}>" for u in cfg["admins"]) or "none", inline=False)
+        embed = discord.Embed(title="Antinuke Access", color=Colors.mint)
+        embed.add_field(name="Can configure", inline=False,
+                        value=f"Server owner <@{ctx.guild.owner_id}> and bot developers only")
+        embed.add_field(name="Trusted admins", inline=False,
+                        value=", ".join(f"<@{u}>" for u in cfg["admins"]) or "none")
         embed.add_field(name="Whitelisted", value=", ".join(f"<@{u}>" for u in cfg["whitelist"]) or "none", inline=False)
         embed.add_field(name="Whitelisted roles", inline=False,
                         value=", ".join(f"<@&{r}>" for r in cfg.get("whitelist_roles", [])) or "none")
@@ -2277,9 +2278,10 @@ class Antinuke(commands.Cog):
     @antinuke.command(name="admin")
     @is_server_owner()
     async def an_admin(self, ctx: Context, member: discord.Member):
-        """Add or remove an antinuke admin (server owner or developer only)
+        """Mark a member as antinuke-trusted (server owner or developer only)
 
-        Antinuke admins can change the antinuke's settings and are trusted by it.
+        Appointed admins are never punished by antinuke, but only the server owner and bot
+        developers can change antinuke settings.
         """
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
@@ -2287,9 +2289,9 @@ class Antinuke(commands.Cog):
             raise UserError("Only the server owner or a bot developer can manage antinuke admins")
         cfg = await self.cfg(ctx.guild.id)
         if member.id in cfg["admins"]:
-            cfg["admins"].remove(member.id); msg = f"removed {member.mention} as an antinuke admin"
+            cfg["admins"].remove(member.id); msg = f"removed {member.mention} from antinuke trust"
         else:
-            cfg["admins"].append(member.id); msg = f"made {member.mention} an antinuke admin"
+            cfg["admins"].append(member.id); msg = f"trusted {member.mention} for antinuke"
         await self.save(ctx.guild.id, cfg)
         await self.security_notice(ctx.guild, ctx.author, msg)
         await ctx.approve(msg)

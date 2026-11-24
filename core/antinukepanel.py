@@ -3,7 +3,7 @@
 Home: protection state, active profile, grouped core rules (or extended monitors on Advanced), inline trust/alert
 summary fields, preset buttons, and a single-click rule selector.
 Rule inspector: threshold, time window, punishment, Veil command guard, auto-recovery details, and instant controls.
-Only the server owner, antinuke admins, and bot developers can interact; everyone else receives a private notice.
+Only the server owner and bot developers can interact; everyone else receives a private notice.
 """
 from __future__ import annotations
 
@@ -131,21 +131,21 @@ def _ordered_primary_rules() -> list[dict]:
 def _summary_fields(embed: discord.Embed, cfg: dict, guild) -> None:
     users = len(cfg.get("whitelist", []))
     roles = len(cfg.get("whitelist_roles", []))
+    admins = len(cfg.get("admins", []))
     parts: list[str] = []
     if users:
         parts.append(f"{users} user{'s' if users != 1 else ''}")
     if roles:
         parts.append(f"{roles} role{'s' if roles != 1 else ''}")
+    if admins:
+        parts.append(f"{admins} admin{'s' if admins != 1 else ''}")
     trusted_val = " + ".join(parts) if parts else "None"
-
-    admins = len(cfg.get("admins", []))
-    admins_val = f"Owner + {admins} admin{'s' if admins != 1 else ''}" if admins else "Owner only"
 
     alert_ch = _resolve_alert_channel(cfg, guild)
     alert_val = getattr(alert_ch, "mention", None) or "Auto (Logs)"
 
     embed.add_field(name="Trusted", value=trusted_val, inline=True)
-    embed.add_field(name="Operators", value=admins_val, inline=True)
+    embed.add_field(name="Can configure", value="Owner + devs", inline=True)
     embed.add_field(name="Alert Feed", value=alert_val, inline=True)
 
 
@@ -187,8 +187,8 @@ def home_embed(cfg: dict, prefix: str, guild=None, *, advanced: bool = False, bo
     e = discord.Embed(title=title, description="\n".join(lines), color=color)
     _brand_embed(e, bot=bot, guild=guild, section="Security")
     _summary_fields(e, cfg, guild)
-    hint = "Select a rule below to configure" if enabled else "Turn on protection or load a preset below"
-    e.set_footer(text=f"VEIL UTILITIES  •  Prefix: {prefix}  •  {hint}")
+    hint = "Pick a rule to tune it" if enabled else "Turn protection on, or load a preset"
+    e.set_footer(text=f"Veil  •  Prefix: {prefix}  •  {hint}")
     return e
 
 
@@ -230,7 +230,7 @@ def rule_embed(cfg: dict, key: str, prefix: str, *, guild=None, bot=None) -> dis
         undo = an.UNDOES[key]
         e.add_field(name="Auto-Recovery", value=undo[:1].upper() + undo[1:] + ".", inline=False)
 
-    e.set_footer(text=f"VEIL UTILITIES  •  Prefix: {prefix}  •  Changes save immediately")
+    e.set_footer(text=f"Veil  •  Prefix: {prefix}  •  Every change saves at once")
     return e
 
 
@@ -259,7 +259,7 @@ class RuleSelect(discord.ui.Select["AntinukePanel"]):
             else:
                 desc = "Disabled"
             options.append(discord.SelectOption(label=r["name"], value=key, description=desc[:100]))
-        placeholder = "Choose an advanced rule to configure…" if advanced else "Choose a rule to configure…"
+        placeholder = "Pick an advanced rule to tune…" if advanced else "Pick a rule to tune…"
         super().__init__(placeholder=placeholder, options=options, row=1)
 
     async def callback(self, it: discord.Interaction):

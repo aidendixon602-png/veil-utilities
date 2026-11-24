@@ -32,8 +32,8 @@ _Stop rogue admins and raids before they wreck your server_
 | `,antialt minage [days=0]` (age, days) | Set how old an account must be to join | administrator |
 | `,antialt whitelist <user>` (allow, trust) | Whitelist an alt account so it can join without being blocked | administrator |
 | `,antinuke` (an) | Show the antinuke's status and rules |  |
-| `,antinuke admin <member>` | Add or remove an antinuke admin (server owner or developer only) | server owner or bot developer |
-| `,antinuke admins` (adminlist, details) | List antinuke admins and whitelisted accounts |  |
+| `,antinuke admin <member>` | Mark a member as antinuke-trusted (server owner or developer only) | server owner or bot developer |
+| `,antinuke admins` (adminlist, details) | List who antinuke trusts, and who can configure it |  |
 | `,antinuke approve <bot>` (approvebot) | Give a quarantined new bot its permissions back (server owner only) |  |
 | `,antinuke ban [count] [punishment] [timeframe] [flags]` | Configure ban rule |  |
 | `,antinuke botadd [count] [punishment] [timeframe] [flags]` (bot, bots, bot_add) | Configure bot add rule |  |

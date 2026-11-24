@@ -165,7 +165,7 @@ def bans_only(channel) -> bool:
 
 
 def other_bots_channel(channel) -> bool:
-    """True when a channel belongs to Ghost Vanguard's logging setup and should be left alone."""
+    """True when a channel already belongs to another bot's logging setup and should be left alone."""
     if channel is None:
         return False
     cname = _clean_name(getattr(channel, "name", None))
@@ -517,7 +517,7 @@ class LogPanel(OwnedView):
             return await it.response.send_message("Pick a text channel in this server.", ephemeral=True)
         if other_bots_channel(channel):
             return await it.response.send_message(
-                "That channel belongs to Ghost Vanguard's logging setup; pick a Veil channel instead.",
+                "Another bot already logs to that channel; pick a Veil channel instead.",
                 ephemeral=True,
             )
         if not can_post(channel):
@@ -996,7 +996,7 @@ class Logging(commands.Cog):
         else:
             target = await commands.TextChannelConverter().convert(ctx, channel)
             if other_bots_channel(target):
-                raise UserError("That channel belongs to Ghost Vanguard's logging setup; choose a Veil channel instead.")
+                raise UserError("Another bot already logs to that channel; choose a Veil channel instead.")
             if not can_post(target):
                 raise UserError(f"I need View Channel, Send Messages and Embed Links in {target.mention}.")
             value, shown = target.id, target.mention
@@ -1080,9 +1080,9 @@ class Logging(commands.Cog):
         """Review routing when multiple logging tools are in use"""
         await ctx.send(embed=discord.Embed(
             title="Logging review", color=Colors.main,
-            description="Veil skips Ghost Vanguard channels automatically, but it cannot read or control "
-                        "another bot's configuration. Review `logs list` and manually turn off overlapping "
-                        "categories in either bot to avoid duplicate events."))
+            description="Veil skips log channels that already belong to another bot. It can only read and "
+                        "change its own settings, so review `logs list` and turn overlapping categories off in "
+                        "one of the bots to avoid duplicate events."))
 
     @logs.command(name="test")
     @has_perms(manage_guild=True)

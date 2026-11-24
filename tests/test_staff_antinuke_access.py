@@ -1,4 +1,4 @@
-"""Veil staff ranks are distinct from Antinuke appointments and developer access."""
+"""Antinuke is owner-and-developer only: no staff rank, permission grant or appointment unlocks it."""
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -43,11 +43,11 @@ def test_all_staff_levels_are_denied_root_nested_and_direct_access(level):
                                  guild_permissions=discord.Permissions(administrator=True))
         ctx = SimpleNamespace(guild=guild, author=author, bot=bot, command=None)
         try:
-            with pytest.raises(UserError, match='antinuke admin'):
+            with pytest.raises(UserError, match='bot developer'):
                 await antinuke_admin(ctx)
             # The real discord.py command checks invoke the cog check for every subcommand.
             for name in ('an', 'an status', 'an ban', 'an preset', 'an preset list', 'an toggle', 'an admin'):
-                with pytest.raises(UserError, match='antinuke admin'):
+                with pytest.raises(UserError, match='bot developer'):
                     await bot.get_command(name).can_run(ctx)
             bot.db.set_config.assert_not_awaited()
             bot.db.set_config_committed.assert_not_awaited()
@@ -56,7 +56,7 @@ def test_all_staff_levels_are_denied_root_nested_and_direct_access(level):
     asyncio.run(go())
 
 
-def test_owner_developer_and_appointed_access_are_independent_of_rank():
+def test_owner_and_developer_access_are_independent_of_rank_but_an_appointment_is_not_enough():
     async def go():
         bot = commands.Bot(command_prefix=',', intents=discord.Intents.default())
         bot.owner_ids = {90}
@@ -65,15 +65,20 @@ def test_owner_developer_and_appointed_access_are_independent_of_rank():
         bot.db = SimpleNamespace(get_config=AsyncMock(side_effect=lambda gid, module, default=None: store.get(module, {})))
         await bot.add_cog(Antinuke(bot))
         try:
-            for actor in (10, 20, 90):
+            for actor in (10, 90):  # the server owner and a configured developer
                 ctx = SimpleNamespace(guild=SimpleNamespace(id=1, owner_id=10),
                                       author=SimpleNamespace(id=actor, roles=[]), bot=bot, command=None)
                 assert await antinuke_admin(ctx)
                 for name in ('an', 'an status', 'an preset list', 'an ban'):
                     assert await bot.get_command(name).can_run(ctx)
-            # Removing the explicit appointment immediately removes access.
+            # An appointment is a trust exemption, never a way to configure antinuke.
+            ctx = SimpleNamespace(guild=SimpleNamespace(id=1, owner_id=10),
+                                  author=SimpleNamespace(id=20, roles=[]), bot=bot, command=None)
+            with pytest.raises(UserError, match='bot developer'):
+                await antinuke_admin(ctx)
+            with pytest.raises(UserError):
+                await bot.get_command('an').can_run(ctx)
             store['antinuke']['admins'].clear()
-            ctx.author.id = 20
             with pytest.raises(UserError):
                 await bot.get_command('an').can_run(ctx)
         finally:
@@ -98,7 +103,7 @@ def test_appointment_cannot_be_changed_by_appointed_admin_but_developer_can():
     asyncio.run(go())
 
 
-def test_panel_buttons_recheck_appointment_and_deny_supreme_leader():
+def test_panel_buttons_recheck_owner_or_developer_and_deny_any_appointment():
     cog, guild = setup()
     cog.bot.db.store['permlevels'] = {'users': {'2': 'supremeleader'}}
     panel, _ = open_panel(cog, guild)
@@ -107,15 +112,15 @@ def test_panel_buttons_recheck_appointment_and_deny_supreme_leader():
     it.response.send_message.assert_awaited_once()
     assert not cog.bot.db.store.get('antinuke', {}).get('enabled')
     cog.bot.db.store['antinuke'] = {'admins': [2], 'modules': {}}
-    press(panel, 'Turn on', user=2)
-    assert cog.bot.db.store['antinuke']['enabled']
-    cog.bot.db.store['antinuke']['admins'].clear()
-    it = press(panel, 'Turn off', user=2)
+    it = press(panel, 'Turn on', user=2)
     it.response.send_message.assert_awaited_once()
+    assert not cog.bot.db.store['antinuke'].get('enabled')
+    owner_panel, _ = open_panel(cog, guild)
+    press(owner_panel, 'Turn on', user=guild.owner_id)  # the server owner still can
     assert cog.bot.db.store['antinuke']['enabled']
 
 
-def test_help_hides_antinuke_even_with_extreme_custom_rank_and_shows_appointed_admin():
+def test_help_hides_antinuke_from_extreme_custom_rank_and_from_appointed_admins():
     async def go():
         bot = commands.Bot(command_prefix=',', intents=discord.Intents.default())
         bot.owner_ids = set()
@@ -134,25 +139,25 @@ def test_help_hides_antinuke_even_with_extreme_custom_rank_and_shows_appointed_a
                 assert not visible_command(bot.get_command(name), bot, False, 10000, access)
             store['antinuke']['admins'].append(20)
             access = await h.help_access(1)
-            assert 'Antinuke' in category_labels({'Antinuke': []}, False, 1, access)
-            assert visible_command(bot.get_command('an'), bot, False, 1, access)
-            assert visible_command(bot.get_command('an preset list'), bot, False, 1, access)
+            assert 'Antinuke' not in category_labels({'Antinuke': []}, False, 1, access)
+            assert not visible_command(bot.get_command('an'), bot, False, 1, access)
+            assert not visible_command(bot.get_command('an preset list'), bot, False, 1, access)
             assert not visible_command(bot.get_command('an namemonitor'), bot, False, 1, access)
         finally:
             await bot.close()
     asyncio.run(go())
 
 
-def test_access_fails_closed_when_appointment_store_is_unavailable():
+def test_access_needs_no_database_and_fails_closed_for_a_stranger():
     async def go():
         ctx = SimpleNamespace(guild=SimpleNamespace(id=1, owner_id=10), author=SimpleNamespace(id=20),
                               bot=SimpleNamespace(owner_ids=set(), is_owner=AsyncMock(return_value=False), db=None))
-        with pytest.raises(UserError, match='Cannot verify'):
+        with pytest.raises(UserError, match='server owner'):
             await antinuke_admin(ctx)
     asyncio.run(go())
 
 
-def test_revoked_appointment_cannot_browse_cached_help():
+def test_appointed_admin_never_sees_antinuke_in_help():
     from core.help import HelpView, category_commands
 
     async def go():
@@ -169,14 +174,13 @@ def test_revoked_appointment_cannot_browse_cached_help():
         h.context = SimpleNamespace(bot=bot, guild=guild, author=author, channel=None, clean_prefix=',')
         try:
             access = await h.help_access(0)
+            assert not access.antinuke_admin
             view = HelpView(h, category_commands(bot), author_rank=0, access=access)
-            assert 'Antinuke' in view.pages
+            assert 'Antinuke' not in view.pages
             interaction = SimpleNamespace(guild=guild, user=author, client=bot,
                                           response=SimpleNamespace(send_message=AsyncMock()))
-            assert await view.interaction_check(interaction)
-            store['antinuke']['admins'].clear()
-            assert not await view.interaction_check(interaction)
-            interaction.response.send_message.assert_awaited_once()
+            assert await view.interaction_check(interaction)  # the rest of the menu still works
+            interaction.response.send_message.assert_not_awaited()
             view.stop()
         finally:
             await bot.close()
@@ -200,4 +204,36 @@ def test_staff_levels_do_not_unlock_developer_cogs():
         ctx.author.id = 90
         assert await Owner(bot).cog_check(ctx)
         assert await DevTools(bot).cog_check(ctx)
+    asyncio.run(go())
+
+
+def test_antinuke_access_needs_no_appointment_and_never_reads_one():
+    """The gate is owner-or-developer: a saved admins list cannot change the answer."""
+    async def go():
+        bot = commands.Bot(command_prefix=',', intents=discord.Intents.default())
+        bot.owner_ids = {90}
+        reads = []
+
+        async def get_config(gid, module, default=None):
+            reads.append(module)
+            return {'admins': [20, 30]} if module == 'antinuke' else {}
+
+        bot.db = SimpleNamespace(get_config=get_config)
+        await bot.add_cog(Antinuke(bot))
+        guild = SimpleNamespace(id=1, owner_id=10)
+        try:
+            for actor, allowed in ((10, True), (90, True), (20, False), (30, False), (99, False)):
+                ctx = SimpleNamespace(guild=guild, author=SimpleNamespace(id=actor, roles=[]),
+                                      bot=bot, command=None)
+                if allowed:
+                    assert await antinuke_admin(ctx)
+                    assert await bot.get_command('an').can_run(ctx)
+                else:
+                    with pytest.raises(UserError, match='server owner'):
+                        await antinuke_admin(ctx)
+                    with pytest.raises(UserError):
+                        await bot.get_command('an').can_run(ctx)
+            assert 'antinuke' not in reads  # no database read can widen the gate
+        finally:
+            await bot.close()
     asyncio.run(go())

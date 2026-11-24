@@ -6,7 +6,6 @@ import difflib
 import inspect
 import re
 import typing
-from types import SimpleNamespace
 
 import discord
 from discord.ext import commands
@@ -674,12 +673,8 @@ class HelpView(OwnedView):
                 await it.response.send_message("This menu is no longer available.", ephemeral=True)
                 return False
         if self.access and self.access.antinuke_admin and original_guild:
-            from core.utils import antinuke_admin
-            try:
-                if not guild or guild.id != original_guild.id:
-                    raise ValueError("wrong guild")
-                await antinuke_admin(SimpleNamespace(guild=guild, author=it.user, bot=self.bot))
-            except Exception:
+            from core.utils import owner_or_developer
+            if not guild or guild.id != original_guild.id or not owner_or_developer(it.user, guild, self.bot):
                 await it.response.send_message("This menu is no longer available.", ephemeral=True)
                 return False
         return True
@@ -1303,13 +1298,10 @@ class Help(commands.HelpCommand):
             fake = await db.get_config(guild.id, "fakeperms") or {}
             settings = await db.get_config(guild.id, "settings") or {}
             restrictions = await db.get_config(guild.id, "command_restrictions")
-            # A failure to read Antinuke appointments must hide that access, without hiding
-            # unrelated commands whose permission configuration loaded successfully.
-            try:
-                antinuke = await db.get_config(guild.id, "antinuke") or {}
-                appointed = author.id in antinuke.get("admins", [])
-            except Exception:
-                appointed = False
+            # Antinuke is visible to its actual operators only: the owner or a configured
+            # developer. Appointed admins are trusted by antinuke but cannot configure it, so
+            # a saved appointment no longer reveals the category.
+            appointed = author.id == getattr(guild, "owner_id", None) or _perms.is_bot_developer(author, bot)
             granted = _perms.level_perms(cfg, author)
             fake_grants = {p for role in getattr(author, "roles", []) for p in fake.get(str(role.id), [])}
             from core.utils import expand_permission_aliases, native_permission_names

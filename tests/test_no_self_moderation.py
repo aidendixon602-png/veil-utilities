@@ -124,7 +124,7 @@ def test_network_ban_skips_servers_the_target_owns():
     assert fields["Scope"] == "1 server" and fields["Skipped"] == "1 owned server"
     assert fields["Reason"] == "No reason provided"
     assert "rejoin" in preview.description
-    assert "Expires in 30s" in preview.footer.text and "VEIL UTILITIES" in preview.footer.text
+    assert "Expires in 30s" in preview.footer.text and preview.footer.text.startswith("Veil")
     working, done = working_card.description, done_card.description
     assert not working_card.fields
     assert working.startswith("Applying network ban to **raider** (`500`) across **1 server**")
@@ -332,7 +332,7 @@ def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
         assert fields["Target"] == "**r** (`500`)"
         assert "run **genreban** again" in fields["Next step"]
         assert "reason" in fields["Next step"] and "confirm the new prompt" in fields["Next step"]
-        assert expired.footer.text == "VEIL UTILITIES  •  Target ID: 500" and expired.timestamp is not None
+        assert expired.footer.text == "Veil  •  Target ID: 500" and expired.timestamp is not None
         assert ctx.command_log_outcome == "Network ban timed out · nothing changed"
         view.stop()
 
