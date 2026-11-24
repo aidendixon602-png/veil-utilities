@@ -141,6 +141,7 @@ async def page(server, request: web.Request, section: str | None = None) -> web.
                          '<p class="hint">Discord log channels remain the source for event logs. A searchable log archive '
                          'and API error history are not available in this dashboard.</p>')
             else:
+                body += await user_role_blacklists(server, gid)
                 body += await cases(server, request, gid)
         body += '</section>'
     elif section == 'bot':
@@ -200,6 +201,35 @@ async def cases(server, request, guild_id):
     if len(rows) > 25 and page_num < 10000:
         html += f'<a class="btn btn-plain" href="?server={guild_id}&amp;page={page_num + 1}">Next</a>'
     return html + '</div><p class="hint">Moderation actions and bulk operations are not exposed here.</p>'
+
+
+async def user_role_blacklists(server, guild_id):
+    from core.utils import get_user_role_blacklist_config, user_role_blacklist_entry
+    cfg = await get_user_role_blacklist_config(guild_id, getattr(server.bot, 'db', None))
+    entries = cfg.get('entries', {}) if isinstance(cfg, dict) else {}
+    rows = []
+    if isinstance(entries, dict):
+        for uid in entries:
+            entry = user_role_blacklist_entry(cfg, uid)
+            if entry is None:
+                continue
+            role_ids = ', '.join(str(rid) for rid in sorted(entry['roles']))
+            if entry['all'] and role_ids:
+                scope = f'All roles (+ {role_ids})'
+            elif entry['all']:
+                scope = f'All new roles ({len(entry["kept_roles"])} kept)' if entry['kept_roles'] else 'All roles'
+            else:
+                scope = f'Roles: {role_ids}'
+            rows.append((str(uid), scope))
+    html = ('<h2>User role blacklist</h2><p class="hint">Users blocked by developers from receiving roles in this server '
+            'via ,userrolebl (,urbl).</p><div class="table-wrap"><table><thead><tr>'
+            '<th>User ID</th><th>Blocked scope</th></tr></thead><tbody>')
+    for uid, scope in rows[:25]:
+        html += f'<tr><td>{_esc(uid)}</td><td>{_esc(scope)}</td></tr>'
+    if not rows:
+        html += '<tr><td colspan="2">No users are role-blacklisted in this server.</td></tr>'
+    html += '</tbody></table></div>'
+    return html
 
 
 async def incidents(server, guild_id):

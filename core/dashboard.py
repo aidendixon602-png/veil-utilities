@@ -67,6 +67,7 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
+    "ngrok-skip-browser-warning": "true",
 }
 
 
@@ -745,10 +746,14 @@ class DashboardServer:
             return self._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
         from cogs.logging import KINDS
         from cogs.levels import DEFAULT as LEVEL_DEFAULT
+        from core.utils import get_user_role_blacklist_config, user_role_blacklist_entry
 
         an = await self._antinuke_cfg(guild.id)
         logs = await self.bot.db.get_config(guild.id, "logs") or {}
         levels = await self.bot.db.get_config(guild.id, "levels", LEVEL_DEFAULT)
+        urbl_cfg = await get_user_role_blacklist_config(guild.id, self.bot.db)
+        urbl_entries = urbl_cfg.get("entries", {}) if isinstance(urbl_cfg, dict) else {}
+        urbl_count = sum(1 for uid in urbl_entries if user_role_blacklist_entry(urbl_cfg, uid) is not None) if isinstance(urbl_entries, dict) else 0
         count = sum(isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
                     for key in KINDS)
         state = "on" if an.get("enabled") else "off"
@@ -797,6 +802,7 @@ class DashboardServer:
                 f'<div class="summary-row"><span>Access</span><strong>Developer only</strong></div>'
                 f'{security_summary}<div class="summary-row"><span>Leveling</span><strong>{_esc(level_state.title())}</strong></div>'
                 f'<div class="summary-row"><span>Explicit log routes</span><strong>{count}</strong></div>'
+                f'<div class="summary-row"><span>User role blacklist</span><strong>{urbl_count} {"user" if urbl_count == 1 else "users"}</strong></div>'
                 '<p class="summary-note">Settings are a snapshot, not a guarantee of Discord permissions or delivery.</p></aside></div>')
         return self._page("Server overview", body, user, guild=guild, active="overview")
 
