@@ -389,10 +389,20 @@ class DashboardServer:
         guild = self.bot.get_guild(gid)
         return guild if guild is not None and await self._is_bot_owner(user) else None
 
+    async def _config_dict(self, gid: int, module: str, default: dict | None = None) -> dict:
+        """Read one config document and guarantee a dict.
+
+        Hand-edited databases, interrupted migrations and older versions can leave a
+        module holding a string, list or null. A page review must not turn that into a
+        500, so every dashboard read funnels through here.
+        """
+        value = await self.bot.db.get_config(gid, module, default)
+        return dict(value) if isinstance(value, dict) else {}
+
     async def _antinuke_cfg(self, gid: int) -> dict:
         """Load antinuke config the same way the antinuke cog does, so a first read caches the full defaults."""
         from cogs.antinuke import DEFAULT
-        return await self.bot.db.get_config(gid, "antinuke", DEFAULT)
+        return await self._config_dict(gid, "antinuke", DEFAULT)
 
     @staticmethod
     def _csrf_ok(user: dict, submitted: str | None) -> bool:
@@ -403,11 +413,10 @@ class DashboardServer:
         base = f"/servers/{guild.id}"
         groups = (
             ("WORKSPACE", (("overview", "Overview", f"{base}/overview", "◈"),
-                           ("general", "Server settings", f"{base}/features?section=general", "⚙"),
-                           ("access", "Command access", f"{base}/features?section=general#command-access", "⚙"))),
+                           ("general", "Server settings", f"{base}/features?section=general", "⚙"))),
             ("SECURITY", (("rules", "Antinuke", f"{base}/features?section=rules", "◇"),
                           ("automod", "Automod", f"{base}/features?section=automod", "✦"),
-                          ("logging", "Logging & security", base, "≡"))),
+                          ("logging", "Logging &amp; security", base, "≡"))),
             ("COMMUNITY", (("leveling", "Leveling", f"{base}/features?section=leveling", "↗"),
                            ("tickets", "Tickets", f"{base}/features?section=tickets", "▣"),
                            ("roblox", "Roblox group", f"{base}/roblox", "◇"))),
@@ -421,7 +430,7 @@ class DashboardServer:
                         f'<span class="nav-icon" aria-hidden="true">{_dashboard_icon(key)}</span><span class="nav-text">{text}</span></a>')
         return nav
 
-    def _page(self, title: str, body: str, user: dict | None = None, subtitle: str = "", *,
+    def _page(self, title: str, body: str, user: dict | None = None, *,
               guild=None, active: str = "", developer: bool = False) -> web.Response:
         who = ""
         if user and not user.get("local"):
@@ -433,16 +442,23 @@ class DashboardServer:
                    f'<button class="btn btn-plain" type="submit">Log out</button></form></div>')
         elif user:
             who = '<div class="who">Local access (127.0.0.1)</div>'
-        sub = f'<div class="sub">{subtitle}</div>' if subtitle else ""
         from core.dashboard_control import navigation
         nav = navigation(active) if user else ''
         if guild and user:
             nav += self._server_navigation(guild, active)
         mobile_nav = (f'<details class="mobile-nav"><summary>Navigate control center</summary><nav aria-label="Mobile navigation">{nav}</nav></details>'
                       if user else '')
+        # The breadcrumb replaces the old hidden "sub" text so the current page is always
+        # visible, and names the server first when the page belongs to one.
+        if guild is not None:
+            trail = (f'<span class="crumb-server">{_esc(guild.name)}</span>'
+                     f'<span class="top-separator" aria-hidden="true">/</span><b>{_esc(title)}</b>')
+        else:
+            trail = f'<b>{_esc(title)}</b>'
         doc = (
             '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+            '<meta name="color-scheme" content="dark">'
             f"<title>Veil Utilities • {_esc(title)}</title><style>{CSS}</style>"
             '<script src="/assets/dashboard.js" defer></script></head><body>'
             '<a class="skip-link" href="#main">Skip to content</a>'
@@ -455,7 +471,7 @@ class DashboardServer:
             f'<details class="sidebar-navigation" open><summary>Navigation</summary><nav aria-label="Main navigation">{nav}</nav></details>'
             '<div class="side-note"><strong>Your workspace</strong>Verified developer access only.</div>'
             '</aside><div class="workspace"><header>'
-            f'<div class="top-title"><a href="/">Veil Utilities</a><span class="top-separator">/</span><b>{_esc(title)}</b>{sub}</div>{who}'
+            f'<nav class="top-title" aria-label="Breadcrumb">{trail}</nav>{who}'
             f'</header>{mobile_nav}<div class="container"><main id="main">{body}</main></div></div></div></body></html>'
         )
         return web.Response(text=doc, content_type="text/html")
@@ -513,12 +529,19 @@ class DashboardServer:
             latency = self.bot.latency
             latency_text = (f"{int(latency * 1000)} ms" if isinstance(latency, (int, float))
                             and latency == latency and 0 < latency < float("inf") else "Unavailable")
-            uptime = int(time.time() - getattr(self.bot, "started_at", time.time()))
-            hours, rem = divmod(max(uptime, 0), 3600)
+            started = getattr(self.bot, "started_at", None)
+            # Only a real, past timestamp is an uptime. A missing or zero started_at used to
+            # report "498747h", i.e. the age of the Unix epoch.
+            if isinstance(started, (int, float)) and not isinstance(started, bool) and 0 < started <= time.time():
+                uptime = int(time.time() - started)
+                hours, rem = divmod(uptime, 3600)
+                uptime_text = f"{hours}h {rem // 60}m"
+            else:
+                uptime_text = "Unavailable"
             body += (f'<section class="activity-bar" aria-label="Bot statistics"><div><span>JOINED SERVERS</span><strong>{len(all_guilds):,}</strong></div>'
                      f'<div><span>{member_label}</span><strong>{members_text}</strong></div>'
                      f'<div><span>GATEWAY LATENCY</span><strong>{latency_text}</strong></div>'
-                     f'<div><span>UPTIME</span><strong>{hours}h {rem // 60}m</strong></div></section>')
+                     f'<div><span>UPTIME</span><strong>{uptime_text}</strong></div></section>')
         # Search and filters are evaluated after the developer access check.
         query = request.query.get("q", "").strip()[:100]
         status = request.query.get("antinuke", "any")
@@ -548,7 +571,7 @@ class DashboardServer:
             auth = ("yes" if is_authorized(g.id) else "no") if callable(is_authorized) else "unknown"
             if authorization != "any" and auth != authorization:
                 continue
-            logs = await self.bot.db.get_config(g.id, "logs") or {}
+            logs = await self._config_dict(g.id, "logs")
             log_count = sum(isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
                             for key in KINDS)
             if log_filter != "any" and bool(log_count) != (log_filter == "configured"):
@@ -747,8 +770,8 @@ class DashboardServer:
         from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
         an = await self._antinuke_cfg(guild.id)
-        logs = await self.bot.db.get_config(guild.id, "logs") or {}
-        levels = await self.bot.db.get_config(guild.id, "levels", LEVEL_DEFAULT)
+        logs = await self._config_dict(guild.id, "logs")
+        levels = await self._config_dict(guild.id, "levels", LEVEL_DEFAULT)
         count = sum(isinstance(logs.get(key), int) and not isinstance(logs.get(key), bool) and logs[key] > 0
                     for key in KINDS)
         state = "on" if an.get("enabled") else "off"
@@ -814,8 +837,8 @@ class DashboardServer:
         can_rbl = await self._can_manage_rbl(user, guild)
         if not can_rbl:
             return self._message("Access denied", "Your access changed. Please sign in again.", 403, user)
-        rbl = (await self.bot.db.get_config(guild.id, "roleblacklist") or {}) if can_rbl else {}
-        logs_cfg = await self.bot.db.get_config(guild.id, "logs") or {}
+        rbl = await self._config_dict(guild.id, "roleblacklist") if can_rbl else {}
+        logs_cfg = await self._config_dict(guild.id, "logs")
         an_cfg = await self._antinuke_cfg(guild.id)
 
         def ids(values) -> str:
@@ -847,7 +870,7 @@ class DashboardServer:
             log_forms.append(f'<div class="form-group"><label for="{field}">{_esc(KINDS[key].label)}</label>'
                              f'<select id="{field}" name="{field}">{options_html}</select></div>')
         logs_form = "".join(log_forms)
-        ignored = logs_cfg.get("ignore") or {}
+        ignored = logs_cfg.get("ignore") if isinstance(logs_cfg.get("ignore"), dict) else {}
 
         rbl_form = f'''<section class="card" id="blacklist"><div class="card-head"><span class="section-icon" aria-hidden="true">01</span>
     <div><h2>Role blacklist</h2><p>Control which roles are restricted and who may bypass the blacklist.</p></div></div>
@@ -856,7 +879,7 @@ class DashboardServer:
       <span class="hint">Ordinary blacklist only. Hard-blacklisted roles are managed separately.</span></div>
     <div class="form-group"><label for="rbl_authorized">Authorized users and roles</label>
       <input id="rbl_authorized" type="text" name="rbl_authorized" value="{ids(rbl.get("authorized"))}" placeholder="User or role IDs, separated by commas">
-      <span class="hint">These IDs can bypass the ordinary role blacklist.</span></div></div>
+      <span class="hint">These IDs can bypass the ordinary role blacklist.</span></div>
     <div class="form-group"><label for="rbl_reply_mode">Role blacklist reply location</label>
       <select id="rbl_reply_mode" name="rbl_reply_mode">
         <option value="channel"{' selected' if not logs_cfg.get('rbl_dm') else ''}>In the channel</option>
@@ -870,7 +893,7 @@ class DashboardServer:
 {saved}<div class="settings-layout"><nav class="section-nav" aria-label="Settings sections">
   <span>ON THIS PAGE</span>{'<a href="#blacklist">Role blacklist</a>' if can_rbl else ''}
   <a href="#logging">Logging channels</a><a href="#exclusions">Log exclusions</a><a href="#antinuke">Antinuke</a>
-  <a href="#trusted">Trusted identities</a></nav>
+  <a href="#trusted">Trusted identities</a>{'<a href="#bypasses">Blacklist bypasses</a>' if can_rbl else ''}</nav>
 <form method="POST" action="/api/guilds/{_esc(guild.id)}/config">
   <input type="hidden" name="csrf" value="{_esc(user["csrf"])}">
   <input type="hidden" name="revision" value="{_esc(revision)}">
@@ -905,16 +928,23 @@ class DashboardServer:
     <div class="note">Trusted users and members with trusted roles are exempt from antinuke enforcement; trusted bots are also exempt from bot-add detection and quarantine. Add only identities you trust.</div>
     <div class="form-grid"><div class="form-group"><label for="an_whitelist">Trusted user IDs</label>
       <input id="an_whitelist" name="an_whitelist" value="{ids(an_cfg.get("whitelist"))}" placeholder="User IDs, separated by commas"></div>
-    <div class="form-group"><label for="an_whitelist_roles">Trusted role IDs</label>
-      <input id="an_whitelist_roles" name="an_whitelist_roles" value="{ids(an_cfg.get("whitelist_roles"))}" placeholder="Role IDs, separated by commas"></div></div>
+    <div class="form-grid"><div class="form-group"><label for="an_whitelist_roles">Trusted role IDs</label>
+      <input id="an_whitelist_roles" name="an_whitelist_roles" value="{ids(an_cfg.get("whitelist_roles"))}" placeholder="Role IDs, separated by commas"></div></div></div>
+  </section>
+  <section class="card" id="bypasses"><div class="card-head"><span class="section-icon" aria-hidden="true">06</span>
+    <div><h2>Blacklist bypasses</h2><p>The users and roles listed under Role blacklist above are exempt.</p></div></div>
+    <p class="hint">A bypass lets its holder receive ordinary blacklisted roles; it does not grant
+      Antinuke trust, Discord permissions or a Veil level, and it never applies to hard-blacklisted
+      roles. Every ID is edited in the Role blacklist section and saved in this same form.</p>
+    <p class="hint">Administrator-role granters live on the Antinuke page. Scoped, role-specific
+      exceptions granted by the owner through Discord are listed with <code>,rbl allowed</code>.</p>
   </section>
   <div class="settings-actions"><p>Changes apply after you save. Review security exemptions carefully.</p>
     <label class="confirm-choice"><input type="checkbox" name="confirm_security" value="yes"> I have reviewed changes to security roles, admins and exemptions.</label>
     <div class="buttons"><a href="/" class="btn btn-plain">Cancel</a><button type="submit" class="btn">Save changes</button></div></div>
 </form></div>"""
 
-        return self._page(guild.name, body, user, subtitle=f"Server settings: <b>{_esc(guild.name)}</b>",
-                          guild=guild, active="logging")
+        return self._page("Server settings", body, user, guild=guild, active="logging")
 
     async def handle_roblox(self, request: web.Request) -> web.Response:
         from core.dashboard_roblox import group_page
@@ -1039,12 +1069,12 @@ class DashboardServer:
         if not await self._can_manage_security(user, guild):
             return web.json_response({"error": "developer required"}, status=403)
         result = {
-            "logs": await self.bot.db.get_config(guild.id, "logs") or {},
+            "logs": await self._config_dict(guild.id, "logs"),
             "antinuke": await self._antinuke_cfg(guild.id),
-            "permlevels": await self.bot.db.get_config(guild.id, "permlevels") or {},
+            "permlevels": await self._config_dict(guild.id, "permlevels"),
         }
         if await self._can_manage_rbl(user, guild):
-            result["roleblacklist"] = await self.bot.db.get_config(guild.id, "roleblacklist") or {}
+            result["roleblacklist"] = await self._config_dict(guild.id, "roleblacklist")
             from core.dashboard_features import _revision
             snapshot = {key: result[key] for key in ("roleblacklist", "logs", "antinuke")}
             result["revision"] = _revision(self, guild.id, int(user["uid"]), "combined_security", snapshot)
@@ -1076,8 +1106,8 @@ class DashboardServer:
             return self._message("Access denied", "Developer login is required for role blacklist settings.", 403, user)
 
         from core.dashboard_features import _digest
-        rbl = deepcopy(await self.bot.db.get_config(gid, "roleblacklist") or {})
-        logs_cfg = deepcopy(await self.bot.db.get_config(gid, "logs") or {})
+        rbl = deepcopy(await self._config_dict(gid, "roleblacklist"))
+        logs_cfg = deepcopy(await self._config_dict(gid, "logs"))
         an_cfg = deepcopy(await self._antinuke_cfg(gid))
         revision = self._unsign(data.get("revision"), "feature_revision")
         snapshot = {"roleblacklist": rbl, "logs": logs_cfg, "antinuke": an_cfg}
@@ -1126,7 +1156,7 @@ class DashboardServer:
                         return self._message("Invalid settings", f"{field}: Veil cannot post there. Nothing was saved.", 400, user)
 
         if "log_ignore_channels" in lists:
-            old_ignore = logs_cfg.get("ignore") or {}
+            old_ignore = logs_cfg.get("ignore") if isinstance(logs_cfg.get("ignore"), dict) else {}
             if not isinstance(old_ignore, dict):
                 return self._message("Invalid settings", "Log exclusions have an unexpected format. Nothing was saved.", 400, user)
             old_channels = set(old_ignore.get("channels") or [])
@@ -1135,7 +1165,7 @@ class DashboardServer:
                    for cid in set(lists["log_ignore_channels"]) - old_channels):
                 return self._message("Invalid settings", "New excluded channels must belong to this server. Nothing was saved.", 400, user)
         if "rbl_roles" in lists:
-            old_roles = set(rbl.get("roles") or [])
+            old_roles = set(rbl.get("roles") if isinstance(rbl.get("roles"), list) else [])
             get_role = getattr(guild, "get_role", None)
             for role_id in set(lists["rbl_roles"]) - old_roles:
                 if role_id == guild.id or not callable(get_role) or get_role(role_id) is None:
@@ -1166,7 +1196,7 @@ class DashboardServer:
             return self._message("Invalid settings", "Choose a valid punishment. Nothing was saved.", 400, user)
 
         if rbl_fields:
-            if "rbl_roles" in data and set(lists["rbl_roles"]) & set(rbl.get("hard_roles", [])):
+            if "rbl_roles" in data and set(lists["rbl_roles"]) & set(rbl.get("hard_roles") or []):
                 return self._message("Invalid settings", "A role cannot be on both the ordinary and hard blacklists. Nothing was saved.", 400, user)
             if "rbl_roles" in data:
                 rbl["roles"] = lists["rbl_roles"]
@@ -1215,8 +1245,8 @@ class DashboardServer:
             documents["roleblacklist"] = rbl
         if await self._guild_for(request, user) is None:
             return self._message("Access denied", "Your access changed; nothing was saved.", 403, user)
-        latest = {"roleblacklist": await self.bot.db.get_config(gid, "roleblacklist") or {},
-                  "logs": await self.bot.db.get_config(gid, "logs") or {}, "antinuke": await self._antinuke_cfg(gid)}
+        latest = {"roleblacklist": await self._config_dict(gid, "roleblacklist"),
+                  "logs": await self._config_dict(gid, "logs"), "antinuke": await self._antinuke_cfg(gid)}
         if not hmac.compare_digest(str(revision.get("digest", "")), _digest(latest)):
             return self._message("Settings changed", "Refresh the page and review the latest settings. Nothing was saved.", 409, user)
         try:

@@ -13,6 +13,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dashboard pages no longer crash on unusual saved settings.** Every dashboard read now
+  guarantees a config document is a mapping, and list/string fields (disabled commands, log
+  exclusions, automod rules, ticket support roles, Antinuke rules) are type-checked before
+  rendering. A hand-edited database, an interrupted migration or an older version could
+  previously return HTTP 500 for the server settings and feature pages.
+- **Dashboard uptime no longer reports the 1970 epoch.** A missing or zero `started_at` used to
+  print something like "498747h 18m"; it now shows "Unavailable".
+- **Python 3.10 compatibility.** The Discord owner-grant audit scan used `asyncio.timeout()`,
+  which only exists on 3.11+, so the audit attribution path raised `AttributeError` on the
+  minimum supported version (and failed the 3.10 CI job). It now uses `asyncio.wait_for`, and
+  a truncated audit page still fails closed.
+- **Duplicate element ids on the feature pages.** Command access, Disabled commands, Advanced
+  Automod and Administrator-role granters were nested `<section id=...>` cards that repeated
+  their parent's anchor id, breaking in-page links. They are now plain subsections.
+- **Sidebar and header navigation.** The control-center sidebar listed a "Servers" entry that
+  returned 404 and there was no link back to the server list; "All servers" is now always
+  present and the features page highlights the section you are actually viewing. The page
+  breadcrumb shows the server name instead of storing it in hidden text.
+- **Restored the missing "Blacklist bypasses" section** on the server settings page, so its
+  navigation link resolves, and corrected a wrapped label left by an unclosed grid on the
+  Role blacklist section. Empty control-center pages now list servers to open instead of
+  showing a lone dropdown.
+
+### Changed
+
+- **Dashboard design system rebuilt as one stylesheet.** `core/dashboard_assets.py` had grown
+  six stacked "theme layers" that each redefined the `:root` tokens and re-declared components,
+  so the final colours were an accident of cascade order (a teal background with blue button
+  borders, plum nav highlights, pink eyebrows, navy panels on a near-black page). There is now
+  one token set and one rule per component, with a documented spacing, radius and colour scale,
+  consistent focus states, and responsive breakpoints at 1180/1050/800/620/480 px. No routes,
+  saved settings or access checks changed.
+
+
 - **Permission levels and cards rebuilt.** Renamed the assignable staff ladder to **Co-Owner** (`coowner`),
   **Bot Manager** (`bot_manager`), **Manager** (`manager`), **Head Admin** (`headadmin`), **Admin** (`admin`),
   **Moderator** (`moderator`) and **Helper** (`helper`), migrating legacy `supremeleader`, `overseer` and `mod`

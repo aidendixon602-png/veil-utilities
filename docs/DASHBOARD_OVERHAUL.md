@@ -40,3 +40,35 @@ Offline Python 3.11 validation: dashboard tests 94 passed; `python -m pip check`
 ## Roblox group and member roles
 
 The developer-only server workspace stores a Roblox group ID and displays public metadata and up to 250 roles. A saved ID does not prove group ownership. When the host also configures a group-matched Open Cloud key, developers can preview and confirm individual member role assignments and removals. See [DEVELOPER_CONTROL_CENTER.md](DEVELOPER_CONTROL_CENTER.md#roblox-member-role-controls) for setup, authorization, limitations and rollback. API responses are mocked in tests; live Roblox functionality has not been verified. Monitoring, raid protection, backups and recovery are not implemented.
+
+## UI verification pass
+
+A follow-up pass audited the rendered pages rather than only the routes. It found that the shared
+stylesheet had accumulated five stacked "theme layers" after the original tokens: each layer
+redefined `:root` custom properties and re-declared the same components, so visible results came
+from cascade order rather than intent (a teal page background with blue button borders, plum nav
+highlights, pink section eyebrows and navy panels). `core/dashboard_assets.py` now holds a single
+token set and one rule per component. The same pass fixed:
+
+- dashboard reads that could return HTTP 500 for saved values with an unexpected type (a string
+  where a list or mapping was expected), by funnelling config reads through one dict-guaranteeing
+  helper and type-checking individual fields;
+- nested feature cards that repeated their parent's `id`, producing duplicate element ids and
+  dead in-page links;
+- an "uptime" that printed the age of the Unix epoch when `started_at` was unset;
+- a sidebar "Servers" entry that 404ed, with no other link back to the server list;
+- nav highlighting on the feature pages, which never matched the section being viewed;
+- a navigation link to a missing "Blacklist bypasses" section, and an unclosed form grid on the
+  Role blacklist card;
+- literal `None` labels in the disabled-commands and Automod exemption lists.
+
+`tests/test_dashboard_render.py` now renders every page against deliberately malformed config
+data, asserts unique ids and that no `None` is rendered, and asserts every CSS class used by a
+page exists in the stylesheet.
+
+Limitations: no browser engine was available in the review environment, so these checks are
+HTTP/HTML-level (element structure, ids, labels, class coverage, route status) rather than
+screenshots or computed-style checks. Live OAuth, ngrok and desktop/mobile rendering still need
+manual verification. `asyncio.timeout()` in the Discord audit-attribution path also failed on
+Python 3.10 and was replaced with `asyncio.wait_for`; the Python 3.10 CI job should be re-run to
+confirm.

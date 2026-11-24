@@ -74,10 +74,18 @@ def _on_off(value):
     return "on" if value else "off"
 
 
-def _section(title: str, icon: str, description: str, body: str, anchor: str) -> str:
-    return (f'<section class="card" id="{_esc(anchor)}"><div class="card-head">'
-            f'<span class="section-icon" aria-hidden="true">{_esc(icon)}</span><div>'
-            f'<h2>{_esc(title)}</h2><p>{_esc(description)}</p></div></div>{body}</section>')
+def _section(title: str, icon: str, description: str, body: str, anchor: str, *, embedded: bool = False) -> str:
+    """Render one settings card.
+
+    ``embedded`` cards drop the <section>/id wrapper: they are nested inside another
+    ``_section`` card, and repeating the anchor id would produce duplicate document ids
+    (broken in-page links and invalid HTML).
+    """
+    head = (f'<div class="card-head"><span class="section-icon" aria-hidden="true">{_esc(icon)}</span><div>'
+            f'<h2>{_esc(title)}</h2><p>{_esc(description)}</p></div></div>')
+    if embedded:
+        return f'<div class="card-subsection">{head}{body}</div>'
+    return f'<section class="card" id="{_esc(anchor)}">{head}{body}</section>'
 
 
 async def features_page(server, request: web.Request) -> web.Response:
@@ -92,11 +100,12 @@ async def features_page(server, request: web.Request) -> web.Response:
     from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MIDTOWN_RULES, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
-    settings = await server.bot.db.get_config(guild.id, "settings") or {}
-    filters = await server.bot.db.get_config(guild.id, "filters", FILTER_DEFAULT)
-    levels = await server.bot.db.get_config(guild.id, "levels", LEVEL_DEFAULT)
-    tickets = await server.bot.db.get_config(guild.id, "tickets", TICKET_DEFAULT)
-    antinuke_raw = await server.bot.db.get_config(guild.id, "antinuke", AN_DEFAULT)
+    # Hand-edited or partially migrated config rows must not 500 a page review.
+    settings = await server._config_dict(guild.id, "settings")
+    filters = await server._config_dict(guild.id, "filters", FILTER_DEFAULT)
+    levels = await server._config_dict(guild.id, "levels", LEVEL_DEFAULT)
+    tickets = await server._config_dict(guild.id, "tickets", TICKET_DEFAULT)
+    antinuke_raw = await server._config_dict(guild.id, "antinuke", AN_DEFAULT)
     # Display the same migrated rules the cog will use, without writing on a page view.
     antinuke = deepcopy(antinuke_raw)
     Antinuke.migrate(antinuke)
@@ -125,10 +134,10 @@ async def features_page(server, request: web.Request) -> web.Response:
     if channel_reference:
         access_form += f'<details class="channel-reference"><summary>Available text channel IDs</summary><ul>{channel_reference}</ul></details>'
     access_form += '<button class="btn" type="submit">Save command access</button></form>'
-    general_section += _section("Command access", "01", "Choose where non-staff members can use commands.", access_form, "command-access")
+    general_section += _section("Command access", "01", "Choose where non-staff members can use commands.", access_form, "", embedded=True)
 
-    disabled = settings.get("disabled", [])
-    disabled_names = ", ".join(str(name) for name in disabled) if disabled else "None"
+    disabled = settings.get("disabled") if isinstance(settings.get("disabled"), list) else []
+    disabled_names = ", ".join(str(name) for name in disabled) if disabled else "none"
     command_form = _form_start(server, guild, user, "command-control", "settings", settings)
     command_form += (f'<p class="hint">Currently disabled: <strong>{_esc(disabled_names)}</strong></p>'
                      '<div class="form-grid"><div class="form-group"><label for="command_name">Command name</label>'
@@ -136,7 +145,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                      '<span class="hint">Use a command or alias, without the prefix. Owners and developers bypass disabled commands.</span></div>')
     command_form += _select("command_action", "Action", "disable", (("disable", "Disable"), ("enable", "Enable")))
     command_form += '</div><button class="btn" type="submit">Update command</button></form>'
-    general_section += _section("Disabled commands", "02", "Disable or re-enable individual commands for this server.", command_form, "command-control")
+    general_section += _section("Disabled commands", "02", "Disable or re-enable individual commands for this server.", command_form, "", embedded=True)
 
     form = _form_start(server, guild, user, "automod", "filters", filters)
     form += '<div class="note">These filters can delete messages and apply timeouts. Members with Manage Messages are exempt.</div><div class="form-grid">'
@@ -178,14 +187,14 @@ async def features_page(server, request: web.Request) -> web.Response:
         choices += [(str(value), f"Unavailable ({value})") for value in existing if str(value) not in known]
         advanced += f'<div class="list-edit"><h3>{label} · {len(existing)}</h3><span class="hint">Existing exemptions: '
         names = {str(value): name for value, name in choices}
-        advanced += _esc(", ".join(names.get(str(v), str(v)) for v in existing) or "None") + '.</span>'
+        advanced += _esc(", ".join(names.get(str(v), str(v)) for v in existing) or "none") + '.</span>'
         advanced += _form_start(server, guild, user, "automod-exempt", "filters", filters)
         advanced += f'<input type="hidden" name="list_key" value="{key}"><div class="list-controls">'
         advanced += _select("pick_" + key, label, "", choices).replace('name="pick_' + key + '"', 'name="target"')
         advanced += '<button class="btn btn-plain" name="operation" value="add">Add exemption</button></div>'
         advanced += '<label class="confirm-choice"><input type="checkbox" name="confirm_remove" value="yes"> Confirm removal of the selected exemption.</label>'
         advanced += '<button class="btn btn-plain" name="operation" value="remove">Remove exemption</button></form></div>'
-    automod_section += _section("Advanced Automod", "02", "Manage individual entries and exemptions without replacing your other settings.", advanced, "automod-advanced")
+    automod_section += _section("Advanced Automod", "02", "Manage individual entries and exemptions without replacing your other settings.", advanced, "", embedded=True)
 
     form = _form_start(server, guild, user, "levels", "levels", levels) + '<div class="form-grid">'
     form += _select("levels_enabled", "Leveling", _on_off(levels.get("enabled")), on_off,
@@ -204,7 +213,8 @@ async def features_page(server, request: web.Request) -> web.Response:
     form += _select("log", "Transcript channel", tickets.get("log") or "", _channel_choices(guild, "text", tickets.get("log"), "DM only"))
     form += _select("ping", "Ping support roles", _on_off(tickets.get("ping")), on_off)
     form += _number("max", "Open tickets per user", tickets.get("max", 1), 1, 10)
-    ids = ", ".join(str(v) for v in tickets.get("support", []))
+    support = tickets.get("support") if isinstance(tickets.get("support"), list) else []
+    ids = ", ".join(str(v) for v in support)
     form += f'<div class="form-group"><label for="support">Support role IDs</label><input id="support" name="support" value="{_esc(ids)}" placeholder="Role IDs, separated by commas"><span class="hint">Roles must belong to this server. @everyone is not allowed.</span></div>'
     form += '</div><div class="form-group"><label for="ticket_message">Message inside new tickets</label>'
     form += f'<textarea id="ticket_message" name="message" rows="3" maxlength="2000">{_esc(tickets.get("message") or "")}</textarea>'
@@ -218,7 +228,7 @@ async def features_page(server, request: web.Request) -> web.Response:
         'name="protection_enabled"', 'name="enabled"')
     form += '<label class="confirm-choice"><input type="checkbox" name="confirm_disable" value="yes"> I understand disabling antinuke stops protection.</label>'
     form += '<button class="btn" type="submit">Save protection</button></form>'
-    rules = antinuke.get("modules") or {}
+    rules = antinuke.get("modules") if isinstance(antinuke.get("modules"), dict) else {}
     form += ('<div class="rules-heading"><h3>Individual rules</h3><p class="hint">Each rule saves separately. '
              'Turning a rule off weakens protection; turning a rule on does not enable the overall protection. '
              'Blank thresholds use rule defaults; blank windows and inherited punishments follow the server defaults.</p></div>')
@@ -228,7 +238,7 @@ async def features_page(server, request: web.Request) -> web.Response:
     for key in primary_keys + advanced_keys:
         if key == advanced_keys[0]:
             form += '<details class="rules-heading"><summary>Advanced rules (existing settings are preserved)</summary>'
-        mod = rules.get(key) or {}
+        mod = rules.get(key) if isinstance(rules.get(key), dict) else {}
         title = LABELS.get(key, RULE_LOOKUP.get(key, {}).get("name", MODULES.get(key, key)))
         state = _on_off(mod.get("on"))
         form += _form_start(server, guild, user, "rule", "antinuke", antinuke_raw)
@@ -259,11 +269,11 @@ async def features_page(server, request: web.Request) -> web.Response:
     if (not isinstance(granter_users, dict) or not isinstance(granter_roles, dict)
             or any(not isinstance(k, str) or not k.isdigit() or v is not True
                    for mapping in (granter_users, granter_roles) for k, v in mapping.items())):
-        grant_section = _section("Administrator-role granters", "05", "Authorization data is invalid; no changes can be made here.", "", "admin-grants")
+        grant_section = _section("Administrator-role granters", "05", "Authorization data is invalid; no changes can be made here.", "", "", embedded=True)
     else:
         combined = {"users": granter_users, "roles": granter_roles}
-        members = ", ".join(_esc(uid) for uid in granter_users) or "None"
-        roles = ", ".join(_esc(rid) for rid in granter_roles) or "None"
+        members = ", ".join(_esc(uid) for uid in granter_users) or "none authorized"
+        roles = ", ".join(_esc(rid) for rid in granter_roles) or "none authorized"
         grant_form = _form_start(server, guild, user, "admin-grant", "admin_role_grant", combined)
         grant_form += (f'<p>Authorized member IDs: {members}</p><p>Authorized role IDs: {roles}</p>'
                        '<div class="note">Members and all current and future human holders of an authorized role '
@@ -278,12 +288,12 @@ async def features_page(server, request: web.Request) -> web.Response:
                        'I understand authorizing a role includes all its current and future human holders.</label>'
                        '<div class="list-controls"><button class="btn" name="operation" value="add">Authorize</button>'
                        '<button class="btn btn-plain" name="operation" value="remove">Revoke</button></div></form>')
-        grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "admin-grants")
+        grant_section = _section("Administrator-role granters", "05", "Authorize members or roles without granting Antinuke trust.", grant_form, "", embedded=True)
     antinuke_section += grant_section
 
     from cogs.logging import KINDS, other_bots_channel
     from core.dashboard_security_views import log_routes
-    logs = await server.bot.db.get_config(guild.id, "logs") or {}
+    logs = await server._config_dict(guild.id, "logs")
     form = _form_start(server, guild, user, "logging", "logs", logs)
     form += '<div class="note">Unset routes automatically match Veil log channels or shared destinations; Off disables the category.</div>'
     form += log_routes(guild, logs) + '<div class="form-grid">'
@@ -296,11 +306,12 @@ async def features_page(server, request: web.Request) -> web.Response:
         if value and value not in {v for v, _ in choices}:
             choices.append((value, f"Unavailable or excluded channel ({value})"))
         form += _select(field, KINDS[key].label, value, choices)
-    ignore = logs.get("ignore") or {}
+    ignore = logs.get("ignore") if isinstance(logs.get("ignore"), dict) else {}
     form += '</div><div class="form-grid">'
     for field, label, key in (("log_ignore_channels", "Ignored channel IDs", "channels"),
                               ("log_ignore_users", "Ignored user IDs", "users")):
-        value = ", ".join(str(v) for v in ignore.get(key, []))
+        entries = ignore.get(key) if isinstance(ignore.get(key), list) else []
+        value = ", ".join(str(v) for v in entries)
         form += f'<div class="form-group"><label for="{field}">{label}</label><input id="{field}" name="{field}" value="{_esc(value)}"><span class="hint">Comma-separated Discord IDs.</span></div>'
     form += '</div><label class="confirm-choice"><input type="checkbox" name="confirm_logs" value="yes"> I reviewed these logging destinations and their access permissions.</label><button class="btn" type="submit">Save logging</button></form>'
     logging_section = _section("Logging", "03", "Configure log destinations and exclusions.", form, "logging")
@@ -311,6 +322,9 @@ async def features_page(server, request: web.Request) -> web.Response:
     selected = request.query.get("section", "")
     if selected and selected not in sections:
         return server._message("Unknown feature", "Choose a feature from the server overview.", 404, user)
+    # The query value is the section anchor; the sidebar keys use slightly different names.
+    nav_key = {"rules": "rules", "automod": "automod", "logging": "logging", "leveling": "leveling",
+               "tickets": "tickets", "general": "general"}.get(selected, "")
     if selected:
         label, content = sections[selected]
         # A fixed, allowlisted return hint keeps a save on the selected page.
@@ -320,7 +334,7 @@ async def features_page(server, request: web.Request) -> web.Response:
                 f'<h1>{_esc(label)}</h1><p>Review your settings and save changes when ready.</p></div>'
                 f'<a class="btn btn-plain" href="/servers/{guild.id}/overview">← Server overview</a></div>{saved}'
                 f'<div class="feature-content">{content}</div>')
-        return server._page(label, body, user, guild=guild, active=selected)
+        return server._page(label, body, user, guild=guild, active=nav_key)
     body = (f'<div class="page-heading"><div><p class="eyebrow">Servers / Feature controls</p><h1>{_esc(guild.name)}</h1>'
             '<p>Manage selected security and community features. Each section saves separately.</p></div>'
             f'<a class="btn btn-plain" href="/servers/{guild.id}">← Server settings</a></div>{saved}'
@@ -328,7 +342,7 @@ async def features_page(server, request: web.Request) -> web.Response:
             '<a href="#general">Server settings</a><a href="#automod">Automod</a><a href="#leveling">Leveling</a><a href="#tickets">Tickets</a>'
             '<a href="#rules">Antinuke rules</a></nav><div>'
             f'{general_section}{automod_section}{levels_section}{tickets_section}{antinuke_section}</div></div>')
-    return server._page("Feature controls", body, user, guild=guild)
+    return server._page("Feature controls", body, user, guild=guild, active="general")
 
 
 class InvalidSetting(ValueError):

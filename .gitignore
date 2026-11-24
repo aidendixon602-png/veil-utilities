@@ -4,6 +4,9 @@
 *.env
 !.env.example
 
+# local scratch work (browser harnesses, screenshots, downloaded tooling)
+.arena/
+
 # runtime data (lives on the host, not in git)
 .restart_state.json
 .requirements.hash
