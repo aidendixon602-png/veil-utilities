@@ -361,12 +361,12 @@ class Utility(commands.Cog):
             # Member cache can be incomplete; never present this as a definitive server-wide position.
             members = sorted((m for m in user.guild.members if m.joined_at), key=lambda m: m.joined_at)
             if user.joined_at and user in members:
-                e.set_footer(text=f"VEIL UTILITIES  •  Cached join order #{members.index(user) + 1:,}")
+                e.set_footer(text=f"Veil  •  Cached join order #{members.index(user) + 1:,}")
         badges = [f.name.replace("_", " ").title() for f in user.public_flags.all()]
         if badges:
             e.add_field(name="Discord badges", value=shorten(", ".join(badges)), inline=False)
         if not e.footer.text:
-            e.set_footer(text="VEIL UTILITIES  •  User information")
+            e.set_footer(text="Veil  •  User information")
         if getattr(fetched, "banner", None):
             e.set_image(url=fetched.banner.url)
         await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
@@ -786,7 +786,7 @@ class Utility(commands.Cog):
         e.add_field(name="Memory", value=memory_mb())
         e.add_field(name="Library", value=f"discord.py {discord.__version__}")
         e.add_field(name="Python", value=platform.python_version())
-        e.set_footer(text="VEIL UTILITIES  •  Current process")
+        e.set_footer(text="Veil  •  Current process")
         await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(aliases=["up"])

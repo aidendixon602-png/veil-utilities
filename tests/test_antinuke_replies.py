@@ -98,9 +98,9 @@ def test_defaults_admin_and_log_lines():
         await Antinuke.an_window.callback(cog, ctx, 90)
         assert said(ctx) == "set the default window to **90s**"
         await Antinuke.an_admin.callback(cog, ctx, user())
-        assert said(ctx) == "made <@7> an antinuke admin"
+        assert said(ctx) == "trusted <@7> for antinuke"
         await Antinuke.an_admin.callback(cog, ctx, user())
-        assert said(ctx) == "removed <@7> as an antinuke admin"
+        assert said(ctx) == "removed <@7> from antinuke trust"
         channel = SimpleNamespace(id=5, mention="<#5>")
         await Antinuke.an_log.callback(cog, ctx, channel)
         assert said(ctx) == "antinuke alerts will go to <#5>"

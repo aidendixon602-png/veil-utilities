@@ -1716,7 +1716,8 @@ def test_coexist_checklist_is_read_only_and_does_not_claim_to_control_ghost():
         original = dict(store['logs'])
         await Logging.logs_coexist.callback(cog, ctx)
         text = ctx.send.await_args.kwargs['embed'].description
-        assert 'manually turn off' in text and 'cannot read or control' in text
+        assert 'turn overlapping categories off' in text and 'only read and'
+        assert 'change its own settings' in text
         assert store['logs'] == original
         cog.bot.db.set_config.assert_not_awaited()
     asyncio.run(go())

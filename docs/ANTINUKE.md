@@ -21,12 +21,11 @@ undo supported damage. These controls are inspired by [Bleed](https://docs.bleed
 `,an` opens Veil's status panel. The rule selector shows six rules per page; use **Previous** and **Next**
 to find a rule, then select it to edit. The rule page retains its on/off, count, time, punishment and command
 detection controls, with fixed settings disabled. `,an health` checks the bot's core permissions and member intent, and warns
-about overlapping protection if Ghost Vanguard is present. The check cannot guarantee that the bot can act on every
+about a second protection bot running overlapping rules. The check cannot guarantee that the bot can act on every
 target. Existing positional commands such as `,an ban 3 ban 60s`, presets and the panel still work. Changing a rule does **not** turn on the antinuke itself; use `,an toggle on` first.
-Only the server owner, a bot developer, or an explicitly appointed Antinuke admin can open or manage the
-Antinuke commands and panel. Staff levels and fake or native Administrator alone do not grant access. Appointed
-admins retain limited controls; only the server owner or a bot developer can turn the whole antinuke off or
-appoint Antinuke admins.
+**Only the server owner and bot developers can open or change antinuke.** No staff level, fake or native
+Administrator grant, or appointed Antinuke admin gets there; the commands are also hidden from everyone else in
+`,help`. Appointed admins keep one thing only: antinuke never punishes them.
 
 - `--threshold` is the number of actions that triggers the rule, from 1 to 100.
 - `--window` accepts seconds, minutes or hours, e.g. `60s`, `2m` or `1h` (clamped to 5 seconds–24 hours).
@@ -74,9 +73,8 @@ Discord test or deployment is implied by local tests.
 A role applies to **all current human and bot holders** and changes as their roles change; it is not a one-time
 snapshot. `@everyone` is refused. Use `,an whitelist` to list entries and `,an unwhitelist @user`, `@bot`, or
 `@role` to remove one. Existing whitelist entries remain in place. Do not whitelist every bot or an easily
-self-assigned role: a compromised holder can evade antinuke checks. The configured antinuke administrators and
-other users allowed by the existing antinuke administration check can manage this list; server owners should
-review who has that access.
+self-assigned role: a compromised holder can evade antinuke checks. Only the server owner and bot developers can
+manage this list.
 
 Explicitly whitelisted bots, including holders of a whitelisted role, are also exempt from the bot-add rule and
 new-bot quarantine. Other protection systems, including hard role blacklist and developer protection, are not
@@ -86,8 +84,10 @@ unknown exemption, and blocks guarded bot commands; this can reduce protection d
 Role cache and Discord events can still be stale or unavailable, and configuration writes are not serialized
 across all writers. Review trust entries and test changes in a disposable server. Only trust accounts you are
 willing to exempt from protection.
-`,an admin @user` toggles an antinuke administrator (server owner or bot developer only). **In Veil, antinuke admins are also
-exempt**, and `,an trust` is a legacy alias for the whitelist, not Greed's separate admin command. Role-blacklist
+`,an admin @user` marks a member as antinuke-trusted (server owner or bot developer only). A trusted admin is
+**never punished by antinuke**, but cannot configure it; configuring antinuke stays with the server owner and bot
+developers. `,an admins` lists both groups. `,an trust` is a legacy alias for the whitelist, not Greed's separate
+admin command. Role-blacklist
 authorization is a different setting, but users in its `authorized` list are also treated as trusted by the
 current antinuke implementation. Review both settings before relying on enforcement.
 
@@ -132,7 +132,7 @@ Roles bits). Antinuke must be enabled for this scoped path, and both requester a
 verifiably untrusted by existing Antinuke rules. Roles whitelisted for Antinuke and hard-blacklisted roles
 cannot be delegated. An ordinary blacklisted role receives a persistent exception **only for the specific
 recipient and role** when assigned; revoking the grant does not remove the role or that separate exception.
-Review and revoke such exceptions with the role blacklist commands if needed. Existing Antinuke admins and
+Review and revoke such exceptions with the role blacklist commands if needed. Existing antinuke-trusted admins and
 legacy role-blacklist `authorized` users are already trusted; this feature does not change or remove their
 exemptions. Rules that are off do not protect against those actions. The cooldown and grant locks are local
 to one bot process; multiple instances sharing a database can race and must not be relied on for this limit.
@@ -145,8 +145,9 @@ Incident DMs label rollback issues separately from the punishment outcome.
 
 Detection and rollback are best-effort, not a guarantee. Audit events must reach Veil; the bot needs the relevant
 Discord permissions and a high enough role to punish or restore changes. Some events cannot be undone. Veil
-intentionally ignores some routine actions by other bots. Veil works independently of Ghost Vanguard, including when
-both bots are present. For Veil-first protection, disable the matching rules in Ghost Vanguard yourself to avoid duplicate punishment or rollback. Veil cannot read, change or verify Ghost Vanguard's settings.
+intentionally ignores some routine actions by other bots. Veil works independently of other protection bots, including
+when they are present. If a second antinuke bot is also enforcing, turn off its overlapping rules so the same action
+isn't punished twice; Veil can only read and change its own settings.
 Existing Veil settings are preserved: if antinuke is off, explicitly enable it with `,an toggle on`; check raid
 settings with `,antiraid`. Veil still treats Ghost Vanguard as a built-in trusted bot; `,gv` is an optional bridge,
 not a protection requirement. The server owner or a developer may disable the explicit bridge with `,gvbridge off` without affecting either bot's protection or logs; `,gvbridge on` restores it. A separate built-in global person exemption also exists. See

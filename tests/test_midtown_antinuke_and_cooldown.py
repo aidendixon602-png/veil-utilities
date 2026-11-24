@@ -61,7 +61,7 @@ def test_antinuke_status_reads_like_help():
         assert embed.title == "Antinuke" and embed.colour.value == Colors.neutral
         assert embed.description.startswith("`STANDBY`")
         assert "`Ban` — *off*" in embed.description and "`Webhook` — *off*" in embed.description
-        assert [f.name for f in embed.fields] == ["Trusted", "Operators", "Alert Feed"]
+        assert [f.name for f in embed.fields] == ["Trusted", "Can configure", "Alert Feed"]
         assert "Prefix: ," in embed.footer.text
 
         # 2. on: grouped sections, bold thresholds/actions, and *revert* where the damage is undone

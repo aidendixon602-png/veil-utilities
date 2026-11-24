@@ -749,6 +749,7 @@ has_uperm = requires_uperm
 
 
 async def antinuke_admin(ctx: Context) -> bool:
+    """Antinuke is owner-and-developer only: no rank, permission grant or appointment unlocks it."""
     if ctx.guild is None:  # subcommands don't inherit the group's guild_only() when invoke_without_command=True
         raise commands.NoPrivateMessage()
     from core import perms as _perms
@@ -761,13 +762,7 @@ async def antinuke_admin(ctx: Context) -> bool:
                 return True
         except Exception:
             pass
-    db = getattr(bot, "db", None)
-    if db is None:
-        raise UserError("Cannot verify antinuke access right now")
-    cfg = await db.get_config(ctx.guild.id, "antinuke")
-    if ctx.author.id in cfg.get("admins", []):
-        return True
-    raise UserError("Only the **server owner**, a **bot developer**, or an appointed **antinuke admin** can use this")
+    raise UserError("Only the **server owner** or a **bot developer** can change antinuke settings")
 
 
 async def antinuke_guard(ctx: Context, module: str, amount: int = 1) -> None:

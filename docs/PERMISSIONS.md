@@ -57,11 +57,10 @@ reviewed for each deployment.
   access have separate policies. Existing roles with real Discord staff permissions may now use matching commands;
   review these permissions and channel overwrites before deployment.
 
-Antinuke commands and panel interactions require the actual server owner, a recognized bot developer, or an
-explicitly appointed Antinuke admin. Appointed admins retain their existing limited controls: only the owner or
-developer may turn off protection or appoint admins. A staff level, fake Administrator, or native Discord
-Administrator alone is not an appointment. Existing Antinuke admins, whitelists, and protection settings are
-not removed or changed.
+Antinuke commands and panel interactions require the actual server owner or a recognized bot developer. A staff
+level, fake or native Discord Administrator grant, or an Antinuke appointment does not unlock them. Appointed
+admins (`,an admin @user`) are only exempt from antinuke enforcement. Existing appointments, whitelists, and
+protection settings are not removed or changed.
 
 **Existing assignments:** Co-Owner (`coowner`), Manager (`manager`), Moderator (`moderator`) and Head Admin
 (`headadmin`) automatically migrate legacy saved keys (`supremeleader`, `overseer`, `mod`) while preserving
@@ -156,7 +155,7 @@ empty in the current source, but the runtime environment and database can contai
 ## Security boundaries and limits
 
 Global developer access and the built-in exemptions are powerful. Restrict `OWNER_IDS`, protect the Discord
-application owner and team, and review antinuke admins and per-server trusted users and roles. A trusted account
+application owner and team, and review antinuke-trusted users and per-server trusted roles. A trusted account
 can still be compromised. Antinuke detection and recovery depend on Discord events, permissions and hierarchy;
 no bot can guarantee prevention or full restoration. Refer to the [antinuke guide](ANTINUKE.md) and
 [security policy](../.github/SECURITY.md). Do not share tokens, private logs, database files or credentials.

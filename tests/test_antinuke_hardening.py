@@ -76,7 +76,7 @@ def test_only_the_owner_can_turn_it_off_and_it_is_reported():
     cog, guild, _ = setup()
     _guild(cog, guild)
     with _admin_ok():
-        with pytest.raises(UserError, match="Only the \\*\\*server owner\\*\\* can turn the antinuke off"):
+        with pytest.raises(UserError, match="Only the \\*\\*server owner\\*\\* or a \\*\\*bot developer\\*\\* can turn the antinuke off"):
             asyncio.run(Antinuke.an_disable.callback(cog, _ctx(guild, 77)))
         assert cog.bot.db.store["antinuke"]["enabled"] is True
         asyncio.run(Antinuke.an_disable.callback(cog, _ctx(guild, OWNER)))

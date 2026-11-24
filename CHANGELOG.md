@@ -47,6 +47,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one token set and one rule per component, with a documented spacing, radius and colour scale,
   consistent focus states, and responsive breakpoints at 1180/1050/800/620/480 px. No routes,
   saved settings or access checks changed.
+- **Antinuke settings are server-owner and bot-developer only.** Staff ranks, fake or native
+  Administrator grants and `,an admin` appointments no longer open `,an`, its subcommands or the
+  panel, and the Antinuke category is hidden from everyone else in `,help`. An appointment now
+  only means antinuke never punishes that member: `,an admin @user` replies "trusted @user for
+  antinuke", `,an admins` separates "Can configure" from "Trusted admins", and the panel's
+  Operators field becomes "Can configure: Owner + devs". The dashboard's admin field is relabelled
+  as antinuke-trusted users. Existing appointments and whitelists are kept as-is.
+- **Responses no longer name another protection bot.** The overlapping-protection warning now
+  reads "Another protection bot is also running here. Turn off its overlapping rules so the same
+  action isn't punished twice. Veil can only read and change its own settings." It is used by the
+  panel, `,an health`, `,antiraid`, automatic setup and the dashboard readiness card. Log-channel
+  refusals and `,logs coexist` use the same neutral wording. Panel copy is rewritten too: the
+  footer hint is now "Pick a rule to tune it" / "Turn protection on, or load a preset", the rule
+  page says "Every change saves at once", and the selector placeholder is "Pick a rule to tune…".
+- **Embed footers say Veil, not VEIL UTILITIES.** The antinuke panel and rule inspector, the
+  network-ban confirm/lift prompts, and the user-info, join-order and debug cards now open with
+  "Veil". The console banner and dashboard wordmark keep the full product name.
 
 
 - **Permission levels and cards rebuilt.** Renamed the assignable staff ladder to **Co-Owner** (`coowner`),

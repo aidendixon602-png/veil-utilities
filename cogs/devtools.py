@@ -450,12 +450,12 @@ class DevTools(commands.Cog):
         embed.add_field(name="Scope", value=plural(len(guilds), "server"), inline=True)
         embed.add_field(name="Skipped", value=f"{plural(len(owned), 'owned server')}" if owned else "None", inline=True)
         embed.add_field(name="Reason", value=display_reason, inline=False)
-        embed.set_footer(text="VEIL UTILITIES  •  Only you can confirm  •  Expires in 30s")
+        embed.set_footer(text="Veil  •  Only you can confirm  •  Expires in 30s")
         view = DangerConfirm(ctx.author.id, timeout=30)
         msg = await ctx.send(embed=embed, view=view)
         await view.wait()
         embed.clear_fields()
-        embed.set_footer(text=f"VEIL UTILITIES  •  Target ID: {user.id}")
+        embed.set_footer(text=f"Veil  •  Target ID: {user.id}")
         if view.value is not True:
             outcome = "timed out" if view.value is None else "cancelled"
             if view.value is None:
@@ -590,12 +590,12 @@ class DevTools(commands.Cog):
         embed.title = "Lift Network Ban"
         embed.add_field(name="Target", value=self._who(user), inline=True)
         embed.add_field(name="Scope", value=plural(len(guilds), "server"), inline=True)
-        embed.set_footer(text="VEIL UTILITIES  •  Only you can confirm  •  Expires in 30s")
+        embed.set_footer(text="Veil  •  Only you can confirm  •  Expires in 30s")
         view = DangerConfirm(ctx.author.id, timeout=30)
         msg = await ctx.send(embed=embed, view=view)
         await view.wait()
         embed.clear_fields()
-        embed.set_footer(text=f"VEIL UTILITIES  •  Target ID: {user.id}")
+        embed.set_footer(text=f"Veil  •  Target ID: {user.id}")
         if not view.value:
             embed.title = "Lift Cancelled"
             embed.description = f"Cancelled lifting the network ban on {self._who(user)}. Nothing was changed."

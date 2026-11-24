@@ -31,6 +31,6 @@ def test_health_warns_about_overlapping_protection(monkeypatch):
                           clean_prefix=",", send=AsyncMock())
     asyncio.run(Antinuke.an_health.callback(cog, ctx))
     text = ctx.send.await_args.kwargs["embed"].description
-    assert "Ghost Vanguard is present" in text and "avoid duplicate actions" in text
+    assert "Another protection bot is also running here" in text and "punished twice" in text
     assert "Rules won't run until" in text  # even when Ghost is present, Veil can still be off
     assert "Core audit and response permissions are present" in text

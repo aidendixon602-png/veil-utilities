@@ -151,7 +151,7 @@ def test_set_saves_approved_routes_and_rejects_vanguard_channels(monkeypatch):
         cog, store = cog_with({})
         ctx = SimpleNamespace(guild=g, neutral=AsyncMock(), approve=AsyncMock())
         monkeypatch.setattr(commands.TextChannelConverter, "convert", AsyncMock(return_value=vanguard))
-        with pytest.raises(UserError, match="Vanguard"):
+        with pytest.raises(UserError, match="Another bot"):
             await Logging.logs_set.callback(cog, ctx, "messages", "#bans")
         assert not store["logs"]
         monkeypatch.setattr(commands.TextChannelConverter, "convert", AsyncMock(return_value=c))

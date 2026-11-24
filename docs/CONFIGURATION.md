@@ -27,7 +27,7 @@ Copy [`.env.example`](../.env.example) to `.env`; the process environment takes 
 | --- | --- | --- |
 | `AUTH_REQUIRED` | `true` | Restrict bot use to authorized servers. Developer-owned servers are authorized automatically. |
 | `AUTH_GRANDFATHER` | `true` | On an uninitialized authorization database with no existing authorizations, enroll currently joined servers once. On first upgrade, an intentionally empty old list is indistinguishable from a new installation: set this to `false` **before startup** if enrollment is not desired. |
-| `PRIVATE_MODE` | `true` | Restrict command access to developers, server owners, appointed Antinuke admins and members with Veil levels, fake grants or effective Discord staff permissions; set `false` for public commands. Other permission checks still apply. |
+| `PRIVATE_MODE` | `true` | Restrict command access to developers, server owners, antinuke-trusted admins and members with Veil levels, fake grants or effective Discord staff permissions; set `false` for public commands. Other permission checks still apply. |
 | `AUTH_LOG_CHANNEL` | unset | Optional developer authorization log channel ID. |
 | `ERROR_LOG_CHANNEL` | unset | Optional developer error log channel ID. Without an override, Veil attempts to create private developer channels in a suitable server; creation is not guaranteed. |
 | `ANTINUKE_DEV_ALERTS` | `true` | Queue developer DMs for real antinuke alerts. Turning this off does not disable antinuke incident recording. |
