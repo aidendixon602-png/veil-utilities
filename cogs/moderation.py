@@ -384,6 +384,10 @@ class BlacklistPaginator(Paginator):
                                        allowed_mentions=discord.AllowedMentions.none())
 
 
+class _AuditTruncated(Exception):
+    """Internal marker: the audit-log page was truncated, so attribution is unsafe."""
+
+
 class Moderation(commands.Cog):
     """Keep your server in line"""
     emoji = "🔨"
@@ -442,12 +446,14 @@ class Moderation(commands.Cog):
                 await asyncio.sleep(0.6)  # Audit entries may appear after the gateway event.
                 matches = {role.id: [] for role in roles}
                 count = 0
-                async with asyncio.timeout(3):
+
+                async def _scan_audit_entries():
+                    nonlocal count
                     async for entry in guild.audit_logs(limit=100, action=discord.AuditLogAction.member_role_update,
                                                         after=observed_at - timedelta(seconds=3), oldest_first=False):
                         count += 1
                         if count >= 100:
-                            return {}  # A truncated result could hide an ambiguous role change.
+                            raise _AuditTruncated  # A truncated result could hide an ambiguous role change.
                         if getattr(getattr(entry, "target", None), "id", None) != member.id:
                             continue
                         created = entry.created_at
@@ -459,6 +465,12 @@ class Moderation(commands.Cog):
                         for rid in matches:
                             if rid in added or rid in removed:
                                 matches[rid].append((entry, rid in added and rid not in removed))
+
+                try:
+                    # asyncio.timeout() only exists on Python 3.11+, and this project supports 3.10.
+                    await asyncio.wait_for(_scan_audit_entries(), timeout=3)
+                except _AuditTruncated:
+                    return {}
                 if all(matches.values()):
                     break
             verified = {}

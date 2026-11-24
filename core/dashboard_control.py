@@ -9,7 +9,7 @@ from core.dashboard import _esc
 
 SECTIONS = {
     'overview': ('Overview', '/', 'overview'),
-    'servers': ('Server Management', '/servers', 'general'),
+    'servers': ('All servers', '/servers', 'general'),
     'security': ('Security Center', '/control/security', 'rules'),
     'moderation': ('Moderation Center', '/control/moderation', 'trusted'),
     'roblox': ('Roblox Security', '/control/roblox', 'roblox'),
@@ -21,9 +21,18 @@ SECTIONS = {
 
 
 def navigation(active: str) -> str:
+    """Global sidebar links.
+
+    "Servers" is the canonical inventory and is always present (it used to be listed
+    in SECTIONS and 404ed, which left the sidebar with no way back to the list). The
+    server workspace below it highlights the matching section for server pages, so the
+    two navigation blocks never disagree about where you are.
+    """
     from core.dashboard import _dashboard_icon
-    out = '<span class="nav-label">DEVELOPER CONTROL CENTER</span>'
-    for key, (title, href, icon) in SECTIONS.items():
+    out = '<span class="nav-label">DEVELOPER</span>'
+    items = [('servers', ('All servers', '/servers', 'general')), *(
+        (key, value) for key, value in SECTIONS.items() if key != 'servers')]
+    for key, (title, href, icon) in items:
         selected = ' active" aria-current="page' if key == active else ''
         out += (f'<a class="nav-link{selected}" href="{href}" title="{_esc(title)}" aria-label="{_esc(title)}"><span class="nav-icon" aria-hidden="true">'
                 f'{_dashboard_icon(icon)}</span><span class="nav-text">{title}</span></a>')
@@ -122,7 +131,14 @@ async def page(server, request: web.Request, section: str | None = None) -> web.
         if error:
             body += f'<div class="note bad">{_esc(error)}</div>'
         elif not guild:
-            body += '<p class="hint">Choose a server to continue.</p>'
+            # An empty page with one dropdown looks broken; point at every server instead.
+            links = ''.join(
+                f'<a href="/control/{section}?server={g.id}">{_esc(g.name)} <span aria-hidden="true">→</span></a>'
+                for g in sorted(server.bot.guilds, key=lambda g: g.name.casefold()))
+            body += ('<p class="hint">Choose a server above, or open one directly:</p>'
+                     f'<div class="control-links">{links}</div>'
+                     if links else
+                     '<p class="hint">Veil has not joined a server yet, so there is nothing to inspect.</p>')
         else:
             gid = guild.id
             body += f'<h2>{_esc(guild.name)}</h2><p class="hint">Server ID: {gid}</p>'
@@ -146,10 +162,12 @@ async def page(server, request: web.Request, section: str | None = None) -> web.
     elif section == 'bot':
         cogs = getattr(server.bot, 'cogs', None)
         names = sorted(str(name) for name in cogs) if cogs is not None else None
-        shown = ''.join(f'<li>{_esc(name)}</li>' for name in names or [])
+        chips = ''.join(f'<span class="tag on">{_esc(name)}</span>' for name in names or [])
         body = (heading(title, 'Inspect bot process state without exposing host controls.') +
-                '<section class="card"><h2>Loaded cogs</h2>' +
-                (f'<ul>{shown}</ul>' if shown else '<p class="hint">No loaded cogs reported.</p>' if names is not None
+                f'<section class="card"><div class="card-head"><div><h2>Loaded cogs</h2>'
+                f'<p>{len(names or [])} extension(s) loaded in this process.</p></div></div>' +
+                (f'<div class="tag-list">{chips}</div>' if names else
+                 '<p class="hint">No loaded cogs reported.</p>' if names is not None
                  else '<p class="hint">Cog inventory unavailable.</p>') +
                 '<p class="hint">Restart, shutdown, shell access and maintenance controls are not exposed here.</p></section>')
     elif section == 'database':

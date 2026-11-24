@@ -47,12 +47,13 @@ def antinuke_health(bot, guild, raw: dict) -> str:
     overlap = f'<p class="hint">{_esc(OVERLAP_NOTE)}</p>' if ghost_guards(guild) else ""
     return (f'<section class="card" id="health"><div class="card-head"><span class="section-icon" aria-hidden="true">✓</span>'
             '<div><h2>Protection readiness</h2><p>A read-only snapshot of settings and permissions.</p></div></div>'
-            f'<div class="health-grid"><div><span>PROTECTION</span><strong>{status}</strong></div>'
-            f'<div><span>RULES ENABLED</span><strong>{active}</strong></div></div>'
+            f'<div class="health-grid"><div><span>PROTECTION</span><strong>{_esc(status)}</strong></div>'
+            f'<div><span>RULES ENABLED</span><strong>{_esc(active)}</strong></div></div>'
             f'<p class="hint">{_esc(warning)}</p><p class="hint">{_esc(permission_summary)}</p>'
             f'<p class="hint">{_esc(intent_summary)}</p><p class="hint">{_esc(hierarchy)}</p>{overlap}'
             '<p class="hint">Role hierarchy, channel permissions, audit events and Discord availability can affect enforcement. '
-            'These checks do not guarantee protection.</p></section>')
+            'These checks do not guarantee protection.</p>'
+            '<p class="hint"><a href="#rules">Jump to the protection rules →</a></p></section>')
 
 
 def log_routes(guild, cfg: dict) -> str:
