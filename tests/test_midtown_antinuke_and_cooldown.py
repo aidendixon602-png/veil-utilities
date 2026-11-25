@@ -83,7 +83,7 @@ def test_antinuke_status_reads_like_help():
             "`Permission Grant` — **1** in 60s → **strip**  ·  *revert*",
             "`Role Create` — **5** in 120s → **strip**  ·  *revert*",
             "`Role Delete` — **5** in 120s → **strip**  ·  *revert*",
-            "`Invite Spam` — **10** in 60s → **strip**  ·  *revert*",
+            "`Role Invite` — **1** in 60s → **strip**  ·  *revert*",
             "`Server Update` — **1** in 60s → **strip**  ·  *revert*",
             "`Timeout` — **5** in 120s → **strip**  ·  *revert*",
             "`Webhook` — **1** in 60s → **kick**  ·  *revert*",
