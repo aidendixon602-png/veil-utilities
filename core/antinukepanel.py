@@ -87,7 +87,7 @@ def active_preset(cfg: dict) -> str | None:
     an = _an()
     for name, target in an.PRESETS.items():
         if all(
-            rule_state(cfg, k)["on"]
+            rule_state(cfg, k)["on"] == v.get("on", True)
             and rule_state(cfg, k)["threshold"] == (1 if k in an.INSTANT else v["threshold"])
             and rule_state(cfg, k)["window"] == v["window"]
             and rule_state(cfg, k)["punishment"] == ("strip" if k == "permissions" else v["punishment"])

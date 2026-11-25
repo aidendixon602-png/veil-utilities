@@ -86,11 +86,11 @@ PRESETS = {
         "serverupdate": {"threshold": 1, "window": 60, "punishment": "strip"},
         "timeout": {"threshold": 5, "window": 120, "punishment": "strip"},
         "webhook": {"threshold": 1, "window": 60, "punishment": "kick"},
-        "memberroles": {"threshold": 5, "window": 60, "punishment": "strip"},
-        "channelupdate": {"threshold": 4, "window": 60, "punishment": "strip"},
-        "roleupdate": {"threshold": 4, "window": 60, "punishment": "strip"},
-        "emoji": {"threshold": 3, "window": 60, "punishment": "strip"},
-        "prune": {"threshold": 1, "window": 60, "punishment": "ban"},
+        "memberroles": {"on": False, "threshold": 5, "window": 60, "punishment": "strip"},
+        "channelupdate": {"on": False, "threshold": 4, "window": 60, "punishment": "strip"},
+        "roleupdate": {"on": False, "threshold": 4, "window": 60, "punishment": "strip"},
+        "emoji": {"on": False, "threshold": 3, "window": 60, "punishment": "strip"},
+        "prune": {"on": False, "threshold": 1, "window": 60, "punishment": "ban"},
     },
     "strict": {
         "ban": {"threshold": 1, "window": 60, "punishment": "ban"},
@@ -1670,11 +1670,12 @@ class Antinuke(commands.Cog):
         """Turn the antinuke on, filling in any rule the server hasn't set with its default."""
         cfg["enabled"] = True
         modules = cfg.setdefault("modules", {})
+        advanced = set(NEW_RULES)
         for r in MIDTOWN_RULES:
-            modules.setdefault(r["key"], {"on": True, "threshold": r["threshold"], "window": r["window"],
-                                          "punishment": r["punishment"]})
+            modules.setdefault(r["key"], {"on": r["key"] not in advanced, "threshold": r["threshold"],
+                                          "window": r["window"], "punishment": r["punishment"]})
         for m in MODULES:
-            modules.setdefault(m, {"on": True, "threshold": DEFAULT_THRESHOLDS.get(m, 3)})
+            modules.setdefault(m, {"on": m not in advanced, "threshold": DEFAULT_THRESHOLDS.get(m, 3)})
 
     @staticmethod
     def apply_preset(cfg: dict, target: dict) -> None:
