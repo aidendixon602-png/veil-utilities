@@ -282,7 +282,10 @@ class Fun(commands.Cog):
     async def simi(self, ctx: Context):
         """Another perfect day in Midtown"""
         asset = Path(__file__).resolve().parent.parent / "assets" / "simi.gif"
-        await ctx.send(file=discord.File(asset, filename="simi.gif"))
+        await ctx.send(
+            "Another perfect day in our Midtown Paradise, let's give thanks to our Supreme Leader <@843909457616044092>",
+            file=discord.File(asset, filename="simi.gif"),
+        )
 
     # ------------------------------------------------------------ uwulock
     @commands.command()
