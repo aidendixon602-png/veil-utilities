@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import random
 import re
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -276,6 +277,12 @@ class Fun(commands.Cog):
     punch = _make("punch"); tickle = _make("tickle"); feed = _make("feed"); handhold = _make("handhold")
     yeet = _make("yeet"); peck = _make("peck")
     del _make
+
+    @commands.command(name="simi")
+    async def simi(self, ctx: Context):
+        """Another perfect day in Midtown"""
+        asset = Path(__file__).resolve().parent.parent / "assets" / "simi.gif"
+        await ctx.send(file=discord.File(asset, filename="simi.gif"))
 
     # ------------------------------------------------------------ uwulock
     @commands.command()
