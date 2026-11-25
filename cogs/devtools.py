@@ -46,7 +46,7 @@ def plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
-WORKING_FOR = 45.0  # seconds a network ban / unban shows "Processing..." at the least
+WORKING_FOR = 60.0  # seconds a network ban / unban shows "Processing..." at the least
 
 
 class _Working:
@@ -443,7 +443,8 @@ class DevTools(commands.Cog):
         stored_reason = clean_reason or "Network ban"
 
         embed = self._prompt(
-            "Bans this user across eligible servers and automatically re-applies the ban on rejoin or unban.",
+            "Bans this user in every server the bot is in and automatically re-applies the ban on rejoin or unban. "
+            "It can only be lifted by a bot developer.",
             user=user,
             color=Colors.main,
         )
@@ -521,7 +522,7 @@ class DevTools(commands.Cog):
         embed.color = Colors.caution
         step_delay = min(2.0, WORKING_FOR / max(len(guilds), 1)) if WORKING_FOR > 0 else 0.0
         async with await self._working(ctx, msg, embed, f"Applying network ban to {self._who(user)} across "
-                                                        f"**{plural(len(guilds), 'server')}**…\n\nProcessing..."):
+                                                        f"**{plural(len(guilds), 'server')}**…\n\nProcessing… please wait, this may take a while."):
             for g in guilds:
                 if step_delay > 0:
                     await asyncio.sleep(step_delay)
