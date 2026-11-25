@@ -1293,10 +1293,8 @@ class Moderation(commands.Cog):
 
     async def _role_member_hierarchy(self, ctx: Context, member: discord.Member, *, allow_self: bool = False) -> None:
         if allow_self and member.id == ctx.author.id and has_discord_administrator(ctx.author):
-            # Only individual role commands may opt in. Retain bot hierarchy and the
-            # independent global protected-person rule; other moderation stays unchanged.
-            if perms_mod.is_whitelisted_person(member.id):
-                raise UserError(perms_mod.PROTECTED_MODERATION_MESSAGE)
+            # Only individual role commands may opt in. Retain bot hierarchy; other
+            # moderation and third-party targeting protections stay unchanged.
             bot_id = getattr(ctx.guild.me, "id", None)
             if member.id == bot_id:
                 raise UserError("I can't modify my own roles")
