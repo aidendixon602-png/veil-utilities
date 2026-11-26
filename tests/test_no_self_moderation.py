@@ -126,12 +126,13 @@ def test_network_ban_skips_servers_the_target_owns():
     preview = sent[0]
     working_card, done_card = seen
     fields = {f.name: f.value for f in preview.fields}
-    assert preview.title == "Confirm Network Ban"
-    assert fields["Target"] == "**raider** (`500`)"
-    assert fields["Scope"] == "1 server" and fields["Skipped"] == "1 owned server"
-    assert fields["Reason"] == "No reason provided"
+    assert preview.title == "Confirm ban across servers"
+    assert fields["User"] == "**raider** (`500`)"
+    assert fields["Servers"] == "1 server" and fields["Skipped"] == "1 server they own"
+    assert fields["Reason"] == "No reason given"
+    assert "servers Veil is in" in preview.description and "Only a bot developer can remove" in preview.description
     assert "rejoin" in preview.description
-    assert "Expires in 30s" in preview.footer.text and preview.footer.text.startswith("Veil")
+    assert "Expires in 30s" in preview.footer.text and "Only you can confirm" in preview.footer.text
     working, done = working_card.description, done_card.description
     assert not working_card.fields
     assert working.startswith("Applying network ban to **raider** (`500`) across **1 server**")
@@ -440,7 +441,7 @@ def test_network_ban_preview_reason_is_bounded_and_escaped():
         _Answer.answer = True
     preview = discord.Embed.from_dict(sent[0])
     fields = {f.name: f.value for f in preview.fields}
-    assert r'\*\*intruder\*\*' in fields['Target']
+    assert r'\*\*intruder\*\*' in fields['User']
     assert fields['Reason'].startswith(r'\*') and len(fields['Reason']) <= 1024
     assert fields['Skipped'] == 'None'
     assert ctx.command_log_outcome == 'Network ban cancelled · nothing changed'

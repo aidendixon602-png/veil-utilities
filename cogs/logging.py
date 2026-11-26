@@ -1302,6 +1302,22 @@ class Logging(commands.Cog):
         channel = await self.member_stream_channel(m.guild, m.id)
         if channel:
             await self.post(channel, fmt.member_joined(m))
+            if not m.bot:
+                try:
+                    cfg = await self.bot.db.get_config(m.guild.id, "rejoinroles", {"enabled": False})
+                    snapshot = await self.bot.db.fetchone(
+                        "SELECT left_at FROM departed_member_roles WHERE guild_id=? AND user_id=?", m.guild.id, m.id)
+                    if (isinstance(cfg, dict) and cfg.get("enabled") is True and snapshot
+                            and 0 <= time.time() - float(snapshot["left_at"]) <= 30 * 86400):
+                        notice = discord.Embed(
+                            title="Saved roles available",
+                            description=f"Staff can review {m.mention}'s previous roles with the `rejoinroles` command. "
+                                        "Only roles they are allowed to grant will be restored.",
+                            color=Colors.neutral)
+                        await self.post(channel, notice)
+                except Exception:
+                    std_logging.getLogger("veil.logs").exception(
+                        "Could not check saved roles for returning member %s in guild %s", m.id, m.guild.id)
 
     @commands.Cog.listener()
     async def on_member_remove(self, m: discord.Member):

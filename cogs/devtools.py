@@ -439,21 +439,21 @@ class DevTools(commands.Cog):
         if not guilds:
             raise UserError(f"{user.mention} owns every server I'm in, so there's nowhere to ban them from")
         clean_reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
-        display_reason = discord.utils.escape_markdown(shorten(clean_reason, 300)) if clean_reason else "No reason provided"
+        display_reason = discord.utils.escape_markdown(shorten(clean_reason, 300)) if clean_reason else "No reason given"
         stored_reason = clean_reason or "Network ban"
 
         embed = self._prompt(
-            "Bans this user in every server the bot is in and automatically re-applies the ban on rejoin or unban. "
-            "It can only be lifted by a bot developer.",
+            "Ban this account in the servers Veil is in? Veil will ban them again if they rejoin or are unbanned. "
+            "Only a bot developer can remove this ban.",
             user=user,
             color=Colors.main,
         )
-        embed.title = "Confirm Network Ban"
-        embed.add_field(name="Target", value=self._who(user), inline=True)
-        embed.add_field(name="Scope", value=plural(len(guilds), "server"), inline=True)
-        embed.add_field(name="Skipped", value=f"{plural(len(owned), 'owned server')}" if owned else "None", inline=True)
+        embed.title = "Confirm ban across servers"
+        embed.add_field(name="User", value=self._who(user), inline=True)
+        embed.add_field(name="Servers", value=plural(len(guilds), "server"), inline=True)
+        embed.add_field(name="Skipped", value=f"{plural(len(owned), 'server they own')}" if owned else "None", inline=True)
         embed.add_field(name="Reason", value=display_reason, inline=False)
-        embed.set_footer(text="Veil  •  Only you can confirm  •  Expires in 30s")
+        embed.set_footer(text="Only you can confirm · Expires in 30s")
         view = DangerConfirm(ctx.author.id, timeout=30)
         msg = await ctx.send(embed=embed, view=view)
         await view.wait()

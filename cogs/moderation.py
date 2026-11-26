@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import time
@@ -33,6 +34,8 @@ from core.utils import (DANGEROUS_PERMS, AdminRoleGrantRequired, Colors, Context
                         is_user_role_blacklisted_in_cfg, missing_perms, now, parse_duration, shorten,
                         ts, requires_uperm, is_server_owner, owner_or_developer, has_legacy_role_assignment_auth,
                         has_soft_role_bypass, role_protection_ids, user_role_blacklist_entry)
+
+log = logging.getLogger("veil.moderation")
 
 URL = re.compile(r"https?://\S+", re.I)
 INVITE = re.compile(r"(discord\.(gg|io|me|li)|discord(app)?\.com/invite)/\S+", re.I)
@@ -1304,7 +1307,8 @@ class Moderation(commands.Cog):
             else:
                 await antinuke_guard(ctx, module, amount=amount)
 
-    async def _apply_single_role(self, ctx: Context, member: discord.Member, role: discord.Role, *, scoped=False):
+    async def _apply_single_role(self, ctx: Context, member: discord.Member, role: discord.Role, *, scoped=False,
+                                 announce=True):
         await self._role_member_hierarchy(ctx, member, allow_self=True)
         if role in member.roles:
             raise UserError("they already have it")
@@ -1334,9 +1338,10 @@ class Moderation(commands.Cog):
                     await self._change_role_exceptions(ctx.guild.id, member.id, [role.id], add=False)
                 raise
         note = " · allowed to hold this role only (no Antinuke trust)" if newly_allowed else ""
-        await ctx.done(f"added {role.mention} to {member.mention}{note}")
+        if announce:
+            await ctx.done(f"added {role.mention} to {member.mention}{note}")
 
-    async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
+    async def _give_role(self, ctx: Context, member: discord.Member, role: discord.Role, *, announce=True) -> None:
         self._role_target(ctx, f"add {role.mention} to {member.mention}", role)
         ordinary_error = None
         try:
@@ -1372,7 +1377,7 @@ class Moderation(commands.Cog):
                 ) from ordinary_error
             if ordinary_error is not None:
                 raise ordinary_error
-            return await self._apply_single_role(ctx, member, role)
+            return await self._apply_single_role(ctx, member, role, announce=announce)
 
         if ctx.author.bot:
             raise UserError("Only human members can use this authorization")
@@ -1391,7 +1396,7 @@ class Moderation(commands.Cog):
             if await is_user_role_blacklisted(ctx.guild.id, member.id, getattr(self.bot, "db", None), role.id):
                 raise UserError(f"{member.mention} is blacklisted from receiving {role.mention} in this server")
             await self._claim_admin_grant_slot(ctx.guild.id, ctx.author.id)
-            return await self._apply_single_role(ctx, member, role, scoped=True)
+            return await self._apply_single_role(ctx, member, role, scoped=True, announce=announce)
 
     async def _take_role(self, ctx: Context, member: discord.Member, role: discord.Role) -> None:
         self._role_target(ctx, f"remove {role.mention} from {member.mention}", role)
@@ -1480,6 +1485,78 @@ class Moderation(commands.Cog):
         if not lines:
             return await ctx.neutral("no Administrator-role granters are configured")
         await ctx.paginate(chunk_embeds("Administrator-role granters", lines, per_page=10, numbered=False))
+
+    @commands.group(name="rejoinroles", aliases=["rolerestore"], invoke_without_command=True,
+                    usage="[member]", extras={"example": "@member"})
+    @commands.guild_only()
+    @requires_uperm("admin")
+    @has_perms(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def rejoinroles(self, ctx: Context, member: discord.Member = None):
+        """Save roles on leave and restore eligible roles on return
+
+        Enable with `,rejoinroles enable`; use `,rejoinroles @member` to restore roles you are allowed to grant.
+        """
+        cfg = await self.bot.db.get_config(ctx.guild.id, "rejoinroles", {"enabled": False})
+        if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
+            return await ctx.neutral(f"rejoin role restore is off; enable it with `{ctx.clean_prefix}rejoinroles enable`")
+        await self.bot.db.execute("DELETE FROM departed_member_roles WHERE guild_id=? AND left_at<?",
+                                  ctx.guild.id, time.time() - 30 * 86400)
+        if member is None:
+            return await ctx.neutral("rejoin role restore is on · saved roles expire after 30 days")
+        row = await self.bot.db.fetchone(
+            "SELECT role_ids, left_at FROM departed_member_roles WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
+        if not row:
+            return await ctx.warn(f"No saved roles found for {member.mention}")
+        try:
+            left_at = float(row["left_at"])
+        except (TypeError, ValueError):
+            left_at = 0
+        if not math.isfinite(left_at) or left_at <= 0 or time.time() - left_at > 30 * 86400:
+            await self.bot.db.execute("DELETE FROM departed_member_roles WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
+            return await ctx.warn(f"The saved roles for {member.mention} expired or were invalid")
+        try:
+            role_ids = json.loads(row["role_ids"])
+            if not isinstance(role_ids, list) or any(isinstance(rid, bool) or not isinstance(rid, int) or rid <= 0 for rid in role_ids):
+                raise ValueError("invalid snapshot")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            log.warning("Invalid departed-role snapshot for guild=%s member=%s", ctx.guild.id, member.id)
+            await self.bot.db.execute("DELETE FROM departed_member_roles WHERE guild_id=? AND user_id=?", ctx.guild.id, member.id)
+            return await ctx.warn("The saved role list is invalid and was cleared")
+
+        restored, skipped = 0, 0
+        for role_id in dict.fromkeys(role_ids):
+            role = ctx.guild.get_role(role_id)
+            if role is None or role in member.roles or role.managed or role.is_default():
+                skipped += 1
+                continue
+            try:
+                await self._give_role(ctx, member, role, announce=False)
+            except (UserError, discord.HTTPException):
+                skipped += 1
+            else:
+                restored += 1
+        if restored:
+            await ctx.approve(f"restored **{restored}** role(s) to {member.mention}" +
+                              (f" · skipped {skipped}" if skipped else ""))
+        else:
+            await ctx.warn(f"No saved roles could be restored to {member.mention}" +
+                           (f" · skipped {skipped}" if skipped else ""))
+
+    @rejoinroles.command(name="enable", aliases=["on"])
+    @has_perms(manage_guild=True)
+    async def rejoinroles_enable(self, ctx: Context):
+        """Save departing members' roles for 30 days"""
+        await self.bot.db.set_config_committed(ctx.guild.id, "rejoinroles", {"enabled": True})
+        await ctx.approve("enabled saved-role restore for member returns (30-day retention)")
+
+    @rejoinroles.command(name="disable", aliases=["off"])
+    @has_perms(manage_guild=True)
+    async def rejoinroles_disable(self, ctx: Context):
+        """Stop saving roles and erase saved snapshots"""
+        await self.bot.db.set_config_committed(ctx.guild.id, "rejoinroles", {"enabled": False})
+        await self.bot.db.execute("DELETE FROM departed_member_roles WHERE guild_id=?", ctx.guild.id)
+        await ctx.approve("disabled saved-role restore and erased saved role snapshots")
 
     @commands.group(name="role", aliases=["r", "changerole", "cr"], invoke_without_command=True,
                     usage="<member> <role>", extras={"compact": True, "example": "@user @role"})
@@ -2825,6 +2902,31 @@ class Moderation(commands.Cog):
         await self.bot.db.set_config(ctx.guild.id, "jail", cfg)
         await create_case(self.bot, ctx.guild, "unjail", member, ctx.author, reason)
         await ctx.approve(f"released {member.mention} from jail")
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        """Keep a short-lived role snapshot only when this server enabled manual rejoin restore."""
+        if member.bot or not getattr(member, "guild", None):
+            return
+        try:
+            cfg = await self.bot.db.get_config(member.guild.id, "rejoinroles", {"enabled": False})
+            if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
+                return
+            role_ids = [r.id for r in getattr(member, "roles", [])
+                        if not r.is_default() and not r.managed]
+            if not role_ids:
+                await self.bot.db.execute("DELETE FROM departed_member_roles WHERE guild_id=? AND user_id=?",
+                                          member.guild.id, member.id)
+                return
+            current = time.time()
+            await self.bot.db.execute(
+                "INSERT INTO departed_member_roles(guild_id,user_id,role_ids,left_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(guild_id,user_id) DO UPDATE SET role_ids=excluded.role_ids,left_at=excluded.left_at",
+                member.guild.id, member.id, json.dumps(role_ids), current)
+            await self.bot.db.execute("DELETE FROM departed_member_roles WHERE guild_id=? AND left_at<?",
+                                      member.guild.id, current - 30 * 86400)
+        except Exception:
+            log.exception("Could not save departing member roles for guild=%s user=%s", member.guild.id, member.id)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):

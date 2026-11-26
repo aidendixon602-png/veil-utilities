@@ -84,6 +84,14 @@ CREATE TABLE IF NOT EXISTS member_notes (
     note TEXT,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS departed_member_roles (
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role_ids TEXT NOT NULL,
+    left_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_departed_member_roles_left ON departed_member_roles (left_at);
 
 -- lookups the bot does constantly (warn counts, case history, the reminder/giveaway loops)
 CREATE INDEX IF NOT EXISTS idx_warns_member ON warns (guild_id, user_id);
