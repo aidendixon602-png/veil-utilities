@@ -313,6 +313,12 @@ def test_arguments_read_like_the_reference():
     assert short_args(addrole) == "<member> <role>"  # placeholder names read as what they are
 
 
+def test_userperm_add_help_shows_a_copyable_valid_example(loaded_bot):
+    command = loaded_bot.get_command("userperm add")
+    assert short_args(command) == "<member|role> <level>"
+    assert example_for(command, ",") == ",userperm add @member Moderator"
+
+
 @pytest.mark.parametrize("doc,expected", [
     ("Ban a member (or any user by ID). Add `--purge` to delete their messages", "ban a member (or any user by ID)."),
     ("Set a personal prefix that works everywhere (`none` to remove)", "set a personal prefix that works everywhere."),

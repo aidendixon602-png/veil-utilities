@@ -153,7 +153,8 @@ class Permissions(commands.Cog):
             return await self.up_check(ctx, ctx.author)
         await self.permlevels(ctx)
 
-    @userperm.command(name="add", aliases=["set", "give"])
+    @userperm.command(name="add", aliases=["set", "give"], usage="<member|role> <level>",
+                      extras={"example": "@member Moderator"})
     @requires_uperm("headadmin")
     @has_perms(administrator=True)
     async def up_add(self, ctx: Context, target: discord.Member | discord.Role, *, level: str):
