@@ -23,7 +23,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,antinukepreset list` | List antinuke presets |
 | `,antinukepreset load <name>` (apply) | Apply a saved preset to this server |
 | `,antinukepreset save <name>` | Save this server's antinuke config as a preset |
-| `,genreban <user> [reason]` (reban, hardban, globalban, hb) | Attempt a cross-server genreban after confirmation |
+| `,genreban <user> [reason]` (reban, hardban, globalban) | Attempt a cross-server genreban after confirmation |
 | `,hardbans` (genrebans, genrebanlist, globalbans) | List network hardbans |
 | `,joinleavelogs [channel]` (jllogs) | Log joins, leaves and kicks in their own channel |
 | `,massunrole [role] [flag]` | Remove a role from everyone |
@@ -31,7 +31,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,midtown servers` | Privately scan joined server names for Midtown |
 | `,revert <user> <duration>` | Undo someone's recent bans and deletions |
 | `,strip <member>` | Remove every role from a member and log the strip |
-| `,ungenreban <user>` (unreban, unhardban, globalunban, unhb) | Lift a network genreban in every server |
+| `,ungenreban <user>` (unreban, unhardban, globalunban) | Lift a network genreban in every server |
 | `,unstrip <member>` (restore) | Give back the roles a strip removed |
 | `,userrolebl [target] [extra]` (urbl, norole, userblrole) | Blacklist a user from getting roles in this server |
 | `,userrolebl add <target> [extra]` (block, set) | Blacklist a user from all roles or a specific role |
