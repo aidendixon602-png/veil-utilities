@@ -18,6 +18,7 @@ from discord.ext import commands, tasks
 
 from core import autoclean
 from core.loops import resilient
+from core.runtime_health import runtime_health
 from core.utils import (Colors, Context, Duration, OwnedView, UserError, build_message, build_vars, chunk_embeds,
                         fmt_duration, has_perms, now, shorten, ts)
 
@@ -762,11 +763,11 @@ class Utility(commands.Cog):
         api = (time.perf_counter() - t) * 1000
         t_db = time.perf_counter()
         try:
-            await self.bot.db.fetchone("SELECT 1")
+            await asyncio.wait_for(self.bot.db.fetchone("SELECT 1"), timeout=2.0)
             db_ms = (time.perf_counter() - t_db) * 1000
             db_str = f" · database **{db_ms:.1f}ms**"
         except Exception:
-            db_str = ""
+            db_str = " · database **unavailable**"
         await msg.edit(embed=discord.Embed(color=Colors.neutral,
                        description=f"gateway **{self.bot.latency * 1000:.0f}ms** · api **{api:.0f}ms**{db_str}"))
 
@@ -786,6 +787,14 @@ class Utility(commands.Cog):
         e.add_field(name="Memory", value=memory_mb())
         e.add_field(name="Library", value=f"discord.py {discord.__version__}")
         e.add_field(name="Python", value=platform.python_version())
+        is_owner = getattr(b, "is_owner", None)
+        if callable(is_owner) and await is_owner(ctx.author):
+            health = await runtime_health(b)
+            e.add_field(name="Runtime health", value=(
+                f"Database · **{health['database']}**\n"
+                f"Music · **{health['music']}**\n"
+                f"Security · **{health['security']}**\n"
+                f"Dashboard · **{health['dashboard']}**"), inline=False)
         e.set_footer(text="Veil  •  Current process")
         await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
 

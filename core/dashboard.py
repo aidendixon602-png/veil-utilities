@@ -544,6 +544,13 @@ class DashboardServer:
                      f'<div><span>{member_label}</span><strong>{members_text}</strong></div>'
                      f'<div><span>GATEWAY LATENCY</span><strong>{latency_text}</strong></div>'
                      f'<div><span>UPTIME</span><strong>{uptime_text}</strong></div></section>')
+            from core.runtime_health import runtime_health
+            health = await runtime_health(self.bot)
+            body += ('<section class="activity-bar" aria-label="Runtime health">'
+                     f'<div><span>DATABASE</span><strong>{_esc(health["database"])}</strong></div>'
+                     f'<div><span>MUSIC</span><strong>{_esc(health["music"])}</strong></div>'
+                     f'<div><span>SECURITY</span><strong>{_esc(health["security"])}</strong></div>'
+                     f'<div><span>DASHBOARD</span><strong>{_esc(health["dashboard"])}</strong></div></section>')
         # Search and filters are evaluated after the developer access check.
         query = request.query.get("q", "").strip()[:100]
         status = request.query.get("antinuke", "any")
