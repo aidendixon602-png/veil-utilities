@@ -1134,21 +1134,6 @@ class Moderation(commands.Cog):
         await channel.edit(slowmode_delay=secs)
         await ctx.approve(f"set slowmode in {channel.mention} to **{fmt_duration(secs)}**" if secs else f"turned off slowmode in {channel.mention}")
 
-    @commands.command()
-    @requires_uperm("headadmin")
-    @has_perms(administrator=True)
-    @commands.bot_has_permissions(manage_channels=True)
-    @is_server_owner()
-    async def nuke(self, ctx: Context):
-        """Clone this channel and delete the original (wipes all messages)"""
-        if not await ctx.confirm(f"nuke {ctx.channel.mention}? every message in it will be deleted"):
-            return await ctx.neutral("cancelled")
-        await antinuke_guard(ctx, "channeldelete")
-        new = await ctx.channel.clone(reason=audit_reason(ctx.author, action="nuked"))
-        await new.edit(position=ctx.channel.position)
-        await ctx.channel.delete(reason=audit_reason(ctx.author, action="nuked"))
-        await new.send(embed=discord.Embed(description=f"💥 Channel nuked by {ctx.author.mention}", color=Colors.main))
-
     # ================================================================ roles
     async def _resolve_member_role(self, ctx: Context, arg1: str, arg2: str) -> tuple[discord.Member, discord.Role]:
         member = None

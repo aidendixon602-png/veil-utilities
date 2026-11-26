@@ -25,6 +25,9 @@ async def main() -> int:
         except Exception as e:  # noqa: BLE001
             problems.append(f"{ext} failed to load: {e!r}")
 
+    if bot.get_command("nuke") is not None:
+        problems.append("removed destructive ,nuke command is still registered")
+
     seen: dict[str, str] = {}
     for cmd in bot.commands:
         for name in (cmd.name, *cmd.aliases):
