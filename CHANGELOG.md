@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bounded operator health checks.** `,ping` now gives up after a two-second database probe and explicitly reports when the database is unavailable instead of hanging or hiding the failure. Developer-only `,botinfo` and the developer dashboard now show a shared, secret-free runtime summary for database, music nodes, authorization/Antinuke, and dashboard status.
 - **Dashboard pages no longer crash on unusual saved settings.** Every dashboard read now
   guarantees a config document is a mapping, and list/string fields (disabled commands, log
   exclusions, automod rules, ticket support roles, Antinuke rules) are type-checked before

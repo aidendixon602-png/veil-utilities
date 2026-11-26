@@ -113,6 +113,21 @@ def test_bot_overview_reports_process_values_and_unavailable_latency(monkeypatch
     asyncio.run(run())
 
 
+def test_ping_reports_an_unavailable_database():
+    async def go():
+        async def db_down(_query):
+            raise OSError("database unavailable")
+
+        message = SimpleNamespace(edit=AsyncMock())
+        ctx = SimpleNamespace(neutral=AsyncMock(return_value=message))
+        bot = SimpleNamespace(db=SimpleNamespace(fetchone=db_down), latency=0.025)
+        await Utility.ping.callback(Utility(bot), ctx)
+        description = message.edit.await_args.kwargs["embed"].description
+        assert "gateway **25ms**" in description
+        assert "database **unavailable**" in description
+    asyncio.run(go())
+
+
 def test_help_home_brand_prefix_and_aliases_remain_intact():
     bot = commands.Bot(command_prefix='!', intents=discord.Intents.none())
     bot.add_command(Utility.userinfo.copy())
