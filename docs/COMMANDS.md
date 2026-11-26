@@ -356,7 +356,7 @@ _Keep your server in line_
 | `,adminrolegrant remove <target>` | Revoke a member or role's Administrator-role authorization | server owner or bot developer |
 | `,adminrolegrant removeid <member_id>` | Revoke authorization by ID even if the member is gone | server owner or bot developer |
 | `,adminrolegrant removeroleid <role_id>` | Revoke authorization by ID even if the role is gone | server owner or bot developer |
-| `,ban <user> [reason]` | Ban a member, or anyone by user ID | ban members, uperm: admin |
+| `,ban <user> [reason]` (hb) | Ban a member in this server, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `,bypass [target]` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
 | `,bypass add <target>` | Allow a member or role to bypass the ordinary role blacklist | server owner or bot developer |
@@ -428,7 +428,7 @@ _Keep your server in line_
 | `,stripbled` (purgebled, rblstrip, roleblstrip) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
 | `,stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, server owner or bot developer, uperm: headadmin |
 | `,timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d; Helper max 1h) | moderate members, uperm: helper, veil timeout |
-| `,unban <user> [reason]` | Unban a user | ban members, uperm: admin |
+| `,unban <user> [reason]` (unhb) | Unban a user in this server | ban members, uperm: admin |
 | `,unhide [channel]` (reveal) | Reveal a hidden channel | manage channels, uperm: admin |
 | `,unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: moderator |
 | `,unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels, uperm: admin |

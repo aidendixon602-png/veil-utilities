@@ -96,6 +96,13 @@ class _Answer:
         self.value = _Answer.answer
 
 
+def test_hb_alias_is_local_ban_and_not_network_ban():
+    assert "hb" in Moderation.ban.aliases
+    assert "hb" not in DevTools.genreban.aliases
+    assert "unhb" in Moderation.unban.aliases
+    assert "unhb" not in DevTools.ungenreban.aliases
+
+
 def test_network_ban_skips_servers_the_target_owns():
     owned, other = server(7, OTHER), server(8, 999)
     ctx = make_ctx(guilds=[owned, other])
@@ -222,8 +229,10 @@ def test_cancelling_a_network_ban_does_nothing():
 
 
 def test_the_old_names_still_work():
-    assert {"hardban", "reban", "hb", "globalban"} <= set(DevTools.genreban.aliases)
-    assert {"unhardban", "unreban", "unhb"} <= set(DevTools.ungenreban.aliases)
+    assert {"hardban", "reban", "globalban"} <= set(DevTools.genreban.aliases)
+    assert "hb" not in DevTools.genreban.aliases
+    assert "unhb" not in DevTools.ungenreban.aliases
+    assert {"unhardban", "unreban", "globalunban"} <= set(DevTools.ungenreban.aliases)
 
 
 def test_developer_tools_stay_developer_only():

@@ -587,7 +587,7 @@ class Moderation(commands.Cog):
         return name == levels["helper"]["name"] or rank < levels["moderator"]["rank"]
 
     # ================================================================ bans
-    @commands.command()
+    @commands.command(aliases=["hb"])
     @requires_uperm("admin")
     @has_perms(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
@@ -620,7 +620,7 @@ class Moderation(commands.Cog):
         await create_case(self.bot, ctx.guild, "ban", user, ctx.author, reason)
         await ctx.warn(f"**{getattr(user, 'name', user)}** has been banned")
 
-    @commands.command()
+    @commands.command(aliases=["unhb"])
     @requires_uperm("admin")
     @has_perms(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)

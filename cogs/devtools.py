@@ -414,7 +414,7 @@ class DevTools(commands.Cog):
         except (discord.HTTPException, asyncio.TimeoutError):
             return None
 
-    @commands.command(hidden=True, aliases=["reban", "hardban", "globalban", "hb"])
+    @commands.command(hidden=True, aliases=["reban", "hardban", "globalban"])
     async def genreban(self, ctx: Context, user: discord.User, *, reason: str = None):
         """Attempt a cross-server genreban after confirmation
 
@@ -579,7 +579,7 @@ class DevTools(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
         await msg.edit(embed=embed, view=None)
 
-    @commands.command(hidden=True, aliases=["unreban", "unhardban", "globalunban", "unhb"])
+    @commands.command(hidden=True, aliases=["unreban", "unhardban", "globalunban"])
     async def ungenreban(self, ctx: Context, user: discord.User):
         """Lift a network genreban in every server"""
         if not await self._already(user):
