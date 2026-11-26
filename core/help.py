@@ -527,12 +527,19 @@ def page_order(label: str, cmds: list[commands.Command]) -> list[commands.Comman
 
 
 def developer_commands(bot) -> list[commands.Command]:
-    """The developer-only commands (bot owner tools), shown to developers as the Developer category."""
+    """Owner and bot-operations commands shown in Developer (excluding Secret tools)."""
     cmds = []
-    for cog_name in sorted(HIDDEN_COGS):
+    for cog_name in sorted(HIDDEN_COGS - {"DevTools"}):
         cog = bot.get_cog(cog_name) if bot is not None and hasattr(bot, "get_cog") else None
         if cog:
             cmds += [c for c in cog.get_commands() if c.parent is None]
+    return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
+
+
+def secret_commands(bot) -> list[commands.Command]:
+    """Restricted DevTools commands shown only in the separate Secret category."""
+    cog = bot.get_cog("DevTools") if bot is not None and hasattr(bot, "get_cog") else None
+    cmds = [c for c in cog.get_commands() if c.parent is None] if cog else []
     return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
 
 
@@ -688,7 +695,7 @@ class HelpView(OwnedView):
         if label == "Developer":
             return developer_commands(self.bot) if self.is_owner else []
         if label == "Secret":
-            return [cmd for cmd in developer_commands(self.bot) if cmd.cog_name == "DevTools"] if self.is_owner else []
+            return secret_commands(self.bot) if self.is_owner else []
         return allowed(self.categories.get(label, []), self.bot, self.is_owner, self.author_rank, self.access)
 
     def current_items(self) -> list[commands.Command]:

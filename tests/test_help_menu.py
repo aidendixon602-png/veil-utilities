@@ -506,6 +506,7 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     names = [c.name for c in developer_commands(loaded_bot)]
     assert {"gitpull", "eval", "restart", "version", "blacklist"} <= set(names)
     assert names == sorted(names)
+    assert all(command.cog_name != "DevTools" for command in developer_commands(loaded_bot))
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, {}, is_owner=True)
@@ -1346,6 +1347,10 @@ def test_secret_category_contains_devtools_without_opening_it_to_others(loaded_b
     secret = owner.commands_in('Secret')
     assert secret and all(command.cog_name == 'DevTools' for command in secret)
     assert {'strip', 'unstrip', 'genreban'} <= {command.name for command in secret}
+    developer = owner.commands_in('Developer')
+    assert all(command.cog_name != 'DevTools' for command in developer)
+    assert {command.qualified_name for command in developer}.isdisjoint(
+        {command.qualified_name for command in secret})
     public = HelpView(h, {}, is_owner=False)
     assert 'Secret' not in public.pages and public.commands_in('Secret') == []
 
