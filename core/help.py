@@ -26,20 +26,17 @@ CATEGORY_MENU_EXCLUDED_COMMANDS = {
 
 # (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
-    ("Utility", ["Utility"], []),
+    # Keep the browse menu focused on the eight main categories. General-purpose
+    # feature cogs live under Utility rather than creating a second tier of menus.
+    ("Utility", ["Utility", "Config", "Settings", "VoiceMaster", "Levels", "Giveaways", "Tickets",
+                 "Feeds", "Integrations", "Fun", "AI", "Imaging"], []),
     ("Music", ["Music", "Spotify"], []),
     ("Moderation", ["Moderation", "Logging"], []),
     ("Roles", [], ["role", "autorole", "reactionrole", "buttonrole", "vanity", "stripstaff", "roles",
                    "roleblacklist", "addpermall", "removepermall", "userperm"]),
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
-    ("Antinuke", [], ["antinuke"]),
-    ("Security", ["Antinuke"], []),
-    ("Server", ["Config", "Settings"], []),
-    ("VoiceMaster", ["VoiceMaster"], []),
-    ("Community", ["Levels", "Giveaways", "Tickets", "Feeds", "Integrations"], []),
-    ("Fun", ["Fun", "AI"], []),
-    ("Images", ["Imaging"], []),
+    ("Antinuke", ["Antinuke"], ["antinuke"]),
 ]
 
 PAGE_SIZE = 10  # subcommand lists on a group's card
@@ -310,11 +307,11 @@ def category_commands(bot: commands.Bot) -> dict[str, list[commands.Command]]:
             placed.update(c.qualified_name for c in cmds)
         elif label in out and not out[label]:
             del out[label]
-    # anything new that isn't mapped still shows up in Community
+    # Anything new that isn't mapped still shows up in Utility, the catch-all category.
     leftovers = [c for c in bot.commands if not c.hidden and c.qualified_name not in placed
                  and c.name not in CATEGORY_MENU_EXCLUDED_COMMANDS and c.cog is not None and c.cog_name not in HIDDEN_COGS | HELP_EXCLUDED_COGS]
     if leftovers:
-        out.setdefault("Community", []).extend(sorted(leftovers, key=lambda c: c.name))
+        out.setdefault("Utility", []).extend(sorted(leftovers, key=lambda c: c.name))
     return out
 
 
