@@ -1,6 +1,6 @@
 # Command reference
 
-485 commands. Default prefix `,`. `<required>` `[optional]`.
+488 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -203,6 +203,7 @@ _Games and silly commands_
 | `,roll [dice=1d6]` (dice) | Roll dice |  |
 | `,rps <choice>` | Rock paper scissors |  |
 | `,ship <a> [b]` | Ship compatibility |  |
+| `,simi` | Another perfect day in Midtown |  |
 | `,slap [member]` | Slap someone |  |
 | `,tickle [member]` | Tickle someone |  |
 | `,tictactoe <opponent>` (ttt) | Play tic-tac-toe with someone |  |
@@ -356,7 +357,7 @@ _Keep your server in line_
 | `,adminrolegrant remove <target>` | Revoke a member or role's Administrator-role authorization | server owner or bot developer |
 | `,adminrolegrant removeid <member_id>` | Revoke authorization by ID even if the member is gone | server owner or bot developer |
 | `,adminrolegrant removeroleid <role_id>` | Revoke authorization by ID even if the role is gone | server owner or bot developer |
-| `,ban <user> [reason]` (hb) | Ban a member in this server, or anyone by user ID | ban members, uperm: admin |
+| `,ban <user> [reason]` (hb) | Ban a member, or anyone by user ID | ban members, uperm: admin |
 | `,botclear [amount=100]` (bc) | Delete bot messages and command invocations | manage messages, uperm: helper |
 | `,bypass [target]` | Manage separate soft role-blacklist bypasses (not antinuke trust) | server owner or bot developer |
 | `,bypass add <target>` | Allow a member or role to bypass the ordinary role blacklist | server owner or bot developer |
@@ -381,7 +382,6 @@ _Keep your server in line_
 | `,massban <minutes> [reason=raid cleanup]` (banrecent) | Ban everyone who joined in the last few minutes | administrator, ban members, server owner or bot developer, uperm: admin |
 | `,masskick <minutes> [reason=raid cleanup]` (kickrecent) | Kick everyone who joined in the last few minutes | kick members, server owner or bot developer, uperm: admin |
 | `,nickname <member> [nickname]` (nick) | Change (or reset) a member's nickname | manage nicknames, uperm: moderator |
-| `,nuke` | Clone this channel and delete the original (wipes all messages) | administrator, manage channels, server owner or bot developer, uperm: headadmin |
 | `,purge <amount> [member]` (clear, c, prune) | Delete messages (optionally only from one member) | manage messages, uperm: helper |
 | `,purge after <message_id>` | Delete every message after a message ID | manage messages |
 | `,purge bots [amount=100]` | Delete messages from bots | manage messages |
@@ -396,6 +396,9 @@ _Keep your server in line_
 | `,rblauth <target>` (roleblauth, bledauth, rblbypass) | Let a member or role hold blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
 | `,rblunauth <target>` (roleblunauth, bledunauth) | Stop a member or role from holding blacklisted roles | manage roles, server owner or bot developer, uperm: headadmin |
 | `,reason <case> <reason>` | Change the reason on a case | moderate members |
+| `,rejoinroles [member]` (rolerestore) | Save roles on leave and restore eligible roles on return | manage roles, uperm: admin |
+| `,rejoinroles disable` (off) | Stop saving roles and erase saved snapshots | manage guild |
+| `,rejoinroles enable` (on) | Save departing members' roles for 30 days | manage guild |
 | `,removepermall <permission>` | Remove one Discord permission from eligible roles after confirmation | administrator |
 | `,removerole <arg1> <arg2>` (takerole) | Remove a role from a member | manage roles, uperm: admin |
 | `,role <arg1> [arg2]` (r, changerole, cr) | Give a member a role, or take it if they have it | manage roles, uperm: admin |
@@ -428,7 +431,7 @@ _Keep your server in line_
 | `,stripbled` (purgebled, rblstrip, roleblstrip) | Take blacklisted roles off everyone not allowed to have them | manage roles, server owner or bot developer, uperm: headadmin |
 | `,stripstaff <member>` | Remove every role with dangerous permissions from a member | administrator, server owner or bot developer, uperm: headadmin |
 | `,timeout <member> [duration] [reason]` (mute, to, tmute) | Timeout a member (default 5m, max 28d; Helper max 1h) | moderate members, uperm: helper, veil timeout |
-| `,unban <user> [reason]` (unhb) | Unban a user in this server | ban members, uperm: admin |
+| `,unban <user> [reason]` (unhb) | Unban a user | ban members, uperm: admin |
 | `,unhide [channel]` (reveal) | Reveal a hidden channel | manage channels, uperm: admin |
 | `,unjail <member> [reason]` | Release a member and give back their roles | moderate members, uperm: moderator |
 | `,unlock [channel] [reason]` | Allow @everyone to send messages again | manage channels, uperm: admin |
