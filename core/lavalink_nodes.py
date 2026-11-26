@@ -17,9 +17,10 @@ Discord's DAVE voice encryption needs Lavalink 4.2+, so nodes listed on an older
 from __future__ import annotations
 
 PUBLIC_NODES: tuple[tuple[str, str], ...] = (
+    # Keep one node per independent operator. The two Millo endpoints share an
+    # operator and credentials, so they add correlated failure/retry noise rather
+    # than independent fallback capacity.
     ("https://lavalink.nazha.online:443", "nazhafreelava"),
-    ("https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
-    ("https://lava4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
     ("https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
     ("https://lavalink-v4.triniumhost.com:443", "free"),
 )
