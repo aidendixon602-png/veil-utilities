@@ -26,8 +26,8 @@ CATEGORY_MENU_EXCLUDED_COMMANDS = {
 
 # (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
-    # Keep the browse menu focused on the eight main categories. General-purpose
-    # feature cogs live under Utility rather than creating a second tier of menus.
+    # Keep the browse menu focused on the main categories. General-purpose feature
+    # cogs live under Utility; Security is a rank-gated select entry, separate from Antinuke.
     ("Utility", ["Utility", "Config", "Settings", "VoiceMaster", "Levels", "Giveaways", "Tickets",
                  "Feeds", "Integrations", "Fun", "AI", "Imaging"], []),
     ("Music", ["Music", "Spotify"], []),
@@ -37,6 +37,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
     ("Antinuke", ["Antinuke"], ["antinuke"]),
+    ("Security", [], ["antiraid", "antialt", "autosetup"]),
 ]
 
 PAGE_SIZE = 10  # subcommand lists on a group's card
@@ -526,13 +527,17 @@ def page_order(label: str, cmds: list[commands.Command]) -> list[commands.Comman
                                        else len(pinned), c.qualified_name))
 
 
+DEVELOPER_HELP_EXCLUDED = {"testnuke", "testcleanup", "testserver"}
+
+
 def developer_commands(bot) -> list[commands.Command]:
-    """Owner and bot-operations commands shown in Developer (excluding Secret tools)."""
+    """Owner and bot-operations commands shown in Developer (excluding Secret and test-only tools)."""
     cmds = []
     for cog_name in sorted(HIDDEN_COGS - {"DevTools"}):
         cog = bot.get_cog(cog_name) if bot is not None and hasattr(bot, "get_cog") else None
         if cog:
-            cmds += [c for c in cog.get_commands() if c.parent is None]
+            cmds += [c for c in cog.get_commands()
+                     if c.parent is None and c.name not in DEVELOPER_HELP_EXCLUDED]
     return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
 
 

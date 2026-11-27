@@ -14,13 +14,15 @@ from core.utils import UserError, owner_or_developer
 
 
 def test_owner_checks_cover_all_listed_commands_and_equivalent_routes():
+    assert not hasattr(Moderation, "nuke")  # the destructive command was removed
+
     async def run():
         ctx = SimpleNamespace(guild=SimpleNamespace(id=1, owner_id=10),
                               author=SimpleNamespace(id=20, roles=[SimpleNamespace(id=55)],
                                                      guild_permissions=discord.Permissions.all()),
                               bot=SimpleNamespace(owner_ids={30}, owner_id=None,
                                                   db=SimpleNamespace(get_config=AsyncMock(return_value={"55": ["administrator"]}))))
-        sensitive = [Moderation.security, Moderation.masskick, Moderation.massban, Moderation.nuke,
+        sensitive = [Moderation.security, Moderation.masskick, Moderation.massban,
                      Moderation.stripstaff, Moderation.roleblacklist, Moderation.cmd_checkbled,
                      Moderation.cmd_stripbled, Moderation.cmd_rblauth, Moderation.cmd_rblunauth,
                      Logging.logs, Logging.cmd_setuplogs, Logging.cmd_cleanuplogs]

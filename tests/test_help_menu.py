@@ -70,15 +70,15 @@ ALL = {label: [] for label, _, _ in CATEGORIES}
 # ------------------------------------------------------------------ the category buttons
 
 def test_category_buttons_only_list_categories_the_person_may_open():
-    public = {"Utility", "Music", "VoiceMaster", "Community", "Fun", "Images"}
+    public = {"Utility", "Music"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
-    # each level up opens one more staff category
+    # Rank-gated staff categories are separate from operator-only Antinuke.
     expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
-                4: {"Moderation", "Roles", "Server"},
-                6: {"Moderation", "Roles", "Server", "Permissions"},
-                7: {"Moderation", "Roles", "Server", "Permissions", "Security"}}
+                4: {"Moderation", "Roles"}, 6: {"Moderation", "Roles", "Permissions"},
+                7: {"Moderation", "Roles", "Permissions", "Security"}}
     for rank, staff in expected.items():
         assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
+    assert "Antinuke" not in _labels(HelpView(_help(), ALL, author_rank=7))
     assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
 
 
@@ -512,6 +512,9 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     names = [c.name for c in developer_commands(loaded_bot)]
     assert {"gitpull", "eval", "restart", "version", "blacklist"} <= set(names)
     assert names == sorted(names)
+    assert not {"testnuke", "testcleanup", "testserver"} & set(names)
+    assert all(loaded_bot.get_command(name) is not None
+               for name in ("testnuke", "testcleanup", "testserver"))
     assert all(command.cog_name != "DevTools" for command in developer_commands(loaded_bot))
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
@@ -1102,7 +1105,7 @@ def test_command_cards_show_inherited_and_custom_level_requirements():
         description = h.context.send.await_args.kwargs["embed"].description
         assert "Rank **Senior Mod**" in description and "Manage Messages" in description
         access = await h.help_access(5)
-        view = HelpView(h, {"Community": [toolbox]}, start="Community", author_rank=5, access=access)
+        view = HelpView(h, {"Moderation": [toolbox]}, start="Moderation", author_rank=5, access=access)
         await view.show_command(_it(), "toolbox")
         await view.show_subcommand(_it(), "toolbox child")
         assert "Rank **Senior Mod**" in view.embed().description and "Manage Messages" in view.embed().description
@@ -1154,8 +1157,8 @@ def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loa
     assert root.qualified_name in names
     assert {c.qualified_name for c in root.walk_commands() if not c.hidden} <= names
     security = {c.qualified_name for c in category_commands(loaded_bot)["Security"]}
-    assert {"antiraid", "antialt"} <= security
-    assert not ({"antiraid", "antialt"} & names)
+    assert {"antiraid", "antialt", "autosetup"} <= security
+    assert not ({"antiraid", "antialt", "autosetup"} & names)
     assert "antinuke namemonitor" in names
     h = _help()
     pages = h.category_pages("Antinuke", page_order("Antinuke", entries))
