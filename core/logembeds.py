@@ -835,12 +835,11 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
     level = shorten(str(permission).replace("\n", " "), 120) if permission and permission != "None" else "None"
     raw_grant = redact.scrub(str(granted_by or "")).replace("\n", " ").strip()
     if raw_grant in ("", "-", "Not assigned"):
-        grant = ""
+        grant = "—"
     elif raw_grant == "Permissions attached to user":
         grant = "Direct"
     else:
         grant = shorten(raw_grant, 160)
-    access = level if (level == "None" or not grant) else f"{level} • {grant}"
     channel = shorten(ctx.channel.mention, 100) + (f" ([Jump]({shorten(str(jump), 500)}))" if jump else "")
     took = _took(ms)
 
@@ -860,10 +859,11 @@ def command_used(ctx, permission: str, granted_by: str, *, rank: int | None = No
 
     title = "Command Failed" if failed else "Command Warning" if warning else "Command Executed"
     color = Colors.deny if failed else Colors.caution if warning else Colors.approve
-    return field_card(color, title, subject=ctx.author, lead=f"`{command}`", fields=[
-        ("User", ctx.author.mention, True),
+    return field_card(color, title, subject=ctx.author, fields=[
+        ("Command", f"`{command}`", False),
         ("Channel", channel, True),
-        ("Access", access, True),
+        ("Permission", level, True),
+        ("Granted By", grant, True),
         detail_field,
     ], ids=footer_ids)
 

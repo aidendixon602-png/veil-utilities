@@ -160,7 +160,7 @@ def test_the_log_line_names_the_button_and_points_at_the_panel():
     ctx.author.id, ctx.author.name, ctx.author.display_avatar = 9, "mod", None
     card = logembeds.command_used(ctx, "Admin", "-", ms=1200)
     fields = {field.name: field.value for field in card.fields}
-    assert card.description == "`Lockdown (,admin panel)`"
+    assert fields["Command"] == "`Lockdown (,admin panel)`"
     assert fields["Channel"] == "<#1> ([Jump](https://discord.com/x/panel))"
     assert card.footer.text == "User ID: 9 • 1.2s"
     failed = logembeds.command_used(ctx, "Admin", "-", error="Lockdown is already on")
