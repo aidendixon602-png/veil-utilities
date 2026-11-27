@@ -125,14 +125,13 @@ def test_network_ban_skips_servers_the_target_owns():
     ctx.send.assert_awaited_once()
     preview = sent[0]
     working_card, done_card = seen
-    fields = {f.name: f.value for f in preview.fields}
-    assert preview.title == "Confirm ban across servers"
-    assert fields["User"] == "**raider** (`500`)"
-    assert fields["Servers"] == "1 server" and fields["Skipped"] == "1 server they own"
-    assert fields["Reason"] == "No reason given"
-    assert "servers Veil is in" in preview.description and "Only a bot developer can remove" in preview.description
-    assert "rejoin" in preview.description
-    assert "Expires in 30s" in preview.footer.text and "Only you can confirm" in preview.footer.text
+    assert preview.title == "Confirm network ban"
+    assert not preview.fields
+    assert "**raider** (`500`)" in preview.description
+    assert "**1 server**" in preview.description and "1 server they own" in preview.description
+    assert "Only a bot developer can lift" in preview.description
+    assert "re-banned" in preview.description
+    assert "30 seconds" in preview.footer.text and "Confirm or cancel" in preview.footer.text
     working, done = working_card.description, done_card.description
     assert not working_card.fields
     assert working.startswith("Applying network ban to **raider** (`500`) across **1 server**")
@@ -141,7 +140,7 @@ def test_network_ban_skips_servers_the_target_owns():
     assert done_fields["Applied"] == "Banned in 1 server"
     assert done_fields["Skipped"] == "1 owned server"
     assert done_card.title == "Network Ban Recorded"
-    assert "(s)" not in str(fields) + working + done
+    assert "(s)" not in preview.description + working + done
 
 
 def test_someone_already_genrebanned_is_not_banned_again():
@@ -440,10 +439,10 @@ def test_network_ban_preview_reason_is_bounded_and_escaped():
     finally:
         _Answer.answer = True
     preview = discord.Embed.from_dict(sent[0])
-    fields = {f.name: f.value for f in preview.fields}
-    assert r'\*\*intruder\*\*' in fields['User']
-    assert fields['Reason'].startswith(r'\*') and len(fields['Reason']) <= 1024
-    assert fields['Skipped'] == 'None'
+    assert r'\*\*intruder\*\*' in preview.description
+    reason_line = next(line for line in preview.description.splitlines() if line.startswith("**Reason:**"))
+    assert reason_line.startswith(r'**Reason:** \*') and len(reason_line) <= 320
+    assert "Skipped" not in preview.description
     assert ctx.command_log_outcome == 'Network ban cancelled · nothing changed'
     assert edits[-1]['title'] == 'Network Ban Cancelled' and not edits[-1].get('fields')
     ctx.bot.db.execute.assert_not_awaited()

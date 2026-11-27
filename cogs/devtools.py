@@ -439,21 +439,18 @@ class DevTools(commands.Cog):
         if not guilds:
             raise UserError(f"{user.mention} owns every server I'm in, so there's nowhere to ban them from")
         clean_reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
-        display_reason = discord.utils.escape_markdown(shorten(clean_reason, 300)) if clean_reason else "No reason given"
+        display_reason = discord.utils.escape_markdown(shorten(clean_reason, 120)) if clean_reason else None
         stored_reason = clean_reason or "Network ban"
 
-        embed = self._prompt(
-            "Ban this account in the servers Veil is in? Veil will ban them again if they rejoin or are unbanned. "
-            "Only a bot developer can remove this ban.",
-            user=user,
-            color=Colors.main,
-        )
-        embed.title = "Confirm ban across servers"
-        embed.add_field(name="User", value=self._who(user), inline=True)
-        embed.add_field(name="Servers", value=plural(len(guilds), "server"), inline=True)
-        embed.add_field(name="Skipped", value=f"{plural(len(owned), 'server they own')}" if owned else "None", inline=True)
-        embed.add_field(name="Reason", value=display_reason, inline=False)
-        embed.set_footer(text="Only you can confirm · Expires in 30s")
+        details = [f"Ban {self._who(user)} across **{plural(len(guilds), 'server')}**?"]
+        if owned:
+            details.append(f"Skipped {plural(len(owned), 'server they own')}.")
+        details.append("They’ll be re-banned if they rejoin or are unbanned. Only a bot developer can lift this ban.")
+        if display_reason:
+            details.append(f"**Reason:** {display_reason}")
+        embed = self._prompt("\n".join(details), color=Colors.main)
+        embed.title = "Confirm network ban"
+        embed.set_footer(text="Confirm or cancel · 30 seconds")
         view = DangerConfirm(ctx.author.id, timeout=30)
         msg = await ctx.send(embed=embed, view=view)
         await view.wait()
