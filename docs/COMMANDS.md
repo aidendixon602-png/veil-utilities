@@ -1,6 +1,6 @@
 # Command reference
 
-488 commands. Default prefix `,`. `<required>` `[optional]`.
+486 commands. Default prefix `,`. `<required>` `[optional]`.
 
 Generated from visible cog commands. Aliases also use the prefix. The permission column is
 not a complete authorization policy: global checks, server authorization, private mode, role
@@ -184,7 +184,6 @@ _Games and silly commands_
 | `,bite [member]` | Bite someone |  |
 | `,cat` | Random cat |  |
 | `,choose <options>` (pick) | Pick one of several options |  |
-| `,coinflip` (cf, flip) | Flip a coin |  |
 | `,coolrate [member]` (howcool, rate) | How cool is someone |  |
 | `,cuddle [member]` | Cuddle someone |  |
 | `,dog` | Random dog |  |
@@ -200,7 +199,6 @@ _Games and silly commands_
 | `,punch [member]` | Punch someone |  |
 | `,redditmeme` (dankmeme, rmeme) | Fetch a random trending meme from Reddit | uperm: helper |
 | `,reverse <text>` | Reverse text |  |
-| `,roll [dice=1d6]` (dice) | Roll dice |  |
 | `,rps <choice>` | Rock paper scissors |  |
 | `,ship <a> [b]` | Ship compatibility |  |
 | `,simi` | Another perfect day in Midtown |  |

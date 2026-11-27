@@ -99,29 +99,6 @@ class Fun(commands.Cog):
                    "Don't count on it.", "My reply is no.", "My sources say no.", "Very doubtful.", "Absolutely not."]
         await ctx.neutral(f"🎱 **{question}**\n{random.choice(answers)}")
 
-    @commands.command(aliases=["cf", "flip"])
-    async def coinflip(self, ctx: Context):
-        """Flip a coin"""
-        await ctx.neutral(f"🪙 **{random.choice(['Heads', 'Tails'])}**")
-
-    @commands.command(aliases=["dice"])
-    async def roll(self, ctx: Context, dice: str = "1d6"):
-        """Roll dice
-
-        Example: `,roll 2d20`
-        """
-        m = re.fullmatch(r"(\d*)d(\d+)", dice.lower())
-        if m:
-            n, sides = int(m.group(1) or 1), int(m.group(2))
-        elif dice.isdigit():
-            n, sides = 1, int(dice)
-        else:
-            raise UserError("Use `NdS` like `2d6` or a number")
-        if not (1 <= n <= 50 and 2 <= sides <= 10000):
-            raise UserError("Up to 50 dice with 2–10000 sides")
-        rolls = [random.randint(1, sides) for _ in range(n)]
-        await ctx.neutral(f"🎲 {', '.join(map(str, rolls))}" + (f" = **{sum(rolls)}**" if n > 1 else ""))
-
     @commands.command(aliases=["pick"])
     async def choose(self, ctx: Context, *, options: str):
         """Pick one of several options
