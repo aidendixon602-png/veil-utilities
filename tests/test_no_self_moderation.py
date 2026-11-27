@@ -125,13 +125,13 @@ def test_network_ban_skips_servers_the_target_owns():
     ctx.send.assert_awaited_once()
     preview = sent[0]
     working_card, done_card = seen
-    assert preview.title == "Confirm network ban"
+    assert preview.title == "Network ban"
     assert not preview.fields
-    assert "**raider** (`500`)" in preview.description
-    assert "**1 server**" in preview.description and "1 server they own" in preview.description
-    assert "Only a bot developer can lift" in preview.description
-    assert "re-banned" in preview.description
-    assert "30 seconds" in preview.footer.text and "Confirm or cancel" in preview.footer.text
+    assert "Ban <@500> in **1 server**?" in preview.description
+    assert "1 server skipped (target owns it)" in preview.description
+    assert "only bot developers can lift it" in preview.description
+    assert "Re-bans on rejoin or unban" in preview.description
+    assert preview.footer.text == "Only you can confirm · 30s"
     working, done = working_card.description, done_card.description
     assert not working_card.fields
     assert working.startswith("Applying network ban to **raider** (`500`) across **1 server**")
@@ -224,8 +224,8 @@ def test_cancelling_a_network_ban_does_nothing():
     other.ban.assert_not_called()
     ctx.bot.db.execute.assert_not_called()
     cancelled = ctx.prompt.edit.await_args.kwargs["embed"]
-    assert cancelled.title == "Network Ban Cancelled"
-    assert cancelled.description == "Cancelled network ban for **r** (`500`). Nothing was changed."
+    assert cancelled.title == "Ban cancelled"
+    assert cancelled.description == "No changes made for x."
 
 
 def test_the_old_names_still_work():
@@ -332,15 +332,10 @@ def test_network_ban_confirmation_buttons_and_timeout_fail_closed():
         ctx.bot.db.execute.assert_not_called()
         assert ctx.prompt.edit.await_args.kwargs["view"] is None
         expired = ctx.prompt.edit.await_args.kwargs["embed"]
-        assert expired.title == "Confirmation Expired"
+        assert expired.title == "Confirmation expired"
         assert expired.color.value == Colors.caution
-        assert "This attempt made no changes" in expired.description
-        assert "30 seconds" in expired.description
-        fields = {f.name: f.value for f in expired.fields}
-        assert fields["Target"] == "**r** (`500`)"
-        assert "run **genreban** again" in fields["Next step"]
-        assert "reason" in fields["Next step"] and "confirm the new prompt" in fields["Next step"]
-        assert expired.footer.text == "Veil  •  Target ID: 500" and expired.timestamp is not None
+        assert expired.description == "No changes made for x. Run the command again to retry."
+        assert not expired.fields and expired.footer.text is None and expired.timestamp is not None
         assert ctx.command_log_outcome == "Network ban timed out · nothing changed"
         view.stop()
 
@@ -438,12 +433,12 @@ def test_network_ban_preview_reason_is_bounded_and_escaped():
     finally:
         _Answer.answer = True
     preview = discord.Embed.from_dict(sent[0])
-    assert r'\*\*intruder\*\*' in preview.description
+    assert "Ban x in **1 server**?" in preview.description
     reason_line = next(line for line in preview.description.splitlines() if line.startswith("**Reason:**"))
     assert reason_line.startswith(r'**Reason:** \*') and len(reason_line) <= 320
     assert "Skipped" not in preview.description
     assert ctx.command_log_outcome == 'Network ban cancelled · nothing changed'
-    assert edits[-1]['title'] == 'Network Ban Cancelled' and not edits[-1].get('fields')
+    assert edits[-1]['title'] == 'Ban cancelled' and not edits[-1].get('fields')
     ctx.bot.db.execute.assert_not_awaited()
 
 
