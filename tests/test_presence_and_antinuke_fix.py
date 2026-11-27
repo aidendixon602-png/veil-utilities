@@ -20,7 +20,7 @@ def test_presence_custom_and_dynamic():
     asyncio.run(bot.update_dynamic_status())
     bot.change_presence.assert_called_once()
     act = bot.change_presence.call_args[1]["activity"]
-    assert act.name == "Moderation • Antinuke • Antiraid"
+    assert act.name == "Protecting 1 guild | 50 users"
 
     # 2. Custom status override
     bot.change_presence.reset_mock()

@@ -621,7 +621,7 @@ class Owner(commands.Cog):
             "offline": discord.Status.invisible,
         }
         status_clean = status.lower()
-        if status_clean in RESET_WORDS and not text:  # `,presence clear`: back to the default feature tagline
+        if status_clean in RESET_WORDS and not text:  # `,presence clear`: back to "Protecting X guilds | Y users"
             g = await self.bot.db.get_config(0, "global")
             g.pop("custom_status_text", None)
             await self.bot.db.set_config(0, "global", g)
