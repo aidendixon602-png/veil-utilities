@@ -435,32 +435,29 @@ class DevTools(commands.Cog):
         display_reason = discord.utils.escape_markdown(shorten(clean_reason, 120)) if clean_reason else None
         stored_reason = clean_reason or "Network ban"
 
-        details = [f"Ban {self._who(user)} across **{plural(len(guilds), 'server')}**?"]
+        details = [f"Ban {user.mention} in **{plural(len(guilds), 'server')}**?"]
         if owned:
-            details.append(f"Skipped {plural(len(owned), 'server they own')}.")
-        details.append("They’ll be re-banned if they rejoin or are unbanned. Only a bot developer can lift this ban.")
+            details.append(f"{plural(len(owned), 'server')} skipped (target owns it).")
+        details.append("Re-bans on rejoin or unban · only bot developers can lift it.")
         if display_reason:
             details.append(f"**Reason:** {display_reason}")
         embed = self._prompt("\n".join(details), color=Colors.main)
-        embed.title = "Confirm network ban"
-        embed.set_footer(text="Confirm or cancel · 30 seconds")
+        embed.title = "Network ban"
+        embed.set_footer(text="Only you can confirm · 30s")
         view = DangerConfirm(ctx.author.id, timeout=30)
         msg = await ctx.send(embed=embed, view=view)
         await view.wait()
         embed.clear_fields()
-        embed.set_footer(text=f"Veil  •  Target ID: {user.id}")
+        embed.remove_footer()
         if view.value is not True:
             outcome = "timed out" if view.value is None else "cancelled"
             if view.value is None:
-                embed.title = "Confirmation Expired"
-                embed.description = "No confirmation was received within 30 seconds. **This attempt made no changes.**"
-                embed.add_field(name="Target", value=self._who(user), inline=True)
-                embed.add_field(name="Next step", value="If still needed, run **genreban** again with the target ID "
-                                "and your reason, then confirm the new prompt.", inline=False)
+                embed.title = "Confirmation expired"
+                embed.description = f"No changes made for {user.mention}. Run the command again to retry."
                 embed.timestamp = discord.utils.utcnow()
             else:
-                embed.title = "Network Ban Cancelled"
-                embed.description = f"Cancelled network ban for {self._who(user)}. Nothing was changed."
+                embed.title = "Ban cancelled"
+                embed.description = f"No changes made for {user.mention}."
             ctx.command_log_outcome = f"Network ban {outcome} · nothing changed"
             embed.color = Colors.caution if view.value is None else Colors.neutral
             return await msg.edit(embed=embed, view=None)
