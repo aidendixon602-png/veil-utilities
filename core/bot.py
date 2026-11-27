@@ -72,9 +72,9 @@ def _lower_first(text: str) -> str:
     return text
 
 
-def protecting_text(guilds: int, users: int) -> str:
-    """'Protecting 3 guilds | 1,204 users' (singular when there is exactly one)."""
-    return f"Protecting {guilds:,} guild{'' if guilds == 1 else 's'} | {users:,} user{'' if users == 1 else 's'}"
+def default_activity_text() -> str:
+    """Describe Veil's core protection features in its Discord profile status."""
+    return "Moderation • Antinuke • Antiraid"
 
 
 class Veil(commands.AutoShardedBot):
@@ -107,7 +107,7 @@ class Veil(commands.AutoShardedBot):
             owner_ids=owners or None,
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, replied_user=False),
             status=self.presence_status,
-            # no activity until the guilds are known (on_ready): "Protecting 0 guilds" would flash first
+            # no activity until on_ready applies the default feature tagline
             # message cache powers edit/delete logs + snipe; smaller on low-RAM hosts
             max_messages=1000 if settings.low_memory else 5000,
             proxy=settings.proxy,
@@ -271,17 +271,12 @@ class Veil(commands.AutoShardedBot):
 
     @staticmethod
     def forget_old_status(g: dict) -> bool:
-        """Once: drop a status text saved by an older version (they rotated lines and could save a custom one) so
-        the "Protecting X guilds | Y users" line shows. `,setstatus <text>` still works afterwards. True if changed."""
+        """Once: drop a legacy generated status, so the default feature tagline shows. Custom statuses still work."""
         if g.get("status_v2"):
             return False
         g.pop("custom_status_text", None)
         g["status_v2"] = True
         return True
-
-    def protecting_text(self) -> str:
-        """The status line: how many servers and users the bot protects (users are summed over the servers)."""
-        return protecting_text(len(self.guilds), sum(g.member_count or 0 for g in self.guilds))
 
     async def update_dynamic_status(self):
         try:
@@ -292,7 +287,7 @@ class Veil(commands.AutoShardedBot):
                     custom_text = g.get("custom_status_text")
                 except Exception:
                     pass
-            activity = discord.CustomActivity(name=custom_text or self.protecting_text())
+            activity = discord.CustomActivity(name=custom_text or default_activity_text())
             await self.change_presence(status=self.presence_status, activity=activity)
         except Exception:
             pass

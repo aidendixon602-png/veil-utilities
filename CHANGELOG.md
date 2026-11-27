@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Default Discord profile status.** Show Veil's purpose as “Moderation • Antinuke • Antiraid” instead of live server and member counts. Developer-set custom status text remains supported.
 - **Cross-server ban confirmation copy.** Use plain language that states the scope and who can remove the ban.
 - **Bounded operator health checks.** `,ping` now gives up after a two-second database probe and explicitly reports when the database is unavailable instead of hanging or hiding the failure. Developer-only `,botinfo` and the developer dashboard now show a shared, secret-free runtime summary for database, music nodes, authorization/Antinuke, and dashboard status.
 - **Dashboard pages no longer crash on unusual saved settings.** Every dashboard read now
