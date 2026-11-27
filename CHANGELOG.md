@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Removed the developer-only `,testnuke`, `,testcleanup`, and `,testserver` commands and their test-server configuration and simulation code. Antinuke protections remain active; the commands were only a test harness.
+- Removed `,coinflip` and `,roll` (including their `cf`, `flip`, and `dice` aliases).
 
 ### Fixed
 
