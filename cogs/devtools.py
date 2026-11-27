@@ -10,7 +10,6 @@ import contextlib
 import logging
 from copy import deepcopy
 import sqlite3
-import time
 
 import aiohttp
 import discord
@@ -46,14 +45,11 @@ def plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
-WORKING_FOR = 60.0  # seconds a network ban / unban shows "Processing..." at the least
-
-
 class _Working:
-    """Typing while the bans go out, and keeps the working step up for at least WORKING_FOR seconds."""
+    """Show typing while the network operation is running, without delaying its result."""
 
-    def __init__(self, typing, started: float):
-        self.typing, self.started = typing, started
+    def __init__(self, typing):
+        self.typing = typing
 
     async def __aenter__(self):
         try:
@@ -63,9 +59,6 @@ class _Working:
         return self
 
     async def __aexit__(self, *exc):
-        left = WORKING_FOR - (time.monotonic() - self.started)
-        if left > 0 and exc[0] is None:
-            await asyncio.sleep(left)
         try:
             await self.typing.__aexit__(*exc)
         except Exception:
@@ -385,7 +378,7 @@ class DevTools(commands.Cog):
         embed.description = text
         await msg.edit(embed=embed, view=None)
         typing = ctx.typing() if hasattr(ctx, "typing") else contextlib.nullcontext()
-        return _Working(typing, time.monotonic())
+        return _Working(typing)
 
     async def _actor_level(self, ctx: Context) -> str:
         db = getattr(self.bot, "db", None)
@@ -517,12 +510,9 @@ class DevTools(commands.Cog):
         banned, already, failed = 0, 0, []
         embed.title = "Network Ban · In Progress"
         embed.color = Colors.caution
-        step_delay = min(2.0, WORKING_FOR / max(len(guilds), 1)) if WORKING_FOR > 0 else 0.0
         async with await self._working(ctx, msg, embed, f"Applying network ban to {self._who(user)} across "
-                                                        f"**{plural(len(guilds), 'server')}**…\n\nProcessing… please wait, this may take a while."):
+                                                        f"**{plural(len(guilds), 'server')}**…\n\nProcessing…"):
             for g in guilds:
-                if step_delay > 0:
-                    await asyncio.sleep(step_delay)
                 if g.owner_id == user.id:
                     owned.append(g)
                     continue
@@ -610,11 +600,8 @@ class DevTools(commands.Cog):
         await self.bot.db.execute("DELETE FROM globalbans WHERE user_id=?", user.id)
         lifted, failed = 0, []
         processing_embed = discord.Embed(description="Processing...", color=Colors.caution)
-        step_delay = min(2.0, WORKING_FOR / max(len(guilds), 1)) if WORKING_FOR > 0 else 0.0
         async with await self._working(ctx, msg, processing_embed, "Processing..."):
             for g in guilds:
-                if step_delay > 0:
-                    await asyncio.sleep(step_delay)
                 me = getattr(g, "me", None)
                 if me is not None and hasattr(me, "guild_permissions") and not me.guild_permissions.ban_members:
                     failed.append(f"{g.name} (missing permissions)")

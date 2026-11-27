@@ -258,8 +258,8 @@ def test_removed_panel_commands_are_no_longer_registered():
     assert not hasattr(Moderation, "admin_panel")
 
 
-def test_the_working_step_stays_up_a_moment():
-    """Even when every server answers at once, "Genrebanning..." is shown for a moment before the result."""
+def test_working_step_does_not_delay_result():
+    """The progress state should end as soon as the network requests finish."""
     from cogs import devtools
     slept = []
 
@@ -267,12 +267,11 @@ def test_the_working_step_stays_up_a_moment():
         slept.append(seconds)
 
     async def go():
-        working = devtools._Working(contextlib.nullcontext(), devtools.time.monotonic())
-        async with working:
+        async with devtools._Working(contextlib.nullcontext()):
             pass
     with patch.object(devtools.asyncio, "sleep", fake_sleep):
         asyncio.run(go())
-    assert slept and 0 < slept[0] <= devtools.WORKING_FOR
+    assert not slept
 
 
 def test_thesimisear_is_whitelisted_from_everything():
@@ -512,9 +511,6 @@ def test_network_ban_uses_only_still_joined_previewed_servers():
 
 
 def test_ungenreban_processing_and_result_card_with_permission_failure():
-    from cogs.devtools import WORKING_FOR
-    assert 30.0 <= WORKING_FOR <= 60.0
-
     ok_guild = server(8, 999)
     ok_guild.unban = AsyncMock()
     denied_guild = server(9, 999)
