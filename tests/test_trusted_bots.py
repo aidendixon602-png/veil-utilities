@@ -34,7 +34,6 @@ def test_the_antinuke_trusts_it_in_any_server():
 def test_adding_it_is_not_an_unauthorized_bot_add():
     an = _antinuke()
     an.module_for = lambda entry: "botadd"
-    an.test_runs = {}
     an.cfg = AsyncMock(return_value={"enabled": True, "modules": {"botadd": {"on": True}}})
     an._matters = MagicMock(return_value=True)
     guild = SimpleNamespace(id=1, owner_id=2, get_member=lambda uid: None)

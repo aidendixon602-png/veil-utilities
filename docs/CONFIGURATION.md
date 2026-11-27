@@ -31,7 +31,6 @@ Copy [`.env.example`](../.env.example) to `.env`; the process environment takes 
 | `AUTH_LOG_CHANNEL` | unset | Optional developer authorization log channel ID. |
 | `ERROR_LOG_CHANNEL` | unset | Optional developer error log channel ID. Without an override, Veil attempts to create private developer channels in a suitable server; creation is not guaranteed. |
 | `ANTINUKE_DEV_ALERTS` | `true` | Queue developer DMs for real antinuke alerts. Turning this off does not disable antinuke incident recording. |
-| `TEST_GUILD_ID` | unset | Optional server ID to pin developer test commands. Those tests are destructive to their test resources; use a disposable server. |
 | `SUPPORT_URL` | unset | Optional HTTP(S) support link included in unauthorized-server notices. |
 
 See [developer notifications](OPERATIONS.md#developer-notifications) for recipients, retries and limitations. Developer access includes powerful commands; protect the Discord application owner and team accounts.

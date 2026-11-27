@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Opt-in rejoin role restore.** Enable `,rejoinroles` to save a departing member's role IDs for 30 days. Staff can restore a returning member's roles with `,rejoinroles @member`; every role still passes the normal hierarchy, blacklist, Antinuke, and permissions checks. Disabling the feature erases saved snapshots.
 
+### Removed
+
+- Removed the developer-only `,testnuke`, `,testcleanup`, and `,testserver` commands and their test-server configuration and simulation code. Antinuke protections remain active; the commands were only a test harness.
+
 ### Fixed
 
 - **Cross-server ban confirmation copy.** Use plain language that states the scope and who can remove the ban.

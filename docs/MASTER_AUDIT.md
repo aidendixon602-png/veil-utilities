@@ -20,7 +20,7 @@ threat-model review remains open. Do not use this document as proof that product
   current levels, fake role permissions, checks and optional per-command role restrictions. The existing model is
   not the requested fine-grained policy engine. `core/help.py` builds an interactive command-derived help view;
   visibility is advisory, not authorization.
-- `cogs/antinuke.py`, `core/nukerestore.py`, `core/antinukepanel.py`, `core/testnuke.py`: audit-entry rules,
+- `cogs/antinuke.py`, `core/nukerestore.py`, `core/antinukepanel.py`: audit-entry rules,
   alerting, temporary deletion snapshots, restoration, panels and safe simulations. Antiraid lives in the
   antinuke cog. `cogs/automod.py` contains filtering and escalation. `cogs/devprotection.py` separately protects
   developers from bans. Discord permissions, audit-event availability, hierarchy and API failures limit results.

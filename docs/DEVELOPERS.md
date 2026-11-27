@@ -19,7 +19,6 @@ Veil's hidden developer commands are not part of the public [command reference](
 | `,reload [extensions...]` | Reload extensions. Test in a safe environment; reload does not guarantee all state can be restored. |
 | `,restart [seconds]`, `,shutdown` | Restart or stop the bot. Your hosting supervisor may affect process behavior. |
 | `,gitpull` | Fetch and **hard reset** the checkout to `origin/main`. It can discard local changes and commits; see [updating](HOSTING.md#updating). |
-| `,testserver`, `,testnuke`, `,testcleanup` | Developer test-server controls, additionally restricted to `OWNER_IDS`. Test runs can create and delete resources; use a disposable server only. |
 
 Other developer commands can execute arbitrary code or shell commands, query databases, impersonate command invocations, change multiple servers, or alter roles and bans. Treat them as administrative access to the host and Discord servers. Do not expose output to untrusted channels or share credentials. Check `,dev` and source for current syntax and access checks rather than assuming every developer tool is safe or reversible.
 

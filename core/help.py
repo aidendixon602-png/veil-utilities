@@ -527,17 +527,13 @@ def page_order(label: str, cmds: list[commands.Command]) -> list[commands.Comman
                                        else len(pinned), c.qualified_name))
 
 
-DEVELOPER_HELP_EXCLUDED = {"testnuke", "testcleanup", "testserver"}
-
-
 def developer_commands(bot) -> list[commands.Command]:
-    """Owner and bot-operations commands shown in Developer (excluding Secret and test-only tools)."""
+    """Owner and bot-operations commands shown in Developer (excluding Secret tools)."""
     cmds = []
     for cog_name in sorted(HIDDEN_COGS - {"DevTools"}):
         cog = bot.get_cog(cog_name) if bot is not None and hasattr(bot, "get_cog") else None
         if cog:
-            cmds += [c for c in cog.get_commands()
-                     if c.parent is None and c.name not in DEVELOPER_HELP_EXCLUDED]
+            cmds += [c for c in cog.get_commands() if c.parent is None]
     return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
 
 

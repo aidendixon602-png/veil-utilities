@@ -20,7 +20,7 @@ import traceback
 import discord
 from discord.ext import commands
 
-from core import gitinfo, redact, testnuke
+from core import gitinfo, redact
 from core.config import settings
 from core.utils import Colors, Context, UserError, chunk_embeds, fmt_duration, shorten, ts
 
@@ -999,88 +999,6 @@ class Owner(commands.Cog):
             await msg.edit(content="❌ Shell command timed out after 30 seconds.")
         except Exception as exc:
             await msg.edit(content=f"❌ Shell execution error: `{exc}`")
-
-    # ================================================================ antinuke test
-    @commands.command(name="testnuke", hidden=True, aliases=["nuketest"])
-    @testnuke.env_developer_only()
-    @commands.max_concurrency(1, commands.BucketType.guild)
-    async def cmd_testnuke(self, ctx: Context, roles: int = None, channels: int = None):
-        """Test the antinuke in the test server
-
-        Quickly creates roles and channels so you can see the antinuke react. Asks first; developers only.
-        """
-        guild, becomes_test_server = await testnuke.test_guild(self.bot, ctx)
-        antinuke = self.bot.get_cog("Antinuke")
-        if antinuke is None:
-            raise UserError("The antinuke isn't loaded.")
-        me = guild.me.guild_permissions
-        if not (me.manage_roles and me.manage_channels):
-            raise UserError("I need Manage Roles and Manage Channels in this server to run the test.")
-        cfg = await antinuke.cfg(guild.id)
-        _, role_limit, _ = testnuke.rule_limit(cfg, "rolecreate", 5)
-        _, chan_limit, _ = testnuke.rule_limit(cfg, "channelcreate", 2)
-        # by default one more than each rule allows, so both should trip
-        roles = max(0, min(testnuke.MAX_EACH, roles if roles is not None else role_limit + 1))
-        channels = max(0, min(testnuke.MAX_EACH, channels if channels is not None else chan_limit + 1))
-        if roles + channels == 0:
-            raise UserError("Nothing to create: give it at least one role or channel.")
-
-        view = testnuke.ConfirmTest(ctx.author.id)
-        msg = await ctx.send(embed=testnuke.warning_embed(guild, cfg, roles, channels, ctx.clean_prefix,
-                                                          becomes_test_server), view=view)
-        await view.wait()
-        if not view.confirmed:
-            text = "Test cancelled." if view.confirmed is False else "Test cancelled: nobody confirmed it in time."
-            return await msg.edit(embed=discord.Embed(color=Colors.neutral, description=text), view=None)
-        if becomes_test_server:
-            await testnuke.save_test_guild(self.bot, guild.id)
-        await msg.edit(embed=discord.Embed(color=Colors.warn, description=(
-            f"🧪 Running: creating **{roles}** role(s) and **{channels}** channel(s)…")), view=None)
-        result = await testnuke.run_test(antinuke, guild, ctx.author.id, roles, channels)
-        await msg.edit(embed=testnuke.report_embed(result, ctx.clean_prefix))
-
-    @commands.command(name="testcleanup", hidden=True, aliases=["nukecleanup"])
-    @testnuke.env_developer_only()
-    async def cmd_testcleanup(self, ctx: Context):
-        """Delete what a test nuke left behind in the test server
-
-        Developers only.
-        """
-        guild, _ = await testnuke.test_guild(self.bot, ctx)
-        roles, channels, failed = await testnuke.cleanup(self.bot.get_cog("Antinuke"), guild)
-        if not roles and not channels and not failed:
-            return await ctx.neutral("nothing to clean up: no `testnuke-` roles or channels here")
-        text = f"removed **{roles}** test role(s) and **{channels}** test channel(s)"
-        if failed:
-            text += f" · **{failed}** couldn't be deleted (check my role is above them)"
-        await (ctx.warn(text) if failed else ctx.approve(text))
-
-    @commands.command(name="testserver", hidden=True)
-    @testnuke.env_developer_only()
-    async def cmd_testserver(self, ctx: Context, action: str = None):
-        """See or change the server testnuke runs in
-
-        `set` uses this server, `clear` removes it.
-        """
-        from core.config import settings as _settings
-        if action is None:
-            current = await testnuke.saved_test_guild_id(self.bot)
-            guild = self.bot.get_guild(current) if current else None
-            where = f"**{discord.utils.escape_markdown(guild.name)}**" if guild else (f"`{current}`" if current else "none yet")
-            return await ctx.neutral(f"test server: {where}"
-                                     + (" (set in .env)" if _settings.test_guild_id else "")
-                                     + f" · `{ctx.clean_prefix}testserver set` here to change it")
-        if _settings.test_guild_id:
-            raise UserError("The test server is set with `TEST_GUILD_ID` in .env, which wins. Remove it there first.")
-        if action.lower() in ("set", "here", "this"):
-            if ctx.guild is None:
-                raise UserError("Run this in the server you want to test in.")
-            await testnuke.save_test_guild(self.bot, ctx.guild.id)
-            return await ctx.approve(f"**{discord.utils.escape_markdown(ctx.guild.name)}** is now the test server")
-        if action.lower() in ("clear", "remove", "none", "reset"):
-            await testnuke.save_test_guild(self.bot, None)
-            return await ctx.approve("no test server now: the next confirmed `testnuke` picks one")
-        raise UserError("Use `testserver set` or `testserver clear`.")
 
     @commands.command(name="developer", hidden=True, aliases=["dev", "secret", "devcommands", "secretcommands", "devhelp"])
     async def cmd_developer(self, ctx: Context):

@@ -512,9 +512,7 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     names = [c.name for c in developer_commands(loaded_bot)]
     assert {"gitpull", "eval", "restart", "version", "blacklist"} <= set(names)
     assert names == sorted(names)
-    assert not {"testnuke", "testcleanup", "testserver"} & set(names)
-    assert all(loaded_bot.get_command(name) is not None
-               for name in ("testnuke", "testcleanup", "testserver"))
+    assert not {"testnuke", "testcleanup", "testserver", "nuketest", "nukecleanup"} & set(loaded_bot.all_commands)
     assert all(command.cog_name != "DevTools" for command in developer_commands(loaded_bot))
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
