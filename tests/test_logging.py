@@ -540,17 +540,18 @@ def _card_text(card) -> str:
 
 def test_a_command_gets_its_own_card():
     card = fmt.command_used(cmd_ctx(), "Admin", "@Staff", rank=3, ms=84.4)
-    assert card.author.name == "ham" and card.description == "`,ban @x spam`"
+    assert card.author.name == "ham" and card.description is None
     assert card.title == "Command Executed"
-    assert detail(card, "User") == "<@7>"
+    assert detail(card, "Command") == "`,ban @x spam`"
     assert detail(card, "Channel") == "<#5> ([Jump](https://discord.com/channels/10/5/900))"
-    assert detail(card, "Access") == "Admin • @Staff"
+    assert detail(card, "Permission") == "Admin"
+    assert detail(card, "Granted By") == "@Staff"
     assert card.footer.text == "User ID: 7 • 84 ms" and card.color.value == Colors.approve
     assert "6.2s" in _card_text(fmt.command_used(cmd_ctx(), "None", "-", ms=6175))
-    assert fmt.command_used(cmd_ctx("a\nb"), "None", "-").description == "`a b`"
-    assert detail(fmt.command_used(cmd_ctx(), "None", "-"), "Access") == "None"
+    assert detail(fmt.command_used(cmd_ctx("a\nb"), "None", "-"), "Command") == "`a b`"
     direct = fmt.command_used(cmd_ctx(), "Owner", "Permissions attached to user")
-    assert detail(direct, "Access") == "Owner • Direct"
+    assert detail(direct, "Permission") == "Owner"
+    assert detail(direct, "Granted By") == "Direct"
 
 
 def test_a_failed_command_says_why_in_red():
@@ -896,7 +897,7 @@ def test_command_logging_respects_ignores_and_names_the_rank(monkeypatch):
                               invoked_with="ping")
         await cog.on_command_completion(ctx)
         card = channel.send.await_args.kwargs["embed"]
-        assert card.description == "`,ping`" and "User ID: 77" in card.footer.text
+        assert detail(card, "Command") == "`,ping`" and "User ID: 77" in card.footer.text
         assert channel.send.await_args.kwargs["allowed_mentions"].users is False  # a log card never pings
         channel.send.reset_mock()
         ctx.author = member(8, "ignored")
@@ -1596,7 +1597,7 @@ def test_veil_stays_out_of_ghost_vanguards_log_channels():
 def test_command_log_long_inputs_leave_room_for_the_outcome():
     ctx = cmd_ctx(",say " + "x" * 8000)
     card = fmt.command_used(ctx, "L" * 8000, "R" * 8000, error="Unable to complete the action")
-    assert len(card.description) <= 4096
+    assert len(detail(card, "Command")) <= 1024
     assert all(len(field.value) <= 1024 for field in card.fields)
     assert detail(card, "Error") == "Unable to complete the action"
     assert detail(card, "Channel").endswith("([Jump](https://discord.com/channels/10/5/900))")
@@ -1740,17 +1741,20 @@ def test_command_card_shows_level_sources_and_cancelled_outcome_without_a_jump()
     ctx.command_log_outcome = 'Network ban cancelled · nothing changed'
     card = fmt.command_used(ctx, 'Developer', 'Built-in', ms=1200)
     assert detail(card, 'Channel') == '<#5>'
-    assert detail(card, 'Access') == 'Developer • Built-in'
+    assert detail(card, 'Permission') == 'Developer'
+    assert detail(card, 'Granted By') == 'Built-in'
     assert detail(card, 'Outcome') == 'Network ban cancelled · nothing changed (1.2s)'
     assert card.footer.text == 'User ID: 7'
-    assert detail(fmt.command_used(ctx, 'None', '-'), 'Access') == 'None'
+    assert detail(fmt.command_used(ctx, 'None', '-'), 'Permission') == 'None'
+    assert detail(fmt.command_used(ctx, 'None', '-'), 'Granted By') == '—'
 
 
 def test_command_card_keeps_roles_clickable_without_ping_permissions():
     card = fmt.command_used(cmd_ctx(), 'Moderator', '<@&123456789012345678>')
-    assert detail(card, 'Access') == 'Moderator • <@&123456789012345678>'
-    assert [field.name for field in card.fields] == ['User', 'Channel', 'Access']
-    assert [field.inline for field in card.fields] == [True, True, True]
+    assert detail(card, 'Permission') == 'Moderator'
+    assert detail(card, 'Granted By') == '<@&123456789012345678>'
+    assert [field.name for field in card.fields] == ['Command', 'Channel', 'Permission', 'Granted By']
+    assert [field.inline for field in card.fields] == [False, True, True, True]
 
 
 @pytest.mark.parametrize("cfg,channels,expected", [
