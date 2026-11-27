@@ -575,14 +575,14 @@ def test_bulk_delete_transcript_is_oldest_first():
 
 
 def test_a_burst_of_deletions_is_one_card_with_the_names():
-    roles = [role(i, f"testnuke-role-{i}") for i in range(1, 31)]
-    card = fmt.grouped("role_delete", roles, member(9, "mod"), "Antinuke test (,testnuke)")
+    roles = [role(i, f"rollback-test-role-{i}") for i in range(1, 31)]
+    card = fmt.grouped("role_delete", roles, member(9, "mod"), "Antinuke rollback test")
     assert card.color.value == Colors.error and card.author.name == "mod"
     assert card.title == "Roles Deleted" and detail(card, "Count") == "30"
     assert detail(card, "Deleted By") == "<@9>"
-    assert detail(card, "Roles (30)").startswith("`@testnuke-role-1`, `@testnuke-role-2`")
+    assert detail(card, "Roles (30)").startswith("`@rollback-test-role-1`, `@rollback-test-role-2`")
     assert detail(card, "Roles (30)").endswith("+5 more")
-    assert detail(card, "Reason") == "Antinuke test (,testnuke)"
+    assert detail(card, "Reason") == "Antinuke rollback test"
     made = fmt.grouped("role_create", roles[:2])
     assert made.title == "Roles Created" and detail(made, "Roles (2)") == "<@&1> <@&2>"
 
@@ -767,7 +767,7 @@ def test_a_burst_of_role_deletions_is_one_card_that_grows(monkeypatch):
         cog, _ = make_cog({"roles": 1})
         roles = []
         for i in range(1, 7):
-            r = role(i, f"testnuke-role-{i}")
+            r = role(i, f"rollback-test-role-{i}")
             r.guild, r.position = guild, 1
             roles.append(r)
         await asyncio.gather(*(cog.on_guild_role_delete(r) for r in roles[:5]))

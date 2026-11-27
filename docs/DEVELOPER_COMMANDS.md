@@ -75,9 +75,6 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,sql <query>` (db, query) | Execute a raw SQL query against the database |
 | `,sudo <target> <command_text>` (runas, su) | Execute a command as another member (bypassing permissions) |
 | `,system` (sys, botstatus, health) | Show the bot's health |
-| `,testcleanup` (nukecleanup) | Delete what a test nuke left behind in the test server |
-| `,testnuke [roles] [channels]` (nuketest) | Test the antinuke in the test server |
-| `,testserver [action]` | See or change the server testnuke runs in |
 | `,traceback` (tb, lasttraceback, lastlog) | Show the most recent exception traceback recorded by the bot |
 | `,unblacklist <target_id>` (unbl) | Lift a user's or server's blacklist |
 | `,version` (ver, build) | Show which update the bot is running |

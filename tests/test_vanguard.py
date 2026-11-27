@@ -52,7 +52,6 @@ def test_gv_says_so_when_ghost_vanguard_is_not_here_or_cant_be_reached():
 def _antinuke():
     an = Antinuke.__new__(Antinuke)
     an.bot = SimpleNamespace(user=SimpleNamespace(id=4), owner_ids=set(), owner_id=None)
-    an.test_runs = {}
     an.cfg = AsyncMock(return_value={"enabled": True, "modules": {"ban": {"on": True}}})
     an.module_for = lambda entry: "ban"
     return an

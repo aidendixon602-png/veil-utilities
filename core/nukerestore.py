@@ -196,7 +196,7 @@ _GROUPS = [
 
 
 def _natural(name: str):
-    """testnuke-role-2 before testnuke-role-10."""
+    """rollback-test-role-2 before rollback-test-role-10."""
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name)]
 
 

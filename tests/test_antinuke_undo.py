@@ -330,12 +330,12 @@ def test_renaming_the_server_is_not_an_attack_but_a_vanity_change_is():
 
 def test_long_undo_lists_are_grouped_counted_and_in_order():
     lines = [f"unbanned u{i}" for i in (3, 1, 10, 2, 5, 4, 6)] + ["restored #a", "removed the timeout from x",
-                                                                 "deleted @testnuke-role-2", "deleted #testnuke-channel-1",
-                                                                 "deleted @testnuke-role-10", "deleted @testnuke-role-1"]
+                                                                 "deleted @rollback-test-role-2", "deleted #rollback-test-channel-1",
+                                                                 "deleted @rollback-test-role-10", "deleted @rollback-test-role-1"]
     assert collapse(lines) == [
         "unbanned 7 people they banned: u1, u2, u3, u4, u5 +2 more",
         "rebuilt 1 deleted channel: #a",
         "removed the timeout from x",
-        "deleted 3 roles they made: @testnuke-role-1, @testnuke-role-2, @testnuke-role-10",
-        "deleted 1 channel they made: #testnuke-channel-1",
+        "deleted 3 roles they made: @rollback-test-role-1, @rollback-test-role-2, @rollback-test-role-10",
+        "deleted 1 channel they made: #rollback-test-channel-1",
     ]
