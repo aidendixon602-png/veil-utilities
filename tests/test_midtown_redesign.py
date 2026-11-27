@@ -210,7 +210,7 @@ def test_unassigned_member_gets_no_bot_perm():
     assert rank == 0
 
 
-def test_presence_uses_a_static_feature_tagline():
+def test_presence_is_only_the_protecting_line():
     bot = Veil()
     bot.change_presence = AsyncMock()
     bot.default_prefix = ","
@@ -220,7 +220,7 @@ def test_presence_uses_a_static_feature_tagline():
         bot.change_presence.reset_mock()
         asyncio.run(bot.update_dynamic_status())
         bot.change_presence.assert_called_once()
-        assert bot.change_presence.call_args[1]["activity"].name == "Moderation • Antinuke • Antiraid"
+        assert bot.change_presence.call_args[1]["activity"].name == "Protecting 2 guilds | 1,304 users"
 
 
 def test_command_category_and_rank_resolution():
@@ -389,9 +389,11 @@ def test_help_view_on_timeout_keeps_the_message():
     assert not msg.delete.called and msg.edit.await_args.kwargs == {"view": None}
 
 
-def test_default_presence_describes_veil_features():
-    from core.bot import default_activity_text
-    assert default_activity_text() == "Moderation • Antinuke • Antiraid"
+def test_presence_text_pluralises_and_groups_thousands():
+    from core.bot import protecting_text
+    assert protecting_text(1, 1) == "Protecting 1 guild | 1 user"
+    assert protecting_text(0, 0) == "Protecting 0 guilds | 0 users"
+    assert protecting_text(12, 3456789) == "Protecting 12 guilds | 3,456,789 users"
 
 
 def test_an_old_saved_status_is_forgotten_once_so_the_new_line_shows():
