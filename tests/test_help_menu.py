@@ -295,9 +295,9 @@ def test_a_category_lists_each_command_with_what_it_does():
 def test_long_categories_are_split_into_pages_with_buttons():
     cmds = [_cmd(f"c{i:02}", f"Command {i}") for i in range(23)]
     pages = _help().category_pages("Fun", cmds)
-    assert len(pages) == 3 and len(pages[0].description.splitlines()[3:]) == 10
-    assert pages[0].footer.text.startswith("Page 1/3 · 23 commands")
-    assert "`,c20`" in pages[2].description
+    assert len(pages) == 2 and len(pages[0].description.splitlines()[3:]) == 12
+    assert pages[0].footer.text.startswith("Page 1/2 · 23 commands")
+    assert "`,c20`" in pages[1].description
 
 
 def test_arguments_read_like_the_reference():
@@ -685,7 +685,7 @@ def test_command_dropdown_pagination_back_and_home_callbacks():
         await next_button.callback(_it())
         assert view.page == 1
         select = next(c for c in view.children if isinstance(c, CommandSelect))
-        assert [o.value for o in select.options] == [f"c{i:02}" for i in range(10, 20)]
+        assert [o.value for o in select.options] == [f"c{i:02}" for i in range(12, 21)]
         select._values = ["c12"]
         it = _it()
         await select.callback(it)

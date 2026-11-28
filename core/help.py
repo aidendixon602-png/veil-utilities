@@ -60,7 +60,7 @@ CATEGORY_ALIASES = {"gv": "ghost vanguard", "vanguard": "ghost vanguard", "ghost
                     "admin": "moderation", "admins": "moderation", "administration": "moderation", "administrator": "moderation"}
 MAX_ALIASES_SHOWN = 2  # per command on list pages; the full set is on the command's own card
 MAX_ALIAS_LENGTH = 10
-PER_PAGE = 10  # commands per category page
+PER_PAGE = 12  # commands per category page; keep long categories compact without crowding Discord's select limits
 SUBCOMMANDS_PER_PAGE = 15  # fits both the embed and a Discord select
 SUBCOMMANDS_SHOWN = 20  # a group's card lists its first subcommands, then says where the rest are
 HELP_COLOR = Colors.main  # Veil accent

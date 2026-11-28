@@ -4,7 +4,7 @@
 
 Veil Utilities is a self-hosted Discord bot for server security, moderation, logging and community management. It is written in Python with `discord.py` and uses **prefix commands**: the default prefix is a comma (`,`), as in `,help`.
 
-[Getting started](#getting-started) · [Command reference](docs/COMMANDS.md) · [Configuration](docs/CONFIGURATION.md) · [Permissions](docs/PERMISSIONS.md) · [Operations](docs/OPERATIONS.md) · [Developer guide](docs/DEVELOPERS.md) · [Hosting](docs/HOSTING.md) · [Contributing](.github/CONTRIBUTING.md)
+[Website](website/index.html) · [Getting started](#getting-started) · [Command reference](docs/COMMANDS.md) · [Configuration](docs/CONFIGURATION.md) · [Permissions](docs/PERMISSIONS.md) · [Operations](docs/OPERATIONS.md) · [Developer guide](docs/DEVELOPERS.md) · [Hosting](docs/HOSTING.md) · [Contributing](.github/CONTRIBUTING.md)
 
 ## What it does
 
