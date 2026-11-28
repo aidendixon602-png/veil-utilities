@@ -386,7 +386,7 @@ class Authorization(commands.Cog):
             await guild.leave()
         await ctx.approve(f"revoked `{guild_id}`" + (f" and left **{guild.name}**" if guild else ""))
 
-    @commands.command(hidden=True, aliases=["authlist", "authorizedservers"])
+    @commands.command(hidden=True, aliases=["authlist", "authorizedservers", "authedservers"])
     async def authorized(self, ctx: Context):
         """List authorized servers"""
         rows = await self.bot.db.fetchall("SELECT * FROM authorized ORDER BY at DESC")

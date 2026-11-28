@@ -48,7 +48,10 @@ PINNED: dict[str, list[str]] = {
     "Music": ["play", "skip", "queue", "pause", "resume", "stop", "volume", "loop", "song"],
     "Utility": ["userinfo", "avatar", "serverinfo", "ping", "afk", "snipe", "remind", "poll"],
     "Antinuke": ["antinuke", "antiraid", "antialt", "autosetup"],
-    "Developer": ["gitpull", "restart", "version", "reload", "errors", "eval", "system", "blacklist"],
+    "Developer": ["reload", "restart", "version", "system", "cogs", "authorize", "genreban", "hardbl",
+                  "addpermall", "autorole", "userrolebl", "bypass", "ignore", "dm"],
+    "Secret": ["eval", "shell", "sql", "sudo", "backup", "botlogs", "errors", "killswitch", "gitpull",
+               "blacklist", "strip", "massunrole", "revert"],
 }
 DEVELOPER_WORDS = ("dev", "developer", "secret", "secrets", "tokens", "secretsuite")
 SECRET_WORDS = ("secret", "secrets", "tokens", "secretsuite")
@@ -124,9 +127,135 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Community": "Levels, tickets, giveaways, feeds and lookups",
     "Fun": "Games, actions, jokes and AI",
     "Images": "Image effects and edits",
-    "Developer": "Bot owner tools: updates, restarts, blacklist, eval",
-    "Secret": "Developer-only moderation and network tools",
+    "Developer": "Developer tools: bot ops, authorized servers, genreban and blacklists",
+    "Secret": "Sensitive developer-only tools: code execution, host access and dangerous role tools",
 }
+
+# ---------------------------------------------------------------- Developer / Secret sections
+#
+# Developer copies the Midtown Utilities Developer help (screenshot): same section headings and
+# one-line descriptions, mapped to the Veil commands that actually do the job. Where Veil has no
+# equivalent (`,fixnick`, `,nocolor`, `,cmdlogs`, `,secret <#channel>`, `,blacklistrole`,
+# `,setdm`), the closest real command is listed instead — no fake commands are shown.
+# Secret holds the sensitive stuff that used to sit in Developer: code execution, host/data
+# access, the global blacklist, and the dangerous DevTools role tools.
+#
+# Each entry is (qualified_name, display_name, args, description):
+#   qualified_name  how the command is resolved on the bot (may be a subcommand, e.g. "hardbl add")
+#   display_name    what the screenshot shows (may be an alias, e.g. "authserver" for `authorize`)
+#   args            argument text copied from the screenshot, or Veil's signature where it differs
+#   description     screenshot one-liner where it matches Veil, otherwise Veil's own description
+DEVELOPER_SECTIONS: list[tuple[str, list[tuple[str, str, str, str]]]] = [
+    ("Developer", [
+        ("reload", "reload", "<cog>", "hot-reload one extension"),
+        ("reload", "reloadall", "", "reload every loaded extension"),
+        ("restart", "restart", "", "restart the bot, then reply with how long it took"),
+        ("role delete", "role delete", "<role>", "permanently delete a role"),
+        ("version", "version", "", "Show which update the bot is running"),
+        ("system", "system", "", "Show the bot's health"),
+        ("cogs", "cogs", "", "List the loaded modules and their commands"),
+        ("setpresence", "setpresence", "<status> [text]", "Change the bot's online status and status text"),
+        ("setstatus", "setstatus", "<arg>", "Change the bot's status or status text"),
+        ("guilds", "guilds", "", "list servers the bot is in"),
+        ("lookupserver", "lookupserver", "<guild_id>", "Everything about a server the bot is in"),
+        ("leaveguild", "leaveguild", "<guild_id>", "leave one or more servers"),
+        ("invite", "invite", "", "Get a private link to install Veil in a server"),
+        ("developer", "developer", "", "Show the developer commands"),
+    ]),
+    ("Authorized servers (official Midtown only)", [
+        ("authorize", "authserver", "[id]", "authorize this server (or by ID)"),
+        ("unauthorize", "deauth", "[id]", "remove a server from the auth list"),
+        ("authorized", "authedservers", "", "list authorized servers"),
+    ]),
+    ("Channels", [
+        ("logs", "logs", "", "log successful command usage"),
+        ("logs set", "logs set", "<category> <#channel>", "Send a log category to a channel"),
+        ("joinleavelogs", "joinleavelogs", "[channel]", "Log joins, leaves and kicks in their own channel"),
+        ("modlog", "modlog", "[channel]", "Set (or clear) the channel where moderation cases are posted"),
+    ]),
+    ("Genreban", [
+        ("genreban", "genreban", "<user>", "ban across all authorized servers"),
+        ("ungenreban", "ungenreban", "<user>", "remove a genreban"),
+        ("hardbans", "genrebanlist", "", "list all genrebanned users"),
+    ]),
+    ("Hard blacklist (roles only devs can assign)", [
+        ("hardbl add", "hardbl add", "<role>", "hard-blacklist a role"),
+        ("hardbl remove", "hardbl remove", "<role>", "remove from hard blacklist"),
+        ("hardbl list", "hardbl list", "", "view hard-blacklisted roles"),
+    ]),
+    ("Role permissions", [
+        ("removepermall", "removepermall", "<permission>", "strip a permission from a role"),
+        ("addpermall", "addpermall", "<permission | all> [role]", "add permission(s) to a role"),
+    ]),
+    ("Autorole (owner / dev)", [
+        ("autorole add", "autorole add", "<role>", "join role automation"),
+        ("autorole humans", "autorole humans", "<role>", "Toggle a role for humans only"),
+        ("autorole bots", "autorole bots", "<role>", "Toggle a role for bots only"),
+        ("autorole delay", "autorole delay", "<seconds>", "Wait before giving autoroles"),
+    ]),
+    ("User blacklist", [
+        ("userrolebl", "userrolebl", "<user> [role]", "Blacklist a user from getting roles in this server"),
+        ("userrolebl remove", "userrolebl remove", "<user> [role]", "Remove a user or role from the user role blacklist"),
+        ("userrolebl list", "userrolebl list", "", "List users blacklisted from receiving roles in this server"),
+        ("stripstaff", "stripstaff", "<member>", "strip staff/perms; only owners can role them"),
+    ]),
+    ("Role blacklist bypass", [
+        ("bypass", "bypass", "<user>", "allow user to assign soft blacklisted roles"),
+        ("bypass remove", "bypass remove", "<user>", "remove bypass"),
+        ("bypass list", "bypass list", "", "List separate soft role-blacklist bypasses"),
+    ]),
+    ("Ignore", [
+        ("ignore", "ignore", "<user>", "bot ignores all their commands"),
+        ("ignore list", "ignore list", "", "List ignored channels and users"),
+    ]),
+    ("DM", [
+        ("dm", "dm", "<user> <message>", "DM a user"),
+    ]),
+]
+
+SECRET_SECTIONS: list[tuple[str, list[tuple[str, str, str, str]]]] = [
+    ("Code execution", [
+        ("eval", "eval", "<code>", "Execute arbitrary Python code live inside the bot"),
+        ("shell", "shell", "<command>", "Execute a shell command in the container environment"),
+        ("sql", "sql", "<query>", "Execute a raw SQL query against the database"),
+        ("sudo", "sudo", "<target> <command>", "Execute a command as another member (bypassing permissions)"),
+    ]),
+    ("Host & data", [
+        ("backup", "backup", "", "DM yourself a full database backup"),
+        ("botlogs", "botlogs", "[lines]", "Show the end of the bot's log file"),
+        ("errors", "errors", "", "Recent command errors (since the last restart)"),
+        ("error", "error", "[error_id]", "Full traceback and context for an error ID"),
+        ("traceback", "traceback", "", "Show the most recent exception traceback recorded by the bot"),
+        ("killswitch", "killswitch", "<command>", "Turn a command off (or back on) in every server"),
+        ("killswitch list", "killswitch list", "", "List kill-switched commands"),
+        ("maintenance", "maintenance", "[state] [duration] [reason]", "Turn maintenance mode on or off"),
+        ("shutdown", "shutdown", "", "Shut the bot down"),
+        ("gitpull", "gitpull", "", "Pull the latest update"),
+        ("broadcast", "broadcast", "<message>", "Send an announcement to every server's alert channel"),
+    ]),
+    ("Global blacklist", [
+        ("blacklist", "blacklist", "<target_id> [reason]", "Blacklist a user or server from the bot"),
+        ("unblacklist", "unblacklist", "<target_id>", "Lift a user's or server's blacklist"),
+        ("blacklisted", "blacklisted", "", "List blacklisted users and servers"),
+    ]),
+    ("Dangerous role tools", [
+        ("strip", "strip", "<member>", "Remove every role from a member and log the strip"),
+        ("unstrip", "unstrip", "<member>", "Give back the roles a strip removed"),
+        ("massunrole", "massunrole", "[role] [flag]", "Remove a role from everyone"),
+        ("revert", "revert", "<user> <duration>", "Undo someone's recent bans and deletions"),
+    ]),
+    ("Network & private", [
+        ("midtown servers", "midtown servers", "", "Privately scan joined server names for Midtown"),
+        ("mutuals", "mutuals", "<user>", "Servers the bot shares with a user (for abuse investigations)"),
+        ("portal", "portal", "<target>", "Create or fetch an invite to any server the bot is in"),
+        ("antinukepreset save", "antinukepreset save", "<name>", "Save this server's antinuke config as a preset"),
+        ("antinukepreset load", "antinukepreset load", "<name>", "Apply a saved preset to this server"),
+        ("antinukepreset list", "antinukepreset list", "", "List antinuke presets"),
+        ("antinukepreset delete", "antinukepreset delete", "<name>", "Delete a preset"),
+    ]),
+]
+
+SECTIONED_LABELS = ("Developer", "Secret")
 
 
 # ---------------------------------------------------------------- command lookup and visibility
@@ -532,21 +661,65 @@ def page_order(label: str, cmds: list[commands.Command]) -> list[commands.Comman
                                        else len(pinned), c.qualified_name))
 
 
+def _resolve_bot_command(bot, qualified_name: str):
+    """Resolve a (possibly nested) command name on the bot, or None if it isn't loaded."""
+    if bot is None or not hasattr(bot, "get_command"):
+        return None
+    try:
+        return bot.get_command(qualified_name)
+    except Exception:
+        return None
+
+
+def _section_root_commands(bot, sections) -> list[commands.Command]:
+    """Unique top-level commands named by a section list, in first-seen (section) order."""
+    seen: dict[str, commands.Command] = {}
+    for _, entries in sections:
+        for qualified_name, *_ in entries:
+            cmd = _resolve_bot_command(bot, qualified_name)
+            if cmd is None:
+                continue
+            root = getattr(cmd, "root_parent", None) or cmd
+            seen.setdefault(root.qualified_name, root)
+    return list(seen.values())
+
+
 def developer_commands(bot) -> list[commands.Command]:
-    """Owner and bot-operations commands shown in Developer (excluding Secret tools)."""
-    cmds = []
-    for cog_name in sorted(HIDDEN_COGS - {"DevTools"}):
-        cog = bot.get_cog(cog_name) if bot is not None and hasattr(bot, "get_cog") else None
-        if cog:
-            cmds += [c for c in cog.get_commands() if c.parent is None]
-    return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
+    """Developer commands shown in Developer: the screenshot sections, in section order."""
+    return _section_root_commands(bot, DEVELOPER_SECTIONS)
 
 
 def secret_commands(bot) -> list[commands.Command]:
-    """Restricted DevTools commands shown only in the separate Secret category."""
-    cog = bot.get_cog("DevTools") if bot is not None and hasattr(bot, "get_cog") else None
-    cmds = [c for c in cog.get_commands() if c.parent is None] if cog else []
-    return sorted({c.qualified_name: c for c in cmds}.values(), key=lambda c: c.name)
+    """Sensitive commands shown only in Secret: the Secret sections, plus any hidden command
+    that isn't listed anywhere (sensitive by default, so a new hidden command never leaks
+    into Developer or disappears from help)."""
+    cmds = _section_root_commands(bot, SECRET_SECTIONS)
+    known = {c.qualified_name for c in cmds} | {c.qualified_name for c in developer_commands(bot)}
+    if bot is not None and hasattr(bot, "get_cog"):
+        for cog_name in sorted(HIDDEN_COGS):
+            cog = bot.get_cog(cog_name)
+            if cog:
+                for c in cog.get_commands():
+                    if c.parent is None and c.qualified_name not in known:
+                        cmds.append(c)
+                        known.add(c.qualified_name)
+    return cmds
+
+
+def grouped_sections(bot, label: str) -> list[tuple[str, list[tuple[str, str, str]]]]:
+    """Resolved `(heading, [(display, args, description)])` for a sectioned category.
+
+    Entries whose command isn't loaded are skipped, so a renamed or removed command
+    never renders as a dead link in the Developer/Secret copy.
+    """
+    sections = DEVELOPER_SECTIONS if label == "Developer" else SECRET_SECTIONS
+    out: list[tuple[str, list[tuple[str, str, str]]]] = []
+    for heading, entries in sections:
+        rows = [(display, args, desc) for qualified_name, display, args, desc in entries
+                if _resolve_bot_command(bot, qualified_name) is not None]
+        if rows:
+            out.append((heading, rows))
+    return out
 
 
 HOME = "__home__"
@@ -657,7 +830,9 @@ class HelpView(OwnedView):
         self.stack: list[tuple[commands.Command, int]] = []
         self.subpage = 0
         for label in self.labels():
-            cmds = page_order(label, self.commands_in(label))
+            # Developer/Secret keep their screenshot section order; everything else is pinned-first.
+            raw = self.commands_in(label)
+            cmds = raw if label in SECTIONED_LABELS else page_order(label, raw)
             self.sizes[label] = len(cmds)
             compact_security = label == "Antinuke" and help_cmd.security_overview(cmds) is not None
             self.items[label] = [c for c in cmds if getattr(c, "parent", None) is None] if compact_security else cmds
@@ -1217,8 +1392,81 @@ class Help(commands.HelpCommand):
         e.set_footer(text="Select a group · <required> [optional]")
         return e
 
+    def _sectioned_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
+        """Developer/Secret as grouped sections, copied from the Midtown screenshot.
+
+        Each section is a bold heading with one ``,command <args>`` - description`` line per
+        entry. Sections are packed onto pages without splitting a section unless it alone
+        would overflow Discord's 4000-character embed limit.
+        """
+        bot = getattr(self.context, "bot", None)
+        prefix = self.context.clean_prefix
+        sections = grouped_sections(bot, label)
+        # Any command in `cmds` whose root the sections don't name (e.g. a future hidden
+        # command swept into Secret) still gets a line, under a catch-all heading.
+        raw_sections = DEVELOPER_SECTIONS if label == "Developer" else SECRET_SECTIONS
+        named_roots = {entry[0].split(" ", 1)[0] for _, entries in raw_sections for entry in entries}
+        extra = [c for c in cmds if c.qualified_name not in named_roots]
+        if extra:
+            sections = [*sections, ("More", [(c.qualified_name, short_args(c), blurb(c, 60)) for c in extra])]
+        total = sum(len(rows) for _, rows in sections) or len(cmds)
+
+        def render(heading: str, rows: list[tuple[str, str, str]]) -> str:
+            lines = [f"**{heading}**"]
+            for display, args, desc in rows:
+                invocation = f"{prefix}{display}" + (f" {args}" if args else "")
+                lines.append(f"{chip(invocation)} - {desc}" if desc else chip(invocation))
+            return "\n".join(lines)
+
+        # Pack whole sections per page; split a single oversized section across pages.
+        intro = f"> {CATEGORY_DESCRIPTIONS.get(label, 'Browse commands')}"
+        blocks = [render(heading, rows) for heading, rows in sections]
+        pages_text: list[str] = []
+        current: list[str] = []
+        current_len = len(intro) + 2
+
+        def flush():
+            nonlocal current, current_len
+            if current:
+                pages_text.append("\n\n".join([intro, *current]) if not pages_text else "\n\n".join(current))
+                current, current_len = [], len(intro) + 2
+
+        for block in blocks:
+            if len(block) + current_len + 2 <= 3600:
+                current.append(block)
+                current_len += len(block) + 2
+                continue
+            flush()
+            if len(block) <= 3600:
+                current, current_len = [block], len(intro) + 2 + len(block) + 2
+            else:
+                chunk: list[str] = []
+                chunk_len = 0
+                for line in block.splitlines():
+                    if chunk and chunk_len + len(line) + 1 > 3600:
+                        pages_text.append("\n".join(chunk))
+                        chunk, chunk_len = [], 0
+                    chunk.append(line)
+                    chunk_len += len(line) + 1
+                if chunk:
+                    current, current_len = ["\n".join(chunk)], len(intro) + 2 + sum(len(x) + 1 for x in chunk)
+        flush()
+        if not pages_text:
+            pages_text = [f"{intro}\n\n" + bullet("No commands here yet.")]
+        pages = []
+        for n, body in enumerate(pages_text, 1):
+            if label == "Developer" and n == len(pages_text):
+                body += f"\n\n{bullet(f'prefix {chip(prefix)} · dev only')}"
+            e = self._brand(discord.Embed(color=HELP_COLOR, title=f"{label} commands",
+                                         description=shorten_md(body, 4000)), section="Command reference")
+            e.set_footer(text=f"Page {n}/{len(pages_text)} · {count(total, 'command')} · Select a command below")
+            pages.append(e)
+        return pages
+
     def category_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
         """A category as pages of up to PER_PAGE commands, a line each with what the command does."""
+        if label in SECTIONED_LABELS:
+            return self._sectioned_pages(label, cmds)
         if label == "Antinuke":
             overview = self.security_overview(cmds)
             if overview is not None:

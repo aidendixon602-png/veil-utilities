@@ -588,7 +588,7 @@ class Owner(commands.Cog):
         await ctx.send(embed=discord.Embed(title="Version", color=Colors.success if ok else Colors.warn,
                                            description="\n".join(lines)))
 
-    @commands.command(hidden=True, aliases=["rl"])
+    @commands.command(hidden=True, aliases=["rl", "reloadall"])
     async def reload(self, ctx: Context, *extensions: str):
         """Reload modules without restarting
 
