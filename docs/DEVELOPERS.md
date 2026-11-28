@@ -6,7 +6,7 @@ Veil's hidden developer commands are not part of the public [command reference](
 
 | Command | Purpose and cautions |
 | --- | --- |
-| `,system` | Show bot health, uptime, database type, memory and maintenance status. |
+| `,system` | Read-only health card: gateway latency and uptime with a green/amber/red indicator, memory current and peak, joined and authorized servers, cached members and channels, any unreachable servers, database engine plus a measured round trip, errors this run (and the command of the most recent one), CPU load, maintenance, kill-switched commands, and blacklist size. A footer warns when code changed on disk and a restart is needed to apply it. |
 | `,version` | Show loaded, on-disk and remote version information when available. |
 | `,cogs` | List loaded extensions and commands. |
 | `,errors`, `,error [id]`, `,traceback` | Inspect recent command errors recorded since startup. Treat diagnostics as sensitive. |
@@ -19,6 +19,13 @@ Veil's hidden developer commands are not part of the public [command reference](
 | `,reload [extensions...]` | Reload extensions. Test in a safe environment; reload does not guarantee all state can be restored. |
 | `,restart [seconds]`, `,shutdown` | Restart or stop the bot. Your hosting supervisor may affect process behavior. |
 | `,gitpull` | Fetch and **hard reset** the checkout to `origin/main`. It can discard local changes and commits; see [updating](HOSTING.md#updating). |
+
+![The ,system health card](system-card-preview.png)
+
+The card in the screenshot above is the layout `,system` renders: one summary line with gateway, uptime and
+memory, then nine fields in three columns. Indicators are advisory — green is healthy, amber is worth a look,
+red needs attention, and grey means the value could not be measured on this host (for example `resource`
+without `psutil`, or `os.getloadavg()` on Windows).
 
 Other developer commands can execute arbitrary code or shell commands, query databases, impersonate command invocations, change multiple servers, or alter roles and bans. Treat them as administrative access to the host and Discord servers. Do not expose output to untrusted channels or share credentials. Check `,help developer`, `,help secret` and source for current syntax and access checks rather than assuming every developer tool is safe or reversible.
 

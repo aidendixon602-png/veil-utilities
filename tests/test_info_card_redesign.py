@@ -92,7 +92,7 @@ def test_role_mentions_never_splits_a_mention_and_respects_discord_field_limit()
 
 def test_bot_overview_reports_process_values_and_unavailable_latency(monkeypatch):
     import importlib
-    monkeypatch.setattr(importlib.import_module('cogs.owner'), 'memory_mb', lambda: '100 MB (peak)')
+    monkeypatch.setattr(importlib.import_module('core.diagnostics'), 'memory_mb', lambda: '100 MB (peak)')
     async def run():
         bot = SimpleNamespace(user=SimpleNamespace(name='Veil Utilities', display_avatar=asset()),
                               latency=0.1234, started_at=0, walk_commands=lambda: iter(range(12)))

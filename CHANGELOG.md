@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rebuilt the developer `,system` card.** The old card printed eleven unstyled fields and, on a degraded bot, hid that behind numbers like `0ms`. It now leads with gateway latency, uptime and memory on one line, each with a green/amber/red indicator (grey when a value cannot be measured). Added: measured database round trip rather than just a file size, the command behind the most recent error, cached-versus-reachable server counts, CPU load normalised against the core count, a pluralised kill-switch list that stays inside the field limit, and a footer warning when code changed on disk and a restart is pending. Unknown values now read `Unavailable` instead of `0ms` or `n/a`, and the duplicate `memory_mb` helper moved to `core/diagnostics.py` with a separate current/peak reader.
 - **The old community name is gone from the bot.** The hidden developer server-scan command is now `,veil` (and `,veil servers`), and it matches joined server names containing "Veil". The scan module is now `core/veilservers.py` with `VeilServersView`, the Antinuke rule table is `ANTINUKE_RULES`, and the general log channel is `#veil-utilities-logging`. **Setups that still use the old command name must switch to `,veil`**, and servers that still log into a channel with the old name should rename it or point `,logs` at the right channel.
 
 ### Removed

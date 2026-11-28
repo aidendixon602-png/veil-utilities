@@ -8,6 +8,7 @@ import gzip
 import io
 import json
 import logging
+import math
 import os
 import platform
 import sqlite3
@@ -22,6 +23,7 @@ from discord.ext import commands
 
 from core import gitinfo, redact
 from core.config import settings
+from core.diagnostics import health_dot, memory_usage
 from core.utils import Colors, Context, UserError, chunk_embeds, fmt_duration, shorten, ts
 
 log = logging.getLogger("veil.owner")
@@ -89,20 +91,6 @@ def core_changed_on_disk(bot) -> bool:
     return snapshot is not None and _code_mtimes() != snapshot
 
 
-def memory_mb() -> str:
-    try:
-        import psutil  # optional
-        return f"{psutil.Process().memory_info().rss / 1_048_576:.0f} MB"
-    except ImportError:
-        pass
-    try:
-        import resource
-        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        return f"{rss / (1_048_576 if sys.platform == 'darwin' else 1024):.0f} MB (peak)"
-    except (ImportError, AttributeError):
-        return "n/a"
-
-
 class Owner(commands.Cog):
     """Bot developer tools"""
     emoji = "👑"
@@ -132,33 +120,135 @@ class Owner(commands.Cog):
     async def system(self, ctx: Context):
         """Show the bot's health
 
-        Uptime, latency, shards, memory, database and maintenance.
+        Uptime, gateway latency, memory, server and member reach, shards, database, errors, CPU load,
+        maintenance and kill-switched commands. Read-only; nothing here changes the bot.
         """
         b = self.bot
-        e = discord.Embed(title="System", color=Colors.main, timestamp=discord.utils.utcnow())
-        e.add_field(name="Uptime", value=fmt_duration(time.time() - b.started_at))
-        e.add_field(name="Latency", value=f"{b.latency * 1000:.0f}ms")
-        e.add_field(name="Memory", value=memory_mb())
-        e.add_field(name="Servers", value=f"{len(b.guilds):,} ({len(b.authorized):,} authorized)")
-        e.add_field(name="Users", value=f"{sum(g.member_count or 0 for g in b.guilds):,}")
-        e.add_field(name="Channels", value=f"{sum(len(g.channels) for g in b.guilds):,}")
-        shards = ", ".join(f"#{sid}: {lat * 1000:.0f}ms" for sid, lat in b.latencies) or "—"
-        e.add_field(name=f"Shards ({b.shard_count or 1})", value=shorten(shards, 1024), inline=False)
-        db_path = getattr(b.db, "path", None)  # PostgreSQL has no file to measure
-        size = os.path.getsize(db_path) / 1_048_576 if db_path and db_path != ":memory:" and os.path.exists(db_path) else 0
-        e.add_field(name="Database", value=f"{size:.2f} MB" if db_path else "PostgreSQL")
-        e.add_field(name="Errors (this run)", value=str(b._error_seq))
-        e.add_field(name="Blacklisted", value=str(len(b.blacklist)))
+        started_at = getattr(b, "started_at", None)
+        # started_at can legitimately be 0 in tests and in a freshly-set clock; only None is unknown
+        uptime = fmt_duration(time.time() - started_at) if started_at is not None else "Unavailable"
+
+        # --- latency: NaN means the gateway has not answered yet, which is not "0ms"
+        latency = getattr(b, "latency", None)
+        latency_ms = latency * 1000 if isinstance(latency, (int, float)) and math.isfinite(latency) else None
+        latency_text = f"{latency_ms:.0f} ms" if latency_ms is not None else "Unavailable"
+        gateway_health = health_dot(latency_ms, warn=150, bad=400)
+
+        current_mb, peak_mb = memory_usage()
+        if current_mb is None and peak_mb is None:
+            memory_text = "Unavailable"
+        elif current_mb is None:
+            memory_text = f"~{peak_mb:,.0f} MB peak"
+        else:
+            memory_text = f"{current_mb:,.0f} MB"
+            if peak_mb and peak_mb >= current_mb * 1.15:
+                memory_text += f" (peak {peak_mb:,.0f} MB)"
+
+        guilds = list(getattr(b, "guilds", []))
+        authorized = getattr(b, "authorized", None)
+        auth_count = len(authorized) if authorized is not None else None
+        member_total = sum(getattr(g, "member_count", 0) or 0 for g in guilds)
+        channel_total = sum(len(getattr(g, "channels", ()) or ()) for g in guilds)
+
+        unavailable = sum(1 for g in guilds if getattr(g, "unavailable", False))
+        online = len(guilds) - unavailable
+
+        e = discord.Embed(color=Colors.main, timestamp=discord.utils.utcnow())
+        name = getattr(getattr(b, "user", None), "name", None) or "Veil Utilities"
+        e.set_author(name=f"{name} · System", icon_url=getattr(getattr(getattr(b, "user", None), "display_avatar", None), "url", None))
+        e.description = (f"{gateway_health} **Gateway** {latency_text}   ·   **Uptime** {uptime}   ·   "
+                         f"**Memory** {memory_text}")
+
+        if auth_count is None:
+            servers_value = f"{len(guilds):,} joined"
+        else:
+            servers_value = f"{len(guilds):,} joined · **{auth_count:,}** authorized"
+        e.add_field(name="Servers", value=servers_value)
+        e.add_field(name="Members", value=f"{member_total:,} cached")
+        e.add_field(name="Channels", value=f"{channel_total:,} cached")
+        # a reach row is only worth the space when something is actually unreachable
+        if unavailable:
+            e.add_field(name="Server reach", value=f"🟡 {online:,} reachable · {unavailable:,} unavailable")
+
+        # --- shards: one field per embed is noisy, so this line only when there is more than one
+        latencies = list(getattr(b, "latencies", ()))
+        shard_count = getattr(b, "shard_count", None) or 1
+        if shard_count > 1 or len(latencies) > 1:
+            per_shard = " · ".join(f"#{sid} {lat * 1000:.0f}ms" for sid, lat in latencies) or "no shard is connected"
+            e.add_field(name=f"Shards ({shard_count})", value=shorten(per_shard, 1024), inline=False)
+
+        # --- database: size for SQLite, engine name for PostgreSQL, and a real round trip
+        db = getattr(b, "db", None)
+        db_path = getattr(db, "path", None)
+        if db_path and db_path != ":memory:" and os.path.exists(db_path):
+            try:
+                size = os.path.getsize(db_path) / 1_048_576
+                db_text = f"SQLite · {size:,.2f} MB"
+            except OSError:
+                db_text = "SQLite · size unavailable"
+        elif db_path == ":memory:":
+            db_text = "SQLite · in memory"
+        else:
+            db_text = "PostgreSQL"
+        fetchone = getattr(db, "fetchone", None)
+        if callable(fetchone):
+            started = time.perf_counter()
+            try:
+                await asyncio.wait_for(fetchone("SELECT 1"), timeout=2.0)
+                db_ms = (time.perf_counter() - started) * 1000
+                # a query that takes a quarter second on a local database is a warning, not a success
+                db_text += f" · {health_dot(db_ms, warn=50, bad=250)} {db_ms:,.1f} ms"
+            except Exception:
+                db_text = "🔴 unavailable"
+        e.add_field(name="Database", value=db_text)
+
+        # --- errors: point at ,errors only when there is something to look at
+        error_seq = getattr(b, "_error_seq", 0)
+        recent = list(getattr(b, "recent_errors", ()) or ())
+        if error_seq:
+            last = recent[0].get("command", "?") if recent else None
+            e.add_field(name="Errors (this run)", value=f"**{error_seq:,}**" + (f" · last in `{last}`" if last else ""))
+        else:
+            e.add_field(name="Errors (this run)", value="🟢 none")
+
         try:
-            load = ", ".join(f"{x:.2f}" for x in os.getloadavg())
+            load1, load5, load15 = os.getloadavg()
+            # 1-minute load against the CPU count: above 1.0 per core means requests are queueing
+            cores = os.cpu_count() or 1
+            cpu_health = health_dot(load1, warn=cores * 0.8, bad=cores * 1.5)
+            e.add_field(name="CPU load", value=f"{cpu_health} {load1:.2f} / {load5:.2f} / {load15:.2f}")
         except (AttributeError, OSError):
-            load = "n/a"
-        e.add_field(name="CPU load (1/5/15m)", value=load)
-        e.add_field(name="Maintenance", value=f"🛠️ on — {b.maintenance or 'no reason'}" if b.maintenance is not None else "off")
-        e.add_field(name="Kill-switched", value=", ".join(f"`{c}`" for c in sorted(b.killswitch)) or "none")
-        e.set_footer(text=f"Python {platform.python_version()} • discord.py {discord.__version__} • "
-                          f"{len(b.extensions)} modules • {sum(1 for _ in b.walk_commands())} commands")
-        await ctx.send(embed=e)
+            e.add_field(name="CPU load", value="Unavailable")
+
+        maintenance = getattr(b, "maintenance", None)
+        if maintenance is not None:
+            e.add_field(name="Maintenance", value=f"🛠️ on — {maintenance or 'no reason'}")
+        else:
+            e.add_field(name="Maintenance", value="🟢 off")
+
+        killswitch = getattr(b, "killswitch", None) or set()
+        if killswitch:
+            shown = ", ".join(f"`{c}`" for c in sorted(killswitch)[:8])
+            more = f" +{len(killswitch) - 8:,}" if len(killswitch) > 8 else ""
+            e.add_field(name=f"Kill-switched ({len(killswitch)})", value=shorten(shown + more, 1024))
+        else:
+            e.add_field(name="Kill-switched", value="none")
+
+        try:
+            code_changed = core_changed_on_disk(b)
+        except Exception:
+            code_changed = False
+        modules = len(getattr(b, "extensions", ()) or ())
+        commands_total = sum(1 for _ in b.walk_commands())
+        footer = (f"Python {platform.python_version()} · discord.py {discord.__version__} · "
+                  f"{modules} modules · {commands_total:,} commands")
+        blacklist = getattr(b, "blacklist", None)
+        if blacklist:
+            footer += f" · {len(blacklist):,} blacklisted"
+        if code_changed:
+            footer += " · ⚠️ code changed on disk — restart to apply"
+        e.set_footer(text=footer)
+        await ctx.send(embed=e, allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(name="invite", hidden=True)
     async def invite(self, ctx: Context):
