@@ -47,6 +47,12 @@ def _role_mentions(roles: list[str]) -> str:
     return " ".join(shown) + suffix if shown else f"{remaining:,} roles not shown"
 
 
+# The fixed attribution line older servers still carry, plus its user ID line. Matched by shape
+# ("Property of <name> Genre Owner: simisear") so the filter keeps working no matter what the
+# community was called when the line was written.
+_ATTRIBUTION_SUFFIX = "genre owner: simisear"
+
+
 def _serverinfo_description(description: str | None) -> str | None:
     """Hide the old fixed attribution without changing the saved server description."""
     if not description:
@@ -56,9 +62,13 @@ def _serverinfo_description(description: str | None) -> str | None:
     def plain(line: str) -> str:
         return re.sub(r"[*_~`]", "", line).strip().casefold()
 
+    def is_attribution(line: str) -> bool:
+        text = plain(line)
+        return text.startswith("property of ") and text.endswith(_ATTRIBUTION_SUFFIX)
+
     removed = set()
     for index, line in enumerate(lines):
-        if plain(line) != "property of midtown genre owner: simisear":
+        if not is_attribution(line):
             continue
         removed.add(index)
         following = index + 1

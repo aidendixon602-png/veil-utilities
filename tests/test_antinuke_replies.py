@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from cogs.antinuke import Antinuke
-from test_midtown_antinuke_and_cooldown import make_test_setup, run
+from test_veil_antinuke_and_cooldown import make_test_setup, run
 
 
 def make_ctx(guild_id=999):

@@ -26,12 +26,12 @@ def test_presence_custom_and_dynamic():
     bot.change_presence.reset_mock()
     bot.db = SimpleNamespace(
         is_connected=True,
-        get_config=AsyncMock(return_value={"custom_status_text": "🛡️ Midtown Zero-Trust Armed"}),
+        get_config=AsyncMock(return_value={"custom_status_text": "🛡️ Veil Zero-Trust Armed"}),
     )
     asyncio.run(bot.update_dynamic_status())
     bot.change_presence.assert_called_once()
     act_custom = bot.change_presence.call_args[1]["activity"]
-    assert act_custom.name == "🛡️ Midtown Zero-Trust Armed"
+    assert act_custom.name == "🛡️ Veil Zero-Trust Armed"
 
 
 def test_antinuke_permissions_strips_role_and_dms():
@@ -68,7 +68,7 @@ def test_antinuke_permissions_strips_role_and_dms():
 
     guild = SimpleNamespace(
         id=10,
-        name="Midtown Community",
+        name="Veil Community",
         owner_id=111,
         owner=SimpleNamespace(id=111, send=AsyncMock()),
         me=SimpleNamespace(top_role=SimpleNamespace(name="Veil", position=100)),

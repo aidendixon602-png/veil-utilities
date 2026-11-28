@@ -319,16 +319,16 @@ def test_overlapping_protection_warning_survives_panel_navigation():
 
 
 def test_rule_selector_pages_cover_every_rule_without_saving():
-    from cogs.antinuke import MIDTOWN_RULES
+    from cogs.antinuke import ANTINUKE_RULES
     cog, guild = setup()
     panel, _ = open_panel(cog, guild)
     before = json.loads(json.dumps(saved(cog)))
     select = next(c for c in panel.children if isinstance(c, RuleSelect))
     assert len(select.options) == 12
-    assert {o.value for o in select.options} == {r["key"] for r in MIDTOWN_RULES[:12]}
+    assert {o.value for o in select.options} == {r["key"] for r in ANTINUKE_RULES[:12]}
     press(panel, "Advanced")
     select = next(c for c in panel.children if isinstance(c, RuleSelect))
-    assert [o.value for o in select.options] == [r["key"] for r in MIDTOWN_RULES[12:]]
+    assert [o.value for o in select.options] == [r["key"] for r in ANTINUKE_RULES[12:]]
     assert panel.embed().title == "Antinuke · Advanced"
     assert "**◈  Extended Monitors**" in panel.embed().description
     final_rule = select.options[-1]

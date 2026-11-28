@@ -121,7 +121,7 @@ def _ordered_primary_rules() -> list[dict]:
             if k in an.RULE_LOOKUP and k not in seen:
                 ordered.append(an.RULE_LOOKUP[k])
                 seen.add(k)
-    for r in an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]:
+    for r in an.ANTINUKE_RULES[:PRIMARY_RULE_COUNT]:
         if r["key"] not in seen:
             ordered.append(r)
             seen.add(r["key"])
@@ -152,8 +152,8 @@ def _summary_fields(embed: discord.Embed, cfg: dict, guild) -> None:
 def home_embed(cfg: dict, prefix: str, guild=None, *, advanced: bool = False, bot=None) -> discord.Embed:
     an = _an()
     enabled = bool(cfg.get("enabled"))
-    primary = an.MIDTOWN_RULES[:PRIMARY_RULE_COUNT]
-    additional = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:]
+    primary = an.ANTINUKE_RULES[:PRIMARY_RULE_COUNT]
+    additional = an.ANTINUKE_RULES[PRIMARY_RULE_COUNT:]
     core_on = sum(rule_state(cfg, r["key"])["on"] for r in primary)
     adv_on = sum(rule_state(cfg, r["key"])["on"] for r in additional)
     preset = active_preset(cfg)
@@ -249,7 +249,7 @@ class RuleSelect(discord.ui.Select["AntinukePanel"]):
         an = _an()
         options = []
         start = page * RULES_PER_PAGE
-        rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if advanced else _ordered_primary_rules()
+        rules = an.ANTINUKE_RULES[PRIMARY_RULE_COUNT:] if advanced else _ordered_primary_rules()
         for r in rules[start:start + RULES_PER_PAGE]:
             key = r["key"]
             st = rule_state(cfg, key)
@@ -307,7 +307,7 @@ class AntinukePanel(OwnedView):
                 "show_rules",
                 style=discord.ButtonStyle.primary if self.advanced else discord.ButtonStyle.secondary,
             ))
-            rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if self.advanced else _ordered_primary_rules()
+            rules = an.ANTINUKE_RULES[PRIMARY_RULE_COUNT:] if self.advanced else _ordered_primary_rules()
             total = max(1, (len(rules) + RULES_PER_PAGE - 1) // RULES_PER_PAGE)
             self.rule_page = max(0, min(self.rule_page, total - 1))
             self.add_item(RuleSelect(self.cfg, self.rule_page, advanced=self.advanced))
@@ -375,7 +375,7 @@ class AntinukePanel(OwnedView):
             self.rule_page = 0
             changed = False
         elif action in ("rules_prev", "rules_next"):
-            rules = an.MIDTOWN_RULES[PRIMARY_RULE_COUNT:] if self.advanced else _ordered_primary_rules()
+            rules = an.ANTINUKE_RULES[PRIMARY_RULE_COUNT:] if self.advanced else _ordered_primary_rules()
             total = max(1, (len(rules) + RULES_PER_PAGE - 1) // RULES_PER_PAGE)
             self.rule_page = max(0, min(total - 1, self.rule_page + (1 if action == "rules_next" else -1)))
             changed = False

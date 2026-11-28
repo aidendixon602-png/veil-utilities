@@ -80,10 +80,9 @@ KINDS: dict[str, Kind] = {k.key: k for k in (
     Kind("commands", "Commands", "⌨️", "Command executions and permission checks", "command-logs",
          ("command-logs", "cmd-logs", "commands", "command-log")),
     Kind("server", "Server", "⚙️", "Server settings, invites and emojis", "veil-utilities-logging",
-         ("veil-utilities-logging", "midtown-utilities-logging", "server-logs", "bot-logs", "logs")),
+         ("veil-utilities-logging", "server-logs", "bot-logs", "logs")),
     Kind("antinuke", "Antinuke", "🚨", "Antinuke alerts and automated responses", "antinuke-logs",
-         ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging",
-          "midtown-utilities-logging")),
+         ("antinuke-logs", "antinuke-log", "security-logs", "veil-security", "veil-utilities-logging")),
     Kind("messages", "Messages", "💬", "Deleted, edited and bulk-deleted messages", None, ("message-logs", "msg-logs")),
     Kind("members", "Members", "👥", "Nicknames; joins and leaves use the join log when available", None,
          ("member-logs", "members")),
@@ -145,7 +144,7 @@ CARRIES: dict[str, tuple[str, ...]] = {
     "server": ("messages", "roles", "channels", "voice"),
 }
 
-_CATCHALL_NAMES = frozenset({"veil-utilities-logging", "midtown-utilities-logging", "server-logs", "bot-logs", "logs"})
+_CATCHALL_NAMES = frozenset({"veil-utilities-logging", "server-logs", "bot-logs", "logs"})
 
 
 def _clean_name(name: str | None) -> str:

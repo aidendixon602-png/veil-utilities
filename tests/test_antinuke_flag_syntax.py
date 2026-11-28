@@ -11,7 +11,7 @@ from core.antinukepanel import home_embed
 from core.utils import UserError
 from test_antinuke_guard import MOD, make_ctx as guard_ctx, run as guard_run, setup as guard_setup
 from test_antinuke_undo import A, entry, feed, setup as audit_setup
-from test_midtown_antinuke_and_cooldown import make_test_setup, run
+from test_veil_antinuke_and_cooldown import make_test_setup, run
 
 
 def ctx_for(cog):

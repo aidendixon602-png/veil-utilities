@@ -38,5 +38,5 @@ def test_setstatus_uses_the_same_words():
 
 def test_other_words_still_set_text():
     cog, ctx, store = setup({})
-    asyncio.run(Owner.setpresence.callback(cog, ctx, "Protecting", text="Midtown"))
-    assert store["global"]["custom_status_text"] == "Protecting Midtown"
+    asyncio.run(Owner.setpresence.callback(cog, ctx, "Protecting", text="Veil"))
+    assert store["global"]["custom_status_text"] == "Protecting Veil"

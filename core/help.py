@@ -133,7 +133,7 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
 
 # ---------------------------------------------------------------- Developer / Secret sections
 #
-# Developer copies the Midtown Utilities Developer help (screenshot): same section headings and
+# Developer copies the screenshot Developer help: same section headings and
 # one-line descriptions, mapped to the Veil commands that actually do the job. Where Veil has no
 # equivalent (`,fixnick`, `,nocolor`, `,cmdlogs`, `,secret <#channel>`, `,blacklistrole`,
 # `,setdm`), the closest real command is listed instead — no fake commands are shown.
@@ -162,7 +162,7 @@ DEVELOPER_SECTIONS: list[tuple[str, list[tuple[str, str, str, str]]]] = [
         ("invite", "invite", "", "Get a private link to install Veil in a server"),
         ("developer", "developer", "", "Show the developer commands"),
     ]),
-    ("Authorized servers (official Midtown only)", [
+    ("Authorized servers (official Veil only)", [
         ("authorize", "authserver", "[id]", "authorize this server (or by ID)"),
         ("unauthorize", "deauth", "[id]", "remove a server from the auth list"),
         ("authorized", "authedservers", "", "list authorized servers"),
@@ -245,7 +245,7 @@ SECRET_SECTIONS: list[tuple[str, list[tuple[str, str, str, str]]]] = [
         ("revert", "revert", "<user> <duration>", "Undo someone's recent bans and deletions"),
     ]),
     ("Network & private", [
-        ("midtown servers", "midtown servers", "", "Privately scan joined server names for Midtown"),
+        ("veil servers", "veil servers", "", "Privately scan joined server names for Veil"),
         ("mutuals", "mutuals", "<user>", "Servers the bot shares with a user (for abuse investigations)"),
         ("portal", "portal", "<target>", "Create or fetch an invite to any server the bot is in"),
         ("antinukepreset save", "antinukepreset save", "<name>", "Save this server's antinuke config as a preset"),
@@ -1393,7 +1393,7 @@ class Help(commands.HelpCommand):
         return e
 
     def _sectioned_pages(self, label: str, cmds: list[commands.Command]) -> list[discord.Embed]:
-        """Developer/Secret as grouped sections, copied from the Midtown screenshot.
+        """Developer/Secret as grouped sections, laid out like the original developer-help screenshot.
 
         Each section is a bold heading with one ``,command <args>`` - description`` line per
         entry. Sections are packed onto pages without splitting a section unless it alone

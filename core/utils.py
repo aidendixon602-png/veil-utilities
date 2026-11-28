@@ -255,9 +255,6 @@ class DangerConfirm(OwnedView):
         self.stop()
 
 
-MidtownConfirm = DangerConfirm  # the name it was added under
-
-
 def chunk_embeds(title: str, lines: list[str], per_page: int = 10, color: int = Colors.main,
                  numbered: bool = True) -> list[discord.Embed]:
     pages = []

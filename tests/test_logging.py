@@ -165,12 +165,12 @@ def test_joins_and_leaves_have_their_own_channel_and_fall_back_to_the_one_they_s
 
 
 def test_a_general_log_named_after_another_bot_still_takes_every_category():
-    """The screenshot's server: nothing configured, one `#midtown-utilities-logging`. Setups made under an older
-    bot name must keep their logs instead of dropping nine categories on the floor."""
-    guild = make_guild([text_channel(1, "midtown-utilities-logging"), text_channel(2, "join-logs"),
+    """The screenshot's server: nothing configured, one `#veil-utilities-logging`. A general log must take
+    every category instead of dropping nine of them on the floor."""
+    guild = make_guild([text_channel(1, "veil-utilities-logging"), text_channel(2, "join-logs"),
                         text_channel(3, "command-logs")])
     for kind in ("server", "antinuke", "messages", "roles", "channels", "voice"):
-        assert L._channel_for(guild, {}, kind).name == "midtown-utilities-logging"
+        assert L._channel_for(guild, {}, kind).name == "veil-utilities-logging"
     assert L._channel_for(guild, {}, "joinleave").name == "join-logs"
     assert L._channel_for(guild, {}, "commands").name == "command-logs"
     assert L._channel_for(guild, {}, "bans") is None          # never spills into the general log
@@ -1045,7 +1045,7 @@ def test_test_command_reports_working_broken_and_unset_categories():
 def test_cleanup_names_leftover_catch_alls_and_only_deletes_when_asked():
     """The server from the screenshots: an older general log still sitting there after the split."""
     async def go():
-        old_general, mod, general = (text_channel(1, "midtown-utilities-logging"), text_channel(2, "mod-logs"),
+        old_general, mod, general = (text_channel(1, "server-logs"), text_channel(2, "mod-logs"),
                                      text_channel(3, "veil-utilities-logging"))
         for c in (old_general, mod, general):
             c.delete = AsyncMock()

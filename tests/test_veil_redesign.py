@@ -1,4 +1,4 @@
-"""Tests for Midtown Utilities redesign: help menu, permlevels, staff-only mode, and command protections."""
+"""Tests for Veil Utilities redesign: help menu, permlevels, staff-only mode, and command protections."""
 from __future__ import annotations
 
 import asyncio
@@ -397,7 +397,7 @@ def test_presence_text_pluralises_and_groups_thousands():
 
 
 def test_an_old_saved_status_is_forgotten_once_so_the_new_line_shows():
-    saved = {"custom_status_text": "✨ Protecting Midtown Community • ,help", "presence_status": "dnd"}
+    saved = {"custom_status_text": "✨ Protecting Veil Community • ,help", "presence_status": "dnd"}
     assert Veil.forget_old_status(saved) is True
     assert "custom_status_text" not in saved and saved["presence_status"] == "dnd"
     saved["custom_status_text"] = "set later with ,setstatus"

@@ -27,8 +27,6 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,hardbans` (genrebans, genrebanlist, globalbans) | List network hardbans |
 | `,joinleavelogs [channel]` (jllogs) | Log joins, leaves and kicks in their own channel |
 | `,massunrole [role] [flag]` | Remove a role from everyone |
-| `,midtown` | Search joined servers privately for Midtown |
-| `,midtown servers` | Privately scan joined server names for Midtown |
 | `,revert <user> <duration>` | Undo someone's recent bans and deletions |
 | `,strip <member>` | Remove every role from a member and log the strip |
 | `,ungenreban <user>` (unreban, unhardban, globalunban) | Lift a network genreban in every server |
@@ -40,6 +38,8 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,userrolebl list` (show, view) | List users blacklisted from receiving roles in this server |
 | `,userrolebl remove <target> [role]` (rem, del, delete, unblock, unblacklist) | Remove a user or role from the user role blacklist |
 | `,userrolebl strip <target>` (all) | Block all roles for a user and strip their current roles |
+| `,veil` | Search joined servers privately for Veil |
+| `,veil servers` | Privately scan joined server names for Veil |
 
 ## Owner
 
