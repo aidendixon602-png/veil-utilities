@@ -83,33 +83,33 @@ class DevTools(commands.Cog):
     # ================================================================ private server inventory
     # Only the cog check above gates these: `@commands.is_owner()` would also admit protected people,
     # who hold the developer rank for ordinary command checks but must never see operator tools.
-    @commands.group(name="midtown", hidden=True, invoke_without_command=True, ignore_extra=False)
-    async def midtown(self, ctx: Context):
-        """Search joined servers privately for Midtown"""
-        await ctx.neutral(f"Use `{ctx.clean_prefix}midtown servers` to receive a private server scan.")
+    @commands.group(name="veil", hidden=True, invoke_without_command=True, ignore_extra=False)
+    async def veil(self, ctx: Context):
+        """Search joined servers privately for Veil"""
+        await ctx.neutral(f"Use `{ctx.clean_prefix}veil servers` to receive a private server scan.")
 
-    @midtown.command(name="servers", hidden=True, ignore_extra=False)
+    @veil.command(name="servers", hidden=True, ignore_extra=False)
     @commands.cooldown(1, 5, commands.BucketType.user)
-    async def midtown_servers(self, ctx: Context):
-        """Privately scan joined server names for Midtown
+    async def veil_servers(self, ctx: Context):
+        """Privately scan joined server names for Veil
 
         Results are sent by DM and can be refreshed. Bot developers only.
         """
-        from core.midtown import MidtownView, developer_allowed, result_pages
+        from core.veilservers import VeilServersView, developer_allowed, result_pages
         if not await developer_allowed(self.bot, ctx.author):
             raise commands.NotOwner()
         try:
             pages = result_pages(self.bot.guilds)
         except Exception as exc:
-            log.warning("Midtown scan failed (%s)", type(exc).__name__)
+            log.warning("Veil scan failed (%s)", type(exc).__name__)
             raise UserError("The server scan is unavailable; try again later") from None
         if not await developer_allowed(self.bot, ctx.author):
             raise commands.NotOwner()
-        view = MidtownView(self.bot, ctx.author.id, pages)
+        view = VeilServersView(self.bot, ctx.author.id, pages)
         try:
             view.message = await ctx.author.send(embed=pages[0], view=view, allowed_mentions=discord.AllowedMentions.none())
         except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            log.warning("Midtown scan DM delivery failed (%s)", type(exc).__name__)
+            log.warning("Veil scan DM delivery failed (%s)", type(exc).__name__)
             ctx.command_log_outcome = "Private scan delivery not confirmed"
             ctx.command_log_warning = True
             view.stop()

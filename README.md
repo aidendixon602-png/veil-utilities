@@ -94,7 +94,7 @@ Server authorization, private mode, Veil grants, Discord permissions and role hi
 
 ## Developer help
 
-Run `,help developer` (aliases `,dev`, `,devhelp`) in Discord. Developer copies the Midtown Utilities Developer help, mapped to the Veil commands that actually do the job. Prefix: `,` · dev only.
+Run `,help developer` (aliases `,dev`, `,devhelp`) in Discord. Developer lists the bot-operations, authorized-server, genreban and blacklist commands, mapped to the Veil commands that actually do the job. Prefix: `,` · dev only.
 
 **Developer**
 
@@ -115,7 +115,7 @@ Run `,help developer` (aliases `,dev`, `,devhelp`) in Discord. Developer copies 
 ,developer             - Show the developer commands
 ```
 
-**Authorized servers (official Midtown only)**
+**Authorized servers (official Veil only)**
 
 ```text
 ,authserver [id]       - authorize this server (or by ID)
@@ -194,7 +194,7 @@ Run `,help developer` (aliases `,dev`, `,devhelp`) in Discord. Developer copies 
 ,dm <user> <message>   - DM a user
 ```
 
-> Where Veil has no equivalent for a Midtown command (`fixnick`, `nocolor`, `cmdlogs`, `secret <#channel>`, `blacklistrole`, `setdm`), the closest real command is listed instead — no fake commands are shown. `,reloadall` and `,authedservers` are real aliases added so the copied names work.
+> Where Veil has no equivalent for a screenshot command (`fixnick`, `nocolor`, `cmdlogs`, `secret <#channel>`, `blacklistrole`, `setdm`), the closest real command is listed instead — no fake commands are shown. `,reloadall` and `,authedservers` are real aliases added so the copied names work.
 
 ## Secret help
 
@@ -245,7 +245,7 @@ Run `,help secret` (aliases `,secrets`, `,tokens`) in Discord. Secret holds the 
 **Network & private**
 
 ```text
-,midtown servers       - Privately scan joined server names for Midtown
+,veil servers          - Privately scan joined server names for Veil
 ,mutuals <user>        - Servers the bot shares with a user (for abuse investigations)
 ,portal <target>       - Create or fetch an invite to any server the bot is in
 ,antinukepreset save <name> - Save this server's antinuke config as a preset

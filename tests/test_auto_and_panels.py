@@ -199,7 +199,7 @@ def _announce_setup(dm_owner):
     log_channel, owner = SimpleNamespace(send=AsyncMock()), SimpleNamespace(send=AsyncMock())
     an = SimpleNamespace(_log_channel=AsyncMock(return_value=log_channel), cfg=AsyncMock(return_value={}))
     bot = SimpleNamespace(get_cog=lambda name: an, db=FakeDB())
-    guild = SimpleNamespace(id=5, name="Midtown", icon=None, owner=owner)
+    guild = SimpleNamespace(id=5, name="Veil", icon=None, owner=owner)
     asyncio.run(autosetup.announce(bot, guild, ["raid detection"], dm_owner=dm_owner))
     return log_channel, owner
 
@@ -208,7 +208,7 @@ def test_servers_the_bot_was_already_in_dont_dm_the_owner():
     log_channel, owner = _announce_setup(dm_owner=False)  # a restart: one DM per server would be spam
     log_channel.send.assert_awaited_once()
     owner.send.assert_not_called()
-    assert log_channel.send.await_args.kwargs["embed"].author.name == "Midtown"
+    assert log_channel.send.await_args.kwargs["embed"].author.name == "Veil"
 
 
 def test_a_server_just_joined_tells_its_owner_once():

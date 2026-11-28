@@ -1,4 +1,4 @@
-"""Private developer-only view of joined guilds whose names contain Midtown."""
+"""Private developer-only view of joined guilds whose names contain Veil."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,7 @@ import discord
 
 from core.utils import Colors, OwnedView
 
-log = logging.getLogger("veil.midtown")
+log = logging.getLogger("veil.veilservers")
 PER_PAGE = 6
 
 
@@ -48,12 +48,12 @@ def scan_joined(guilds) -> tuple[int, list[Match], int]:
                 unavailable += 1
                 continue
             folded = name.casefold()
-            if "midtown" not in folded:
+            if "veil" not in folded:
                 continue
             count = _field(guild, "member_count")
             count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
             found.append(Match(name, _positive_id(_field(guild, "id")),
-                               _positive_id(_field(guild, "owner_id")), count, folded == "midtown"))
+                               _positive_id(_field(guild, "owner_id")), count, folded == "veil"))
         except Exception:
             # An unavailable entry should not take down the entire scan. Do not log cross-server details.
             unavailable += 1
@@ -88,7 +88,7 @@ def result_pages(guilds) -> list[discord.Embed]:
                          f"Server ID: {_display_id(match.guild_id)} · Owner ID: {_display_id(match.owner_id)} "
                          f"· Members: {members}")
         description = summary + "\n\n" + ("\n\n".join(lines) if lines else "No matching joined servers found.")
-        pages.append(discord.Embed(title="Midtown servers", description=description, color=Colors.main))
+        pages.append(discord.Embed(title="Veil servers", description=description, color=Colors.main))
     for i, page in enumerate(pages, 1):
         page.set_footer(text=f"Page {i}/{len(pages)} · Joined servers only · Private scan")
     return pages
@@ -102,7 +102,7 @@ async def developer_allowed(bot, user) -> bool:
         return False
 
 
-class MidtownView(OwnedView):
+class VeilServersView(OwnedView):
     """Only the invoking developer may navigate or refresh this DM-only scan."""
 
     def __init__(self, bot, author_id: int, pages: list[discord.Embed]):
@@ -153,13 +153,13 @@ class MidtownView(OwnedView):
         try:
             self.pages = result_pages(self.bot.guilds)
         except Exception as exc:
-            log.warning("Midtown scan failed (%s)", type(exc).__name__)
+            log.warning("Veil scan failed (%s)", type(exc).__name__)
             return await it.response.send_message("The scan could not be refreshed. Try again later.", ephemeral=True)
         self.index = 0
         await self._show(it)
 
     async def on_error(self, it: discord.Interaction, error: Exception, item: discord.ui.Item):
-        log.warning("Midtown interaction failed (%s)", type(error).__name__)
+        log.warning("Veil interaction failed (%s)", type(error).__name__)
         if not it.response.is_done():
             await it.response.send_message("This private menu could not be updated.", ephemeral=True)
 
@@ -168,4 +168,4 @@ class MidtownView(OwnedView):
             try:
                 await self.message.edit(view=None)
             except (discord.HTTPException, aiohttp.ClientError, asyncio.TimeoutError):
-                log.warning("Could not remove expired Midtown scan controls")
+                log.warning("Could not remove expired Veil scan controls")

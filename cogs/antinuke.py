@@ -47,7 +47,7 @@ MODULES = {
 # modules that default to a higher threshold than 3 when turned on with `antinuke enable`
 DEFAULT_THRESHOLDS = {"timeout": 5}
 
-MIDTOWN_RULES = [
+ANTINUKE_RULES = [
     {"key": "ban", "name": "Ban", "threshold": 3, "window": 60, "punishment": "ban", "tags": "[revert]"},
     {"key": "botadd", "name": "Bot Add", "threshold": 1, "window": 60, "punishment": "ban", "tags": "[revert]"},
     {"key": "channelcreate", "name": "Channel Create", "threshold": 2, "window": 120, "punishment": "kick", "tags": "[revert]"},
@@ -70,7 +70,7 @@ MIDTOWN_RULES = [
     {"key": "prune", "name": "Member Prune", "threshold": 1, "window": 60, "punishment": "ban", "tags": None},
 ]
 NEW_RULES = ("memberroles", "channelupdate", "roleupdate", "emoji", "prune")  # available for explicit configuration
-RULE_LOOKUP = {r["key"]: r for r in MIDTOWN_RULES}
+RULE_LOOKUP = {r["key"]: r for r in ANTINUKE_RULES}
 
 PRESETS = {
     "default": {
@@ -1592,7 +1592,7 @@ class Antinuke(commands.Cog):
         cfg["enabled"] = True
         modules = cfg.setdefault("modules", {})
         advanced = set(NEW_RULES)
-        for r in MIDTOWN_RULES:
+        for r in ANTINUKE_RULES:
             modules.setdefault(r["key"], {"on": r["key"] not in advanced, "threshold": r["threshold"],
                                           "window": r["window"], "punishment": r["punishment"]})
         for m in MODULES:
@@ -1639,7 +1639,7 @@ class Antinuke(commands.Cog):
         await antinuke_admin(ctx)
         action_key = self.resolve_action(action)
         if not action_key:
-            valid = ", ".join(f"`{r['key']}`" for r in MIDTOWN_RULES)
+            valid = ", ".join(f"`{r['key']}`" for r in ANTINUKE_RULES)
             raise UserError(f"Unknown action `{action}`. Valid actions:\n{valid}")
         punishment = punishment.lower()
         if punishment not in ("ban", "kick", "strip"):
@@ -2097,7 +2097,7 @@ class Antinuke(commands.Cog):
             await self.save(ctx.guild.id, cfg)
             await ctx.approve(f"reset the **{default_r['name']}** rule to its default")
         else:
-            for r in MIDTOWN_RULES:
+            for r in ANTINUKE_RULES:
                 k = r["key"]
                 cfg["modules"][k] = {
                     "on": True,

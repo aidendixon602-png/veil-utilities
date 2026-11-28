@@ -201,7 +201,7 @@ _Games and silly commands_
 | `,reverse <text>` | Reverse text |  |
 | `,rps <choice>` | Rock paper scissors |  |
 | `,ship <a> [b]` | Ship compatibility |  |
-| `,simi` | Another perfect day in Midtown |  |
+| `,simi` | Another perfect day in Veil |  |
 | `,slap [member]` | Slap someone |  |
 | `,tickle [member]` | Tickle someone |  |
 | `,tictactoe <opponent>` (ttt) | Play tic-tac-toe with someone |  |

@@ -15,8 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Midtown Developer help copy and Secret split.** `,help developer` now renders the Midtown Utilities Developer sections (Developer, Authorized servers, Channels, Genreban, Hard blacklist, Role permissions, Autorole, User blacklist, Role blacklist bypass, Ignore, DM) mapped to real Veil commands, and `,help secret` holds the sensitive tools (code execution, host & data, global blacklist, dangerous role tools, network & private). Added `,reloadall` and `,authedservers` aliases so the copied names work. README refreshed with a modern header, table of contents, full Developer/Secret command lists, and an updated project layout.
+- **Developer help copy and Secret split.** `,help developer` now renders the Developer sections (Developer, Authorized servers, Channels, Genreban, Hard blacklist, Role permissions, Autorole, User blacklist, Role blacklist bypass, Ignore, DM) mapped to real Veil commands, and `,help secret` holds the sensitive tools (code execution, host & data, global blacklist, dangerous role tools, network & private). Added `,reloadall` and `,authedservers` aliases so the copied names work. README refreshed with a modern header, table of contents, full Developer/Secret command lists, and an updated project layout.
 - **Opt-in rejoin role restore.** Enable `,rejoinroles` to save a departing member's role IDs for 30 days. Staff can restore a returning member's roles with `,rejoinroles @member`; every role still passes the normal hierarchy, blacklist, Antinuke, and permissions checks. Disabling the feature erases saved snapshots.
+
+### Changed
+
+- **The old community name is gone from the bot.** The hidden developer server-scan command is now `,veil` (and `,veil servers`), and it matches joined server names containing "Veil". The scan module is now `core/veilservers.py` with `VeilServersView`, the Antinuke rule table is `ANTINUKE_RULES`, and the general log channel is `#veil-utilities-logging`. **Setups that still use the old command name must switch to `,veil`**, and servers that still log into a channel with the old name should rename it or point `,logs` at the right channel.
 
 ### Removed
 
@@ -271,7 +275,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **VEIL LOGS**, down from eleven. Nothing is dropped: deleted messages, nicknames and timeouts ride in the channel
   they belong to (the general log, the join log and the moderation log), every category still has a home, and a
   category given its own channel with `,logs set` keeps it. Servers already set up are left as they are until
-  `,logs setup` runs again, and a general log named after any bot (`#midtown-utilities-logging`) is recognised, so
+  `,logs setup` runs again, and a general log named after any bot (`#veil-utilities-logging`) is recognised, so
   those servers no longer silently lose nine of eleven categories.
 - Strip cards now use the two-column audit layout: a "Member Stripped" title, `User` and `By` side by side with
   clickable mentions and IDs, and one `Roles removed` field. `,strip` adds a small line saying that a developer can
@@ -753,7 +757,7 @@ See `docs/PRODUCTION_AUDIT.md` for scope, upgrade cautions, known limitations an
 - **Server-setup replies redone** (settings, welcome/goodbye/boost, autoroles, starboard, counters, bump, levels,
   VoiceMaster, tickets, giveaways) in the shared style: `set the server prefix to !`, `turned leveling on`,
   `<#chat> no longer gives XP`, `added @Support to the support roles`, `locked your channel`. Toggles say which way
-  they went instead of "toggled", and the wording no longer says "Midtown" in the welcome preset reply.
+  they went instead of "toggled", and the wording no longer says "Veil" in the welcome preset reply.
 - Empty lists say so (`no aliases are set`, `no autoroles are set`, `nobody has any XP yet`, `there are no active
   giveaways`) and list titles show the total.
 - Staff-only mode and fake-permission notes are now small subtext lines under the reply.
@@ -861,7 +865,7 @@ See `docs/PRODUCTION_AUDIT.md` for scope, upgrade cautions, known limitations an
 
 ### Added
 
-- **Midtown Utilities Help Redesign** — Redesigned `,help` menu matching the elite Midtown Utilities style:
+- **Veil Utilities Help Redesign** — Redesigned `,help` menu matching the elite Veil Utilities style:
   - Blurple home overview (`0x5865F2`) with clean 2-row category grid (no secret or developer clutter).
   - Mint-accented category cards (`0x57F287`) with signatures (`,cmd [args] - desc`), aliases block, and dedicated `[Back]` navigation button.
   - Developer and Secret commands hidden from regular members.
@@ -870,14 +874,14 @@ See `docs/PRODUCTION_AUDIT.md` for scope, upgrade cautions, known limitations an
 - **Staff Notes System (`notes`)** — Dedicated staff notes for members (`,notes <member>`, `,notes add`, `,notes clear`).
 - **Permission Levels Redesign** — Compact, single-card embed for `,permlevels` replacing oversized multiple fields, added `,perm` alias so `,perm add <member> <level>` works directly, and added staff protection.
 - **Interactive Snipe Pagination** — Added `[◀ Prev]` and `[Next ▶]` button controls to cycle through recently deleted messages.
-- **Midtown Utilities Channel Logging** — Auto-detects and formats event logging for dedicated channels:
+- **Veil Utilities Channel Logging** — Auto-detects and formats event logging for dedicated channels:
   - `#command-logs`: Logs every executed command with user, code-block command, channel, permission level, and granted-by attribution.
   - `#join-logs`: Formats Member Joined (account age, creation date, invite used) and Member Left (roles had).
   - `#bans`: Formats bans and unbans with persistent, interactive `[Unban]` (green) and `[Reban]` (red) buttons.
   - `#veil-utilities-logging`: Auto-detected channel for general server, role, channel, and message updates.
-- **Dynamic Presence Activity** — Custom status dynamically displaying `Guarding {users:,} users across {guilds} guilds • Watching over the community` matching Midtown's profile presence.
+- **Dynamic Presence Activity** — Custom status dynamically displaying `Guarding {users:,} users across {guilds} guilds • Watching over the community` matching Veil's profile presence.
 - **Lavalink Connection Cleanup** — Cleanly close wavelink node sessions and pool connections on shutdown/unload, fixing `Unclosed client session` and `Unclosed connector` asyncio warnings.
-- `tests/test_midtown_redesign.py` — expanded to 10 unit tests (168 tests total).
+- `tests/test_veil_redesign.py` — expanded to 10 unit tests (168 tests total).
 
 ### Fixed
 

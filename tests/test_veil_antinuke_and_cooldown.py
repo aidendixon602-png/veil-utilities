@@ -1,4 +1,4 @@
-"""Unit tests for Midtown Antinuke Status embed, rules configuration, presets, and anti-spam rate limiting."""
+"""Unit tests for Veil Antinuke Status embed, rules configuration, presets, and anti-spam rate limiting."""
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock

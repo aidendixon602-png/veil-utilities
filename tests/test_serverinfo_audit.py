@@ -22,7 +22,7 @@ def test_serverinfo_and_si_have_clean_help_and_actual_owner():
         help_cmd.context = SimpleNamespace(clean_prefix='!', bot=b, author=SimpleNamespace(id=5), guild=None)
         for lookup in ('serverinfo', 'si'):
             card = help_cmd.command_embed(b.get_command(lookup))
-            assert 'Property of Midtown' not in card.description
+            assert 'Property of Veil' not in card.description
             assert '843909457616044092' not in card.description and '!serverinfo' in card.description
         guild = SimpleNamespace(name='Example', description='A community', icon=None, banner=None, owner_id=42,
                                 created_at=datetime.now(timezone.utc), member_count=None, members=[],
@@ -33,7 +33,7 @@ def test_serverinfo_and_si_have_clean_help_and_actual_owner():
         await Utility.serverinfo.callback(Utility.__new__(Utility), ctx)
         embed = ctx.send.await_args.kwargs['embed']
         assert embed.description == 'A community'
-        assert 'Property of Midtown Genre Owner: simisear' not in embed.description
+        assert 'Property of Veil Genre Owner: simisear' not in embed.description
         assert '843909457616044092' not in embed.description
         assert next(f.value for f in embed.fields if f.name == 'Owner') == '<@42>'
         assert 'Unavailable' in next(f.value for f in embed.fields if f.name == 'Members')

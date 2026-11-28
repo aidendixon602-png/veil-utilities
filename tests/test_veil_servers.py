@@ -12,7 +12,7 @@ from discord.ext import commands
 from discord.ext.commands.view import StringView
 
 from cogs.devtools import DevTools
-from core.midtown import MidtownView, result_pages, scan_joined
+from core.veilservers import VeilServersView, result_pages, scan_joined
 
 
 def guild(name, gid=1, owner=7, members=10):
@@ -36,20 +36,20 @@ def bot(guilds=(), allowed=True):
 
 def test_matching_exact_partial_case_punctuation_and_unavailable():
     class BrokenOwner:
-        name = 'Midtown!'
+        name = 'Veil!'
         id = 8
         member_count = None
         @property
         def owner_id(self):
             raise RuntimeError('unavailable')
     scanned, matches, unavailable = scan_joined([
-        guild('Midtown', 1), guild('MIDTOWN', 2), guild('Pre-midtown 24!', 3), guild('not mid town', 4),
-        guild(None, 5), BrokenOwner(), guild('East MIDTOWN West', 9, None, None),
+        guild('Veil', 1), guild('VEIL', 2), guild('Pre-veil 24!', 3), guild('not ve il town', 4),
+        guild(None, 5), BrokenOwner(), guild('East VEIL West', 9, None, None),
     ])
     assert scanned == 7 and len(matches) == 5 and unavailable == 1
     assert sum(m.exact for m in matches) == 2
-    assert any(m.name == 'Midtown!' and m.owner_id is None and m.members is None for m in matches)
-    description = result_pages([guild('MIDTOWN', 3, None, None)])[0].description
+    assert any(m.name == 'Veil!' and m.owner_id is None and m.members is None for m in matches)
+    description = result_pages([guild('VEIL', 3, None, None)])[0].description
     assert 'Exact' in description and 'Owner ID: Unavailable' in description and 'Members: Unavailable' in description
 
 
@@ -60,7 +60,7 @@ def test_empty_and_uninspectable_results_are_honest():
 
 
 def test_pagination_sizes_and_hostile_names_never_ping():
-    bad = 'Midtown `** @everyone <@123>\n\u202e ' + ('X' * 200)
+    bad = 'Veil `** @everyone <@123>\n\u202e ' + ('X' * 200)
     pages = result_pages([guild(bad, i + 1, 3, 0) for i in range(53)])
     assert len(pages) == 9 and 'Matches:** 53' in pages[0].description
     assert all(len(page) < 6000 and len(page.description) <= 4096 for page in pages)
@@ -72,22 +72,22 @@ def test_pagination_sizes_and_hostile_names_never_ping():
 def test_command_dm_only_and_permission_checks():
     async def go():
         ctx = context()
-        b = bot([guild('MIDTOWN', 123), guild('Other', 987)])
+        b = bot([guild('VEIL', 123), guild('Other', 987)])
         cog = DevTools(b)
-        await DevTools.midtown_servers.callback(cog, ctx)
+        await DevTools.veil_servers.callback(cog, ctx)
         sent = ctx.author.send.await_args.kwargs
         assert '123' in sent['embed'].description and '987' not in sent['embed'].description
-        assert sent['allowed_mentions'].everyone is False and isinstance(sent['view'], MidtownView)
+        assert sent['allowed_mentions'].everyone is False and isinstance(sent['view'], VeilServersView)
         ctx.send.assert_not_awaited()
-        assert 'MIDTOWN' not in ctx.approve.await_args.args[0]
+        assert 'VEIL' not in ctx.approve.await_args.args[0]
         assert await cog.cog_check(ctx)
-        for check in DevTools.midtown.checks + DevTools.midtown_servers.checks:
+        for check in DevTools.veil.checks + DevTools.veil_servers.checks:
             assert await check(SimpleNamespace(bot=b, author=ctx.author))
         b.is_owner.return_value = False
         with pytest.raises(commands.NotOwner):
             await cog.cog_check(ctx)
         with pytest.raises(commands.NotOwner):
-            await DevTools.midtown_servers.callback(cog, ctx)
+            await DevTools.veil_servers.callback(cog, ctx)
         assert ctx.author.send.await_count == 1
     asyncio.run(go())
 
@@ -96,10 +96,10 @@ def test_dm_failure_never_falls_back_to_public_results():
     async def go():
         ctx = context()
         ctx.author.send.side_effect = discord.Forbidden(MagicMock(status=403, reason='Forbidden'), 'no dm')
-        await DevTools.midtown_servers.callback(DevTools(bot([guild('Midtown', 123)])), ctx)
+        await DevTools.veil_servers.callback(DevTools(bot([guild('Veil', 123)])), ctx)
         ctx.send.assert_not_awaited()
         ctx.approve.assert_not_awaited()
-        assert '123' not in str(ctx.warn.await_args) and 'Midtown' not in str(ctx.warn.await_args)
+        assert '123' not in str(ctx.warn.await_args) and 'Veil' not in str(ctx.warn.await_args)
         assert ctx.command_log_warning
     asyncio.run(go())
 
@@ -108,20 +108,20 @@ def test_dm_and_access_failures_are_generic_and_do_not_leak():
     async def go():
         ctx = context(in_guild=False)
         ctx.author.send.side_effect = aiohttp.ClientConnectionError('secret guild name')
-        await DevTools.midtown_servers.callback(DevTools(bot([guild('Midtown secret', 123)])), ctx)
+        await DevTools.veil_servers.callback(DevTools(bot([guild('Veil secret', 123)])), ctx)
         ctx.approve.assert_not_awaited()
         assert 'secret' not in str(ctx.warn.await_args)
-        denied = bot([guild('Midtown secret')])
+        denied = bot([guild('Veil secret')])
         denied.is_owner.side_effect = RuntimeError('secret guild name')
         with pytest.raises(commands.NotOwner):
-            await DevTools.midtown_servers.callback(DevTools(denied), context())
+            await DevTools.veil_servers.callback(DevTools(denied), context())
     asyncio.run(go())
 
 
 def test_all_controls_recheck_invoker_developer_and_dm_context():
     async def go():
-        b = bot([guild('Midtown')])
-        view = MidtownView(b, 10, result_pages(b.guilds))
+        b = bot([guild('Veil')])
+        view = VeilServersView(b, 10, result_pages(b.guilds))
         assert await view.interaction_check(interaction())
         other = interaction(uid=11)
         assert not await view.interaction_check(other)
@@ -139,13 +139,13 @@ def test_all_controls_recheck_invoker_developer_and_dm_context():
 
 def test_pagination_and_refresh_rescan_joined_cache():
     async def go():
-        b = bot([guild(f'Midtown {i}', i + 1) for i in range(8)])
-        view = MidtownView(b, 10, result_pages(b.guilds))
+        b = bot([guild(f'Veil {i}', i + 1) for i in range(8)])
+        view = VeilServersView(b, 10, result_pages(b.guilds))
         it = interaction()
         assert await view.interaction_check(it)
         await view.next_page.callback(it)
         assert view.index == 1 and view.previous.disabled is False and view.next_page.disabled
-        b.guilds = [guild('Midtown new', 999)]
+        b.guilds = [guild('Veil new', 999)]
         it = interaction()
         assert await view.interaction_check(it)
         await view.refresh.callback(it)
@@ -166,7 +166,7 @@ def test_refresh_failure_is_private_and_generic():
             @property
             def guilds(self):
                 raise RuntimeError('sensitive cross-server data')
-        view = MidtownView(BrokenBot(), 10, result_pages([]))
+        view = VeilServersView(BrokenBot(), 10, result_pages([]))
         it = interaction()
         assert await view.interaction_check(it)
         await view.refresh.callback(it)
@@ -179,8 +179,8 @@ def test_registration_and_extra_argument_validation():
     async def go():
         b = commands.Bot(command_prefix=',', intents=discord.Intents.none())
         await b.add_cog(DevTools(b))
-        assert b.get_command('midtown') is not None
-        command = b.get_command('midtown servers')
+        assert b.get_command('veil') is not None
+        command = b.get_command('veil servers')
         assert command is not None and command.hidden and command.parent.hidden
         ctx = SimpleNamespace(bot=b, message=SimpleNamespace(attachments=[]), view=StringView(' unexpected'))
         with pytest.raises(commands.TooManyArguments):
@@ -198,11 +198,11 @@ def test_scan_failure_and_timeout_do_not_publish_sensitive_details(caplog):
                 raise RuntimeError('private guild details')
         ctx = context()
         with pytest.raises(commands.CommandError) as exc:
-            await DevTools.midtown_servers.callback(DevTools(BrokenBot()), ctx)
+            await DevTools.veil_servers.callback(DevTools(BrokenBot()), ctx)
         assert 'private guild details' not in str(exc.value)
         ctx.send.assert_not_awaited()
         ctx.author.send.assert_not_awaited()
-        view = MidtownView(bot(), 10, result_pages([]))
+        view = VeilServersView(bot(), 10, result_pages([]))
         view.message = SimpleNamespace(edit=AsyncMock())
         await view.on_timeout()
         view.message.edit.assert_awaited_once_with(view=None)
@@ -214,8 +214,8 @@ def test_hidden_command_log_omits_arguments_and_scan_results():
     from core.logembeds import command_used
     author = SimpleNamespace(id=5, name='dev', display_name='dev', mention='<@5>',
                              display_avatar=SimpleNamespace(url='https://cdn/x.png'))
-    ctx = SimpleNamespace(message=SimpleNamespace(content=',midtown servers secret', jump_url=None),
-                          command=SimpleNamespace(qualified_name='midtown servers', hidden=True, cog_name='DevTools'),
+    ctx = SimpleNamespace(message=SimpleNamespace(content=',veil servers secret', jump_url=None),
+                          command=SimpleNamespace(qualified_name='veil servers', hidden=True, cog_name='DevTools'),
                           author=author, channel=SimpleNamespace(mention='#general'), prefix=',',
                           command_log_outcome='Private scan sent by DM')
     card = command_used(ctx, 'Developer', 'Built-in')

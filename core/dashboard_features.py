@@ -97,7 +97,7 @@ async def features_page(server, request: web.Request) -> web.Response:
         return server._message("Server not found", "Veil isn't in that server, or you cannot manage it.", 404, user)
     if not await server._can_manage_security(user, guild):
         return server._message("Access denied", "Your access changed. Please sign in again.", 403, user)
-    from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, MIDTOWN_RULES, MODULES, RULE_LOOKUP
+    from cogs.antinuke import Antinuke, DEFAULT as AN_DEFAULT, INSTANT, LABELS, ANTINUKE_RULES, MODULES, RULE_LOOKUP
     from cogs.levels import DEFAULT as LEVEL_DEFAULT
 
     # Hand-edited or partially migrated config rows must not 500 a page review.
@@ -233,7 +233,7 @@ async def features_page(server, request: web.Request) -> web.Response:
              'Turning a rule off weakens protection; turning a rule on does not enable the overall protection. '
              'Blank thresholds use rule defaults; blank windows and inherited punishments follow the server defaults.</p></div>')
     # The legacy "vanity" alias has no separate audit event; serverupdate handles it.
-    primary_keys = [r["key"] for r in MIDTOWN_RULES[:12]]
+    primary_keys = [r["key"] for r in ANTINUKE_RULES[:12]]
     advanced_keys = [k for k in dict.fromkeys([*RULE_LOOKUP, *MODULES]) if k not in primary_keys and k != "vanity"]
     for key in primary_keys + advanced_keys:
         if key == advanced_keys[0]:

@@ -1307,7 +1307,7 @@ def test_log_preview_uses_saved_routing_and_timeout_event_fallback():
 
     join = channel(44, "join-logs")
     mod = channel(66, "mod-logs")
-    general = channel(77, "midtown-utilities-logging")
+    general = channel(77, "veil-utilities-logging")
     guild.text_channels = [join, mod, general]
     guild.get_channel = lambda cid: next((c for c in guild.text_channels if c.id == cid), None)
     bot.db.store[(GUILD_ID, "logs")] = {"joinleave": 44, "timeouts": -1, "roles": -1, "commands": 999}
@@ -1319,7 +1319,7 @@ def test_log_preview_uses_saved_routing_and_timeout_event_fallback():
         assert 'Joins &amp; leaves</span><strong>#join-logs</strong><small>Selected · shared' in html
         assert 'Timeouts</span><strong>#mod-logs</strong><small>Event fallback; direct route off · shared' in html
         assert 'Roles</span><strong>No destination</strong><small>Off' in html
-        assert 'Messages</span><strong>#midtown-utilities-logging</strong><small>Automatic' in html
+        assert 'Messages</span><strong>#veil-utilities-logging</strong><small>Automatic' in html
         assert 'Commands</span><strong>No destination</strong><small>No route found' in html
         assert 'Unavailable or excluded channel (999)' in html and not bot.db.writes
 

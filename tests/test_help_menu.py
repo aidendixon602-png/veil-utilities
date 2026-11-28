@@ -516,7 +516,8 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
 def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     from core.help import secret_commands
     names = [c.name for c in developer_commands(loaded_bot)]
-    # Developer copies the Midtown screenshot sections (bot ops, auth, genreban, blacklists...).
+    # Developer mirrors the layout of the original developer-help screenshot (bot ops, auth,
+    # genreban, blacklists...), with the commands and labels renamed for Veil.
     assert {"reload", "restart", "version", "authorize", "genreban", "hardbl", "dm"} <= set(names)
     # Sensitive stuff lives in Secret, not Developer.
     secret_names = {c.name for c in secret_commands(loaded_bot)}
@@ -528,7 +529,7 @@ def test_the_developer_category_lists_the_owner_tools(loaded_bot):
     view = HelpView(h, {}, is_owner=True)
     dev_text = "\n".join(page.description or "" for page in view.books["Developer"])
     assert "reload" in dev_text and "restart" in dev_text and "genreban" in dev_text
-    assert "**Authorized servers (official Midtown only)**" in dev_text
+    assert "**Authorized servers (official Veil only)**" in dev_text
     assert "**Hard blacklist (roles only devs can assign)**" in dev_text
     assert view.pages["Developer"].title == "Developer commands"
     secret_text = "\n".join(page.description or "" for page in view.books["Secret"])
