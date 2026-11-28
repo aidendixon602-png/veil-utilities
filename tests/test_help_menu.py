@@ -72,13 +72,13 @@ ALL = {label: [] for label, _, _ in CATEGORIES}
 def test_category_buttons_only_list_categories_the_person_may_open():
     public = {"Utility", "Music"}
     assert set(_labels(HelpView(_help(), ALL, author_rank=0))) == public
-    # Rank-gated staff categories are separate from operator-only Antinuke.
+    # Empty category data cannot establish that a restricted category has browseable commands.
     expected = {1: {"Moderation"}, 2: {"Moderation"}, 3: {"Moderation", "Roles"},
                 4: {"Moderation", "Roles"}, 6: {"Moderation", "Roles", "Permissions"},
-                7: {"Moderation", "Roles", "Permissions", "Security"}}
+                7: {"Moderation", "Roles", "Permissions"}}
     for rank, staff in expected.items():
         assert set(_labels(HelpView(_help(), ALL, author_rank=rank))) == public | staff, rank
-    assert "Antinuke" not in _labels(HelpView(_help(), ALL, author_rank=7))
+    assert "Security" not in _labels(HelpView(_help(), ALL, author_rank=7))
     assert "Developer" not in _labels(HelpView(_help(), ALL, author_rank=7))
 
 
@@ -503,7 +503,7 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     for label, page in view.pages.items():
         _fits(page)
         assert "```" not in page.description and "**Commands**" in page.description, label
-        assert page.author.name.startswith("Veil Utilities · ")  # Security has its own author section
+        assert page.author.name.startswith("Veil Utilities · ")  # Antinuke overview has its own author section
         for extra in view.books[label][1:]:
             _fits(extra)
 
@@ -1060,8 +1060,8 @@ def test_help_menu_uses_each_role_assigned_level_and_keeps_developer_tools_separ
                 assert ("kick" in moderator) == (rank >= 2)
                 assert ("ban" in moderator) == (rank >= 3)
                 assert ("Permissions" in view.pages) == (rank >= 5)
-                assert "Antinuke" not in view.pages
-                assert ("Security" in view.pages) == (rank >= 7)
+                assert ("Antinuke" in view.pages) == (rank >= 7)
+                assert "Security" not in view.pages
 
         # The real server owner gets server-owner-only help, not the developer category.
         guild.owner_id = author.id
@@ -1121,7 +1121,7 @@ def test_home_button_layout_fits_all_current_categories():
     assert buttons[-1].style == discord.ButtonStyle.danger
     assert all(c.emoji is None for c in buttons)
     assert set(_labels(view)) == set(view.pages)
-    assert len(view.children) == 9
+    assert len(view.children) == 8
 
 
 def test_home_more_select_keeps_other_categories_available():
@@ -1154,9 +1154,8 @@ def test_antinuke_category_includes_all_security_commands_and_usable_aliases(loa
     root = Antinuke.antinuke
     assert root.qualified_name in names
     assert {c.qualified_name for c in root.walk_commands() if not c.hidden} <= names
-    security = {c.qualified_name for c in category_commands(loaded_bot)["Security"]}
-    assert {"antiraid", "antialt", "autosetup"} <= security
-    assert not ({"antiraid", "antialt", "autosetup"} & names)
+    assert {"antiraid", "antialt", "autosetup"} <= names
+    assert "Security" not in category_commands(loaded_bot)
     assert "antinuke namemonitor" in names
     h = _help()
     pages = h.category_pages("Antinuke", page_order("Antinuke", entries))
@@ -1209,7 +1208,7 @@ def test_antinuke_compact_page_navigates_to_details_and_aliases(loaded_bot):
         view = HelpView(h, category_commands(loaded_bot), is_owner=True, start="Antinuke")
         assert len(view.books["Antinuke"]) == 1
         select = next(c for c in view.children if isinstance(c, CommandSelect))
-        assert {o.value for o in select.options} == {"antinuke"}
+        assert {o.value for o in select.options} == {"antinuke", "antiraid", "antialt", "autosetup"}
         assert len(select.options) <= 25
         await view.show_command(_it(), "antinuke")
         assert view.selected.qualified_name == "antinuke"
