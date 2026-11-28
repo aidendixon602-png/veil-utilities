@@ -27,7 +27,7 @@ CATEGORY_MENU_EXCLUDED_COMMANDS = {
 # (button label, cogs included, extra top-level commands pulled in from other cogs)
 CATEGORIES: list[tuple[str, list[str], list[str]]] = [
     # Keep the browse menu focused on the main categories. General-purpose feature
-    # cogs live under Utility; Security is a rank-gated select entry, separate from Antinuke.
+    # cogs live under Utility; antiraid/anti-alt setup sits with Antinuke controls.
     ("Utility", ["Utility", "Config", "Settings", "VoiceMaster", "Levels", "Giveaways", "Tickets",
                  "Feeds", "Integrations", "Fun", "AI", "Imaging"], []),
     ("Music", ["Music", "Spotify"], []),
@@ -36,8 +36,7 @@ CATEGORIES: list[tuple[str, list[str], list[str]]] = [
                    "roleblacklist", "addpermall", "removepermall", "userperm"]),
     ("Permissions", ["Permissions"], ["fakepermissions", "staffonly", "botchannels", "ignore",
                                       "disablecommand", "enablecommand", "prefix", "modlog"]),
-    ("Antinuke", ["Antinuke"], ["antinuke"]),
-    ("Security", [], ["antiraid", "antialt", "autosetup"]),
+    ("Antinuke", ["Antinuke"], ["antinuke", "antiraid", "antialt", "autosetup"]),
 ]
 
 PAGE_SIZE = 10  # subcommand lists on a group's card
@@ -79,7 +78,6 @@ CATEGORY_MIN_RANKS: dict[str, int] = {
     "Automod": 4,       # Head Admin+
     "Permissions": 5,   # Manager+
     "Antinuke": 7,      # Explicit appointment, server owner or developer (checked separately)
-    "Security": 7,      # Co-Owner+ for existing Antiraid / Anti-Alt checks
     "Ghost Vanguard": 0,  # everyone can type ,gv: Ghost Vanguard checks its own ranks for each command
 }
 
@@ -100,7 +98,6 @@ CATEGORY_EMOJIS: dict[str, str] = {
     "Roles": "🏷️",
     "Permissions": "🔒",
     "Antinuke": "🚨",
-    "Security": "🛡️",
     "Ghost Vanguard": "👻",
     "Automod": "🤖",
     "Server": "⚙️",
@@ -120,7 +117,6 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Roles": "Role management tools for your permission level",
     "Permissions": "Permission and access settings for your level",
     "Antinuke": "Antinuke controls for authorized operators",
-    "Security": "Antiraid and anti-alt security tools",
     "Ghost Vanguard": "Optional bridge to Ghost Vanguard commands",
     "Automod": "Message protection settings for your permission level",
     "Server": "Server configuration tools for your permission level",
@@ -425,9 +421,18 @@ def category_labels(categories: dict[str, list], is_owner: bool, rank: int,
                     return True
         return False
 
+    def can_open_antinuke() -> bool:
+        if is_owner or (access and (access.bypass_permissions or access.antinuke_admin)):
+            return True
+        if rank < CATEGORY_MIN_RANKS["Antinuke"]:
+            return False
+        return any(getattr(getattr(cmd, "root_parent", None) or cmd, "name", "") != "antinuke"
+                   and visible_command(cmd, None, is_owner, rank, access)
+                   for cmd in categories.get("Antinuke", []))
+
     return [label for label, _, _ in CATEGORIES if label in categories and (
-        (is_owner or bool(access and (access.bypass_permissions or access.antinuke_admin)))
-        if label == "Antinuke" else (is_owner or rank >= CATEGORY_MIN_RANKS.get(label, 0) or direct_category(label)))]
+        can_open_antinuke() if label == "Antinuke"
+        else (is_owner or rank >= CATEGORY_MIN_RANKS.get(label, 0) or direct_category(label)))]
 
 
 # ---------------------------------------------------------------- text helpers
@@ -1193,7 +1198,7 @@ class Help(commands.HelpCommand):
                 for cmd in cmds):
             return None  # use regular pages if roots cannot all be shown or a parent is missing
         prefix = self.context.clean_prefix
-        lines = [f"> {CATEGORY_DESCRIPTIONS.get('Antinuke', 'Security tools')}", "", section("Commands")]
+        lines = [f"> {CATEGORY_DESCRIPTIONS.get('Antinuke', 'Antinuke and anti-raid tools')}", "", section("Commands")]
         for root in roots:
             name = root.qualified_name
             display = "an" if name == "antinuke" and "an" in getattr(root, "aliases", []) else name
@@ -1208,7 +1213,7 @@ class Help(commands.HelpCommand):
         if len(body) > 4000:
             return None
         e = self._brand(discord.Embed(color=HELP_COLOR, title="Antinuke commands",
-                                     description=body), section="Security")
+                                     description=body), section="Antinuke")
         e.set_footer(text="Select a group · <required> [optional]")
         return e
 
