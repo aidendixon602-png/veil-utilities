@@ -11,7 +11,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | Command | Description |
 |---|---|
 | `,authorize [guild_id] [note]` (auth, authserver, whitelistserver) | Authorize this server or a server ID to use the bot |
-| `,authorized` (authlist, authorizedservers) | List authorized servers |
+| `,authorized` (authlist, authorizedservers, authedservers) | List authorized servers |
 | `,unauthorize <guild_id>` (deauth, unauth) | Revoke a server's authorization (the bot leaves it) |
 
 ## DevTools
@@ -66,7 +66,7 @@ The default prefix is `,`. `<required>` and `[optional]`; aliases also use the p
 | `,maintenance [state] [duration] [reason=]` (maint) | Turn maintenance mode on or off |
 | `,mutuals <user>` (shared, sharedservers) | Servers the bot shares with a user (for abuse investigations) |
 | `,portal <target>` (getinvite, invitemaker, guildinvite) | Create or fetch an invite to any server the bot is in |
-| `,reload [extensions...]` (rl) | Reload modules without restarting |
+| `,reload [extensions...]` (rl, reloadall) | Reload modules without restarting |
 | `,restart [seconds=3]` (reboot) | Restart the bot |
 | `,setpresence <status> [text]` (presence, statusstate) | Change the bot's online status and status text |
 | `,setstatus <arg>` | Change the bot's status or status text |

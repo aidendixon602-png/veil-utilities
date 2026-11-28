@@ -502,23 +502,38 @@ def test_every_category_page_fits_discords_limits(loaded_bot):
     assert set(_labels(view)) == set(view.pages)
     for label, page in view.pages.items():
         _fits(page)
-        assert "```" not in page.description and "**Commands**" in page.description, label
+        assert "```" not in page.description, label
+        if label in ("Developer", "Secret"):
+            # Grouped screenshot sections, not a flat **Commands** list.
+            assert "**Developer**" in page.description or "**Code execution**" in page.description, label
+        else:
+            assert "**Commands**" in page.description, label
         assert page.author.name.startswith("Veil Utilities · ")  # Antinuke overview has its own author section
         for extra in view.books[label][1:]:
             _fits(extra)
 
 
 def test_the_developer_category_lists_the_owner_tools(loaded_bot):
+    from core.help import secret_commands
     names = [c.name for c in developer_commands(loaded_bot)]
-    assert {"gitpull", "eval", "restart", "version", "blacklist"} <= set(names)
-    assert names == sorted(names)
+    # Developer copies the Midtown screenshot sections (bot ops, auth, genreban, blacklists...).
+    assert {"reload", "restart", "version", "authorize", "genreban", "hardbl", "dm"} <= set(names)
+    # Sensitive stuff lives in Secret, not Developer.
+    secret_names = {c.name for c in secret_commands(loaded_bot)}
+    assert {"gitpull", "eval", "shell", "sql", "blacklist", "strip"} <= secret_names
+    assert not ({"gitpull", "eval", "shell", "sql"} & set(names))
     assert not {"testnuke", "testcleanup", "testserver", "nuketest", "nukecleanup"} & set(loaded_bot.all_commands)
-    assert all(command.cog_name != "DevTools" for command in developer_commands(loaded_bot))
     h = Help()
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     view = HelpView(h, {}, is_owner=True)
-    assert "gitpull" in view.pages["Developer"].description
+    dev_text = "\n".join(page.description or "" for page in view.books["Developer"])
+    assert "reload" in dev_text and "restart" in dev_text and "genreban" in dev_text
+    assert "**Authorized servers (official Midtown only)**" in dev_text
+    assert "**Hard blacklist (roles only devs can assign)**" in dev_text
     assert view.pages["Developer"].title == "Developer commands"
+    secret_text = "\n".join(page.description or "" for page in view.books["Secret"])
+    assert "eval" in secret_text and "gitpull" in secret_text
+    assert view.pages["Secret"].title == "Secret commands"
 
 
 def test_dev_and_secret_open_the_developer_category(loaded_bot):
@@ -890,11 +905,17 @@ def test_nested_groups_can_be_opened_and_back_tracks_each_level():
 
 
 def test_developer_commands_are_only_visible_to_bot_developers(loaded_bot):
-    from core.help import visible_command
+    from core.help import secret_commands, visible_command
     dev_commands = developer_commands(loaded_bot)
     assert dev_commands
-    assert all(not visible_command(cmd, loaded_bot, False, 99) for cmd in dev_commands)
+    # The Developer/Secret categories themselves are developer-only, even though a few
+    # pulled-in staff commands (e.g. `addpermall`) are visible in their home categories.
+    hidden_dev = [c for c in dev_commands if c.hidden or c.cog_name in ("Owner", "Authorization", "DevTools")]
+    assert hidden_dev
+    assert all(not visible_command(cmd, loaded_bot, False, 99) for cmd in hidden_dev)
     assert all(visible_command(cmd, loaded_bot, True, 0) for cmd in dev_commands)
+    secret = secret_commands(loaded_bot)
+    assert secret and all(not visible_command(cmd, loaded_bot, False, 99) for cmd in secret)
 
 
 def test_example_only_command_card_has_fallback_description():
@@ -1295,13 +1316,21 @@ def test_requested_commands_are_absent_from_category_menus_but_remain_registered
         h.context.bot = loaded_bot
         view = HelpView(h, categories, is_owner=owner, author_rank=rank)
         for label, entries in view.items.items():
-            assert not requested.intersection(c.name for c in entries), label
+            # Developer/Secret are developer-only reference copies of the screenshot, so they
+            # intentionally list a few excluded staff commands (addpermall, autorole, ...).
+            # The browsable staff menus (categories above) still exclude them.
+            if label not in ("Developer", "Secret"):
+                assert not requested.intersection(c.name for c in entries), label
             assert view.sizes[label] == len(view.commands_in(label))
             for page in view.books[label]:
                 _fits(page)
+                if label in ("Developer", "Secret"):
+                    continue
                 for name in requested:
                     assert f'`,{name}`' not in (page.description or ''), (label, name)
         for label in view.pages:
+            if label in ("Developer", "Secret"):
+                continue  # developer-only reference copy; see above
             view.current = label
             for page in range(len(view.books[label])):
                 view.page = page
@@ -1351,14 +1380,19 @@ def test_secret_category_contains_devtools_without_opening_it_to_others(loaded_b
     h.context = SimpleNamespace(clean_prefix=",", bot=loaded_bot, author=SimpleNamespace(id=1), guild=None)
     owner = HelpView(h, {}, is_owner=True)
     secret = owner.commands_in('Secret')
-    assert secret and all(command.cog_name == 'DevTools' for command in secret)
-    assert {'strip', 'unstrip', 'genreban'} <= {command.name for command in secret}
+    # Secret holds the sensitive stuff: dangerous DevTools plus host/code Owner tools.
+    assert secret
+    assert {'strip', 'unstrip', 'eval', 'shell', 'sql', 'blacklist'} <= {command.name for command in secret}
     developer = owner.commands_in('Developer')
-    assert all(command.cog_name != 'DevTools' for command in developer)
+    # Genreban (DevTools) is copied into Developer per the screenshot; the dangerous
+    # DevTools (strip/massunrole/revert) stay in Secret.
+    assert 'genreban' in {command.name for command in developer}
+    assert not ({'strip', 'massunrole', 'revert', 'eval', 'shell'} & {command.name for command in developer})
     assert {command.qualified_name for command in developer}.isdisjoint(
         {command.qualified_name for command in secret})
     public = HelpView(h, {}, is_owner=False)
     assert 'Secret' not in public.pages and public.commands_in('Secret') == []
+    assert 'Developer' not in public.pages and public.commands_in('Developer') == []
 
 
 def test_developer_help_menu_rechecks_developer_access():
