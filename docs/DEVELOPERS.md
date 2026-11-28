@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Configuration](CONFIGURATION.md) · [Operations](OPERATIONS.md) · [Contributing](../.github/CONTRIBUTING.md)
 
-Veil's hidden developer commands are not part of the public [command reference](COMMANDS.md). Use `,dev` in Discord for developer help in your running version, or consult the [generated developer command reference](DEVELOPER_COMMANDS.md). Developer identities include configured `OWNER_IDS` and discovered Discord application owner/team members. These identities have broad privileges across the bot; protect their accounts and never grant developer status merely to enable alerts.
+Veil's hidden developer commands are not part of the public [command reference](COMMANDS.md). Use `,help developer` (aliases `,dev`, `,devhelp`) in Discord for the grouped Developer help in your running version, `,help secret` (aliases `,secrets`, `,tokens`) for the sensitive Secret tools, or consult the [generated developer command reference](DEVELOPER_COMMANDS.md). Developer identities include configured `OWNER_IDS` and discovered Discord application owner/team members. These identities have broad privileges across the bot; protect their accounts and never grant developer status merely to enable alerts.
 
 | Command | Purpose and cautions |
 | --- | --- |
@@ -20,7 +20,7 @@ Veil's hidden developer commands are not part of the public [command reference](
 | `,restart [seconds]`, `,shutdown` | Restart or stop the bot. Your hosting supervisor may affect process behavior. |
 | `,gitpull` | Fetch and **hard reset** the checkout to `origin/main`. It can discard local changes and commits; see [updating](HOSTING.md#updating). |
 
-Other developer commands can execute arbitrary code or shell commands, query databases, impersonate command invocations, change multiple servers, or alter roles and bans. Treat them as administrative access to the host and Discord servers. Do not expose output to untrusted channels or share credentials. Check `,dev` and source for current syntax and access checks rather than assuming every developer tool is safe or reversible.
+Other developer commands can execute arbitrary code or shell commands, query databases, impersonate command invocations, change multiple servers, or alter roles and bans. Treat them as administrative access to the host and Discord servers. Do not expose output to untrusted channels or share credentials. Check `,help developer`, `,help secret` and source for current syntax and access checks rather than assuming every developer tool is safe or reversible.
 
 Developer-channel errors and the unauthorized-server/antinuke notification outbox have different delivery and persistence behavior; see [developer notifications](OPERATIONS.md#developer-notifications). Full incident management, complete event coverage and automated recovery are not yet implemented.
 

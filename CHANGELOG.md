@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Midtown Developer help copy and Secret split.** `,help developer` now renders the Midtown Utilities Developer sections (Developer, Authorized servers, Channels, Genreban, Hard blacklist, Role permissions, Autorole, User blacklist, Role blacklist bypass, Ignore, DM) mapped to real Veil commands, and `,help secret` holds the sensitive tools (code execution, host & data, global blacklist, dangerous role tools, network & private). Added `,reloadall` and `,authedservers` aliases so the copied names work. README refreshed with a modern header, table of contents, full Developer/Secret command lists, and an updated project layout.
 - **Opt-in rejoin role restore.** Enable `,rejoinroles` to save a departing member's role IDs for 30 days. Staff can restore a returning member's roles with `,rejoinroles @member`; every role still passes the normal hierarchy, blacklist, Antinuke, and permissions checks. Disabling the feature erases saved snapshots.
 
 ### Removed
