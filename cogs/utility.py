@@ -785,7 +785,7 @@ class Utility(commands.Cog):
     async def botinfo(self, ctx: Context):
         """About the bot"""
         b = self.bot
-        from cogs.owner import memory_mb
+        from core.diagnostics import memory_mb
         e = discord.Embed(color=Colors.main, title="Bot overview",
                           description="Your Veil Utilities runtime at a glance.")
         e.set_author(name=b.user.name, icon_url=b.user.display_avatar.url)

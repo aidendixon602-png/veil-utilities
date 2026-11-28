@@ -16,18 +16,47 @@ if TYPE_CHECKING:
 VERSION = "1.1.0"
 
 
-def memory_mb() -> str:
+def health_dot(value: float | None, *, warn: float, bad: float) -> str:
+    """🟢 / 🟡 / 🔴 for a lower-is-better number, ⚪ when it can't be measured.
+
+    Written as explicit checks rather than a chained conditional so a None value can never be
+    compared to a number."""
+    if value is None:
+        return "⚪"
+    if value < warn:
+        return "🟢"
+    if value < bad:
+        return "🟡"
+    return "🔴"
+
+
+def memory_usage() -> tuple[float | None, float | None]:
+    """(current, peak) resident memory in MB, either of which may be None when it can't be measured.
+
+    psutil gives the live footprint; without it `resource` only reports the peak, so current stays None
+    rather than pretending the peak is what the process is using right now."""
     try:
         import psutil  # optional
-        return f"{psutil.Process().memory_info().rss / 1_048_576:.0f} MB"
-    except ImportError:
+        info = psutil.Process().memory_info()
+        return info.rss / 1_048_576, max(info.rss, getattr(info, "peak_wset", 0) or 0) / 1_048_576
+    except (ImportError, OSError, AttributeError):
         pass
     try:
         import resource
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        return f"{rss / (1_048_576 if sys.platform == 'darwin' else 1024):.0f} MB (peak)"
+        return None, rss / (1_048_576 if sys.platform == "darwin" else 1024)
     except (ImportError, AttributeError):
-        return "—"
+        return None, None
+
+
+def memory_mb() -> str:
+    """One-line memory reading: useful in a console line or a single embed field."""
+    current, peak = memory_usage()
+    if current is not None:
+        return f"{current:.0f} MB" + (f" (peak {peak:.0f} MB)" if peak else "")
+    if peak is not None:
+        return f"{peak:.0f} MB peak"
+    return "—"
 
 
 class ConsoleFormatter(logging.Formatter):
