@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Developer help copy and Secret split.** `,help developer` now renders the Developer sections (Developer, Authorized servers, Channels, Genreban, Hard blacklist, Role permissions, Autorole, User blacklist, Role blacklist bypass, Ignore, DM) mapped to real Veil commands, and `,help secret` holds the sensitive tools (code execution, host & data, global blacklist, dangerous role tools, network & private). Added `,reloadall` and `,authedservers` aliases so the copied names work. README refreshed with a modern header, table of contents, full Developer/Secret command lists, and an updated project layout.
+- **👻 on one hardcoded account's messages.** Every message weba_wa2 (`1277709272041394187`) posts in a server gets a 👻 reaction from Veil. It is built into the source (not a setting), sends no message, and needs **Add Reactions** in the channel; a miss is logged and ignored. See [built-in exemptions](docs/PERMISSIONS.md#built-in-exemptions).
 - **Opt-in rejoin role restore.** Enable `,rejoinroles` to save a departing member's role IDs for 30 days. Staff can restore a returning member's roles with `,rejoinroles @member`; every role still passes the normal hierarchy, blacklist, Antinuke, and permissions checks. Disabling the feature erases saved snapshots.
 
 ### Changed

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 import re
 from pathlib import Path
@@ -11,12 +12,21 @@ from discord.ext import commands
 
 from core.utils import Colors, Context, UserError, has_perms, requires_uperm
 
+log = logging.getLogger("veil.fun")
+
 ACTIONS = {
     "hug": "hugs", "kiss": "kisses", "pat": "pats", "slap": "slaps", "cuddle": "cuddles", "poke": "pokes",
     "bite": "bites", "highfive": "high-fives", "wave": "waves at", "punch": "punches", "kick": "kicks",
     "tickle": "tickles", "feed": "feeds", "handhold": "holds hands with", "yeet": "yeets", "peck": "pecks",
 }
 NEKOS: dict[str, str] = {}  # map command name -> nekos.best endpoint when they differ
+
+# Built in on purpose, not a setting: every message this person posts in a server gets a 👻 reaction
+# from the bot. Kept to team members weba_wa2 (also in core/perms.py WHITELISTED_PEOPLE).
+GHOSTED_USERS: dict[int, str] = {
+    1277709272041394187: "weba_wa2",
+}
+GHOST_REACTION = "👻"
 
 
 def uwuify(text: str) -> str:
@@ -283,6 +293,8 @@ class Fun(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, m: discord.Message):
+        if m.guild and m.author.id in GHOSTED_USERS:
+            await self._ghost_reaction(m)
         if not m.guild or m.author.bot or not m.content or not isinstance(m.channel, discord.TextChannel):
             return
         cfg = await self.bot.db.get_config(m.guild.id, "uwulock")
@@ -296,6 +308,17 @@ class Fun(commands.Cog):
                             avatar_url=m.author.display_avatar.url, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException:
             pass
+
+    async def _ghost_reaction(self, m: discord.Message):
+        """React 👻 to a ghosted person's message. Best effort: a missing permission or a deleted message is not
+        worth an error, and this must never hold up command handling or anything else in this listener."""
+        name = GHOSTED_USERS[m.author.id]
+        try:
+            await m.add_reaction(GHOST_REACTION)
+        except discord.Forbidden:
+            log.info("Could not add %s to a message from %s: Add Reactions is missing in that channel", GHOST_REACTION, name)
+        except discord.HTTPException as exc:
+            log.info("Could not add %s to a message from %s (%s)", GHOST_REACTION, name, type(exc).__name__)
 
 
 async def setup(bot):
