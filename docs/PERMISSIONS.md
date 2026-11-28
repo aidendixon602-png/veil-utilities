@@ -153,6 +153,11 @@ The current source includes global entries in [`core/perms.py`](../core/perms.py
 - **Ban-log button accounts**, user IDs `1277709272041394187`, `843909457616044092` and `1062243262909390988`,
   are in `BAN_BUTTON_USERS` and may use the Unban and Reban buttons on moderation log cards without a
   per-server Admin level.
+- **Ghost reaction**, built into [`cogs/fun.py`](../cogs/fun.py): **weba_wa2** (`1277709272041394187`) is in
+  `GHOSTED_USERS`, so Veil adds a 👻 reaction to every message that account posts in a server. It is a cosmetic
+  reaction only: no message is sent, nothing is deleted, edited, pinged or filtered, and nothing is exempted.
+  Direct messages are skipped, and a channel without **Add Reactions** just logs the miss and carries on. This is
+  hardcoded in the source, not a per-server setting, so changing or removing it needs a code change and deploy.
 
 These are code-level, cross-server exceptions, separate from per-server whitelist settings. Their implications
 and removal/replacement remain under review. They must not be treated as proof that all behavior is safe or that
